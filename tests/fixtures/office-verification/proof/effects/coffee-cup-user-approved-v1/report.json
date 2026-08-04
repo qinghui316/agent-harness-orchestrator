@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "effectId": "coffee-cup",
+  "status": "user-confirmed-production-authorized",
+  "sourceSha256": "cebe3f7a796ab12fef5d2f1347c983f7334782b247a3af59779250b3368923ab",
+  "source": {
+    "width": 1067,
+    "height": 800,
+    "playbackFrames": 75,
+    "fps": 24
+  },
+  "admitted": {
+    "width": 1068,
+    "height": 800,
+    "uniqueFrames": 25,
+    "fps": 24,
+    "loop": true,
+    "alpha": true
+  },
+  "composition": {
+    "owner": "coffee-facility-effect",
+    "overlaysCoffeeDrinkActor": false
+  },
+  "outputs": {
+    "controlledSource": "design-assets/agent-office/staging/effects/coffee-cup/transparent-user-source.mov",
+    "approvedFrames": "design-assets/agent-office/approved/effects/coffee-cup",
+    "contactSheet": "design-assets/agent-office/proof/effects/coffee-cup-user-approved-v1/coffee-cup-contact-sheet.png",
+    "atlases": [
+      "design-assets/agent-office/runtime-v3/effects/coffee-cup@2x.webp",
+      "design-assets/agent-office/runtime-v3/effects/coffee-cup@2x.webp.json",
+      "design-assets/agent-office/runtime-v3/effects/coffee-cup@1x.webp",
+      "design-assets/agent-office/runtime-v3/effects/coffee-cup@1x.webp.json"
+    ]
+  }
+}

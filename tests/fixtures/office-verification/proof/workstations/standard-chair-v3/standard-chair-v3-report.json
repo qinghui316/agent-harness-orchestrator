@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "canvas": {
+    "width": 960,
+    "height": 960
+  },
+  "chair": {
+    "left": 545,
+    "top": 463,
+    "width": 360,
+    "height": 412,
+    "baseline": 875
+  },
+  "seatAnchor": {
+    "x": 725,
+    "y": 550
+  },
+  "actorGroundLine": 874,
+  "landmarkScale": {
+    "workingScarfWidth": {
+      "minimum": 190,
+      "maximum": 200,
+      "median": 195
+    },
+    "offChairScarfWidth": {
+      "minimum": 193,
+      "maximum": 206,
+      "median": 197
+    },
+    "medianRatio": 1.0102564102564102
+  },
+  "shadow": {
+    "left": 545,
+    "top": 836,
+    "width": 360,
+    "height": 58,
+    "alpha": 0.12,
+    "owner": "Pixi workstation shadow layer",
+    "bakedIntoAssets": false
+  },
+  "layerOrder": [
+    "workstation-shadow",
+    "actor",
+    "chair-foreground"
+  ],
+  "outputs": {
+    "seated": "seated-chair-v3.png",
+    "workingKeyframes": "working-chair-v3-keyframes.png",
+    "offChairKeyframes": "off-chair-v3-keyframes.png",
+    "workingPreview": "working-chair-v3-preview.mp4",
+    "offChairPreview": "off-chair-v3-preview.mp4"
+  }
+}

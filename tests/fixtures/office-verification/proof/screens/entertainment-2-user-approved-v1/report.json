@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "profileId": "entertainment-2",
+  "status": "user-confirmed-production-authorized",
+  "sourceSha256": "a760e60af5a1247b3bd78bf1e8f1849a8569b8e01e376c761c70110860f1e556",
+  "source": {
+    "width": 228,
+    "height": 108,
+    "frames": 102,
+    "fps": 24,
+    "durationSeconds": 4.25
+  },
+  "separation": {
+    "monitorShellIncluded": false,
+    "characterIncluded": false,
+    "screenContentOnly": true
+  },
+  "outputs": {
+    "controlledSource": "design-assets/agent-office/staging/screens/entertainment-2/screen-content-only-user-source.mp4",
+    "approvedFrames": "design-assets/agent-office/approved/screens/entertainment-2",
+    "keyframes": "design-assets/agent-office/proof/screens/entertainment-2-user-approved-v1/entertainment-2-screen-keyframes.png",
+    "preview": "design-assets/agent-office/proof/screens/entertainment-2-user-approved-v1/screen-content-only.mp4",
+    "atlases": [
+      "design-assets/agent-office/runtime-v3/screens/entertainment-2@2x.webp",
+      "design-assets/agent-office/runtime-v3/screens/entertainment-2@2x.webp.json",
+      "design-assets/agent-office/runtime-v3/screens/entertainment-2@1x.webp",
+      "design-assets/agent-office/runtime-v3/screens/entertainment-2@1x.webp.json"
+    ]
+  }
+}

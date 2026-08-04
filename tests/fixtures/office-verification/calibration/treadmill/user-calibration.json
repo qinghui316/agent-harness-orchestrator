@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "kind": "relative-facility-actor-calibration",
+  "actorScaleBasis": 0.5,
+  "referenceGroupScale": 0.9,
+  "treadmillActionProof": "video16-tail-safe",
+  "treadmillActionFixedScale": 2.074468085106383,
+  "treadmillScalePerActorScale": 1.23,
+  "runActionOriginFromTreadmillInActorScaleUnits": {
+    "x": 696,
+    "y": 32
+  },
+  "walkEndpointOriginFromTreadmillInActorScaleUnits": {
+    "x": 916,
+    "y": 32
+  }
+}

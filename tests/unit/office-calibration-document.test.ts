@@ -13,8 +13,10 @@ import {
   parseOfficeCalibrationJson,
   type OfficeCalibrationDocument,
 } from "../../src/web/src/office/officeCalibrationDocument.js";
+import { OFFICE_SCENE_CALIBRATION, serializeOfficeSceneCalibration } from "../../scripts/office-calibration-v3.js";
+import { officeVerificationFixturePath } from "../helpers/office-verification-fixture.js";
 
-const legacyPath = "design-assets/agent-office/calibration/scene-calibration-v3.json";
+const legacyCalibrationPath = officeVerificationFixturePath("calibration", "scene-calibration-v3.json");
 const atlasPath = "src/web/public/agent-office/props/office-props@1x.webp.json";
 const highResolutionAtlasPath = "src/web/public/agent-office/props/office-props@2x.webp.json";
 const shadowProofPath = "design-assets/agent-office/approved/shadows/baked-shadow-calibration.json";
@@ -27,7 +29,7 @@ afterEach(async () => {
 
 describe("Office calibration document", () => {
   it("migrates v3 into one strict v4 document without changing authored routes or visible prop geometry", async () => {
-    const legacy = JSON.parse(await readFile(legacyPath, "utf8"));
+    const legacy = JSON.parse(await readFile(legacyCalibrationPath, "utf8"));
     const atlas = JSON.parse(await readFile(atlasPath, "utf8"));
     const shadowProof = JSON.parse(await readFile(shadowProofPath, "utf8"));
     const highResolutionAtlas = JSON.parse(await readFile(highResolutionAtlasPath, "utf8"));
@@ -112,7 +114,9 @@ describe("Office calibration document", () => {
     const directory = await mkdtemp(join(tmpdir(), "aho-office-calibration-"));
     temporaryDirectories.push(directory);
     const target = join(directory, "office-calibration.json");
+    const legacyPath = join(directory, "scene-calibration-v3.json");
     const previous = await readFile(documentPath, "utf8");
+    await writeFile(legacyPath, serializeOfficeSceneCalibration(OFFICE_SCENE_CALIBRATION), "utf8");
     await writeFile(target, previous, "utf8");
 
     const result = await migrateOfficeCalibrationFile(legacyPath, target, atlasPath);

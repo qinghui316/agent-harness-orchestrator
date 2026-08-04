@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "profileId": "orchestration",
+  "status": "user-selected",
+  "sourceSha256": "37fc5de2634d827afca538a72d203c7cf922e674cec81435b32c5ee87f8cdbb8",
+  "source": {
+    "width": 912,
+    "height": 430,
+    "frames": 145,
+    "fps": 20,
+    "durationSeconds": 7.25
+  },
+  "separation": {
+    "monitorShellIncluded": false,
+    "characterIncluded": false,
+    "screenContentOnly": true
+  },
+  "outputs": {
+    "controlledSource": "design-assets/agent-office/staging/screens/orchestration/screen-content-only-user-source.mp4",
+    "approvedFrames": "design-assets/agent-office/approved/screens/orchestration",
+    "keyframes": "design-assets/agent-office/proof/screens/orchestration-user-approved-v1/orchestration-screen-keyframes.png",
+    "preview": "design-assets/agent-office/proof/screens/orchestration-user-approved-v1/screen-content-only.mp4",
+    "atlases": [
+      "design-assets/agent-office/runtime-v3/screens/orchestration@2x.webp",
+      "design-assets/agent-office/runtime-v3/screens/orchestration@2x.webp.json",
+      "design-assets/agent-office/runtime-v3/screens/orchestration@1x.webp",
+      "design-assets/agent-office/runtime-v3/screens/orchestration@1x.webp.json"
+    ]
+  }
+}

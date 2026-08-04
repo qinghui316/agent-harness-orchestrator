@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "input": "standard-desk-v2-source.png",
+  "keyColor": "#05f906",
+  "edgeDecontaminationRadius": 6,
+  "border": {
+    "pixels": 41424,
+    "uniformPixels": 26683,
+    "ratio": 0.6441434916956353,
+    "maximumDistance": 352.8824166772836
+  },
+  "width": 1654,
+  "height": 951,
+  "transparentPixels": 647567,
+  "partialPixels": 3470,
+  "opaquePixels": 921917,
+  "transparentNonZeroRgb": 0,
+  "visibleKeyPixels": 0,
+  "preservation": {
+    "connectedBackgroundPixels": 651136,
+    "protectedPixels": 921818,
+    "protectedPixelChanges": 0,
+    "detachedBackgroundMattePixelsRemoved": 55
+  },
+  "outputs": {
+    "cutout": "standard-desk-v2-source-transparent.png",
+    "alphaQa": "standard-desk-v2-source-alpha-qa.png"
+  }
+}

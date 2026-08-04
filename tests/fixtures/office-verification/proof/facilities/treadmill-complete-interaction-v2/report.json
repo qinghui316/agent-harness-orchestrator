@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 2,
+  "proofKind": "complete-facility-interaction",
+  "facilityId": "treadmill",
+  "calibrationSource": "user-calibration.json",
+  "relativeCalibration": {
+    "schemaVersion": 1,
+    "kind": "relative-facility-actor-calibration",
+    "actorScaleBasis": 0.5,
+    "referenceGroupScale": 0.9,
+    "treadmillActionProof": "video16-tail-safe",
+    "treadmillActionFixedScale": 2.074468085106383,
+    "treadmillScalePerActorScale": 1.23,
+    "runActionOriginFromTreadmillInActorScaleUnits": {
+      "x": 696,
+      "y": 32
+    },
+    "walkEndpointOriginFromTreadmillInActorScaleUnits": {
+      "x": 916,
+      "y": 32
+    }
+  },
+  "proofComposite": {
+    "canvas": {
+      "width": 1200,
+      "height": 960
+    },
+    "actorScale": 0.5,
+    "treadmill": {
+      "origin": {
+        "x": 100,
+        "y": 292
+      },
+      "scale": 0.615
+    },
+    "runOrigin": {
+      "x": 448,
+      "y": 308
+    },
+    "leavingStart": {
+      "x": 999.5,
+      "y": 364.75
+    },
+    "leavingEndpoint": {
+      "x": 759.5,
+      "y": 364.75
+    },
+    "switchAnchor": "visible-center",
+    "switchCenter": {
+      "x": 1051.25,
+      "y": 583
+    },
+    "switchError": {
+      "x": 0,
+      "y": 0
+    }
+  },
+  "interactionSequence": {
+    "fps": 16,
+    "phases": [
+      {
+        "id": "leaving-to-facility",
+        "frames": 48,
+        "playback": "forward"
+      },
+      {
+        "id": "run-forward",
+        "frames": 45,
+        "playback": "forward"
+      },
+      {
+        "id": "run-reverse",
+        "frames": 45,
+        "playback": "reverse"
+      },
+      {
+        "id": "leaving-return",
+        "frames": 48,
+        "playback": "forward",
+        "mirrored": true
+      }
+    ],
+    "frameCount": 186,
+    "reversePlaybackActions": [
+      "treadmill"
+    ],
+    "mirroredPlaybackActions": [
+      "leaving-return"
+    ]
+  },
+  "outputs": {
+    "preview": "treadmill-complete-interaction-preview.mp4",
+    "transitionAudit": "treadmill-complete-interaction-transitions.png"
+  },
+  "admission": "proof-only-pending-visual-acceptance"
+}

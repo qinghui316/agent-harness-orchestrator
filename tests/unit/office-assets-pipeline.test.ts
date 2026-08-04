@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
@@ -23,6 +23,7 @@ import {
 } from "../../scripts/office-assets/pipeline/image-pipeline.mjs";
 import { cutoutStagingMaster } from "../../scripts/office-assets/pipeline/cutout-pipeline.mjs";
 import { extractGridProofAction, extractProofPhase } from "../../scripts/office-assets/proofs/proof-pipeline.mjs";
+import { officeVerificationFixturePath } from "../helpers/office-verification-fixture.js";
 
 const manifestPath = join("design-assets", "agent-office", "office-assets.manifest.json");
 const temporaryDirectories: string[] = [];
@@ -32,6 +33,16 @@ afterEach(async () => {
 });
 
 describe("office asset manifest", () => {
+  it("keeps verification fixtures portable across worktrees", async () => {
+    const fixtureFiles = await listJsonFiles(officeVerificationFixturePath());
+    expect(fixtureFiles).toHaveLength(17);
+
+    for (const path of fixtureFiles) {
+      const values = collectStringValues(JSON.parse(await readFile(path, "utf8")));
+      expect(values, path).not.toContainEqual(expect.stringMatching(/^[A-Za-z]:[\\/]/));
+    }
+  });
+
   it("defines complete-character actions without a six-cell source contract", async () => {
     const manifest = await loadOfficeAssetManifest(manifestPath);
     const summary = validateOfficeAssetManifest(manifest);
@@ -142,8 +153,8 @@ describe("office asset manifest", () => {
       expect(atlases[1].meta.animation).toEqual({ fps: 24, loop: false });
 
       const proofName = actionId === "standing-talk" ? "video19" : actionId === "seated-talk" ? "video20" : "video21";
-      const report = JSON.parse(await readFile(join(
-        "design-assets", "agent-office", "proof", "actions", actionId, proofName, "report.json",
+      const report = JSON.parse(await readFile(officeVerificationFixturePath(
+        "proof", "actions", actionId, proofName, "report.json",
       ), "utf8"));
       expect(report).toMatchObject({
         actionId,
@@ -168,8 +179,8 @@ describe("office asset manifest", () => {
   });
 
   it("keeps the selected orchestration screen separate from the monitor shell", async () => {
-    const proof = JSON.parse(await readFile(join(
-      "design-assets", "agent-office", "proof", "screens", "orchestration-user-approved-v1", "report.json",
+    const proof = JSON.parse(await readFile(officeVerificationFixturePath(
+      "proof", "screens", "orchestration-user-approved-v1", "report.json",
     ), "utf8"));
     const atlas1x = JSON.parse(await readFile(join(
       "design-assets", "agent-office", "runtime-v3", "screens", "orchestration@1x.webp.json",
@@ -193,8 +204,8 @@ describe("office asset manifest", () => {
 
   it("packs two entertainment profiles and one independent transparent coffee effect", async () => {
     for (const profileId of ["entertainment-1", "entertainment-2"]) {
-      const proof = JSON.parse(await readFile(join(
-        "design-assets", "agent-office", "proof", "screens", `${profileId}-user-approved-v1`, "report.json",
+      const proof = JSON.parse(await readFile(officeVerificationFixturePath(
+        "proof", "screens", `${profileId}-user-approved-v1`, "report.json",
       ), "utf8"));
       const atlas = JSON.parse(await readFile(join(
         "design-assets", "agent-office", "runtime-v3", "screens", `${profileId}@2x.webp.json`,
@@ -207,8 +218,8 @@ describe("office asset manifest", () => {
       expect(atlas.animations[profileId]).toHaveLength(102);
       expect(atlas.meta.animation).toEqual({ fps: 24, loop: true });
     }
-    const effectReport = JSON.parse(await readFile(join(
-      "design-assets", "agent-office", "proof", "effects", "coffee-cup-user-approved-v1", "report.json",
+    const effectReport = JSON.parse(await readFile(officeVerificationFixturePath(
+      "proof", "effects", "coffee-cup-user-approved-v1", "report.json",
     ), "utf8"));
     const effectAtlas = JSON.parse(await readFile(join(
       "design-assets", "agent-office", "runtime-v3", "effects", "coffee-cup@2x.webp.json",
@@ -223,8 +234,8 @@ describe("office asset manifest", () => {
   });
 
   it("admits the selected desk only after alpha and preservation gates pass", async () => {
-    const report = JSON.parse(await readFile(join(
-      "design-assets", "agent-office", "proof", "props", "standard-desk-v2", "standard-desk-v2-source-cutout-report.json",
+    const report = JSON.parse(await readFile(officeVerificationFixturePath(
+      "proof", "props", "standard-desk-v2", "standard-desk-v2-source-cutout-report.json",
     ), "utf8"));
     const desk = await sharp(join("design-assets", "agent-office", "approved", "props", "standard-desk.png"))
       .ensureAlpha()
@@ -283,9 +294,7 @@ describe("office asset manifest", () => {
   });
 
   it("records one calibrated chair and ground line in the legacy chair proof", async () => {
-    const report = JSON.parse(await readFile(join(
-      "design-assets",
-      "agent-office",
+    const report = JSON.parse(await readFile(officeVerificationFixturePath(
       "proof",
       "workstations",
       "standard-chair-v3",
@@ -308,13 +317,13 @@ describe("office asset manifest", () => {
   });
 
   it("keeps the user-calibrated treadmill size and uses only the treadmill action", async () => {
-    const treadmillRoot = join("design-assets", "agent-office", "proof", "actions", "treadmill", "video16-tail-safe");
+    const treadmillRoot = officeVerificationFixturePath("proof", "actions", "treadmill", "video16-tail-safe");
     const treadmillReport = JSON.parse(await readFile(join(treadmillRoot, "report.json"), "utf8"));
-    const calibration = JSON.parse(await readFile(join(
-      "design-assets", "agent-office", "calibration", "treadmill", "user-calibration.json",
+    const calibration = JSON.parse(await readFile(officeVerificationFixturePath(
+      "calibration", "treadmill", "user-calibration.json",
     ), "utf8"));
-    const facilityReport = JSON.parse(await readFile(join(
-      "design-assets", "agent-office", "proof", "facilities", "treadmill-user-relative-v5", "report.json",
+    const facilityReport = JSON.parse(await readFile(officeVerificationFixturePath(
+      "proof", "facilities", "treadmill-user-relative-v5", "report.json",
     ), "utf8"));
 
     expect(calibration).toMatchObject({
@@ -337,8 +346,8 @@ describe("office asset manifest", () => {
   });
 
   it("keeps reverse treadmill playback separate from the mirrored return walk", async () => {
-    const report = JSON.parse(await readFile(join(
-      "design-assets", "agent-office", "proof", "facilities", "treadmill-complete-interaction-v2", "report.json",
+    const report = JSON.parse(await readFile(officeVerificationFixturePath(
+      "proof", "facilities", "treadmill-complete-interaction-v2", "report.json",
     ), "utf8"));
 
     expect(report.proofKind).toBe("complete-facility-interaction");
@@ -357,11 +366,11 @@ describe("office asset manifest", () => {
   });
 
   it("materializes the user-calibrated toilet without changing actor scale", async () => {
-    const calibration = JSON.parse(await readFile(join(
-      "design-assets", "agent-office", "calibration", "toilet", "user-calibration.json",
+    const calibration = JSON.parse(await readFile(officeVerificationFixturePath(
+      "calibration", "toilet", "user-calibration.json",
     ), "utf8"));
-    const report = JSON.parse(await readFile(join(
-      "design-assets", "agent-office", "proof", "facilities", "toilet-user-relative-v1", "report.json",
+    const report = JSON.parse(await readFile(officeVerificationFixturePath(
+      "proof", "facilities", "toilet-user-relative-v1", "report.json",
     ), "utf8"));
 
     expect(calibration).toEqual({
@@ -411,8 +420,8 @@ describe("office asset manifest", () => {
   });
 
   it("keeps the complete toilet action on one fixed transform", async () => {
-    const report = JSON.parse(await readFile(join(
-      "design-assets", "agent-office", "proof", "actions", "toilet-video17-complete-v1", "report.json",
+    const report = JSON.parse(await readFile(officeVerificationFixturePath(
+      "proof", "actions", "toilet-video17-complete-v1", "report.json",
     ), "utf8"));
 
     expect(report.source).toEqual({ width: 752, height: 560, fps: 24, frameCount: 121 });
@@ -842,6 +851,22 @@ async function writeStabilizationFrame(path: string, options: { left: number; to
   paintRect(data, width, options.left, options.top, 36, 54, [24, 24, 24, 255]);
   paintRect(data, width, options.scarfLeft, options.top + 20, 21, 6, [201, 100, 66, 255]);
   await sharp(data, { raw: { width, height, channels: 4 } }).png().toFile(path);
+}
+
+async function listJsonFiles(directory: string): Promise<string[]> {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const nested = await Promise.all(entries.map((entry) => {
+    const path = join(directory, entry.name);
+    return entry.isDirectory() ? listJsonFiles(path) : entry.name.endsWith(".json") ? [path] : [];
+  }));
+  return nested.flat().sort();
+}
+
+function collectStringValues(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap(collectStringValues);
+  if (value && typeof value === "object") return Object.values(value).flatMap(collectStringValues);
+  return [];
 }
 
 async function createCutoutFixture(path: string, options: { noisyBorder?: boolean } = {}): Promise<void> {

@@ -1,0 +1,149 @@
+{
+  "schemaVersion": 1,
+  "actionId": "standing-talk",
+  "sourceVideo": "design-assets/agent-office/staging/manual/standing-talk/standing-talk-video-19-source.mp4",
+  "sourceSha256": "a5418ce5f25cdd4f3f8d74f328d516e51963630eb9275c0d2c2c3a8e52b41eb7",
+  "sourceFrameCount": 97,
+  "selection": {
+    "method": "cumulative-frame-difference-with-endpoint-preservation",
+    "sourceCropInset": 0,
+    "sourceFrameCount": 76,
+    "sourceFrameNumbers": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      19,
+      21,
+      24,
+      25,
+      27,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      39,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      48,
+      50,
+      52,
+      54,
+      56,
+      57,
+      58,
+      60,
+      61,
+      63,
+      65,
+      66,
+      68,
+      69,
+      70,
+      71,
+      72,
+      73,
+      74,
+      75,
+      76,
+      77,
+      78,
+      79,
+      80,
+      81,
+      82,
+      83,
+      84,
+      85,
+      86,
+      87,
+      88,
+      89,
+      90,
+      91,
+      92,
+      93,
+      95,
+      97
+    ],
+    "playbackFrameCount": 76,
+    "playback": "direct"
+  },
+  "normalization": {
+    "canvas": {
+      "width": 960,
+      "height": 960
+    },
+    "placement": "per-frame-anchor",
+    "fixedScale": 0.9285714285714286,
+    "requestedScale": 0.9285714285714286,
+    "canvasFitScale": 1.5596330275229358,
+    "scaleLimitedByCanvas": false,
+    "canvasMargin": 24,
+    "sourceScarfBandWidth": {
+      "minimum": 208,
+      "maximum": 212,
+      "median": 210
+    },
+    "targetScarfWidth": 195,
+    "scaleBasis": "median-scarf-width",
+    "targetVisualAnchor": {
+      "x": 480,
+      "y": 874
+    },
+    "runtimeVisualAnchor": {
+      "x": 480,
+      "y": 874
+    },
+    "fixedActionOffset": {
+      "x": 0,
+      "y": 0
+    },
+    "anchorError": {
+      "x": {
+        "minimum": 0,
+        "maximum": 0.4642857142857224,
+        "median": 0.3035714285714164
+      },
+      "y": {
+        "minimum": 0.07142857142866887,
+        "maximum": 0.21428571428577925,
+        "median": 0.21428571428577925
+      }
+    }
+  },
+  "alpha": {
+    "visibleKeyPixels": 0,
+    "transparentNonZeroRgb": 0,
+    "protectedPixelChanges": 0,
+    "detachedBackgroundMattePixelsRemoved": 154909
+  },
+  "outputs": {
+    "actorRoot": "actors",
+    "keyframes": "standing-talk-keyframes.png",
+    "contactSheet": "standing-talk-contact-sheet.png",
+    "alphaQa": "standing-talk-alpha-keyframes.png",
+    "preview": "standing-talk-preview.mp4"
+  },
+  "admission": "proof-only-pending-visual-acceptance"
+}

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "kind": "relative-toilet-actor-calibration",
+  "actorScaleBasis": 1,
+  "toiletScalePerActorScale": 0.315,
+  "actorOriginFromToiletInActorScaleUnits": {
+    "x": 69,
+    "y": -58
+  },
+  "paper": {
+    "scalePerActorScale": 0.175,
+    "originFromToiletInActorScaleUnits": {
+      "x": 353,
+      "y": -48
+    }
+  },
+  "tailOccluderFromToiletInActorScaleUnits": {
+    "x": 58,
+    "y": 164,
+    "width": 124,
+    "height": 88
+  }
+}

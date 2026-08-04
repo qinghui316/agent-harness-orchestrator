@@ -1,0 +1,154 @@
+{
+  "schemaVersion": 1,
+  "actionId": "toilet",
+  "sourceVideo": "tests/fixtures/office-verification/external-source/Video (17).mp4",
+  "sourceSha256": "91cee3b53561edc32151b2ee01020dc72d17e0153f5b1e217563132a39624f2f",
+  "source": {
+    "width": 752,
+    "height": 560,
+    "fps": 24,
+    "frameCount": 121
+  },
+  "sourceCrop": {
+    "left": 40,
+    "top": 10,
+    "width": 672,
+    "height": 510
+  },
+  "playback": {
+    "mode": "direct",
+    "fps": 24,
+    "frameCount": 121,
+    "durationSeconds": 5.041666666666667
+  },
+  "normalization": {
+    "referenceAction": "working",
+    "workingScarfWidth": 195,
+    "toiletScarfWidth": 108,
+    "offlineActorSourceNormalizationToWorking": 1.8055555555555556,
+    "runtimeActorScale": 0.45,
+    "calibrationToWorldScale": 0.8125
+  },
+  "calibration": {
+    "schemaVersion": 1,
+    "kind": "relative-toilet-actor-calibration",
+    "actorScaleBasis": 1,
+    "toiletScalePerActorScale": 0.315,
+    "actorOriginFromToiletInActorScaleUnits": {
+      "x": 69,
+      "y": -58
+    },
+    "paper": {
+      "scalePerActorScale": 0.175,
+      "originFromToiletInActorScaleUnits": {
+        "x": 353,
+        "y": -48
+      }
+    },
+    "tailOccluderFromToiletInActorScaleUnits": {
+      "x": 58,
+      "y": 164,
+      "width": 124,
+      "height": 88
+    }
+  },
+  "placement": {
+    "toilet": {
+      "x": 260,
+      "y": 190,
+      "rawSourceScale": 0.2559375
+    },
+    "actor": {
+      "x": 316.0625,
+      "y": 142.875,
+      "rawSourceProofScale": 0.8125,
+      "runtimeSpriteScaleAfterOfflineNormalization": 0.45
+    },
+    "paper": {
+      "x": 546.8125,
+      "y": 151,
+      "rawSourceScale": 0.1421875
+    },
+    "occluder": {
+      "x": 307.125,
+      "y": 323.25,
+      "width": 100.75,
+      "height": 71.5
+    },
+    "actorFrameOrigin": {
+      "x": 257.5625,
+      "y": 60
+    },
+    "perFrameFit": false,
+    "perFrameRecenter": false
+  },
+  "layerOrder": [
+    "toilet-back",
+    "actor",
+    "tail-only-occluder",
+    "toilet-paper"
+  ],
+  "interactionSequence": {
+    "sourceEvidence": {
+      "referenceToiletRuntimeInvocationExists": false,
+      "referenceActionEndsSeated": true,
+      "referencePersonControllerSupportsReverse": true,
+      "referenceFacilityReturnUsesMirroredLeaving": true
+    },
+    "phases": [
+      {
+        "id": "approach",
+        "action": "leaving",
+        "playback": "forward",
+        "destination": "toilet-contact"
+      },
+      {
+        "id": "sit-and-use",
+        "action": "toilet",
+        "playback": "forward",
+        "frames": 121
+      },
+      {
+        "id": "stable-hold",
+        "action": "toilet",
+        "frame": 120,
+        "previewFrames": 24
+      },
+      {
+        "id": "stand-up",
+        "action": "toilet",
+        "playback": "reverse",
+        "frames": 120
+      },
+      {
+        "id": "return",
+        "action": "leaving",
+        "playback": "forward",
+        "mirrored": true
+      },
+      {
+        "id": "restore-chair",
+        "action": "off-chair",
+        "playback": "reverse"
+      }
+    ],
+    "roundTripPreviewFrameCount": 265,
+    "roundTripPreviewDurationSeconds": 11.041666666666666
+  },
+  "alpha": {
+    "visibleKeyPixels": 0,
+    "transparentNonZeroRgb": 0,
+    "protectedPixelChanges": 0,
+    "detachedBackgroundMattePixelsRemoved": 56968
+  },
+  "outputs": {
+    "actorRoot": "actors",
+    "preview": "toilet-complete-action-preview.mp4",
+    "closeupPreview": "toilet-complete-action-closeup.mp4",
+    "roundTripPreview": "toilet-complete-action-roundtrip.mp4",
+    "roundTripCloseupPreview": "toilet-complete-action-roundtrip-closeup.mp4",
+    "keyframes": "toilet-complete-action-keyframes.png",
+    "contactSheet": "toilet-complete-action-contact-sheet.png"
+  },
+  "admission": "proof-only-pending-visual-acceptance"
+}

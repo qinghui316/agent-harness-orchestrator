@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 1,
+  "facilityId": "treadmill",
+  "propSource": "treadmill-v1-source-transparent.png",
+  "calibrationSource": "user-calibration.json",
+  "relativeCalibration": {
+    "schemaVersion": 1,
+    "kind": "relative-facility-actor-calibration",
+    "actorScaleBasis": 0.5,
+    "referenceGroupScale": 0.9,
+    "treadmillActionProof": "video16-tail-safe",
+    "treadmillActionFixedScale": 2.074468085106383,
+    "treadmillScalePerActorScale": 1.23,
+    "runActionOriginFromTreadmillInActorScaleUnits": {
+      "x": 696,
+      "y": 32
+    },
+    "walkEndpointOriginFromTreadmillInActorScaleUnits": {
+      "x": 916,
+      "y": 32
+    }
+  },
+  "actorFrames": 45,
+  "canonicalProp": {
+    "canvas": {
+      "width": 384,
+      "height": 416,
+      "visibleWidth": 360,
+      "bottomPadding": 12
+    },
+    "sourceVisibleBounds": {
+      "left": 218,
+      "top": 159,
+      "width": 1061,
+      "height": 733
+    },
+    "placement": {
+      "left": 12,
+      "top": 155
+    },
+    "anchors": {
+      "treadmill-contact": {
+        "x": 323.127,
+        "y": 350.976
+      },
+      "aisle-entry": {
+        "x": 366,
+        "y": 392
+      }
+    },
+    "detectedBelt": {
+      "left": 408,
+      "top": 634,
+      "width": 840,
+      "height": 186,
+      "pixelCount": 107898
+    }
+  },
+  "proofComposite": {
+    "canvas": {
+      "width": 1200,
+      "height": 960
+    },
+    "propPlacement": {
+      "left": 100,
+      "top": 292,
+      "width": 873,
+      "height": 681
+    },
+    "actorScale": 0.5,
+    "actorCanvas": {
+      "width": 1600,
+      "height": 1080
+    },
+    "actorVisualAnchor": {
+      "x": 700,
+      "y": 874
+    },
+    "actorPlacement": {
+      "x": 448,
+      "y": 308
+    },
+    "runAnchor": {
+      "x": 798,
+      "y": 745
+    },
+    "walkEndpoint": {
+      "x": 558,
+      "y": 308
+    },
+    "walkAnchor": {
+      "x": 798,
+      "y": 745
+    },
+    "layerOrder": [
+      "facility-prop",
+      "actor"
+    ]
+  },
+  "interactionSequence": {
+    "fps": 16,
+    "phases": [
+      {
+        "id": "run-forward",
+        "frames": 45,
+        "anchor": "ground"
+      },
+      {
+        "id": "run-reverse",
+        "frames": 45,
+        "anchor": "ground"
+      }
+    ],
+    "frameCount": 90,
+    "reversePlaybackActions": [
+      "treadmill"
+    ],
+    "usesOneActorActionOnly": true
+  },
+  "outputs": {
+    "canonicalCandidate": "treadmill-canonical-candidate.png",
+    "keyframes": "treadmill-facility-keyframes.png",
+    "preview": "treadmill-facility-preview.mp4",
+    "interactionPreview": "treadmill-forward-reverse-preview.mp4",
+    "interactionKeyframes": "treadmill-forward-reverse-keyframes.png",
+    "calibrationDebug": "treadmill-calibration-debug.png"
+  },
+  "admission": "proof-only-pending-visual-acceptance"
+}

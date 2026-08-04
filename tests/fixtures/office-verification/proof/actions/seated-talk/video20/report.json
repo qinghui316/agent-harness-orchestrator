@@ -1,0 +1,178 @@
+{
+  "schemaVersion": 1,
+  "actionId": "seated-talk",
+  "sourceVideo": "design-assets/agent-office/staging/manual/seated-talk/seated-talk-video-20-source.mp4",
+  "sourceSha256": "b3b647e145830c0a3cab2f9de35049ac19063e91281a8287fe9341bbe851bc93",
+  "sourceFrameCount": 97,
+  "selection": {
+    "method": "cumulative-frame-difference-with-endpoint-preservation",
+    "sourceCropInset": 2,
+    "sourceFrameCount": 86,
+    "sourceFrameNumbers": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      10,
+      11,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      29,
+      31,
+      33,
+      34,
+      36,
+      37,
+      39,
+      40,
+      41,
+      43,
+      44,
+      45,
+      46,
+      48,
+      49,
+      50,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61,
+      62,
+      63,
+      64,
+      65,
+      66,
+      67,
+      68,
+      69,
+      70,
+      71,
+      72,
+      73,
+      74,
+      75,
+      76,
+      77,
+      78,
+      79,
+      80,
+      81,
+      82,
+      83,
+      84,
+      85,
+      86,
+      87,
+      88,
+      89,
+      90,
+      91,
+      92,
+      93,
+      94,
+      96,
+      97
+    ],
+    "playbackFrameCount": 86,
+    "playback": "direct"
+  },
+  "normalization": {
+    "canvas": {
+      "width": 960,
+      "height": 960
+    },
+    "placement": "per-frame-anchor",
+    "fixedScale": 1.3356164383561644,
+    "requestedScale": 1.3356164383561644,
+    "canvasFitScale": 1.3356164383561644,
+    "scaleLimitedByCanvas": false,
+    "sourceScarfBandWidth": {
+      "minimum": 144,
+      "maximum": 148,
+      "median": 146
+    },
+    "targetScarfWidth": 195,
+    "scaleBasis": "median-scarf-width",
+    "targetVisualAnchor": {
+      "x": 739,
+      "y": 518
+    },
+    "runtimeVisualAnchor": {
+      "x": 725,
+      "y": 550
+    },
+    "fixedActionOffset": {
+      "x": 14,
+      "y": -32
+    },
+    "anchorError": {
+      "x": {
+        "minimum": 0.09931506849318339,
+        "maximum": 0.4417808219177459,
+        "median": 0.43493150684935244
+      },
+      "y": {
+        "minimum": 0.13698630136991596,
+        "maximum": 0.4794520547945922,
+        "median": 0.4794520547945922
+      }
+    }
+  },
+  "alpha": {
+    "visibleKeyPixels": 0,
+    "transparentNonZeroRgb": 0,
+    "protectedPixelChanges": 0,
+    "detachedBackgroundMattePixelsRemoved": 7669
+  },
+  "workstation": {
+    "chair": {
+      "left": 545,
+      "top": 463,
+      "width": 360,
+      "height": 412
+    },
+    "shadow": {
+      "left": 545,
+      "top": 836,
+      "width": 360,
+      "height": 58,
+      "alpha": 0.12
+    },
+    "layerOrder": [
+      "workstation-shadow",
+      "actor",
+      "chair-foreground"
+    ]
+  },
+  "outputs": {
+    "actorRoot": "actors",
+    "keyframes": "seated-talk-keyframes.png",
+    "contactSheet": "seated-talk-contact-sheet.png",
+    "alphaQa": "seated-talk-alpha-keyframes.png",
+    "preview": "seated-talk-preview.mp4"
+  },
+  "admission": "proof-only-pending-visual-acceptance"
+}

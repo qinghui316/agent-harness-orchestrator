@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "calibrationSource": "user-calibration.json",
+  "calibration": {
+    "schemaVersion": 1,
+    "kind": "relative-toilet-actor-calibration",
+    "actorScaleBasis": 1,
+    "toiletScalePerActorScale": 0.315,
+    "actorOriginFromToiletInActorScaleUnits": {
+      "x": 69,
+      "y": -58
+    },
+    "paper": {
+      "scalePerActorScale": 0.175,
+      "originFromToiletInActorScaleUnits": {
+        "x": 353,
+        "y": -48
+      }
+    },
+    "tailOccluderFromToiletInActorScaleUnits": {
+      "x": 58,
+      "y": 164,
+      "width": 124,
+      "height": 88
+    }
+  },
+  "canvas": {
+    "width": 960,
+    "height": 720
+  },
+  "facilityOrigin": {
+    "x": 260,
+    "y": 190
+  },
+  "scaleNormalization": {
+    "referenceAction": "working",
+    "workingScarfWidth": 195,
+    "toiletScarfWidth": 108,
+    "offlineActorSourceNormalizationToWorking": 1.8055555555555556,
+    "runtimeActorScale": 0.45,
+    "calibrationToWorldScale": 0.8125
+  },
+  "calibrationPlacement": {
+    "toilet": {
+      "x": 260,
+      "y": 190,
+      "scale": 0.315
+    },
+    "actor": {
+      "x": 329,
+      "y": 132,
+      "scale": 1
+    },
+    "paper": {
+      "x": 613,
+      "y": 142,
+      "scale": 0.175
+    },
+    "occluder": {
+      "x": 318,
+      "y": 354,
+      "width": 124,
+      "height": 88
+    }
+  },
+  "proofPlacementFromRawSources": {
+    "toilet": {
+      "x": 260,
+      "y": 190,
+      "rawSourceScale": 0.2559375
+    },
+    "actor": {
+      "x": 316.0625,
+      "y": 142.875,
+      "rawSourceProofScale": 0.8125,
+      "runtimeSpriteScaleAfterOfflineNormalization": 0.45
+    },
+    "paper": {
+      "x": 546.8125,
+      "y": 151,
+      "rawSourceScale": 0.1421875
+    },
+    "occluder": {
+      "x": 307.125,
+      "y": 323.25,
+      "width": 100.75,
+      "height": 71.5
+    }
+  },
+  "layerOrder": [
+    "toilet-back",
+    "actor",
+    "tail-only-occluder",
+    "toilet-paper"
+  ],
+  "validation": {
+    "actorScaleChanged": false,
+    "facilityRatiosChanged": false,
+    "fullToiletForegroundUsed": false,
+    "bakedShadowUsed": false,
+    "occludedActorPixels": 3838
+  },
+  "outputs": {
+    "toiletBack": "toilet-back.png",
+    "tailOccluder": "toilet-tail-occluder.png",
+    "paper": "toilet-paper-holder.png",
+    "transparent": "toilet-user-relative-transparent.png",
+    "composite": "toilet-user-relative-composite.png",
+    "closeup": "toilet-user-relative-final-closeup.png",
+    "comparison": "toilet-user-relative-comparison.png"
+  }
+}

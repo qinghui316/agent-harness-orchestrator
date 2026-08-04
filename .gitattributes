@@ -3,4 +3,5 @@
 *.json text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf
+scripts/office-assets/office-assets.mjs text eol=lf
 *.ps1 text eol=crlf
