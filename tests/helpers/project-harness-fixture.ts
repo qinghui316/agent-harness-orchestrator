@@ -1,5 +1,4 @@
-import { existsSync } from "node:fs";
-import { cp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { initializeProjectRuntimeSidecar } from "../../src/project-runtime/lifecycle.js";
 import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
@@ -70,11 +69,6 @@ export async function createReadyProjectHarnessFixture(input: {
     }),
     writeFile(join(skillRoot, "references", "project_wiki", "catalog.md"), "# Catalog\n", "utf8"),
   ]);
-  const claudeRoot = join(input.projectRoot, ".claude", "skills");
-  const claudeLink = join(claudeRoot, skillName);
-  await mkdir(claudeRoot, { recursive: true });
-  if (existsSync(claudeLink)) await rm(claudeLink, { recursive: true, force: true });
-  await symlink(skillRoot, claudeLink, process.platform === "win32" ? "junction" : "dir");
   await initializeProjectRuntimeSidecar(resolveProjectRuntimePaths(projectId, input.ahoHome));
   return {
     project: {

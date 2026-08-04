@@ -27,13 +27,17 @@ export interface ProviderSkillBinding {
   discoveryPath: string;
   status: "ready" | "missing" | "collision" | "unavailable";
   sameTarget: boolean;
-}
-
-export interface ProjectHarnessDiscoveryRoute {
-  providerId: string;
-  relativeRoot: ProjectRelativePath;
   required: boolean;
 }
+
+export type ProjectHarnessDiscoveryRoute = {
+  providerId: string;
+  required: boolean;
+  enabled?: boolean;
+} & (
+  | { relativeRoot: ProjectRelativePath; skillRoot?: never }
+  | { relativeRoot?: never; skillRoot: string }
+);
 
 export interface ProjectHarnessDiscoveryPolicy {
   routes: readonly ProjectHarnessDiscoveryRoute[];

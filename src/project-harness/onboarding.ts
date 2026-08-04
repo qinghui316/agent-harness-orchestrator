@@ -6,10 +6,8 @@ import {
   mkdir,
   readFile,
   readdir,
-  realpath,
   rename,
   rm,
-  symlink,
 } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
@@ -38,7 +36,6 @@ export const PROJECT_HARNESS_ONBOARDING_STAGES = [
   "prepared",
   "candidate-staged",
   "skill-published",
-  "claude-linked",
   "completed",
   "rolled-back",
 ] as const;
@@ -56,7 +53,6 @@ const recordSchema = z.object({
   candidate_root: z.string().min(1),
   staged_root: z.string().min(1),
   skill_root: z.string().min(1),
-  claude_link: z.string().min(1),
   skill_name: z.string().min(1),
   author_id: z.string().min(1),
   reviewer_id: z.string().min(1).nullable(),
@@ -208,7 +204,6 @@ export async function prepareProjectHarnessOnboarding(
         candidate_root: candidate.candidateRoot,
         staged_root: join(skillParent, `.${candidate.skillName}.${transactionId}.candidate`),
         skill_root: skillRoot,
-        claude_link: join(projectRoot, ".claude", "skills", candidate.skillName),
         skill_name: candidate.skillName,
         author_id: options.authorId,
         reviewer_id: null,
@@ -327,17 +322,13 @@ async function publishInitialCandidate(
 ): Promise<ProjectHarnessOnboardingResult> {
   let record = initial;
   await assertNoLinkedPathAncestors(dirname(record.skill_root), "primary project Skill root");
-  await assertNoLinkedPathAncestors(dirname(record.claude_link), "Claude project Skill root");
   await mkdir(dirname(record.skill_root), { recursive: true });
-  await mkdir(dirname(record.claude_link), { recursive: true });
   await assertNoLinkedPathAncestors(dirname(record.skill_root), "primary project Skill root");
-  await assertNoLinkedPathAncestors(dirname(record.claude_link), "Claude project Skill root");
   await assertPhysicalDirectory(dirname(record.skill_root), "primary project Skill root");
-  await assertPhysicalDirectory(dirname(record.claude_link), "Claude project Skill root");
   assertExactSibling(dirname(record.skill_root), record.staged_root);
 
   if (record.stage === "prepared") {
-    if (existsSync(record.skill_root) || existsSync(record.claude_link) || existsSync(record.staged_root)) {
+    if (existsSync(record.skill_root) || existsSync(record.staged_root)) {
       throw new Error("Project Harness onboarding publication paths are occupied.");
     }
     await copyPhysicalTree(record.candidate_root, record.staged_root);
@@ -353,17 +344,10 @@ async function publishInitialCandidate(
     record = await advanceRecord(recordPath, record, "skill-published");
     await failureInjection?.("skill-published");
   }
-  if (record.stage === "skill-published") {
-    await assertCandidateFingerprint(record.skill_root, record.candidate_fingerprint);
-    if (existsSync(record.claude_link)) throw new Error("Claude project Harness discovery path became occupied.");
-    await symlink(record.skill_root, record.claude_link, process.platform === "win32" ? "junction" : "dir");
-    record = await advanceRecord(recordPath, record, "claude-linked");
-    await failureInjection?.("claude-linked");
-  }
-  if (record.stage !== "claude-linked") {
+  if (record.stage !== "skill-published") {
     throw new Error(`Project Harness onboarding reached an invalid pre-commit stage: ${record.stage}.`);
   }
-  await assertOwnedClaudeLink(record);
+  await assertCandidateFingerprint(record.skill_root, record.candidate_fingerprint);
   const discovery = await discoverProjectHarness(record.project_root, discoveryPolicy);
   if (!discovery || discovery.handle.projectId !== record.project_id) {
     throw new Error("Published project Harness cannot be rediscovered with its canonical identity.");
@@ -428,7 +412,6 @@ async function rollbackInitialPublication(
   if (record.stage === "completed") {
     throw new Error("A completed project Harness onboarding transaction cannot be rolled back.");
   }
-  if (existsSync(record.claude_link)) await assertOwnedClaudeLink(record);
   if (existsSync(record.skill_root)) {
     await assertCandidateFingerprint(record.skill_root, record.candidate_fingerprint);
     const manifest = await readProjectHarnessManifest(record.skill_root);
@@ -438,9 +421,6 @@ async function rollbackInitialPublication(
   }
   if (existsSync(record.staged_root)) {
     await assertCandidateFingerprint(record.staged_root, record.candidate_fingerprint);
-  }
-  if (existsSync(record.claude_link)) {
-    await rm(record.claude_link, { force: false });
   }
   if (existsSync(record.skill_root)) {
     await rm(record.skill_root, { recursive: true, force: false });
@@ -530,7 +510,6 @@ function assertRequestBinding(
 function assertRecordPaths(record: ProjectHarnessOnboardingRecord, workspace: ProjectHarnessOnboardingWorkspace): void {
   const expectedSkillName = `${record.project_id}-harness`;
   const expectedSkillRoot = resolve(record.project_root, ".agents", "skills", expectedSkillName);
-  const expectedClaudeLink = resolve(record.project_root, ".claude", "skills", expectedSkillName);
   const expectedStagedRoot = resolve(
     dirname(expectedSkillRoot),
     `.${expectedSkillName}.${record.transaction_id}.candidate`,
@@ -540,7 +519,6 @@ function assertRecordPaths(record: ProjectHarnessOnboardingRecord, workspace: Pr
     || normalize(record.candidate_root) !== normalize(workspace.candidateRoot)
     || record.skill_name !== expectedSkillName
     || normalize(record.skill_root) !== normalize(expectedSkillRoot)
-    || normalize(record.claude_link) !== normalize(expectedClaudeLink)
     || normalize(record.staged_root) !== normalize(expectedStagedRoot)) {
     throw new Error("Project Harness onboarding transaction paths do not match Runtime ownership.");
   }
@@ -569,14 +547,6 @@ async function assertCandidateFingerprint(root: string, expected: string): Promi
   await assertPhysicalDirectory(root, "project Harness candidate");
   if (await fingerprintProjectHarness(root) !== expected) {
     throw new Error("Project Harness candidate no longer matches its reviewed fingerprint.");
-  }
-}
-
-async function assertOwnedClaudeLink(record: ProjectHarnessOnboardingRecord): Promise<void> {
-  const info = await lstat(record.claude_link);
-  if (!info.isSymbolicLink()) throw new Error("Claude project Harness discovery path is not a transaction-owned link.");
-  if (normalize(await realpath(record.claude_link)) !== normalize(record.skill_root)) {
-    throw new Error("Claude project Harness discovery link targets another Skill.");
   }
 }
 

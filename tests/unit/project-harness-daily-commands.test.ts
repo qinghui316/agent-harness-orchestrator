@@ -147,13 +147,13 @@ describe("project Harness standalone daily commands", () => {
     })).rejects.toThrow(/does not accept positional arguments/);
   });
 
-  it("requires both provider discovery links to target the same physical Skill", async () => {
+  it("operates from one valid Host binding without requiring another Host link", async () => {
     const fixture = await createFixture({ includeClaudeLink: false });
     await expect(runProjectHarnessDailyCommand({
       command: "change",
       skillRoot: fixture.skillRoot,
       args: ["status", "--project-root", fixture.projectRoot],
-    })).rejects.toThrow(/required discovery links/);
+    })).resolves.toEqual({ changes: [] });
   });
 });
 

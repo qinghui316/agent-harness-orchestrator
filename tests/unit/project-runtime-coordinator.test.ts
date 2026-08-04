@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -66,11 +66,11 @@ describe("project runtime coordinator", () => {
     expect(state.state === "onboarding" && existsSync(state.paths.sidecarRoot)).toBe(false);
   });
 
-  it("blocks startup reconciliation when one required provider binding is missing", async () => {
-    const fixture = await createLegacyFixture({ includeClaude: false });
-    await expect(fixture.coordinator.reconcileStartup()).rejects.toThrow(/required discovery links/);
-    expect(await fixture.store.resolveProject("legacy-a1")).not.toBeNull();
-    expect(existsSync(fixture.sourceSidecar)).toBe(true);
+  it("reconciles startup when an optional Host binding is absent", async () => {
+    const fixture = await createLegacyFixture();
+    await expect(fixture.coordinator.reconcileStartup()).resolves.toMatchObject({ migrations: [expect.any(Object)] });
+    expect(await fixture.store.resolveProject("legacy-a1")).toBeNull();
+    expect(existsSync(fixture.targetSidecar)).toBe(true);
   });
 
   it("blocks unclassified JSONL identities before changing Registry or sidecar state", async () => {
@@ -205,7 +205,7 @@ describe("project runtime coordinator", () => {
   });
 });
 
-async function createLegacyFixture(options: { includeClaude?: boolean } = {}) {
+async function createLegacyFixture() {
   const root = await mkdtemp(join(tmpdir(), "aho-runtime-coordinator-"));
   cleanup.push(root);
   const projectRoot = join(root, "project");
@@ -228,7 +228,7 @@ async function createLegacyFixture(options: { includeClaude?: boolean } = {}) {
   database.prepare("INSERT INTO skills(project_id, skill_id) VALUES (?, ?)").run("legacy-a1", "skill-1");
   database.pragma("user_version = 9");
   database.close();
-  await createHarness(projectRoot, options.includeClaude !== false);
+  await createHarness(projectRoot);
   const store = new ProjectRegistryStore(ahoHome);
   const project = await store.addProject(projectRoot, "Legacy");
   expect(project.id).toBe("legacy-a1");
@@ -285,7 +285,7 @@ function recoveryJournal(fixture: Awaited<ReturnType<typeof createLegacyFixture>
   };
 }
 
-async function createHarness(projectRoot: string, includeClaude: boolean): Promise<void> {
+async function createHarness(projectRoot: string): Promise<void> {
   const skillName = "canonical-a1-harness";
   const skillRoot = join(projectRoot, ".agents", "skills", skillName);
   await mkdir(join(skillRoot, "state"), { recursive: true });
@@ -298,8 +298,4 @@ async function createHarness(projectRoot: string, includeClaude: boolean): Promi
     skill_revision: 27,
     analysis_status: "complete",
   }, null, 2)}\n`, "utf8");
-  if (!includeClaude) return;
-  const claudeRoot = join(projectRoot, ".claude", "skills");
-  await mkdir(claudeRoot, { recursive: true });
-  await symlink(skillRoot, join(claudeRoot, skillName), process.platform === "win32" ? "junction" : "dir");
 }

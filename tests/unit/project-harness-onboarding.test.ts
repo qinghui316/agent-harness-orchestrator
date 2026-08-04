@@ -22,7 +22,7 @@ afterEach(async () => {
 });
 
 describe("project Harness greenfield onboarding", () => {
-  it("publishes one independently reviewed revision-1 Skill with Codex and Claude SameTarget", async () => {
+  it("publishes one independently reviewed revision-1 physical Skill without fabricating Host links", async () => {
     const fixture = await createFixture();
     const prepared = await prepareProjectHarnessOnboarding({
       ...fixture.options,
@@ -43,7 +43,7 @@ describe("project Harness greenfield onboarding", () => {
     expect(result.discovery.handle).toMatchObject({ projectId: fixture.projectId, skillRevision: 1 });
     expect(result.discovery.binding.providers).toEqual([
       expect.objectContaining({ providerId: "codex", status: "ready", sameTarget: true }),
-      expect.objectContaining({ providerId: "claude", status: "ready", sameTarget: true }),
+      expect.objectContaining({ providerId: "claude", status: "missing", sameTarget: false }),
     ]);
     expect(result.doctor.healthy).toBe(true);
     expect(result.audit.healthy).toBe(true);
@@ -202,7 +202,7 @@ describe("project Harness greenfield onboarding", () => {
       .rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it.each(["candidate-staged", "skill-published", "claude-linked"] as const)(
+  it.each(["candidate-staged", "skill-published"] as const)(
     "rolls back every transaction-created publication entity after a %s failure",
     async (stage) => {
       const fixture = await createFixture();
@@ -225,8 +225,6 @@ describe("project Harness greenfield onboarding", () => {
       })).rejects.toThrow(/rolled back/);
 
       await expect(readFile(join(fixture.projectRoot, ".agents", "skills", `${fixture.projectId}-harness`, "SKILL.md"), "utf8"))
-        .rejects.toMatchObject({ code: "ENOENT" });
-      await expect(readFile(join(fixture.projectRoot, ".claude", "skills", `${fixture.projectId}-harness`, "SKILL.md"), "utf8"))
         .rejects.toMatchObject({ code: "ENOENT" });
       const record = JSON.parse(await readFile(fixture.workspace.recordPath, "utf8"));
       expect(record.stage).toBe("rolled-back");
@@ -254,11 +252,9 @@ describe("project Harness greenfield onboarding", () => {
     })).rejects.toThrow(/injected post-commit crash/);
 
     const skillRoot = join(fixture.projectRoot, ".agents", "skills", `${fixture.projectId}-harness`);
-    const claudeRoot = join(fixture.projectRoot, ".claude", "skills", `${fixture.projectId}-harness`);
     await mkdir(join(skillRoot, "state", "migration"), { recursive: true });
     await writeFile(join(skillRoot, "state", "migration", "post-commit.json"), "{}\n", "utf8");
     expect(JSON.parse(await readFile(fixture.workspace.recordPath, "utf8"))).toMatchObject({ stage: "completed" });
-    await expect(readFile(join(claudeRoot, "SKILL.md"), "utf8")).resolves.toContain("sample-a1-harness");
 
     const recovered = await recoverProjectHarnessOnboarding(
       fixture.projectId,
@@ -271,7 +267,7 @@ describe("project Harness greenfield onboarding", () => {
     await expect(readFile(prepared.candidate_root, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("prevalidates every rollback target before removing either provider binding", async () => {
+  it("prevalidates the physical Skill before rolling back publication", async () => {
     const fixture = await createFixture();
     const prepared = await prepareProjectHarnessOnboarding({
       ...fixture.options,
@@ -287,7 +283,7 @@ describe("project Harness greenfield onboarding", () => {
       discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
       reviewerId: "auditor-attempt-1",
       async failureInjection(stage) {
-        if (stage !== "claude-linked") return;
+        if (stage !== "skill-published") return;
         await mkdir(join(prepared.skill_root, "state", "migration"), { recursive: true });
         await writeFile(join(prepared.skill_root, "state", "migration", "unexpected.json"), "{}\n", "utf8");
         throw new Error("injected ownership drift");
@@ -295,8 +291,7 @@ describe("project Harness greenfield onboarding", () => {
     })).rejects.toThrow(/candidate no longer matches its reviewed fingerprint/);
 
     await expect(readFile(join(prepared.skill_root, "SKILL.md"), "utf8")).resolves.toContain("sample-a1-harness");
-    await expect(readFile(join(prepared.claude_link, "SKILL.md"), "utf8")).resolves.toContain("sample-a1-harness");
-    expect(JSON.parse(await readFile(fixture.workspace.recordPath, "utf8"))).toMatchObject({ stage: "claude-linked" });
+    expect(JSON.parse(await readFile(fixture.workspace.recordPath, "utf8"))).toMatchObject({ stage: "skill-published" });
   });
 
   it("executes the platform launchers from a Creator-built revision-1 candidate", async () => {
@@ -399,7 +394,6 @@ describe("project Harness greenfield onboarding", () => {
       ...prepared,
       project_root: otherProjectRoot,
       skill_root: join(otherProjectRoot, ".agents", "skills", prepared.skill_name),
-      claude_link: join(otherProjectRoot, ".claude", "skills", prepared.skill_name),
       staged_root: join(
         otherProjectRoot,
         ".agents",

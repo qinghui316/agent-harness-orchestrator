@@ -94,7 +94,7 @@ describe("Workbench Skill-native project Harness onboarding", () => {
     expect(discovery?.handle).toMatchObject({ projectId: registered.project.id, skillRevision: 1 });
     expect(discovery?.binding.providers).toEqual(expect.arrayContaining([
       expect.objectContaining({ providerId: "codex", sameTarget: true }),
-      expect.objectContaining({ providerId: "claude", sameTarget: true }),
+      expect.objectContaining({ providerId: "claude", status: "missing", sameTarget: false }),
     ]));
     await expect(coordinator.resolve(registered.project)).resolves.toMatchObject({ state: "ready" });
     const evidence = await openProjectRuntimeWorkbenchDatabase(registered.paths);

@@ -65,6 +65,7 @@ export interface ProjectHarnessDiagnosticResult {
     providerId: string;
     status: string;
     sameTarget: boolean;
+    required: boolean;
   }>;
   findings: ProjectHarnessFinding[];
 }
@@ -127,16 +128,17 @@ export async function doctorProjectHarness(
       if (!discovery) {
         findings.push(finding("missing_discovery_links", "error", null, "Project has no discoverable project Harness Skill."));
       } else {
-        providerBindings.push(...discovery.binding.providers.map(({ providerId, status, sameTarget }) => ({
+        providerBindings.push(...discovery.binding.providers.map(({ providerId, status, sameTarget, required }) => ({
           providerId,
           status,
           sameTarget,
+          required,
         })));
         if (projectId && discovery.handle.projectId !== projectId) {
           findings.push(finding("discovery_identity_mismatch", "error", null, "Provider discovery resolves a different project id."));
         }
         for (const binding of discovery.binding.providers) {
-          if (binding.status !== "ready" || !binding.sameTarget) {
+          if ((binding.required && binding.status !== "ready") || (binding.status === "ready" && !binding.sameTarget)) {
             findings.push(finding("provider_binding_unhealthy", "error", binding.discoveryPath, `${binding.providerId} does not resolve the canonical project Harness.`));
           }
         }

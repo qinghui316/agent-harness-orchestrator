@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { readdir, realpath } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { basename, isAbsolute, join, resolve } from "node:path";
 import type {
   ProjectHarnessHandle,
   ProjectHarnessDiscoveryPolicy,
@@ -12,7 +12,7 @@ import { projectRelativePath } from "./contracts.js";
 import { fingerprintProjectHarnessContent } from "./fingerprint.js";
 import { hashNativeSkillPackageContent } from "../skill/content-hash.js";
 import { readProjectHarnessManifest } from "./manifest.js";
-import { assertPhysicalDirectory } from "./path-safety.js";
+import { assertNoLinkedPathAncestors, assertPhysicalDirectory } from "./path-safety.js";
 
 interface DiscoveredPath {
   providerId: string;
@@ -30,6 +30,10 @@ export function assertRequiredProjectHarnessBindings(
   discovery: ProjectHarnessDiscovery,
   policy: ProjectHarnessDiscoveryPolicy,
 ): void {
+  const readyBindings = discovery.binding.providers.filter((binding) => binding.status === "ready");
+  if (readyBindings.length === 0) {
+    throw new Error("Project Harness discovery requires at least one ready Host binding.");
+  }
   const requiredProviders = policy.routes.filter((route) => route.required).map((route) => route.providerId);
   const invalidProviders = requiredProviders.filter((providerId) => {
     const binding = discovery.binding.providers.find((candidate) => candidate.providerId === providerId);
@@ -37,7 +41,7 @@ export function assertRequiredProjectHarnessBindings(
   });
   if (invalidProviders.length > 0) {
     throw new Error(
-      `Project Harness required discovery links must be ready and target the same physical Skill: ${invalidProviders.join(", ")}.`,
+      `Project Harness required bindings must be ready and target the canonical physical Skill: ${invalidProviders.join(", ")}.`,
     );
   }
 }
@@ -47,11 +51,7 @@ export async function discoverProjectHarness(
   policy: ProjectHarnessDiscoveryPolicy,
 ): Promise<ProjectHarnessDiscovery | null> {
   assertDiscoveryPolicy(policy);
-  const candidates = (await Promise.all(policy.routes.map((route) => discoverProviderPaths(
-    projectRoot,
-    route.providerId,
-    route.relativeRoot,
-  )))).flat();
+  const candidates = (await Promise.all(policy.routes.map((route) => discoverRoute(projectRoot, route)))).flat();
   if (candidates.length === 0) return null;
 
   const targets = new Map<string, DiscoveredPath[]>();
@@ -106,6 +106,25 @@ export async function discoverProjectHarness(
   };
 }
 
+async function discoverRoute(
+  projectRoot: string,
+  route: ProjectHarnessDiscoveryPolicy["routes"][number],
+): Promise<DiscoveredPath[]> {
+  if (route.enabled === false) return [];
+  if (route.skillRoot !== undefined) {
+    if (!isAbsolute(route.skillRoot)) {
+      throw new Error(`Explicit project Harness Skill root must be absolute: ${route.skillRoot}`);
+    }
+    await assertNoLinkedPathAncestors(route.skillRoot, `${route.providerId} explicit project Harness`);
+    const skillRoot = await assertPhysicalDirectory(route.skillRoot, `${route.providerId} explicit project Harness`);
+    if (!existsSync(join(skillRoot, "state", "manifest.json")) || !existsSync(join(skillRoot, "SKILL.md"))) {
+      return [];
+    }
+    return [{ providerId: route.providerId, discoveryPath: skillRoot, targetPath: skillRoot }];
+  }
+  return discoverProviderPaths(projectRoot, route.providerId, route.relativeRoot);
+}
+
 async function discoverProviderPaths(
   projectRoot: string,
   providerId: DiscoveredPath["providerId"],
@@ -131,14 +150,18 @@ function providerBindings(
   discovered: DiscoveredPath[],
   policy: ProjectHarnessDiscoveryPolicy,
 ): ProviderSkillBinding[] {
-  return policy.routes.map(({ providerId, relativeRoot }) => {
-    const discoveryPath = join(projectRoot, relativeRoot, skillName);
+  return policy.routes.map((route) => {
+    const { providerId } = route;
+    const discoveryPath = route.skillRoot !== undefined
+      ? route.skillRoot
+      : join(projectRoot, route.relativeRoot, skillName);
     const item = discovered.find((candidate) => candidate.providerId === providerId);
     return {
       providerId,
       discoveryPath,
-      status: item ? "ready" : "missing",
+      status: route.enabled === false ? "unavailable" as const : item ? "ready" as const : "missing" as const,
       sameTarget: Boolean(item && normalizeForIdentity(item.targetPath) === normalizeForIdentity(skillRoot)),
+      required: route.required,
     };
   });
 }
@@ -149,7 +172,11 @@ function assertDiscoveryPolicy(policy: ProjectHarnessDiscoveryPolicy): void {
   for (const route of policy.routes) {
     if (!route.providerId.trim()) throw new Error("Project Harness discovery route requires providerId.");
     if (ids.has(route.providerId)) throw new Error(`Duplicate project Harness discovery provider: ${route.providerId}.`);
-    projectRelativePath(route.relativeRoot);
+    if (route.skillRoot !== undefined) {
+      if (!isAbsolute(route.skillRoot)) throw new Error(`Explicit project Harness Skill root must be absolute: ${route.skillRoot}`);
+    } else {
+      projectRelativePath(route.relativeRoot);
+    }
     ids.add(route.providerId);
   }
 }

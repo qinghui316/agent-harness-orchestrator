@@ -13,24 +13,31 @@ afterEach(async () => {
 });
 
 describe("project runtime resolution", () => {
-  it("resolves one canonical Harness, both provider bindings, and sidecar-only runtime paths", async () => {
+  it("resolves one canonical Harness from one Host binding and sidecar-only runtime paths", async () => {
     const fixture = await createFixture();
     const resolved = await resolveProjectRuntime(fixture.project, runtimeOptions(fixture.ahoHome));
 
     expect(resolved.harness).toMatchObject({ projectId: "sample-a1", skillName: "sample-a1-harness" });
     expect(resolved.binding.providers).toEqual([
       expect.objectContaining({ providerId: "codex", status: "ready", sameTarget: true }),
-      expect.objectContaining({ providerId: "claude", status: "ready", sameTarget: true }),
+      expect.objectContaining({ providerId: "claude", status: "missing", sameTarget: false }),
     ]);
     expect(resolved.providerInput).toMatchObject({ source: "project-harness", required: true });
     expect(resolved.paths.sidecarRoot).toBe(join(fixture.ahoHome, "projects", "sample-a1"));
     expect(resolved.paths.worktreeIndexPath).toBe(join(resolved.paths.sidecarRoot, "worktrees", "index.json"));
   });
 
-  it("fails closed when one provider link is missing", async () => {
-    const fixture = await createFixture({ includeClaude: false });
-    await expect(resolveProjectRuntime(fixture.project, runtimeOptions(fixture.ahoHome)))
-      .rejects.toThrow(/required discovery links/);
+  it("fails closed when a selected Host binding is missing", async () => {
+    const fixture = await createFixture();
+    await expect(resolveProjectRuntime(fixture.project, {
+      ahoHome: fixture.ahoHome,
+      discoveryPolicy: {
+        routes: [
+          ...DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY.routes,
+          { providerId: "selected", relativeRoot: ".selected/skills" as never, required: true },
+        ],
+      },
+    })).rejects.toThrow(/required bindings/);
   });
 
   it("requires controlled migration when registry and Harness identities differ", async () => {
@@ -60,7 +67,7 @@ function runtimeOptions(ahoHome: string) {
   return { ahoHome, discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY };
 }
 
-async function createFixture(options: { includeClaude?: boolean } = {}) {
+async function createFixture() {
   const root = await mkdtemp(join(tmpdir(), "aho-runtime-resolution-"));
   cleanup.push(root);
   const projectRoot = join(root, "project");
@@ -77,11 +84,6 @@ async function createFixture(options: { includeClaude?: boolean } = {}) {
     skill_revision: 27,
     analysis_status: "complete",
   }, null, 2)}\n`, "utf8");
-  if (options.includeClaude !== false) {
-    const claudeRoot = join(projectRoot, ".claude", "skills");
-    await mkdir(claudeRoot, { recursive: true });
-    await symlink(skillRoot, join(claudeRoot, skillName), process.platform === "win32" ? "junction" : "dir");
-  }
   const project: ManagedProject = {
     id: "sample-a1",
     name: "sample",
