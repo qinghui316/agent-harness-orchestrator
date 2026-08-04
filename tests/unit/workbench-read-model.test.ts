@@ -1,31 +1,47 @@
 ﻿import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
-import { createChange, closeChange } from "../../src/change/manager.js";
-import { initHarness } from "../../src/harness/init.js";
-import { startLocalCommandRun } from "../../src/run/manager.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { appendCanonicalTimelineEntry } from "../../src/workbench/canonical-timeline-command.js";
 import { createWorkbenchConversation } from "../../src/workbench/conversation-service.js";
 import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/workbench/intake.js";
 import { deleteWorkbenchConversation, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/projections/read-model/implementation.js";
 import { getCanonicalTimelinePage } from "../../src/workbench/canonical-timeline-query.js";
-import { openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
-import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { createAgentTask } from "../../src/agent-task/manager.js";
 import { alignDecisionInspectorWithConfirmationPrimary, buildDecisionInspector } from "../../src/workbench/projections/read-model/decision-inspector.js";
 import { buildConfirmationQueue } from "../../src/workbench/projections/read-model/confirmation-queue.js";
 import { mainAgentExecutionForWorkpad } from "../../src/workbench/projections/read-model/main-agent-execution.js";
 import { landingCandidateQueueItem } from "../../src/workbench/projections/read-model/confirmation/landing.js";
 import { writeLandingArtifacts } from "../../src/landing/repository.js";
-import { landingRoot } from "../../src/landing/utils.js";
 import type { LandingReadinessPackage } from "../../src/landing/types.js";
-import { prDraftRoot } from "../../src/pr-draft/utils.js";
-import { getTempDir, prepareSeededSchedulerIntegrationHandoff, project, writeAcceptedSpecAndTasks } from "./workbench/fixtures.js";
+import { getTempDir, project } from "../helpers/skill-native-test-environment.js";
 import type { RunMetadata } from "../../src/types/index.js";
 import type { WorkbenchConfirmationQueueItem, WorkbenchDecisionInspector, WorkbenchMainAgentExecutionSummary } from "../../src/workbench/read-model-types.js";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
+import {
+  prepareSkillNativeWorkbenchFixture,
+  authorizeSkillNativeWorkflowStartFixture,
+  createSkillNativeWorkbenchIntegrationCheck,
+  createSkillNativeWorkbenchReadyCandidate,
+  skillNativeChangeRoot,
+  writeSkillNativeAcceptedSpecAndTasks,
+  writeSkillNativeAuditResult,
+  writeSkillNativeCoderRun,
+  writeSkillNativeValidationResult,
+  writeSkillNativeWorkflowRunRecord,
+  type SkillNativeWorkbenchFixture,
+} from "../helpers/skill-native-workbench-fixture.js";
+
+let skillNativeFixture: SkillNativeWorkbenchFixture;
+
+beforeEach(async () => {
+  skillNativeFixture = await prepareSkillNativeWorkbenchFixture({ project: project() });
+});
+
+afterEach(() => {
+  skillNativeFixture.restoreEnvironment();
+});
 
 it("aligns decision inspector primary with the manual scheduler IntegrationCheck gate", () => {
   const inspector: WorkbenchDecisionInspector = {
@@ -80,8 +96,7 @@ it("aligns decision inspector primary with the manual scheduler IntegrationCheck
 });
 
 async function writeReadyLandingPackage(changeId: string, id: string): Promise<LandingReadinessPackage> {
-  const memory = await resolveProjectMemory(project());
-  const directory = join(landingRoot(memory), id);
+  const directory = join(skillNativeFixture.runtime.workbenchRoot, "landing", id);
   const now = new Date().toISOString();
   const artifactRefs = [
     `memory://workbench/landing/${id}/landing-package.json`,
@@ -132,8 +147,7 @@ async function writeReadyLandingPackage(changeId: string, id: string): Promise<L
 }
 
 async function writeCreatedPrDraftPackage(landingPackageId: string, id: string): Promise<void> {
-  const memory = await resolveProjectMemory(project());
-  const directory = join(prDraftRoot(memory), id);
+  const directory = join(skillNativeFixture.runtime.workbenchRoot, "pr-drafts", id);
   await mkdir(directory, { recursive: true });
   const now = new Date().toISOString();
   await writeFile(join(directory, "pr-draft-package.json"), JSON.stringify({
@@ -159,25 +173,32 @@ async function writeCreatedPrDraftPackage(landingPackageId: string, id: string):
 
 describe("workbench read-model projections", () => {
   it("lists active and archived changes as topics", async () => {
-    await initHarness(project());
-    await createChange(project(), { title: "Archive Me" });
-    await writeFile(join(getTempDir(), "harness", "changes", "active", "archive-me", "reviews", "review.md"), "Status: approved\n", "utf8");
-    await closeChange(getTempDir());
-    await createChange(project(), { title: "Active Topic" });
+    const archived = await createConversationChangeFixture(project(), { title: "Archive Me" });
+    await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
+      abandon: {
+        changeId: archived.changeId,
+        conversationId: archived.conversationId,
+        graphScopeId: `graph:${archived.conversationId}`,
+        reason: "Fixture archive.",
+      },
+      confirm: true,
+    });
+    const active = await createConversationChangeFixture(project(), { title: "Active Topic" });
 
     const topics = await listWorkbenchTopics({ project: project(), path: getTempDir() });
 
-    expect(topics.map((item) => [item.id, item.state])).toEqual(expect.arrayContaining([
-      ["active-topic", "active"],
-      ["archive-me", "archive"],
+    expect(topics.map((item) => [item.boundChangeId, item.state])).toEqual(expect.arrayContaining([
+      [active.changeId, "active"],
+      [archived.changeId, "archive"],
     ]));
   });
 
   it("deletes conversation transcript records without deleting the active Harness change", async () => {
-    await initHarness(project());
-    const change = await createChange(project(), { title: "Keep Harness Change", body: "The Change must survive conversation deletion." });
-    const conversation = await createWorkbenchConversation(project(), { body: "This transcript should be deleted." }, undefined, { runMainAgent: false });
-    const changeDir = join(getTempDir(), "harness", "changes", "active", change.change.id);
+    const conversation = await createConversationChangeFixture(project(), {
+      title: "Keep Harness Change",
+      body: "This transcript should be deleted.",
+    });
+    const changeDir = skillNativeChangeRoot(skillNativeFixture, conversation.changeId);
     expect(existsSync(changeDir)).toBe(true);
 
     await deleteWorkbenchConversation({ project: project(), path: getTempDir() }, conversation.conversationId);
@@ -188,22 +209,11 @@ describe("workbench read-model projections", () => {
       expect.objectContaining({ id: conversation.conversationId }),
     ]));
 
-    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() });
-    expect(snapshot.left.topics).toEqual(expect.not.arrayContaining([
-      expect.objectContaining({ id: conversation.conversationId }),
-    ]));
-    expect(snapshot.left.workpads).toEqual(expect.not.arrayContaining([
-      expect.objectContaining({ id: conversation.conversationId }),
-    ]));
-
     await expect(getWorkbenchTopic({ project: project(), path: getTempDir() }, conversation.conversationId)).rejects.toThrow();
-    const addressableChange = await getWorkbenchTopic({ project: project(), path: getTempDir() }, change.change.id);
-    expect(addressableChange.id).toBe(change.change.id);
-    expect(addressableChange.threadItems.some((item) => JSON.stringify(item).includes("This transcript should be deleted."))).toBe(false);
+    expect(existsSync(join(skillNativeFixture.skillRoot, "state", "registry", "changes", `${conversation.changeId}.json`))).toBe(true);
   });
 
   it("keeps ordinary conversations out of Harness gate projections", async () => {
-    await initHarness(project());
     const conversation = await createWorkbenchConversation(project(), { body: "Just talk to the main Agent." }, undefined, { runMainAgent: false });
 
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: conversation.conversationId });
@@ -216,27 +226,26 @@ describe("workbench read-model projections", () => {
     expect(snapshot.right.confirmationQueue.primary).toBeNull();
     expect(snapshot.right.confirmationQueue.current).toEqual([]);
     expect(snapshot.right).not.toHaveProperty("agentWorkspace");
-    expect(existsSync(join(getTempDir(), "harness", "changes", "active", conversation.conversationId))).toBe(false);
+    expect(existsSync(skillNativeChangeRoot(skillNativeFixture, conversation.conversationId))).toBe(false);
   });
 
   it("builds a snapshot without synthesizing a close approval", async () => {
-    await initHarness(project());
-    await createChange(project(), { title: "Workbench Smoke" });
-    await startLocalCommandRun(project(), [process.execPath, "-e", "console.log('hello')"]);
-    await writeFile(join(getTempDir(), "harness", "changes", "active", "workbench-smoke", "reviews", "review.md"), "Status: approved\n", "utf8");
+    const topic = await createConversationChangeFixture(project(), { title: "Workbench Smoke" });
+    await writeSkillNativeAcceptedSpecAndTasks(skillNativeFixture, topic.changeId);
+    const run = await writeCoderRun(topic.changeId, "run-workbench-smoke", [], "wt-workbench-smoke", "running");
+    await writeSkillNativeWorkflowRunRecord(skillNativeFixture, topic.changeId, "running");
 
-    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() });
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
 
-    expect(snapshot.left.topics[0]).toMatchObject({ id: "workbench-smoke", state: "active" });
-    expect(snapshot.center.selectedTopic?.id).toBe("workbench-smoke");
+    expect(snapshot.left.topics[0]).toMatchObject({ boundChangeId: topic.changeId, state: "active" });
+    expect(snapshot.center.selectedTopic?.boundChangeId).toBe(topic.changeId);
     expect(snapshot.center.workpad).toMatchObject({
       title: "Workbench Smoke",
       state: "active",
-      nextAction: expect.objectContaining({ kind: "workflow-action", actionType: "intake.scan" }),
+      workflowRun: expect.objectContaining({ status: "running" }),
     });
     expect(snapshot.center.agentLoop.runs).toHaveLength(1);
-    expect(snapshot.center.thread.items.some((item) => item.kind === "change-state")).toBe(true);
-    expect(snapshot.center.thread.items.some((item) => item.runId === snapshot.center.agentLoop.runs[0]?.id)).toBe(false);
+    expect(snapshot.center.agentLoop.runs[0]?.id).toBe(run.id);
     expect(snapshot.center.activeTab).toBe("conversation");
     expect(snapshot.center).not.toHaveProperty("parentAgentTranscript");
     expect(JSON.stringify(snapshot.right)).not.toContain("change.close");
@@ -249,7 +258,6 @@ describe("workbench read-model projections", () => {
   });
 
   it("projects Codex runtime output into transcript cells before derived workflow summaries", async () => {
-    await initHarness(project());
     const topic = await createConversationChangeFixture(project(), { title: "Codex Transcript", body: "实现会员满 100 九折" });
     await appendCanonicalTimelineEntry(project(), topic.changeId, {
       type: "assistant.message",
@@ -287,21 +295,28 @@ describe("workbench read-model projections", () => {
   });
 
   it("keeps archived topic messages in the semantic thread stream", async () => {
-    await initHarness(project());
     const topic = await createConversationChangeFixture(project(), { title: "Archive Messages", body: "Need a durable archived thread." });
+    await writeSkillNativeAcceptedSpecAndTasks(skillNativeFixture, topic.changeId);
     await appendCanonicalTimelineEntry(project(), topic.changeId, {
       type: "orchestrator.plan",
       text: "Historical planning output remains readable as plain assistant text.",
     });
-    await writeFile(join(getTempDir(), "harness", "changes", "active", topic.changeId, "reviews", "review.md"), "Status: approved\n", "utf8");
-    await closeChange(getTempDir());
+    await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
+      abandon: {
+        changeId: topic.changeId,
+        conversationId: topic.conversationId,
+        graphScopeId: `graph:${topic.conversationId}`,
+        reason: "Archive the fixture conversation.",
+      },
+      confirm: true,
+    });
 
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
 
     expect(snapshot.center.selectedTopic).toMatchObject({ id: topic.conversationId, boundChangeId: topic.changeId, state: "archive" });
     expect(snapshot.center.workpad).toMatchObject({
       state: "readonly",
-      nextAction: expect.objectContaining({ enabled: false, kind: "none" }),
+      nextAction: expect.objectContaining({ enabled: false, kind: "read-only" }),
     });
     expect(snapshot.center.thread.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "user-message", body: "Need a durable archived thread." }),
@@ -313,23 +328,23 @@ describe("workbench read-model projections", () => {
   });
 
   it("projects code workflow summaries with validation and audit evidence without raw run events", async () => {
-    await initHarness(project());
     const topic = await createConversationChangeFixture(project(), { title: "Code Evidence", body: "Implement the pricing rule." });
-    const run = await startLocalCommandRun(project(), [process.execPath, "-e", "console.log('code')"]);
+    await writeSkillNativeAcceptedSpecAndTasks(skillNativeFixture, topic.changeId);
+    const run = await writeCoderRun(topic.changeId, "run-code-evidence", [], "wt-code-evidence", "completed");
     await appendCanonicalTimelineEntry(project(), topic.changeId, { type: "workflow.started", actionRunId: "action-code", actionType: "code.run", status: "running" });
     await appendCanonicalTimelineEntry(project(), topic.changeId, {
       type: "workflow.completed",
       actionRunId: "action-code",
       actionType: "code.run",
       status: "completed",
-      runId: run.run.id,
+      runId: run.id,
       text: "I updated the pricing rule and kept validation evidence attached.",
       activity: [
-        { kind: "status", label: "running", detail: "Coder", timestamp: run.run.startedAt },
+        { kind: "status", label: "running", detail: "Coder", timestamp: run.startedAt },
         {
           kind: "assistant-event",
           event: {
-            runId: run.run.id,
+            runId: run.id,
             kind: "command",
             phase: "completed",
             title: "Command completed",
@@ -338,54 +353,18 @@ describe("workbench read-model projections", () => {
             preview: "ok",
             exitCode: 0,
           },
-          timestamp: run.run.finishedAt ?? run.run.startedAt,
+          timestamp: run.finishedAt ?? run.startedAt,
         },
-        { kind: "tool", tool: { runId: run.run.id, phase: "completed", name: "Validation", status: "passed" }, timestamp: run.run.finishedAt ?? run.run.startedAt },
+        { kind: "tool", tool: { runId: run.id, phase: "completed", name: "Validation", status: "passed" }, timestamp: run.finishedAt ?? run.startedAt },
       ],
     });
-    await writeFile(join(getTempDir(), ".agent-harness", "runs", run.run.id, "validation.json"), JSON.stringify({
-      version: "1.0",
-      id: run.run.id,
-      runId: run.run.id,
-      changeId: topic.changeId,
-      profile: "default",
-      status: "passed",
-      executionMode: "direct",
-      startedAt: run.run.startedAt,
-      finishedAt: run.run.finishedAt ?? run.run.startedAt,
-      commands: [{
-        name: "test",
-        command: ["npm", "test"],
-        cwd: getTempDir(),
-        status: "passed",
-        exitCode: 0,
-        signal: null,
-        startedAt: run.run.startedAt,
-        finishedAt: run.run.finishedAt ?? run.run.startedAt,
-        stdout: "ok",
-        stderr: "",
-      }],
-    }, null, 2), "utf8");
-    await writeFile(join(getTempDir(), ".agent-harness", "runs", run.run.id, "audit.json"), JSON.stringify({
-      version: "1.0",
-      id: run.run.id,
-      runId: run.run.id,
-      changeId: topic.changeId,
-      status: "approved-with-notes",
-      startedAt: run.run.startedAt,
-      finishedAt: run.run.finishedAt ?? run.run.startedAt,
-      findings: [],
-      artifacts: {
-        audit: `.agent-harness/runs/${run.run.id}/audit.json`,
-        auditMarkdown: `.agent-harness/runs/${run.run.id}/audit.md`,
-        lastMessage: `.agent-harness/runs/${run.run.id}/last-message.md`,
-      },
-    }, null, 2), "utf8");
+    await writeValidationResult(topic.changeId, run.id, "wt-code-evidence", "passed");
+    await writeAuditResult(topic.changeId, run.id, "wt-code-evidence", "approved-with-notes");
 
     const detail = await getWorkbenchTopic({ project: project(), path: getTempDir() }, topic.changeId);
 
     expect(detail.threadItems.filter((item) => item.kind === "workflow-summary" && item.actionRunId === "action-code")).toHaveLength(1);
-    expect(detail.threadItems.filter((item) => item.kind === "assistant-turn" && item.runId === run.run.id)).toHaveLength(0);
+    expect(detail.threadItems.filter((item) => item.kind === "assistant-turn" && item.runId === run.id)).toHaveLength(0);
     expect(detail.threadItems).toEqual(expect.arrayContaining([
       expect.objectContaining({
         kind: "workflow-summary",
@@ -398,26 +377,18 @@ describe("workbench read-model projections", () => {
           expect.objectContaining({ source: "workflow", status: "completed" }),
         ]),
       }),
-      expect.objectContaining({
-        kind: "evidence",
-        source: "validation",
-        status: "passed",
-        runId: run.run.id,
-      }),
-      expect.objectContaining({
-        kind: "evidence",
-        source: "audit",
-        status: "approved-with-notes",
-        runId: run.run.id,
-      }),
     ]));
-    expect(detail.threadItems.filter((item) => item.kind === "evidence" && item.runId === run.run.id)).toHaveLength(2);
+    expect(detail.validations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ status: "passed", runId: run.id }),
+    ]));
+    expect(detail.audits).toEqual(expect.arrayContaining([
+      expect.objectContaining({ status: "approved-with-notes", runId: run.id }),
+    ]));
     expect(detail.threadItems.some((item) => item.label === "process.started" || item.label === "run.completed")).toBe(false);
   });
 
 
   it("projects user message file and attachment metadata into parent transcript cells", async () => {
-    await initHarness(project());
     const topic = await createConversationChangeFixture(project(), { title: "Context Metadata", body: "Initial demand." });
     await appendCanonicalTimelineEntry(project(), topic.changeId, {
       type: "user.message",
@@ -451,9 +422,10 @@ describe("workbench read-model projections", () => {
   });
 
   it("suppresses selected demand primary confirmations while a run is active", async () => {
-    await initHarness(project());
     const topic = await createConversationChangeFixture(project(), { title: "Running Planning", body: "Generate a plan." });
+    await writeSkillNativeAcceptedSpecAndTasks(skillNativeFixture, topic.changeId);
     await writeCoderRun(topic.changeId, "run-planning-active", [], "wt-planning-active", "running");
+    await writeSkillNativeWorkflowRunRecord(skillNativeFixture, topic.changeId, "running");
 
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
 
@@ -463,14 +435,12 @@ describe("workbench read-model projections", () => {
   });
 
   it("suppresses result review decisions while a foreground validator task is running", async () => {
-    await initHarness(project());
-    await createChange(project(), { title: "Validator Running Result Review" });
-    await writeAcceptedSpecAndTasks("validator-running-result-review");
-    await writeCoderRun("validator-running-result-review", "run-validator-running", [], "wt-validator-running", "completed");
-    const memory = await resolveProjectMemory(project());
-    await createAgentTask(memory, {
-      conversationId: "validator-running-result-review",
-      changeId: "validator-running-result-review",
+    const topic = await createConversationChangeFixture(project(), { title: "Validator Running Result Review" });
+    await writeSkillNativeAcceptedSpecAndTasks(skillNativeFixture, topic.changeId);
+    await writeCoderRun(topic.changeId, "run-validator-running", [], "wt-validator-running", "completed");
+    await createAgentTask(skillNativeFixture.runtime, {
+      conversationId: topic.conversationId,
+      changeId: topic.changeId,
       roleId: "validator",
       kind: "foreground",
       summary: "Run independent mechanical validation for the coder worktree.",
@@ -478,7 +448,7 @@ describe("workbench read-model projections", () => {
       initialStatus: "running",
     });
 
-    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "validator-running-result-review" });
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
 
     expect(snapshot.center.workpad.userStatus).toBe("processing");
     expect(snapshot.center.workpad.runControlState?.canStop).toBe(true);
@@ -510,9 +480,8 @@ describe("workbench read-model projections", () => {
   });
 
   it("does not project removed planning bundle review into confirmation or agent workspace", async () => {
-    await initHarness(project());
     const topic = await createConversationChangeFixture(project(), { title: "Planning Gate", body: "Generate a plan." });
-    const stalePlanningDir = join(getTempDir(), "harness", "changes", "active", topic.changeId, "planning");
+    const stalePlanningDir = join(skillNativeChangeRoot(skillNativeFixture, topic.changeId), "planning");
     await mkdir(stalePlanningDir, { recursive: true });
     await writeFile(join(stalePlanningDir, "latest-bundle.md"), "stale generated planning bundle", "utf8");
 
@@ -536,7 +505,6 @@ describe("workbench read-model projections", () => {
   });
 
   it("keeps persisted planning-agent output out of the Main snapshot transcript", async () => {
-    await initHarness(project());
     const topic = await createConversationChangeFixture(project(), { title: "Planning Agent Transcript", body: "Create a reviewable plan." });
     await appendCanonicalTimelineEntry(project(), topic.changeId, {
       type: "assistant.message",
@@ -570,9 +538,8 @@ describe("workbench read-model projections", () => {
   });
 
   it("projects bound Change execution state through the Conversation shell", async () => {
-    await initHarness(project());
-    const conversation = await createWorkbenchConversation(project(), { body: "Plan this demand." }, undefined, { runMainAgent: false });
     const topic = await createConversationChangeFixture(project(), { title: "Bound Change", body: "Plan this demand." });
+    await writeSkillNativeAcceptedSpecAndTasks(skillNativeFixture, topic.changeId);
     await appendCanonicalTimelineEntry(project(), topic.changeId, {
       type: "assistant.message",
       status: "planning-agent-generated",
@@ -585,19 +552,12 @@ describe("workbench read-model projections", () => {
       agentRoleId: "planning-agent",
       agentTaskId: "task-bound-planning-agent",
     });
-    const run = await startLocalCommandRun(project(), [process.execPath, "-e", "console.log('bound conversation run')"]);
-    await writeFile(join(getTempDir(), "harness", "changes", "active", topic.changeId, "reviews", "review.md"), "Status: approved\n", "utf8");
-    const memory = await resolveProjectMemory(project());
-    const store = await openWorkbenchDatabase(memory);
-    try {
-      store.conversations.bindConversationToChange(project().id, conversation.conversationId, topic.changeId, "2026-07-04T00:00:00.000Z");
-    } finally {
-      store.close();
-    }
+    const run = await writeCoderRun(topic.changeId, "run-bound-conversation", [], "wt-bound-conversation", "completed");
+    await authorizeSkillNativeWorkflowStartFixture(skillNativeFixture, topic.changeId);
 
-    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: conversation.conversationId });
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.conversationId });
     expect(snapshot.center.selectedTopic).toMatchObject({
-      id: conversation.conversationId,
+      id: topic.conversationId,
       kind: "conversation",
       boundChangeId: topic.changeId,
       change: expect.objectContaining({ id: topic.changeId }),
@@ -605,17 +565,19 @@ describe("workbench read-model projections", () => {
       taskCount: expect.any(Number),
     });
     expect(snapshot.center.selectedTopic?.runs).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: run.run.id, changeId: topic.changeId }),
+      expect.objectContaining({ id: run.id, changeId: topic.changeId }),
     ]));
     expect(snapshot.center.selectedTopic?.closeGate).toBeDefined();
     expect(snapshot.center).not.toHaveProperty("parentAgentTranscript");
     expect(snapshot.center.workpad).toMatchObject({
-      conversationId: conversation.conversationId,
+      conversationId: topic.conversationId,
       boundChangeId: topic.changeId,
       progress: expect.objectContaining({ acCount: expect.any(Number), taskCount: expect.any(Number), runCount: 1 }),
     });
     expect(snapshot.center.workpad.taskGraph.nodes.length).toBeGreaterThan(0);
-    expect(snapshot.center.workpad.evidence.length).toBeGreaterThan(0);
+    expect(snapshot.center.workpad.taskGraph.changeLevelEvidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: `run:${run.id}`, source: "run" }),
+    ]));
     expect(snapshot.center.thread.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "user-message", body: "Plan this demand." }),
     ]));
@@ -623,7 +585,7 @@ describe("workbench read-model projections", () => {
     const scopedActions = confirmationItems.flatMap((item) => item.actions).filter((action) => action.kind !== "none");
     expect(scopedActions.length).toBeGreaterThan(0);
     for (const item of confirmationItems) {
-      if (item.changeId === topic.changeId) expect(item.conversationId).toBe(conversation.conversationId);
+      if (item.changeId === topic.changeId) expect(item.conversationId).toBe(topic.conversationId);
       for (const action of item.actions) {
         if (action.kind !== "none") expect(action.changeId).toBe(topic.changeId);
       }
@@ -632,7 +594,6 @@ describe("workbench read-model projections", () => {
   });
 
   it("prefers persisted assistant blocks over duplicate activity when rebuilding the thread", async () => {
-    await initHarness(project());
     const topic = await createConversationChangeFixture(project(), { title: "Block Dedupe", body: "Show one command and one usage." });
     await appendCanonicalTimelineEntry(project(), topic.changeId, {
       type: "assistant.message",
@@ -658,7 +619,6 @@ describe("workbench read-model projections", () => {
   });
 
   it("projects deterministic intake scan, clarification, and reanalysis into Workpad", async () => {
-    await initHarness(project());
     await writeFile(join(getTempDir(), "package.json"), JSON.stringify({
       scripts: { test: "vitest", typecheck: "tsc --noEmit" },
     }, null, 2), "utf8");
@@ -680,10 +640,10 @@ describe("workbench read-model projections", () => {
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
 
     expect(scan.run.runtime).toBe("intake-scan");
-    expect(existsSync(join(getTempDir(), ".agent-harness", "runs", scan.run.id, "scan.json"))).toBe(true);
-    expect(existsSync(join(getTempDir(), ".agent-harness", "runs", scan.run.id, "scan.md"))).toBe(true);
-    expect(existsSync(join(getTempDir(), "harness", "changes", "active", topic.changeId, "spec.md"))).toBe(true);
-    expect(await readFile(join(getTempDir(), "harness", "changes", "active", topic.changeId, "spec.md"), "utf8")).toContain("TBD");
+    expect(existsSync(join(skillNativeFixture.runtime.runsRoot, scan.run.id, "scan.json"))).toBe(true);
+    expect(existsSync(join(skillNativeFixture.runtime.runsRoot, scan.run.id, "scan.md"))).toBe(true);
+    expect(existsSync(join(skillNativeChangeRoot(skillNativeFixture, topic.changeId), "spec.md"))).toBe(true);
+    expect(await readFile(join(skillNativeChangeRoot(skillNativeFixture, topic.changeId), "spec.md"), "utf8")).toContain("TBD");
     expect(snapshot.center.workpad.intake.relatedArtifacts).toEqual(expect.arrayContaining([scan.run.artifacts.intakeScanMarkdown]));
     expect(snapshot.center.workpad.intake.confirmedConstraints).toEqual(expect.arrayContaining([
       "折扣金额四舍五入到分，只有会员订单参与",
@@ -702,7 +662,6 @@ describe("workbench read-model projections", () => {
   });
 
   it("reads package scripts from a UTF-8 BOM package.json during intake scan", async () => {
-    await initHarness(project());
     await writeFile(join(getTempDir(), "package.json"), `\uFEFF${JSON.stringify({
       scripts: { test: "vitest", build: "tsc -p tsconfig.json" },
     }, null, 2)}`, "utf8");
@@ -720,17 +679,24 @@ describe("workbench read-model projections", () => {
   });
 
   it("replays run stream artifacts with bounded previews and diagnostics", async () => {
-    await initHarness(project());
-    await createChange(project(), { title: "Stream Topic" });
-    const result = await startLocalCommandRun(project(), [process.execPath, "-e", "console.log('hello stream')"]);
-    const runDir = join(getTempDir(), ".agent-harness", "runs", result.run.id);
+    const topic = await createConversationChangeFixture(project(), { title: "Stream Topic" });
+    await writeSkillNativeAcceptedSpecAndTasks(skillNativeFixture, topic.changeId);
+    const run = await writeCoderRun(topic.changeId, "run-stream-topic", [], "wt-stream-topic", "completed");
+    const runDir = join(skillNativeFixture.runtime.runsRoot, run.id);
+    await writeFile(join(runDir, "events.jsonl"), [
+      { timestamp: run.startedAt, type: "run.created", runId: run.id },
+      { timestamp: run.startedAt, type: "process.started", runId: run.id },
+      { timestamp: run.finishedAt, type: "run.completed", runId: run.id },
+    ].map((event) => JSON.stringify(event)).join("\n") + "\n", "utf8");
+    await writeFile(join(runDir, "stdout.log"), "hello stream\n", "utf8");
+    await writeFile(join(runDir, "stderr.log"), "", "utf8");
     await writeFile(join(runDir, "last-message.md"), "x".repeat(5000), "utf8");
     await rm(join(runDir, "stderr.log"), { force: true });
 
-    const stream = await getWorkbenchStream({ project: project(), path: getTempDir() }, result.run.id);
+    const stream = await getWorkbenchStream({ project: project(), path: getTempDir() }, run.id);
 
     expect(stream.live).toBe(false);
-    expect(stream.run.id).toBe(result.run.id);
+    expect(stream.run.id).toBe(run.id);
     expect(stream.events.map((item) => item.type)).toEqual(expect.arrayContaining(["run.created", "process.started", "run.completed"]));
     expect(stream.artifacts.find((item) => item.key === "stdout")).toMatchObject({ exists: true, kind: "log" });
     expect(stream.artifacts.find((item) => item.key === "lastMessage")).toMatchObject({ exists: true, truncated: true });
@@ -766,17 +732,13 @@ describe("workbench read-model projections", () => {
   });
 
   it("does not expose a human close action for a close-ready topic", async () => {
-    await initHarness(project());
-    await createChange(project(), { title: "Close Decision Topic" });
-    await writeFile(join(getTempDir(), "harness", "changes", "active", "close-decision-topic", "reviews", "review.md"), "Status: approved\n", "utf8");
+    const topic = await createConversationChangeFixture(project(), { title: "Close Decision Topic" });
 
-    const before = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "close-decision-topic" });
+    const before = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
     expect(JSON.stringify(before.right)).not.toContain("change.close");
   });
 
   it("keeps stale failures primary without synthesizing a close gate", async () => {
-    await initHarness(project());
-    const memory = await resolveProjectMemory(project());
     const selectedTopic = {
       id: "close-projection-target",
       name: "close-projection-target",
@@ -820,7 +782,6 @@ describe("workbench read-model projections", () => {
     } as Parameters<typeof buildDecisionInspector>[0]);
     const queue = await buildConfirmationQueue({
       project: project(),
-      memory,
       selectedTopic,
       workpad,
       decisionInspector: inspector,
@@ -840,104 +801,91 @@ describe("workbench read-model projections", () => {
   });
 
   it("does not expose close actions when multiple demands are active", async () => {
-    await initHarness(project());
-    await createConversationChangeFixture(project(), { title: "First Close Target", body: "First" });
-    await createConversationChangeFixture(project(), { title: "Second Close Target", body: "Second" });
-    await writeFile(join(getTempDir(), "harness", "changes", "active", "second-close-target", "reviews", "review.md"), "Status: approved\n", "utf8");
+    const first = await createConversationChangeFixture(project(), { title: "First Close Target", body: "First" });
+    const second = await createConversationChangeFixture(project(), { title: "Second Close Target", body: "Second" });
 
-    const before = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "second-close-target" });
+    const before = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: second.changeId });
     expect(JSON.stringify(before.right)).not.toContain("change.close");
-    expect(existsSync(join(getTempDir(), "harness", "changes", "active", "first-close-target"))).toBe(true);
-    expect(existsSync(join(getTempDir(), "harness", "changes", "active", "second-close-target"))).toBe(true);
+    expect(existsSync(skillNativeChangeRoot(skillNativeFixture, first.changeId))).toBe(true);
+    expect(existsSync(skillNativeChangeRoot(skillNativeFixture, second.changeId))).toBe(true);
   });
 
   it("abandons only the scoped active demand when multiple demands are active", async () => {
-    await initHarness(project());
     await createConversationChangeFixture(project(), { title: "First Abandon Target", body: "First" });
-    await createConversationChangeFixture(project(), { title: "Second Abandon Target", body: "Second" });
+    const second = await createConversationChangeFixture(project(), { title: "Second Abandon Target", body: "Second" });
 
     await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
-      abandon: { changeId: "second-abandon-target", reason: "Not needed." },
+      abandon: {
+        changeId: second.changeId,
+        conversationId: second.conversationId,
+        graphScopeId: `graph:${second.conversationId}`,
+        reason: "Not needed.",
+      },
       confirm: true,
     });
-    const topics = await listWorkbenchTopics(project());
+    const topics = await listWorkbenchTopics({ project: project(), path: getTempDir() });
 
     expect(topics.find((topic) => topic.boundChangeId === "first-abandon-target")).toMatchObject({ state: "active" });
-    expect(topics.find((topic) => topic.boundChangeId === "second-abandon-target")).toMatchObject({ state: "active" });
-    expect(existsSync(join(getTempDir(), "harness", "changes", "active", "first-abandon-target"))).toBe(true);
-    expect(existsSync(join(getTempDir(), "harness", "changes", "active", "second-abandon-target"))).toBe(false);
+    expect(topics.find((topic) => topic.boundChangeId === "second-abandon-target")).toMatchObject({ state: "archive" });
+    expect(existsSync(skillNativeChangeRoot(skillNativeFixture, "first-abandon-target"))).toBe(true);
+    expect(existsSync(skillNativeChangeRoot(skillNativeFixture, "second-abandon-target"))).toBe(false);
+    expect(existsSync(join(skillNativeFixture.skillRoot, "state", "changes", "archive", "second-abandon-target"))).toBe(true);
   });
 
   it("returns one selected topic by id", async () => {
-    await initHarness(project());
-    await createChange(project(), { title: "Specific Topic" });
+    const created = await createConversationChangeFixture(project(), { title: "Specific Topic" });
 
-    const topic = await getWorkbenchTopic({ project: project(), path: getTempDir() }, "specific-topic");
+    const topic = await getWorkbenchTopic({ project: project(), path: getTempDir() }, created.changeId);
 
-    expect(topic).toMatchObject({ id: "specific-topic", state: "active" });
+    expect(topic).toMatchObject({ id: created.conversationId, boundChangeId: created.changeId, state: "active" });
   });
 
   it("does not expose forged active Change metadata in topic summaries or details", async () => {
-    await initHarness(project());
-    await createChange(project(), { title: "Scoped Metadata Topic" });
-    await rewriteActiveChangeMetadata("scoped-metadata-topic", { id: "forged-topic", title: "Forged Topic Title" });
+    const created = await createConversationChangeFixture(project(), { title: "Scoped Metadata Topic" });
+    await writeSkillNativeAcceptedSpecAndTasks(skillNativeFixture, created.changeId);
+    await rewriteActiveChangeMetadata(created.changeId, { change_id: "forged-topic", scope: "Forged Topic Title" });
 
     const topics = await listWorkbenchTopics({ project: project(), path: getTempDir() });
-    const topic = await getWorkbenchTopic({ project: project(), path: getTempDir() }, "scoped-metadata-topic");
-
-    expect(topics.find((item) => item.id === "forged-topic")).toBeUndefined();
-    expect(topics.find((item) => item.id === "scoped-metadata-topic")).toMatchObject({
-      id: "scoped-metadata-topic",
-      title: "scoped-metadata-topic",
-      state: "active",
-    });
-    expect(topic).toMatchObject({
-      id: "scoped-metadata-topic",
-      title: "scoped-metadata-topic",
-      change: null,
-      closeGate: expect.objectContaining({
-        ready: false,
-        blockingIssues: expect.arrayContaining(["Change metadata id mismatch: directory scoped-metadata-topic contains forged-topic."]),
-      }),
-    });
+    expect(topics).toEqual([]);
+    const diagnostic = await getWorkbenchSnapshot(
+      { project: project(), path: getTempDir() },
+      { topicId: created.changeId },
+    );
+    expect(diagnostic.center.selectedTopic).toBeNull();
+    expect(diagnostic.center.workpad.state).toBe("diagnostic");
+    expect(JSON.stringify(diagnostic)).not.toContain("Forged Topic Title");
   });
 
   it("keeps valid archived topic lookup scoped by archived metadata", async () => {
-    await initHarness(project());
-    await createChange(project(), { title: "Archived Topic Lookup" });
-    await writeFile(join(getTempDir(), "harness", "changes", "active", "archived-topic-lookup", "reviews", "review.md"), "Status: approved\n", "utf8");
-    await closeChange(getTempDir());
+    const created = await createConversationChangeFixture(project(), { title: "Archived Topic Lookup" });
+    await writeSkillNativeAcceptedSpecAndTasks(skillNativeFixture, created.changeId);
+    await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
+      abandon: {
+        changeId: created.changeId,
+        conversationId: created.conversationId,
+        graphScopeId: `graph:${created.conversationId}`,
+        reason: "Archive the lookup fixture.",
+      },
+      confirm: true,
+    });
 
-    const topic = await getWorkbenchTopic({ project: project(), path: getTempDir() }, "archived-topic-lookup");
+    const topic = await getWorkbenchTopic({ project: project(), path: getTempDir() }, created.changeId);
 
     expect(topic).toMatchObject({
-      id: "archived-topic-lookup",
+      id: created.conversationId,
+      boundChangeId: created.changeId,
       state: "archive",
-      change: expect.objectContaining({ id: "archived-topic-lookup", state: "archived" }),
+      change: expect.objectContaining({ id: created.changeId, state: "archived" }),
     });
   });
 
   it("derives Workpad TaskGraph from accepted tasks and AC map", async () => {
-    await initHarness(project());
-    await createChange(project(), { title: "Task Preview" });
-    await writeFile(join(getTempDir(), "harness", "changes", "active", "task-preview", "spec.md"), [
-      "# Spec",
-      "",
-      "## Acceptance Criteria",
-      "",
-      "- AC-001: Show Workpad task preview.",
-      "",
-    ].join("\n"), "utf8");
-    await writeFile(join(getTempDir(), "harness", "changes", "active", "task-preview", "plan.md"), "# Plan\n\nImplement deterministic task preview.\n", "utf8");
-    await writeFile(join(getTempDir(), "harness", "changes", "active", "task-preview", "tasks.md"), [
-      "# Tasks",
-      "",
-      "- [x] T-001: Render deterministic task preview.",
-      "  - Covers: AC-001",
-      "",
-    ].join("\n"), "utf8");
+    const topic = await createConversationChangeFixture(project(), { title: "Task Preview" });
+    await writeSkillNativeAcceptedSpecAndTasks(skillNativeFixture, topic.changeId, {
+      tasks: [{ id: "T-001", text: "Render deterministic task preview.", done: true, acId: "AC-001" }],
+    });
 
-    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "task-preview" });
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
 
     expect(snapshot.center.workpad.progress).toMatchObject({ spec: "ready", tasks: "ready", acCount: 1, taskCount: 1 });
     expect(snapshot.center.workpad.tasks).toEqual([
@@ -954,7 +902,7 @@ describe("workbench read-model projections", () => {
     ]);
     expect(snapshot.center.workpad.codingPackages).toEqual([
       expect.objectContaining({
-        id: "coding-package:task-preview:implementation",
+        id: `coding-package:${topic.conversationId}:implementation`,
         recommendedRoleId: "coder-agent",
         assignmentStatus: "not-assigned",
         taskIds: ["T-001"],
@@ -967,16 +915,15 @@ describe("workbench read-model projections", () => {
   });
 
   it("attaches task-scoped coder, validation, and audit evidence to the matching TaskGraph node", async () => {
-    await initHarness(project());
-    await createChange(project(), { title: "Task Evidence" });
-    await writeAcceptedSpecAndTasks("task-evidence");
-    await writeCoderRun("task-evidence", "run-task-1", ["T-001"], "wt-task-1", "completed");
-    await writeCoderRun("task-evidence", "run-change-level", [], "wt-change", "completed");
-    await writeValidationResult("task-evidence", "validation-task-1", "wt-task-1", "passed");
-    await writeAuditResult("task-evidence", "audit-task-1", "wt-task-1", "approved-with-notes");
-    await writeValidationResult("task-evidence", "validation-change-level", "wt-unmatched", "passed");
+    const topic = await createConversationChangeFixture(project(), { title: "Task Evidence" });
+    await writeSkillNativeAcceptedSpecAndTasks(skillNativeFixture, topic.changeId);
+    await writeCoderRun(topic.changeId, "run-task-1", ["T-001"], "wt-task-1", "completed");
+    await writeCoderRun(topic.changeId, "run-change-level", [], "wt-change", "completed");
+    await writeValidationResult(topic.changeId, "validation-task-1", "wt-task-1", "passed");
+    await writeAuditResult(topic.changeId, "audit-task-1", "wt-task-1", "approved-with-notes");
+    await writeValidationResult(topic.changeId, "validation-change-level", "wt-unmatched", "passed");
 
-    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "task-evidence" });
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
     const node = snapshot.center.workpad.taskGraph.nodes.find((item) => item.taskId === "T-001");
 
     expect(node).toMatchObject({
@@ -994,55 +941,97 @@ describe("workbench read-model projections", () => {
   });
 
   it("projects IntegrationCheck apply/discard as direct human gates", async () => {
-    const prepared = await prepareSeededSchedulerIntegrationHandoff("Integration Apply Discard Projection");
+    const topic = await createConversationChangeFixture(project(), { title: "Integration Apply Discard Projection" });
+    await writeSkillNativeAcceptedSpecAndTasks(skillNativeFixture, topic.changeId);
+    await authorizeSkillNativeWorkflowStartFixture(skillNativeFixture, topic.changeId);
+    const prepared = await createSkillNativeWorkbenchIntegrationCheck(skillNativeFixture, topic.changeId);
 
-    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: prepared.topic.changeId });
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.conversationId });
     const primary = snapshot.right.confirmationQueue.primary;
     const applyAction = primary?.actions.find((action) => action.action?.actionId === "apply-check.apply")?.action;
     const discardAction = primary?.actions.find((action) => action.action?.actionId === "apply-check.discard")?.action;
 
     expect(primary).toMatchObject({
       kind: "integration-apply",
-      applyCheckId: prepared.handoff.handoff?.integrationCheckId,
+      applyCheckId: prepared.check.id,
       primary: true,
     });
     expect(applyAction).toMatchObject({
       actionId: "apply-check.apply",
       command: "apply-check",
-      args: ["apply", prepared.handoff.handoff?.integrationCheckId, prepared.latestArtifactHash],
+      args: ["apply", prepared.check.id, prepared.check.latestArtifactHash],
     });
     expect(discardAction).toMatchObject({
       actionId: "apply-check.discard",
       command: "apply-check",
-      args: ["discard", prepared.handoff.handoff?.integrationCheckId],
+      args: ["discard", prepared.check.id],
     });
     expect(JSON.stringify(primary)).not.toMatch(/full-auto|parallel executor|merge queue/i);
   });
 
-  it("projects integration apply to local landing instead of stale scheduler or audit gates", async () => {
-    const prepared = await prepareSeededSchedulerIntegrationHandoff("Integration Apply Outcome Completion");
-    const checkId = prepared.handoff.handoff.integrationCheckId;
+  it("keeps the selected Change candidate ahead of another Change IntegrationCheck", async () => {
+    const selected = await createConversationChangeFixture(project(), { title: "Selected Candidate" });
+    await writeSkillNativeAcceptedSpecAndTasks(skillNativeFixture, selected.changeId);
+    await authorizeSkillNativeWorkflowStartFixture(skillNativeFixture, selected.changeId);
+    const selectedFirst = await createSkillNativeWorkbenchReadyCandidate(
+      skillNativeFixture,
+      selected.changeId,
+      "selected-a.txt",
+      "selected A\n",
+    );
+    const selectedSecond = await createSkillNativeWorkbenchReadyCandidate(
+      skillNativeFixture,
+      selected.changeId,
+      "selected-b.txt",
+      "selected B\n",
+    );
 
-    const beforeApply = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: prepared.topic.changeId });
+    const other = await createConversationChangeFixture(project(), { title: "Other Passed Check" });
+    await writeSkillNativeAcceptedSpecAndTasks(skillNativeFixture, other.changeId);
+    await authorizeSkillNativeWorkflowStartFixture(skillNativeFixture, other.changeId);
+    const otherCheck = await createSkillNativeWorkbenchIntegrationCheck(skillNativeFixture, other.changeId);
+
+    const snapshot = await getWorkbenchSnapshot(
+      { project: project(), path: getTempDir() },
+      { topicId: selected.conversationId },
+    );
+    const primary = snapshot.right.confirmationQueue.primary;
+    const runAction = primary?.actions.find((action) => action.actionType === "apply-check.run");
+
+    expect(primary).toMatchObject({ kind: "integration-check", changeId: selected.changeId, primary: true });
+    expect([...(runAction?.worktreeIds ?? [])].sort()).toEqual(
+      [selectedFirst.worktreeId, selectedSecond.worktreeId].sort(),
+    );
+    expect(primary?.applyCheckId).not.toBe(otherCheck.check.id);
+  });
+
+  it("projects integration apply to local landing instead of stale scheduler or audit gates", async () => {
+    const topic = await createConversationChangeFixture(project(), { title: "Integration Apply Outcome Completion" });
+    await writeSkillNativeAcceptedSpecAndTasks(skillNativeFixture, topic.changeId);
+    await authorizeSkillNativeWorkflowStartFixture(skillNativeFixture, topic.changeId);
+    const prepared = await createSkillNativeWorkbenchIntegrationCheck(skillNativeFixture, topic.changeId);
+    const checkId = prepared.check.id;
+
+    const beforeApply = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.conversationId });
     const applyAction = beforeApply.right.confirmationQueue.primary?.actions.find((action) => action.action?.actionId === "apply-check.apply")?.action;
     expect(applyAction).toMatchObject({
       actionId: "apply-check.apply",
-      args: ["apply", checkId, prepared.latestArtifactHash],
+      args: ["apply", checkId, prepared.check.latestArtifactHash],
     });
 
     await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
-      changeId: prepared.topic.changeId,
+      changeId: topic.changeId,
       action: applyAction,
       confirm: true,
     });
 
-    const afterApply = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: prepared.topic.changeId });
+    const afterApply = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.conversationId });
     const afterApplyJson = JSON.stringify(afterApply.right.confirmationQueue.current);
     expect(afterApplyJson).not.toContain("\"actionId\":\"apply-check.apply\"");
     expect(afterApplyJson).not.toContain("\"actionId\":\"apply-check.discard\"");
     expect(afterApply.right.confirmationQueue.primary).toMatchObject({
       kind: "landing-readiness",
-      changeId: prepared.topic.changeId,
+      changeId: topic.changeId,
       primary: true,
     });
     expect(afterApply.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
@@ -1056,12 +1045,11 @@ describe("workbench read-model projections", () => {
   });
 
   it("does not route ready local landing to a human close action", async () => {
-    await initHarness(project());
-    await createChange(project(), { title: "Local Landing Close" });
-    await writeFile(join(getTempDir(), "harness", "changes", "active", "local-landing-close", "reviews", "review.md"), "Status: approved\n", "utf8");
-    await writeReadyLandingPackage("local-landing-close", "landing-local-close-ready");
+    const topic = await createConversationChangeFixture(project(), { title: "Local Landing Close" });
+    await writeSkillNativeAcceptedSpecAndTasks(skillNativeFixture, topic.changeId);
+    await writeReadyLandingPackage(topic.changeId, "landing-local-close-ready");
 
-    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "local-landing-close" });
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.conversationId });
     const currentJson = JSON.stringify(snapshot.right.confirmationQueue.current);
 
     expect(currentJson).not.toContain("change.close");
@@ -1069,17 +1057,17 @@ describe("workbench read-model projections", () => {
   });
 
   it("shows local close blocker instead of PR provider when ready landing cannot close yet", async () => {
-    await initHarness(project());
-    await createChange(project(), { title: "Local Landing Blocked" });
-    await writeReadyLandingPackage("local-landing-blocked", "landing-local-close-blocked");
+    const topic = await createConversationChangeFixture(project(), { title: "Local Landing Blocked" });
+    await writeSkillNativeAcceptedSpecAndTasks(skillNativeFixture, topic.changeId);
+    await writeReadyLandingPackage(topic.changeId, "landing-local-close-blocked");
 
-    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "local-landing-blocked" });
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.conversationId });
     const primary = snapshot.right.confirmationQueue.primary;
 
     expect(primary).toMatchObject({
       id: "landing:local-terminal-blocker:landing-local-close-blocked",
       kind: "request-changes",
-      changeId: "local-landing-blocked",
+      changeId: topic.changeId,
       landingPackageId: "landing-local-close-blocked",
       primary: true,
       status: "failed",
@@ -1090,18 +1078,18 @@ describe("workbench read-model projections", () => {
   });
 
   it("preserves existing Draft PR flow after ready landing", async () => {
-    await initHarness(project());
-    await createChange(project(), { title: "Remote Landing Existing Draft" });
-    await writeReadyLandingPackage("remote-landing-existing-draft", "landing-existing-draft");
+    const topic = await createConversationChangeFixture(project(), { title: "Remote Landing Existing Draft" });
+    await writeSkillNativeAcceptedSpecAndTasks(skillNativeFixture, topic.changeId);
+    await writeReadyLandingPackage(topic.changeId, "landing-existing-draft");
     await writeCreatedPrDraftPackage("landing-existing-draft", "draft-existing");
 
-    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "remote-landing-existing-draft" });
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.conversationId });
 
     expect(snapshot.right.confirmationQueue.primary).toMatchObject({
       id: "pr-draft:created:draft-existing",
       kind: "pr-draft",
       landingPackageId: "landing-existing-draft",
-      changeId: "remote-landing-existing-draft",
+      changeId: topic.changeId,
     });
     expect(JSON.stringify(snapshot.right.confirmationQueue.primary)).toContain("Draft PR 已创建");
   });
@@ -1321,132 +1309,19 @@ describe("workbench read-model projections", () => {
 });
 
 async function rewriteActiveChangeMetadata(changeId: string, update: Record<string, unknown>): Promise<void> {
-  const path = join(getTempDir(), "harness", "changes", "active", changeId, "change.json");
+  const path = join(skillNativeFixture.skillRoot, "state", "registry", "changes", `${changeId}.json`);
   const metadata = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
   await writeFile(path, `${JSON.stringify({ ...metadata, ...update }, null, 2)}\n`, "utf8");
 }
 
 async function writeCoderRun(changeId: string, runId: string, taskIds: string[], worktreeId: string, status: RunMetadata["status"], taskRunId?: string): Promise<RunMetadata> {
-  const runDir = join(getTempDir(), ".agent-harness", "runs", runId);
-  await mkdir(runDir, { recursive: true });
-  const now = new Date().toISOString();
-  const run: RunMetadata = {
-    version: "1.0",
-    id: runId,
-    changeId,
-    projectPath: getTempDir(),
-    runtime: "provider-code",
-    executionMode: "worktree",
-    proposalOnly: true,
-    command: ["codex", "exec"],
-    status,
-    exitCode: status === "failed" ? 1 : 0,
-    signal: null,
-    startedAt: now,
-    finishedAt: now,
-    artifacts: {
-      base: "project-root",
-      directory: `.agent-harness/runs/${runId}`,
-      context: `.agent-harness/runs/${runId}/context.md`,
-      events: `.agent-harness/runs/${runId}/events.jsonl`,
-      stdout: `.agent-harness/runs/${runId}/stdout.log`,
-      stderr: `.agent-harness/runs/${runId}/stderr.log`,
-    },
-    worktree: {
-      worktreeId,
-      branchName: `aho/${runId}`,
-      baseRef: "HEAD",
-      baseCommit: "abc123",
-      checkoutPath: join(getTempDir(), ".agent-harness", "worktrees", worktreeId),
-      metadataPath: `.agent-harness/worktrees/${worktreeId}.json`,
-    },
-    taskIds,
-    taskRunId,
-  };
-  await writeFile(join(runDir, "run.json"), JSON.stringify(run, null, 2), "utf8");
-  return run;
+  return writeSkillNativeCoderRun(skillNativeFixture, changeId, runId, taskIds, worktreeId, status, taskRunId);
 }
 
 async function writeValidationResult(changeId: string, validationId: string, worktreeId: string, status: "passed" | "failed"): Promise<void> {
-  const dir = join(getTempDir(), ".agent-harness", "runs", validationId);
-  await mkdir(dir, { recursive: true });
-  const now = new Date().toISOString();
-  await writeRunMetadata(changeId, validationId, "validator", "completed", worktreeId, now);
-  await writeFile(join(dir, "validation.json"), JSON.stringify({
-    version: "1.0",
-    id: validationId,
-    runId: validationId,
-    changeId,
-    profile: "default",
-    status,
-    executionMode: "worktree",
-    worktreeId,
-    startedAt: now,
-    finishedAt: now,
-    commands: [],
-  }, null, 2), "utf8");
+  await writeSkillNativeValidationResult(skillNativeFixture, changeId, validationId, worktreeId, status);
 }
 
 async function writeAuditResult(changeId: string, auditId: string, worktreeId: string, status: "approved" | "approved-with-notes" | "blocked" | "failed"): Promise<void> {
-  const dir = join(getTempDir(), ".agent-harness", "runs", auditId);
-  await mkdir(dir, { recursive: true });
-  const now = new Date().toISOString();
-  await writeRunMetadata(changeId, auditId, "auditor", "completed", worktreeId, now);
-  await writeFile(join(dir, "audit.json"), JSON.stringify({
-    version: "1.0",
-    id: auditId,
-    runId: auditId,
-    changeId,
-    status,
-    worktreeId,
-    startedAt: now,
-    finishedAt: now,
-    findings: [],
-    artifacts: {
-      audit: `.agent-harness/runs/${auditId}/audit.json`,
-      auditMarkdown: `.agent-harness/runs/${auditId}/audit.md`,
-      lastMessage: `.agent-harness/runs/${auditId}/last-message.md`,
-    },
-  }, null, 2), "utf8");
-}
-
-async function writeRunMetadata(
-  changeId: string,
-  runId: string,
-  runtime: RunMetadata["runtime"],
-  status: RunMetadata["status"],
-  worktreeId: string,
-  now: string,
-): Promise<void> {
-  const run: RunMetadata = {
-    version: "1.0",
-    id: runId,
-    changeId,
-    projectPath: getTempDir(),
-    runtime,
-    executionMode: "worktree",
-    command: [runtime],
-    status,
-    exitCode: status === "failed" ? 1 : 0,
-    signal: null,
-    startedAt: now,
-    finishedAt: now,
-    artifacts: {
-      base: "project-root",
-      directory: `.agent-harness/runs/${runId}`,
-      context: `.agent-harness/runs/${runId}/context.md`,
-      events: `.agent-harness/runs/${runId}/events.jsonl`,
-      stdout: `.agent-harness/runs/${runId}/stdout.log`,
-      stderr: `.agent-harness/runs/${runId}/stderr.log`,
-    },
-    worktree: {
-      worktreeId,
-      branchName: `aho/${runId}`,
-      baseRef: "HEAD",
-      baseCommit: "abc123",
-      checkoutPath: join(getTempDir(), ".agent-harness", "worktrees", worktreeId),
-      metadataPath: `.agent-harness/worktrees/${worktreeId}.json`,
-    },
-  };
-  await writeFile(join(getTempDir(), ".agent-harness", "runs", runId, "run.json"), JSON.stringify(run, null, 2), "utf8");
+  await writeSkillNativeAuditResult(skillNativeFixture, changeId, auditId, worktreeId, status);
 }

@@ -38,7 +38,7 @@ import {
   initGitRepository,
   project,
   unwrapWorkflowActionResult,
-} from "../unit/workbench/fixtures.js";
+} from "./skill-native-test-environment.js";
 
 export interface SkillNativePreparedSchedulerWorker {
   id?: string;

@@ -1,7 +1,9 @@
 import { startAuditRun } from "../../../audit/manager.js";
-import { runIntegrationCheck } from "../../../integration-check/manager.js";
-import { reconcileTaskRuns } from "../../../task-run/manager.js";
-import { reconcileWorkflowTaskQueue, runTaskQueueSequentialWorkflow } from "../../../workflow-runtime/taskqueue.js";
+import { resolveProjectApplyExecutionScope } from "../../../apply/execution-scope.js";
+import { collectSkillNativeReadyTargets, runSkillNativeIntegrationCheck } from "../../../integration-check/manager.js";
+import { reconcileTaskRunsFromRuntime } from "../../../task-run/manager.js";
+import { reconcileTaskQueuesFromRuntime } from "../../../task-queue/manager.js";
+import { runTaskQueueSequentialWorkflow } from "../../../workflow-runtime/taskqueue.js";
 import { runDefaultCodeChangeWorkflow, runSourceRefreshReworkWorkflow, runTaskRunStageAction, runTopLevelRoleChainWorkflow, sourceRefreshReworkPrompt } from "../../../workflow-runtime/code-workflow.js";
 import { startValidationRun } from "../../../validation/manager.js";
 import { getSpecTestDriftReport } from "../../../spec-test/drift.js";
@@ -10,6 +12,7 @@ import { startSpecTestProposalRun } from "../../../spec-test/proposal.js";
 import { getSpecTestContextForChange, getSpecTestEvidenceFingerprint, requireActiveSpecTestExecutionAuthorization } from "../../../spec-test/manager.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../../provider-runtime/project-harness-discovery.js";
 import { resolveProjectRuntimeState } from "../../../project-runtime/coordinator.js";
+import { projectExecutionRuntimePort } from "../../../project-runtime/execution-ports.js";
 import { finalizeSkillNativeProjectHarnessChange } from "../../../project-runtime/change-finalization.js";
 import type { ManagedProject, RunMetadata } from "../../../types/index.js";
 import { enqueueDemandWorkerForAction, evaluateDemandOrchestrator, pumpDemandWorkersForAction, reconcileDemandWorkersForAction, releaseDemandWorkerForAction, startNextDemandWorkerForAction } from "../../demand-workers/orchestration.js";
@@ -34,7 +37,10 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
   const runMainAgentExecutionStop: WorkbenchActionHandler = async (project, changeId, request, live) =>
     stopRunningPipeline(project, changeId, request.prompt, live, deps);
   const runMainAgentExecutionReconcile: WorkbenchActionHandler = async (project, changeId, request) =>
-    reconcileTaskRuns(project, { changeId, taskRunId: request.taskRunId });
+    reconcileTaskRunsFromRuntime(
+      await resolveActionExecutionRuntime(project),
+      { changeId, taskRunId: request.taskRunId },
+    );
 
   const handlers: WorkbenchActionHandlerMap = {
   "chat.ask": async (project, changeId, request, live) => {
@@ -89,7 +95,13 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
     return startAuditRun(project, { changeId, worktreeId: request.worktreeId, prompt: request.prompt ?? "Re-run audit for the selected result review evidence." });
   },
   "result.refresh-status": async (_project, changeId, request) => ({ status: "refreshed", changeId, worktreeId: request.worktreeId }),
-  "apply-check.run": async (project, changeId, request) => runIntegrationCheck(project, request.worktreeIds ?? (request.worktreeId ? [request.worktreeId] : undefined), changeId),
+  "apply-check.run": async (project, changeId, request) => {
+    const worktreeIds = request.worktreeIds ?? (request.worktreeId ? [request.worktreeId] : []);
+    if (worktreeIds.length < 2) throw new Error("Integration check requires at least two exact worktree targets.");
+    const scope = await resolveProjectApplyExecutionScope(project, worktreeIds[0]!);
+    const targets = await collectSkillNativeReadyTargets(project, scope.runtime, scope.harness, worktreeIds, changeId);
+    return runSkillNativeIntegrationCheck(project, scope.runtime, targets, changeId);
+  },
   "landing.prepare": async (project, changeId, request, live) => prepareLandingForAction(project, changeId, request, live),
   "landing.review": async (project, changeId, request, live) => reviewLandingForAction(project, changeId, request, live),
   "landing.refresh": async (project, changeId, request, live) => prepareLandingForAction(project, changeId, request, live),
@@ -133,7 +145,10 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
   }),
   "task.run.start": async (project, changeId, request, live) => runTaskRunStageAction(project, changeId, request, live, "start"),
   "task.run.retry": async (project, changeId, request, live) => runTaskRunStageAction(project, changeId, request, live, "retry"),
-  "task.run.reconcile": async (project, changeId, request) => reconcileTaskRuns(project, { changeId, taskRunId: request.taskRunId }),
+  "task.run.reconcile": async (project, changeId, request) => reconcileTaskRunsFromRuntime(
+    await resolveActionExecutionRuntime(project),
+    { changeId, taskRunId: request.taskRunId },
+  ),
   "task.queue.start": async (project, changeId, request, live) => runTaskQueueSequentialWorkflow({
     project,
     changeId,
@@ -142,7 +157,10 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
     workflowRunId: request.workflowRunId,
     queueRunId: request.queueRunId,
   }),
-  "task.queue.reconcile": async (project, changeId, request) => reconcileWorkflowTaskQueue(project, { changeId, queueRunId: request.queueRunId }),
+  "task.queue.reconcile": async (project, changeId, request) => reconcileTaskQueuesFromRuntime(
+    await resolveActionExecutionRuntime(project),
+    { changeId, queueRunId: request.queueRunId },
+  ),
   "validate.run": async (project, changeId, request) => startValidationRun(project, { changeId, worktree: request.worktreeId }),
   "audit.run": async (project, changeId, request) => startAuditRun(project, { changeId, worktreeId: request.worktreeId, prompt: request.prompt }),
   "spec-test.propose": async (project, changeId, request, _live, conversationId) => {
@@ -164,6 +182,16 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
   },
   };
   return handlers;
+}
+
+async function resolveActionExecutionRuntime(project: ManagedProject) {
+  const state = await resolveProjectRuntimeState(project, {
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
+  if (state.state !== "ready") {
+    throw new Error(`Project Harness is not ready for Workflow action: ${state.state}.`);
+  }
+  return projectExecutionRuntimePort(project, state.resolution);
 }
 
 async function assertCurrentSpecTestAction(

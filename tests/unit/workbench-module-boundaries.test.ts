@@ -42,6 +42,12 @@ describe("Workbench module boundaries", () => {
     expect(output.trim()).toBe("");
   });
 
+  it("routes provider-switch DemandWorker reconciliation through the Skill-native Workbench owner", () => {
+    const providerSwitch = readFileSync("src/workbench/provider-switch.ts", "utf8");
+    expect(providerSwitch).toContain('from "./demand-workers/orchestration.js"');
+    expect(providerSwitch).not.toMatch(/workflow-runtime\/demand-worker|reconcileDemandWorkersForRuntime/);
+  });
+
   it("keeps Change acceptance independent of Workbench, web, and server storage", () => {
     const output = rgOutput(["-n", "workbench|src/web|src/server", "src/change"]);
     expect(output.trim()).toBe("");

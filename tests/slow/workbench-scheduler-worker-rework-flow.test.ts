@@ -10,7 +10,7 @@ import { listTaskQueues } from "../../src/task-queue/manager.js";
 import { listTaskRuns, listWorkerLeases } from "../../src/task-run/manager.js";
 import { listWorkflowRuns } from "../../src/workflow-run/manager.js";
 import { prepareSkillNativeSchedulerFirstWorkerThroughResult } from "../helpers/skill-native-scheduler-fixture.js";
-import { createFakeCodex, findSchedulerGateAction, getTempDir, project, unwrapWorkflowActionResult } from "../unit/workbench/fixtures.js";
+import { createFakeCodex, findSchedulerGateAction, getTempDir, project, unwrapWorkflowActionResult } from "../helpers/skill-native-test-environment.js";
 
 let originalAhoHome: string | undefined;
 

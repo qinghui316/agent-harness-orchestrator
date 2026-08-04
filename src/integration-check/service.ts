@@ -10,7 +10,7 @@ import { runSkillNativeAggregateAudit } from "./aggregate-audit.js";
 import { runAggregateValidation, runSkillNativeAggregateValidation } from "./aggregate-validation.js";
 import { integrationArtifact, latestArtifactAbsolutePath, messageFromIssues, skillNativeIntegrationArtifact } from "./artifacts.js";
 import { buildIntegrationCheckId, collectReadyTargets } from "./candidates.js";
-import { runIntegrationFixAttempt, type IntegrationFixRepairRunner } from "./fix-attempts.js";
+import { runIntegrationFixAttempt, runSkillNativeIntegrationFixAttempt, type IntegrationFixRepairRunner, type SkillNativeIntegrationFixRepairRunner } from "./fix-attempts.js";
 import { integrationCheckRoot, displayArtifactPath, displaySkillNativeArtifactPath } from "./paths.js";
 import { prepareIntegrationCheckout, prepareSkillNativeIntegrationCheckout } from "./patch-workspace.js";
 import { appendIntegrationEvent, writeCheckArtifacts } from "./repository.js";
@@ -19,6 +19,10 @@ import type { ProjectCodeExecutionRuntimePort } from "../project-runtime/executi
 
 export interface RunIntegrationCheckOptions {
   repairRunner?: IntegrationFixRepairRunner;
+}
+
+export interface RunSkillNativeIntegrationCheckOptions {
+  repairRunner?: SkillNativeIntegrationFixRepairRunner;
 }
 
 export async function runIntegrationCheck(project: ManagedProject, worktreeIds?: string[], expectedChangeId?: string, options: RunIntegrationCheckOptions = {}): Promise<IntegrationCheckResult> {
@@ -166,6 +170,7 @@ export async function runSkillNativeIntegrationCheck(
   runtime: ProjectCodeExecutionRuntimePort,
   targets: SkillNativeIntegrationCheckTarget[],
   expectedChangeId: string,
+  options: RunSkillNativeIntegrationCheckOptions = {},
 ): Promise<IntegrationCheckResult> {
   if (project.id !== runtime.projectId) throw new Error("Skill-native IntegrationCheck project scope mismatch.");
   if (targets.length < 2) throw new Error("Integration check requires at least two ready results.");
@@ -203,8 +208,10 @@ export async function runSkillNativeIntegrationCheck(
   let status: IntegrationCheckStatus = "passed";
   const blockingIssues: string[] = [];
   const warnings: string[] = [];
+  const fixAttempts: IntegrationFixAttempt[] = [];
   const startedAt = new Date().toISOString();
   let summary = "兼容性检查通过：这些结果可以一起应用。";
+  let latestArtifact = artifacts[0]!;
 
   try {
     await prepareSkillNativeIntegrationCheckout(project, runtime, checkoutPath, combinedPatchPath);
@@ -220,20 +227,94 @@ export async function runSkillNativeIntegrationCheck(
     await writeFile(join(directory, "stderr.log"), `${message}\n`, "utf8");
   }
 
-  const aggregateValidation = await runSkillNativeAggregateValidation(runtime, directory, id, checkoutPath, status === "passed");
+  if (status === "conflict" && options.repairRunner) {
+    const fix = await runSkillNativeIntegrationFixAttempt(
+      project,
+      runtime,
+      directory,
+      id,
+      combinedPatchPath,
+      messageFromIssues(blockingIssues),
+      { repairRunner: options.repairRunner, changeId: expectedChangeId },
+    );
+    fixAttempts.push(fix.attempt);
+    if (fix.artifact) {
+      artifacts.push(fix.artifact);
+      latestArtifact = fix.artifact;
+      status = "passed";
+      blockingIssues.length = 0;
+      summary = "兼容性检查未通过后已修复组合结果，并重新生成可验证的组合补丁。";
+      await prepareSkillNativeIntegrationCheckout(project, runtime, checkoutPath, latestArtifactAbsolutePath(directory, latestArtifact));
+    }
+  }
+
+  let aggregateValidation = await runSkillNativeAggregateValidation(runtime, directory, id, checkoutPath, status === "passed");
   if (status === "passed" && aggregateValidation.status !== "passed") {
     status = "validation-failed";
     blockingIssues.push(aggregateValidation.stderr || aggregateValidation.stdout || "Aggregate validation failed.");
     summary = "组合验证没有通过，需要修改结果后重试。";
+    if (options.repairRunner) {
+      const fix = await runSkillNativeIntegrationFixAttempt(
+        project,
+        runtime,
+        directory,
+        id,
+        latestArtifactAbsolutePath(directory, latestArtifact),
+        "aggregate validation failed",
+        { repairRunner: options.repairRunner, changeId: expectedChangeId },
+      );
+      fixAttempts.push(fix.attempt);
+      if (fix.artifact) {
+        artifacts.push(fix.artifact);
+        latestArtifact = fix.artifact;
+        await prepareSkillNativeIntegrationCheckout(project, runtime, checkoutPath, latestArtifactAbsolutePath(directory, latestArtifact));
+        aggregateValidation = await runSkillNativeAggregateValidation(runtime, directory, id, checkoutPath, true);
+        if (aggregateValidation.status === "passed") {
+          status = "passed";
+          blockingIssues.length = 0;
+          summary = "组合验证失败后已修复，并重新通过验证和审查。";
+        }
+      }
+    }
   }
-  const aggregateAudit = await runSkillNativeAggregateAudit(runtime, directory, id, checkoutPath, status === "passed", blockingIssues);
+  let aggregateAudit = await runSkillNativeAggregateAudit(runtime, directory, id, checkoutPath, status === "passed", blockingIssues);
   if (status === "passed" && aggregateAudit.status !== "approved") {
     status = "audit-failed";
     blockingIssues.push(...aggregateAudit.findings);
     summary = "组合审查没有通过，需要修改结果后重试。";
+    if (options.repairRunner) {
+      const fix = await runSkillNativeIntegrationFixAttempt(
+        project,
+        runtime,
+        directory,
+        id,
+        latestArtifactAbsolutePath(directory, latestArtifact),
+        "aggregate audit failed",
+        { repairRunner: options.repairRunner, changeId: expectedChangeId },
+      );
+      fixAttempts.push(fix.attempt);
+      if (fix.artifact) {
+        artifacts.push(fix.artifact);
+        latestArtifact = fix.artifact;
+        await prepareSkillNativeIntegrationCheckout(project, runtime, checkoutPath, latestArtifactAbsolutePath(directory, latestArtifact));
+        aggregateValidation = await runSkillNativeAggregateValidation(runtime, directory, id, checkoutPath, true);
+        aggregateAudit = await runSkillNativeAggregateAudit(
+          runtime,
+          directory,
+          id,
+          checkoutPath,
+          aggregateValidation.status === "passed",
+          aggregateValidation.status === "passed" ? [] : [aggregateValidation.stderr || aggregateValidation.stdout || "Aggregate validation failed."],
+        );
+        if (aggregateValidation.status === "passed" && aggregateAudit.status === "approved") {
+          status = "passed";
+          blockingIssues.length = 0;
+          summary = "组合审查失败后已修复，并重新通过验证和审查。";
+        }
+      }
+    }
   }
 
-  const latestArtifact = artifacts[0];
   const check = {
     version: "1.0" as const,
     id,
@@ -253,7 +334,7 @@ export async function runSkillNativeIntegrationCheck(
     latestArtifactRef: status === "passed" ? latestArtifact.path : undefined,
     aggregateValidation,
     aggregateAudit,
-    fixAttempts: [],
+    fixAttempts,
     integrationWorktreePath: checkoutPath,
     blockingIssues,
     warnings,

@@ -31,6 +31,7 @@ import type {
   ReviewFeedbackUserContext,
   ResolvedMemory,
 } from "../types/index.js";
+import type { ProjectWorkbenchArtifactPathPort } from "../project-runtime/paths.js";
 import type { LandingReadinessPackage } from "../landing/types.js";
 
 import { snapshotSchema, summarySchema, reworkSchema, reworkResultSchema, userContextSchema } from "./schemas.js";
@@ -134,7 +135,7 @@ export function classifyPrFeedbackSnapshotData(input: {
   return "no-action";
 }
 
-export async function listPrFeedbackSummaries(memory: ResolvedMemory): Promise<PrFeedbackSummary[]> {
+export async function listPrFeedbackSummaries(memory: ProjectWorkbenchArtifactPathPort): Promise<PrFeedbackSummary[]> {
   const root = prFeedbackRoot(memory);
   if (!existsSync(root)) return [];
   const entries = await readdir(root, { withFileTypes: true });
@@ -148,7 +149,7 @@ export async function listPrFeedbackSummaries(memory: ResolvedMemory): Promise<P
   return summaries.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-export async function latestPrFeedbackSummaryForDraft(memory: ResolvedMemory, prDraftPackageId: string): Promise<PrFeedbackSummary | null> {
+export async function latestPrFeedbackSummaryForDraft(memory: ProjectWorkbenchArtifactPathPort, prDraftPackageId: string): Promise<PrFeedbackSummary | null> {
   return (await listPrFeedbackSummaries(memory)).find((summary) => summary.prDraftPackageId === prDraftPackageId) ?? null;
 }
 
@@ -715,7 +716,7 @@ function numberField(value: unknown, key: string): number | null {
   return typeof field === "number" ? field : null;
 }
 
-function prFeedbackRoot(memory: ResolvedMemory): string {
+function prFeedbackRoot(memory: ProjectWorkbenchArtifactPathPort): string {
   return join(memory.workbenchRoot, "pr-feedback");
 }
 

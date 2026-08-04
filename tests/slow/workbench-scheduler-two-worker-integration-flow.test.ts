@@ -11,7 +11,7 @@ import { listWorkflowRuns } from "../../src/workflow-run/manager.js";
 import { readSchedulerRuntimeEvents } from "../../src/scheduler-runtime/manager.js";
 import { listIntegrationChecks } from "../../src/integration-check/manager.js";
 import { prepareSkillNativeSchedulerFirstWorkerThroughResult } from "../helpers/skill-native-scheduler-fixture.js";
-import { createFakeCodex, execFileAsync, findSchedulerGateAction, getTempDir, project, unwrapWorkflowActionResult } from "../unit/workbench/fixtures.js";
+import { createFakeCodex, execFileAsync, findSchedulerGateAction, getTempDir, project, unwrapWorkflowActionResult } from "../helpers/skill-native-test-environment.js";
 
 let originalAhoHome: string | undefined;
 

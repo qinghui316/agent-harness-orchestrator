@@ -403,31 +403,30 @@ export async function listWorkbenchTopics(input: WorkbenchProjectInput): Promise
 }
 
 export async function hideWorkbenchTopic(input: WorkbenchProjectInput, topicId: string): Promise<{ hidden: true; topicId: string }> {
-  const memory = await resolveWorkbenchMemory(input);
-  if (!memory.supported || !existsSync(memory.memoryRoot)) {
+  if (!input.project) {
     const error = new Error("Durable memory is unavailable; cannot hide this conversation.");
     error.name = "Conflict";
     throw error;
   }
-  await hideConversation(memory, topicId);
+  const runtime = await requireReadyProjectRuntime(input.project);
+  await hideConversation(runtime.paths, topicId);
   return { hidden: true, topicId };
 }
 
 export async function deleteWorkbenchConversation(input: WorkbenchProjectInput, topicId: string): Promise<{ deleted: true; topicId: string }> {
-  const memory = await resolveWorkbenchMemory(input);
-  if (!memory.supported || !existsSync(memory.memoryRoot)) {
+  if (!input.project) {
     const error = new Error("Durable memory is unavailable; cannot delete this conversation.");
     error.name = "Conflict";
     throw error;
   }
-  await deleteConversation(memory, topicId);
+  const runtime = await requireReadyProjectRuntime(input.project);
+  await deleteConversation(runtime.paths, topicId);
   return { deleted: true, topicId };
 }
 
 export async function getWorkbenchTopic(input: WorkbenchProjectInput, topicId: string): Promise<WorkbenchTopicDetail> {
-  const memory = await resolveWorkbenchMemory(input);
-  const topics = await listWorkbenchTopicsFromMemory(memory);
-  const detail = await selectTopicDetail(input.project, memory, topics, topicId);
+  if (!input.project) throw new Error(`Topic not found: ${topicId}.`);
+  const detail = (await getWorkbenchSnapshot(input, { topicId })).center.selectedTopic;
   if (!detail) throw new Error(`Topic not found: ${topicId}.`);
   return detail;
 }

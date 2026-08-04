@@ -10,16 +10,17 @@ import { writeJsonFile } from "../fs/json.js";
 import { resolveProjectMemory } from "../memory/resolver.js";
 import { resolveProjectHarnessAgentInput } from "../project-harness/agent-input.js";
 import { git, gitText } from "../project/git.js";
-import { withProjectWriteLease } from "../project/project-write-lease.js";
+import { withProjectWriteLease, withProjectWriteLeaseAtPath } from "../project/project-write-lease.js";
+import type { ProjectCodeExecutionRuntimePort } from "../project-runtime/execution-ports.js";
 import { defaultProviderRegistry } from "../provider-runtime/index.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import { appendRunEvent } from "../run/manager.js";
 import { getGlobalWorktreeCheckoutRoot } from "../worktree/manager.js";
 import { prepareWorktreeDependencyBridge } from "../worktree/dependencies.js";
 import type { ManagedProject, ResolvedMemory, RunMetadata } from "../types/index.js";
-import { integrationArtifact } from "./artifacts.js";
+import { integrationArtifact, skillNativeIntegrationArtifact } from "./artifacts.js";
 import { appendIntegrationEvent } from "./repository.js";
-import { collectCheckoutPatch, prepareIntegrationFixCheckout } from "./patch-workspace.js";
+import { collectCheckoutPatch, prepareIntegrationFixCheckout, prepareSkillNativeIntegrationFixCheckout } from "./patch-workspace.js";
 import type { IntegrationArtifact, IntegrationFixAttempt, IntegrationFixAttemptStatus } from "./types.js";
 import { openWorkbenchDatabase } from "../workbench/persistence/open-workbench-database.js";
 import { finishProviderAttempt, startProviderAttempt } from "../workbench/provider-attempts.js";
@@ -46,6 +47,22 @@ export interface IntegrationFixRepairRunnerResult {
 
 export type IntegrationFixRepairRunner = (input: IntegrationFixRepairRunnerInput) => Promise<IntegrationFixRepairRunnerResult | void>;
 
+export interface SkillNativeIntegrationFixRepairRunnerInput {
+  project: ManagedProject;
+  runtime: ProjectCodeExecutionRuntimePort;
+  directory: string;
+  checkId: string;
+  changeId: string;
+  attemptId: string;
+  checkoutPath: string;
+  inputPatchPath: string;
+  reason: string;
+}
+
+export type SkillNativeIntegrationFixRepairRunner = (
+  input: SkillNativeIntegrationFixRepairRunnerInput,
+) => Promise<IntegrationFixRepairRunnerResult | void>;
+
 export interface IntegrationFixAttemptOptions {
   repairRunner?: IntegrationFixRepairRunner;
   changeId?: string;
@@ -67,6 +84,79 @@ export function runIntegrationFixAttempt(
     reason,
     options,
   ));
+}
+
+export function runSkillNativeIntegrationFixAttempt(
+  project: ManagedProject,
+  runtime: ProjectCodeExecutionRuntimePort,
+  directory: string,
+  checkId: string,
+  inputPatchPath: string,
+  reason: string,
+  options: { repairRunner: SkillNativeIntegrationFixRepairRunner; changeId: string },
+): Promise<{ attempt: IntegrationFixAttempt; artifact?: IntegrationArtifact }> {
+  return defaultProjectRuntimeActivityRegistry.run(project.id, async () => {
+    const startedAt = new Date().toISOString();
+    const attemptId = `fix-${checkId}-${Math.max(1, Date.now()).toString(36)}`;
+    const checkoutPath = join(getGlobalWorktreeCheckoutRoot(runtime.projectId), "integration", shortFixCheckoutName(checkId, attemptId));
+    let artifact: IntegrationArtifact | undefined;
+    let status: IntegrationFixAttemptStatus = "failed";
+    let summary = "自动修复未能生成可验证的组合补丁。";
+    let repairMode: IntegrationFixAttempt["repairMode"] | undefined;
+    let runId: string | undefined;
+    let runArtifactRefs: string[] | undefined;
+    try {
+      await prepareSkillNativeIntegrationFixCheckout(project, runtime, checkoutPath, inputPatchPath);
+      const repair = await options.repairRunner({
+        project,
+        runtime,
+        directory,
+        checkId,
+        changeId: options.changeId,
+        attemptId,
+        checkoutPath,
+        inputPatchPath,
+        reason,
+      });
+      repairMode = repair?.repairMode;
+      runId = repair?.runId;
+      runArtifactRefs = repair?.runArtifactRefs;
+      const repairedPatch = await collectCheckoutPatch(checkoutPath);
+      if (!repairedPatch.trim()) throw new Error("IntegrationFix did not produce a repaired diff.");
+      const repairedPatchPath = join(directory, "repaired.patch");
+      await writeFile(repairedPatchPath, repairedPatch, "utf8");
+      artifact = skillNativeIntegrationArtifact(runtime, repairedPatchPath, repairedPatch, "repaired", "integration-fix-agent");
+      status = "completed";
+      summary = repair?.summary ?? "integration-fix-agent 已生成修复后的组合补丁。";
+    } catch (cause) {
+      summary = cause instanceof Error ? cause.message : String(cause);
+      await mkdir(directory, { recursive: true });
+      await writeFile(join(directory, "integration-fix-stderr.log"), `${summary}\n`, { encoding: "utf8", flag: "a" });
+    } finally {
+      await withProjectWriteLeaseAtPath(runtime.projectWriteLeasePath, {}, async () => {
+        await git(project.path, ["worktree", "remove", "--force", checkoutPath]).catch(() => "");
+        await rm(checkoutPath, { recursive: true, force: true }).catch(() => undefined);
+        await git(project.path, ["worktree", "prune"]).catch(() => "");
+      }).catch(() => undefined);
+    }
+    const attempt: IntegrationFixAttempt = {
+      id: attemptId,
+      roleId: "integration-fix-agent",
+      status,
+      repairMode,
+      reason,
+      inputArtifactRef: basename(inputPatchPath),
+      runId,
+      runArtifactRefs,
+      outputArtifactRef: artifact?.path,
+      outputArtifactHash: artifact?.hash,
+      summary,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+    };
+    await appendIntegrationEvent(directory, checkId, "integration-fix.completed", { attemptId, status, artifact: artifact?.path });
+    return { attempt, artifact };
+  });
 }
 
 async function runIntegrationFixAttemptActivity(

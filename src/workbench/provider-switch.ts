@@ -10,7 +10,7 @@ import { reconcileTaskRuns } from "../task-run/reconcile.js";
 import type { ManagedProject } from "../types/index.js";
 import type { ProjectRuntimeResolution } from "../project-runtime/context.js";
 import type { WorkbenchWorkflowActionRequest } from "./types.js";
-import { reconcileDemandWorkersForRuntime } from "../workflow-runtime/demand-worker.js";
+import { reconcileDemandWorkersForAction } from "./demand-workers/orchestration.js";
 import { assembleSharedConversationContext, type HandoffSnapshot } from "./shared-conversation-context.js";
 import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import { publishAgentSurfacesInvalidated } from "./project-live-events.js";
@@ -123,7 +123,7 @@ export async function switchConversationProviderAtSafePoint(input: {
 
   if (initial.conversation.boundChangeId) {
     await waitForWorkflowWritersToSettle(input.project, input.resolution, initial.conversation.boundChangeId);
-    await reconcileDemandWorkersForRuntime(input.project);
+    await reconcileDemandWorkersForAction(input.project);
     await assertNoActiveWorkflowWriter(input.resolution, initial.conversation.boundChangeId);
   }
 

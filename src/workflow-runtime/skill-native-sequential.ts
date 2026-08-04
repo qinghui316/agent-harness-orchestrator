@@ -6,6 +6,7 @@ import type {
 } from "../project-runtime/execution-ports.js";
 import {
   failQueuedTaskItem,
+  blockQueuedTaskItem,
   finishTaskQueueItem,
   listTaskQueueItems,
   markTaskQueueItemRunning,
@@ -13,7 +14,7 @@ import {
   pauseTaskQueue,
   updateTaskQueueAfterItem,
 } from "../task-queue/manager.js";
-import { startTaskRunFromRuntime } from "../task-run/start-retry.js";
+import { resumeInterruptedTaskRunFromRuntime, startTaskRunFromRuntime } from "../task-run/start-retry.js";
 import type {
   ManagedProject,
   SequentialWorkflowGraphPlan,
@@ -30,8 +31,12 @@ import {
 import type { SkillNativeSequentialInitialization } from "./skill-native-initialization.js";
 import { emitAssistantEvent, type WorkflowRuntimeLiveSink } from "./kernel/live-events.js";
 import {
+  assertTaskRunResumeEvidenceScope,
+  findTaskRunStageResumeCandidate,
+  runResumedTaskRunStage,
   runStartedTaskRunStage,
   type RuntimeStartedTaskRun,
+  type SkillNativeTaskRunStageContext,
 } from "./taskrun-stage.js";
 
 export interface SkillNativeSequentialExecutionResult {
@@ -87,24 +92,56 @@ export async function runSkillNativeSequentialExecution(input: {
     try {
       const node = graph.nodes.find((candidate) => candidate.taskId.toUpperCase() === nextItem.taskId.toUpperCase());
       if (!node?.prompt) throw new Error(`WorkflowGraph node for ${nextItem.taskId} has no accepted coder objective.`);
-      const started = await startTaskRunFromRuntime(
-        input.runtime,
-        input.harness.changeStatus,
-        { changeId: queue.changeId, taskId: nextItem.taskId },
-      );
+      if (nextItem.workflowGraphPlanId !== graph.id
+        || nextItem.workflowRunId !== workflow.id
+        || nextItem.queueRunId !== queue.id) {
+        throw new Error("TaskQueue item graph scope is stale or incomplete.");
+      }
+      if (input.live?.isClosed?.()) {
+        queue = await pauseTaskQueue(input.runtime, queue, "队列已暂停，等待继续。");
+        workflow = await syncWorkflowRunFromQueue(
+          input.runtime,
+          workflow,
+          queue,
+          await listTaskQueueItems(input.runtime, queue.changeId, queue.id),
+          "workflow.paused",
+          queue.pausedReason,
+        );
+        return executionResult(queue, workflow, await listTaskQueueItems(input.runtime, queue.changeId, queue.id));
+      }
+      const resume = await findTaskRunStageResumeCandidate(input.runtime, queue.changeId, nextItem);
+      if (resume?.verdict.kind === "blocked") {
+        await assertTaskRunResumeEvidenceScope(input.runtime, queue.changeId, nextItem, resume.verdict);
+        const blocked = await blockQueuedTaskItem(input.runtime, nextItem, resume.verdict.reason);
+        queue = await updateTaskQueueAfterItem(input.runtime, queue);
+        workflow = await syncWorkflowRunFromQueue(
+          input.runtime,
+          workflow,
+          queue,
+          await listTaskQueueItems(input.runtime, queue.changeId, queue.id),
+          "workflow.blocked",
+          blocked.blockedReason,
+        );
+        return executionResult(queue, workflow, await listTaskQueueItems(input.runtime, queue.changeId, queue.id));
+      }
+      const continuingCoder = resume?.verdict.kind === "continue-coder";
+      const started = continuingCoder
+        ? await resumeInterruptedTaskRunFromRuntime(input.runtime, input.harness.changeStatus, {
+            changeId: queue.changeId,
+            taskRunId: resume.taskRun.id,
+          })
+        : resume
+          ? { taskRun: resume.taskRun, lease: null }
+          : await startTaskRunFromRuntime(
+              input.runtime,
+              input.harness.changeStatus,
+              { changeId: queue.changeId, taskId: nextItem.taskId },
+            );
       let runningItem = await markTaskQueueItemRunning(input.runtime, nextItem, started.taskRun);
       const bindRetry = async (retry: RuntimeStartedTaskRun) => {
         runningItem = await markTaskQueueItemRunning(input.runtime, runningItem, retry.taskRun);
       };
-      const result = await runStartedTaskRunStage({
-        project: input.project,
-        started,
-        prompt: node.prompt,
-        live: input.live,
-        executionGate: { mode: "workflow-graph", workflowGraphPlanId: graph.id },
-        ownsLoopFinalization: true,
-        onRetryTaskRunStarted: bindRetry,
-        skillNative: {
+      const skillNative: SkillNativeTaskRunStageContext = {
           runtime: input.runtime,
           changeStatus: input.harness.changeStatus,
           leafServices: {
@@ -112,8 +149,35 @@ export async function runSkillNativeSequentialExecution(input: {
             startValidation: (project, options) => startSkillNativeValidationRun(project, input.runtime, input.harness, options),
             startAudit: (project, options) => startSkillNativeAuditRun(project, input.runtime, input.harness, options),
           },
-        },
-      });
+        };
+      if (resume) await assertTaskRunResumeEvidenceScope(input.runtime, queue.changeId, runningItem, resume.verdict);
+      const stageInput = {
+        project: input.project,
+        prompt: node.prompt,
+        live: input.live,
+        executionGate: { mode: "workflow-graph" as const, workflowGraphPlanId: graph.id },
+        onRetryTaskRunStarted: bindRetry,
+        skillNative,
+      };
+      const result = continuingCoder
+        ? await runStartedTaskRunStage({
+            ...stageInput,
+            started,
+            existingWorktreeId: resume.verdict.worktreeId,
+            ownsLoopFinalization: true,
+          })
+        : resume
+          ? await runResumedTaskRunStage({
+              ...stageInput,
+              memory: input.runtime,
+              taskRun: started.taskRun,
+              verdict: resume.verdict,
+            })
+          : await runStartedTaskRunStage({
+              ...stageInput,
+              started,
+              ownsLoopFinalization: true,
+            });
       if (result.taskRun.status === "interrupted") {
         queue = await pauseTaskQueue(input.runtime, queue, "模型执行已中断，当前 worktree 已保留，可继续。");
         workflow = await syncWorkflowRunFromQueue(

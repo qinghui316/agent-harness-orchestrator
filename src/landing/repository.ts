@@ -2,13 +2,13 @@ import { existsSync } from "node:fs";
 import { readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
-import type { ResolvedMemory } from "../types/index.js";
+import type { ProjectWorkbenchArtifactPathPort } from "../project-runtime/paths.js";
 import { renderLandingSummary, renderMergeReview } from "./rendering.js";
 import { landingPackageSchema } from "./schemas.js";
 import type { LandingReadinessPackage } from "./types.js";
 import { landingRoot } from "./utils.js";
 
-export async function listLandingPackages(memory: ResolvedMemory): Promise<LandingReadinessPackage[]> {
+export async function listLandingPackages(memory: ProjectWorkbenchArtifactPathPort): Promise<LandingReadinessPackage[]> {
   const root = landingRoot(memory);
   if (!existsSync(root)) return [];
   const entries = await readdir(root, { withFileTypes: true });
@@ -22,7 +22,7 @@ export async function listLandingPackages(memory: ResolvedMemory): Promise<Landi
   return packages.sort((a, b) => (b.reviewedAt ?? b.createdAt).localeCompare(a.reviewedAt ?? a.createdAt));
 }
 
-export async function readLandingPackage(memory: ResolvedMemory, packageId: string): Promise<LandingReadinessPackage> {
+export async function readLandingPackage(memory: ProjectWorkbenchArtifactPathPort, packageId: string): Promise<LandingReadinessPackage> {
   return readRequiredJsonFile(join(landingRoot(memory), packageId, "landing-package.json"), landingPackageSchema);
 }
 

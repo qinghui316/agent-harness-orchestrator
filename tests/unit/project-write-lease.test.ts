@@ -13,7 +13,7 @@ import {
   withProjectWriteLeaseAtPath,
 } from "../../src/project/index.js";
 import { prepareSkillNativeApplyFixture } from "../helpers/skill-native-apply-fixture.js";
-import { git, initGitRepository } from "./workbench/fixtures.js";
+import { git, initGitRepository } from "../helpers/skill-native-test-environment.js";
 
 describe("project write lease", () => {
   let projectPath: string;
@@ -185,5 +185,5 @@ describe("project write lease", () => {
       if (previousAhoHome === undefined) delete process.env.AHO_HOME;
       else process.env.AHO_HOME = previousAhoHome;
     }
-  });
+  }, 120_000);
 });

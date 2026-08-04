@@ -1,7 +1,4 @@
-import { describe, expect, it } from "vitest";
-import { createChange } from "../../src/change/manager.js";
-import { initHarness } from "../../src/harness/init.js";
-import { resolveProjectMemory } from "../../src/memory/resolver.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
 import { getAgentSurfaceProjection } from "../../src/workbench/agent-surface-projection.js";
 import {
@@ -13,15 +10,32 @@ import { buildDelegateTaskManifest, validateDelegateTaskPolicy } from "../../src
 import { findBoundaryViolations } from "../../src/agent-task/boundary-audit.js";
 import { dispatchForegroundRoleTask } from "../../src/agent-task/role-dispatcher.js";
 import { evaluateToolPolicy, workerPermissionProfileForRole } from "../../src/agent-task/tool-policy.js";
-import { startTaskRun } from "../../src/task-run/manager.js";
+import { startTaskRunFromRuntime } from "../../src/task-run/manager.js";
 import { runStartedTaskRunStage } from "../../src/workflow-runtime/code-workflow.js";
-import { project, writeAcceptedSpecAndTasks } from "./workbench/fixtures.js";
+import { startSkillNativeCodeRun } from "../../src/code/manager.js";
+import { startSkillNativeValidationRun } from "../../src/validation/service.js";
+import { startSkillNativeAuditRun } from "../../src/audit/service.js";
+import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
+import {
+  prepareSkillNativeWorkbenchFixture,
+  resolveSkillNativeWorkbenchHarness,
+  writeSkillNativeAcceptedSpecAndTasks,
+  type SkillNativeWorkbenchFixture,
+} from "../helpers/skill-native-workbench-fixture.js";
+import { project } from "../helpers/skill-native-test-environment.js";
 
 describe("workbench AgentTask domain", () => {
+  let fixture: SkillNativeWorkbenchFixture;
+
+  beforeEach(async () => {
+    fixture = await prepareSkillNativeWorkbenchFixture({ project: project() });
+  });
+
+  afterEach(() => fixture.restoreEnvironment());
+
   it("persists AgentTaskRepository results without leaking an unscoped task into the current Agent graph", async () => {
-    await initHarness(project());
-    await createChange(project(), { title: "Agent Task Demand" });
-    const memory = await resolveProjectMemory(project());
+    await createConversationChangeFixture(project(), { title: "Agent Task Demand" });
+    const memory = fixture.runtime;
 
     const task = await createAgentTask(memory, {
       conversationId: "agent-task-demand",
@@ -29,7 +43,7 @@ describe("workbench AgentTask domain", () => {
       roleId: "coder-agent",
       kind: "foreground",
       summary: "Implement the accepted demand.",
-      inputArtifacts: ["harness/changes/active/agent-task-demand/spec.md"],
+      inputArtifacts: ["state/changes/active/agent-task-demand/spec.md"],
     });
     await completeAgentTask(memory, task, {
       status: "completed",
@@ -60,9 +74,8 @@ describe("workbench AgentTask domain", () => {
   });
 
   it("validates delegateTask policy and records queued to running AgentTask lifecycle", async () => {
-    await initHarness(project());
-    await createChange(project(), { title: "Delegate Task Demand" });
-    const memory = await resolveProjectMemory(project());
+    await createConversationChangeFixture(project(), { title: "Delegate Task Demand" });
+    const memory = fixture.runtime;
     const manifest = buildDelegateTaskManifest();
 
     expect(manifest.allowedRoles.map((role) => role.roleId)).toEqual(expect.arrayContaining(["coder-agent", "validator", "auditor-agent", "rework-coder"]));
@@ -72,7 +85,7 @@ describe("workbench AgentTask domain", () => {
       roleId: "coder-agent",
       kind: "foreground",
       goal: "Implement the confirmed demand in an AHO-owned worktree.",
-      inputArtifacts: ["harness/changes/active/delegate-task-demand/spec.md"],
+      inputArtifacts: ["state/changes/active/delegate-task-demand/spec.md"],
     });
     expect(accepted.ok).toBe(true);
     const acceptedFromSeparateConversation = await validateDelegateTaskPolicy(memory, {
@@ -81,7 +94,7 @@ describe("workbench AgentTask domain", () => {
       roleId: "coder-agent",
       kind: "foreground",
       goal: "Implement the confirmed demand in an AHO-owned worktree.",
-      inputArtifacts: ["harness/changes/active/delegate-task-demand/spec.md"],
+      inputArtifacts: ["state/changes/active/delegate-task-demand/spec.md"],
     });
     expect(acceptedFromSeparateConversation.ok).toBe(true);
     const forbidden = await validateDelegateTaskPolicy(memory, {
@@ -90,7 +103,7 @@ describe("workbench AgentTask domain", () => {
       roleId: "coder-agent",
       kind: "foreground",
       goal: "Apply this result and merge the PR.",
-      inputArtifacts: ["harness/changes/active/delegate-task-demand/spec.md"],
+      inputArtifacts: ["state/changes/active/delegate-task-demand/spec.md"],
     });
     expect(forbidden.ok).toBe(false);
     expect(forbidden.readableMessage).toContain("用户确认");
@@ -101,7 +114,7 @@ describe("workbench AgentTask domain", () => {
       roleId: "coder-agent",
       kind: "foreground",
       goal: "Implement via delegated task.",
-      inputArtifacts: ["harness/changes/active/delegate-task-demand/spec.md"],
+      inputArtifacts: ["state/changes/active/delegate-task-demand/spec.md"],
       delegationMode: "orchestrator-policy",
     });
     expect(dispatched.task.status).toBe("running");
@@ -114,16 +127,28 @@ describe("workbench AgentTask domain", () => {
   });
 
   it("marks coder AgentTask failed when code setup fails before run artifacts exist", async () => {
-    await initHarness(project());
-    await createChange(project(), { title: "Code Setup Failure" });
-    await writeAcceptedSpecAndTasks("code-setup-failure");
-    const memory = await resolveProjectMemory(project());
-    const started = await startTaskRun(project(), { changeId: "code-setup-failure", taskId: "T-001" });
+    await createConversationChangeFixture(project(), { title: "Code Setup Failure" });
+    await writeSkillNativeAcceptedSpecAndTasks(fixture, "code-setup-failure");
+    const memory = fixture.runtime;
+    const harness = await resolveSkillNativeWorkbenchHarness(fixture, "code-setup-failure");
+    const started = await startTaskRunFromRuntime(memory, harness.changeStatus, {
+      changeId: "code-setup-failure",
+      taskId: "T-001",
+    });
 
     const result = await runStartedTaskRunStage({
       project: project(),
       started,
       executionGate: { mode: "workflow-graph", workflowGraphPlanId: "graph-missing" },
+      skillNative: {
+        runtime: memory,
+        changeStatus: harness.changeStatus,
+        leafServices: {
+          startCode: (managedProject, options) => startSkillNativeCodeRun(managedProject, memory, harness, options),
+          startValidation: (managedProject, options) => startSkillNativeValidationRun(managedProject, memory, harness, options),
+          startAudit: (managedProject, options) => startSkillNativeAuditRun(managedProject, memory, harness, options),
+        },
+      },
     });
 
     expect(result.workflow).toMatchObject({
@@ -146,7 +171,7 @@ describe("workbench AgentTask domain", () => {
       roleId: "coder-agent",
       kind: "foreground",
       goal: "Retry implementation after failed setup.",
-      inputArtifacts: ["harness/changes/active/code-setup-failure/spec.md"],
+      inputArtifacts: ["state/changes/active/code-setup-failure/spec.md"],
     });
     expect(nextDelegation.ok).toBe(true);
   });

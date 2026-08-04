@@ -252,7 +252,7 @@ describe("workbench Skill-native demand-to-execution golden flow", () => {
     });
     expect(await listWorkflowRuns(runtimePaths, changeId)).toEqual([]);
     expect(await realpath(join(getTempDir(), ".agents", "skills", skillName))).toBe(await realpath(skillRoot));
-    expect(await realpath(join(getTempDir(), ".claude", "skills", skillName))).toBe(await realpath(skillRoot));
+    expect(existsSync(join(getTempDir(), ".claude", "skills", skillName))).toBe(false);
     expect(existsSync(join(getTempDir(), ".agent-harness", "project.json"))).toBe(false);
     expect(await getGitStatusShort(getTempDir())).toEqual([]);
 

@@ -3,6 +3,8 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import type { AgentTaskStorePort } from "../agent-task/paths.js";
 import type { ProjectHarnessPlanningGateEvidence } from "../project-harness/planning-gate-query.js";
+import { loadProjectHarnessChange, resolveProjectHarnessChangeEvidenceRoot } from "../project-harness/change.js";
+import { readLatestWorkflowGraphPlanAt } from "../workflow-artifacts/workflow-graph-plan.js";
 import type { AcMap, ChangeStatus, ManagedProject, RunMetadata } from "../types/index.js";
 import type { WorktreeCreationPort } from "../worktree/paths.js";
 import type { ProjectRuntimeResolution } from "./context.js";
@@ -48,6 +50,12 @@ export interface ProjectHarnessExecutionPort {
   evidenceRoot: string;
   planning: ProjectHarnessPlanningGateEvidence;
   changeStatus: ChangeStatus;
+}
+
+export interface ProjectHarnessArchivedChangeReadPort {
+  evidenceRoot: string;
+  changeStatus: ChangeStatus;
+  graph: import("../types/index.js").WorkflowGraphPlan;
 }
 
 export function projectExecutionRuntimePort(
@@ -119,6 +127,49 @@ export async function projectHarnessExecutionPort(
       closeGate: {
         ready: false,
         warnings: ["Execution is active; apply and close remain separate human-gated transitions."],
+        blockingIssues: [],
+      },
+    },
+  };
+}
+
+export async function projectHarnessArchivedChangeReadPort(
+  project: ManagedProject,
+  skillRoot: string,
+  changeId: string,
+): Promise<ProjectHarnessArchivedChangeReadPort> {
+  const record = await loadProjectHarnessChange(skillRoot, changeId, true);
+  if (!record || !["completed", "blocked", "abandoned"].includes(record.status)) {
+    throw new Error(`Project Harness archived Change is not terminal: ${changeId}.`);
+  }
+  const evidenceRoot = await resolveProjectHarnessChangeEvidenceRoot(skillRoot, "archive", changeId);
+  const acMap = acMapSchema.parse(JSON.parse(await readFile(join(evidenceRoot, "ac-map.json"), "utf8"))) as AcMap;
+  if (acMap.changeId !== changeId) throw new Error("Project Harness archived Change evidence is stale.");
+  const graph = await readLatestWorkflowGraphPlanAt(evidenceRoot, changeId);
+  return {
+    evidenceRoot,
+    graph,
+    changeStatus: {
+      projectPath: project.path,
+      activeChanges: [],
+      change: {
+        version: "1.0",
+        id: changeId,
+        title: record.scope || changeId,
+        state: "archived",
+        createdAt: record.created_at,
+        updatedAt: record.updated_at,
+        closedAt: record.updated_at,
+        archivePath: `state/changes/archive/${changeId}`,
+      },
+      reviewStatus: "approved",
+      acMap,
+      specTest: null,
+      latestValidation: null,
+      latestAudit: null,
+      closeGate: {
+        ready: false,
+        warnings: ["Archived Change evidence is read-only."],
         blockingIssues: [],
       },
     },

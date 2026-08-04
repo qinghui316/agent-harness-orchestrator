@@ -24,6 +24,7 @@ import type {
   RemoteLandingStateSnapshot,
   ResolvedMemory,
 } from "../types/index.js";
+import type { ProjectWorkbenchArtifactPathPort } from "../project-runtime/paths.js";
 
 import { stateSnapshotSchema, readinessSchema, attemptSchema, resultSchema } from "./schemas.js";
 
@@ -190,11 +191,11 @@ export async function mergeRemoteLanding(project: ManagedProject, landingPackage
   }
 }
 
-export async function latestRemoteLandingReadinessForDraft(memory: ResolvedMemory, prDraftPackageId: string): Promise<RemoteLandingReadiness | null> {
+export async function latestRemoteLandingReadinessForDraft(memory: ProjectWorkbenchArtifactPathPort, prDraftPackageId: string): Promise<RemoteLandingReadiness | null> {
   return (await listRemoteLandingReadiness(memory)).find((item) => item.prDraftPackageId === prDraftPackageId) ?? null;
 }
 
-export async function listRemoteLandingReadiness(memory: ResolvedMemory): Promise<RemoteLandingReadiness[]> {
+export async function listRemoteLandingReadiness(memory: ProjectWorkbenchArtifactPathPort): Promise<RemoteLandingReadiness[]> {
   const root = remoteLandingRoot(memory);
   if (!existsSync(root)) return [];
   const entries = await readdir(root, { withFileTypes: true });
@@ -208,7 +209,7 @@ export async function listRemoteLandingReadiness(memory: ResolvedMemory): Promis
   return items.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-export async function listRemoteLandingResults(memory: ResolvedMemory): Promise<RemoteLandingResult[]> {
+export async function listRemoteLandingResults(memory: ProjectWorkbenchArtifactPathPort): Promise<RemoteLandingResult[]> {
   const root = remoteLandingRoot(memory);
   if (!existsSync(root)) return [];
   const entries = await readdir(root, { withFileTypes: true });
@@ -222,13 +223,13 @@ export async function listRemoteLandingResults(memory: ResolvedMemory): Promise<
   return items.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-export async function readRemoteLandingResult(memory: ResolvedMemory, remoteLandingResultId: string): Promise<RemoteLandingResult> {
+export async function readRemoteLandingResult(memory: ProjectWorkbenchArtifactPathPort, remoteLandingResultId: string): Promise<RemoteLandingResult> {
   const result = (await listRemoteLandingResults(memory)).find((item) => item.id === remoteLandingResultId);
   if (!result) throw new Error(`Remote landing result not found: ${remoteLandingResultId}`);
   return result;
 }
 
-export async function latestMergedRemoteLandingResultForLanding(memory: ResolvedMemory, landingPackageId: string): Promise<RemoteLandingResult | null> {
+export async function latestMergedRemoteLandingResultForLanding(memory: ProjectWorkbenchArtifactPathPort, landingPackageId: string): Promise<RemoteLandingResult | null> {
   return (await listRemoteLandingResults(memory)).find((item) => item.landingPackageId === landingPackageId && item.status === "merged") ?? null;
 }
 
@@ -414,7 +415,7 @@ function stringField(value: unknown, key: string): string | undefined {
   return undefined;
 }
 
-function remoteLandingRoot(memory: ResolvedMemory): string {
+function remoteLandingRoot(memory: ProjectWorkbenchArtifactPathPort): string {
   return join(memory.workbenchRoot, "remote-landing");
 }
 

@@ -14,7 +14,7 @@ export { emptyConfirmationQueue, scopeConfirmationQueueItemActions } from "./con
 
 export async function buildConfirmationQueue(input: {
   project: ManagedProject | null;
-  memory: ResolvedMemory;
+  memory?: ResolvedMemory;
   selectedTopic: WorkbenchTopicDetail | null;
   workpad: WorkbenchWorkpad;
   decisionInspector: WorkbenchDecisionInspector;
@@ -60,6 +60,7 @@ export async function buildConfirmationQueue(input: {
 
   if (input.project && input.includeProjectWideActions !== false) {
     const project = input.project;
+    if (!input.memory) throw new Error("Project-wide confirmations require an explicit artifact store.");
     const checks = await listIntegrationChecks(input.memory).catch(() => []);
     const latestActionableCheck = checks.find((check) => integrationCheckNeedsUserAction(check.status));
     if (latestActionableCheck) {

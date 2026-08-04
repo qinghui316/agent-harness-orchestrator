@@ -345,7 +345,7 @@ describe("workbench Skill-native planning-to-human-gate flow", () => {
     });
     expect(await listWorkflowRuns(runtimePaths, changeId)).toEqual([]);
     expect(await realpath(join(root, ".agents", "skills", skillName))).toBe(await realpath(skillRoot));
-    expect(await realpath(join(root, ".claude", "skills", skillName))).toBe(await realpath(skillRoot));
+    expect(existsSync(join(root, ".claude", "skills", skillName))).toBe(false);
     expect(existsSync(join(root, ".agent-harness", "project.json"))).toBe(false);
     expect((await git(root, ["status", "--porcelain"])).trim()).toBe("");
   }, SLOW_FLOW_TIMEOUT_MS);

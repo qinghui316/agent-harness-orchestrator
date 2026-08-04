@@ -29,6 +29,7 @@ import type {
   PrReviewThreadResolution,
   ResolvedMemory,
 } from "../types/index.js";
+import type { ProjectWorkbenchArtifactPathPort } from "../project-runtime/paths.js";
 
 import { stateSnapshotSchema, readinessSchema, handoffSchema, replyDraftSchema, replyHandoffSchema, threadResolutionSchema } from "./schemas.js";
 
@@ -283,11 +284,11 @@ export async function resolvePrReviewThread(
   return { draft: resolved, resolution };
 }
 
-export async function latestPrReviewReplyDraftForLanding(memory: ResolvedMemory, landingPackageId: string): Promise<PrReviewReplyDraft | null> {
+export async function latestPrReviewReplyDraftForLanding(memory: ProjectWorkbenchArtifactPathPort, landingPackageId: string): Promise<PrReviewReplyDraft | null> {
   return (await listPrReviewReplyDrafts(memory)).find((item) => item.landingPackageId === landingPackageId) ?? null;
 }
 
-export async function listPrReviewReplyDrafts(memory: ResolvedMemory): Promise<PrReviewReplyDraft[]> {
+export async function listPrReviewReplyDrafts(memory: ProjectWorkbenchArtifactPathPort): Promise<PrReviewReplyDraft[]> {
   const root = join(prReviewRoot(memory), "reply-drafts");
   if (!existsSync(root)) return [];
   const entries = await readdir(root, { withFileTypes: true });
@@ -301,11 +302,11 @@ export async function listPrReviewReplyDrafts(memory: ResolvedMemory): Promise<P
   return items.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-export async function latestPrReviewReadinessForDraft(memory: ResolvedMemory, prDraftPackageId: string): Promise<PrReviewReadiness | null> {
+export async function latestPrReviewReadinessForDraft(memory: ProjectWorkbenchArtifactPathPort, prDraftPackageId: string): Promise<PrReviewReadiness | null> {
   return (await listPrReviewReadiness(memory)).find((item) => item.prDraftPackageId === prDraftPackageId) ?? null;
 }
 
-export async function listPrReviewReadiness(memory: ResolvedMemory): Promise<PrReviewReadiness[]> {
+export async function listPrReviewReadiness(memory: ProjectWorkbenchArtifactPathPort): Promise<PrReviewReadiness[]> {
   const root = prReviewRoot(memory);
   if (!existsSync(root)) return [];
   const entries = await readdir(root, { withFileTypes: true });
@@ -599,7 +600,7 @@ async function commandText(command: string, args: string[], cwd: string): Promis
   return stdout;
 }
 
-function prReviewRoot(memory: ResolvedMemory): string {
+function prReviewRoot(memory: ProjectWorkbenchArtifactPathPort): string {
   return join(memory.workbenchRoot, "pr-review");
 }
 

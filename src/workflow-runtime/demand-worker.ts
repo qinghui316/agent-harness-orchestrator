@@ -16,14 +16,25 @@ import {
 import { getActiveChanges } from "../ecl/index.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import type { ManagedProject, ResolvedMemory } from "../types/index.js";
+import type { ProjectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
 import { emitAssistantEvent, type WorkflowRuntimeLiveSink } from "./kernel/live-events.js";
 import { runTopLevelRoleChainWorkflow } from "./top-level-role-chain.js";
 
 type ClaimedDemandWorker = NonNullable<Awaited<ReturnType<typeof claimNextDemandWorker>>>;
 
-export async function enqueueDemandWorkerForRuntime(project: ManagedProject, changeId: string): Promise<unknown> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "Demand worker enqueue");
+export interface SkillNativeDemandWorkerRuntime {
+  runtime: ProjectExecutionRuntimePort;
+  changeRoot(changeId: string): string | Promise<string>;
+}
+
+type DemandWorkerRuntimeStore = ResolvedMemory | ProjectExecutionRuntimePort;
+
+export async function enqueueDemandWorkerForRuntime(
+  project: ManagedProject,
+  changeId: string,
+  skillNative?: SkillNativeDemandWorkerRuntime,
+): Promise<unknown> {
+  const memory = await resolveDemandWorkerStore(project, skillNative, "Demand worker enqueue");
   return enqueueDemandWorker(memory, { changeId, waitingReason: "用户请求加入本地处理队列。" });
 }
 
@@ -32,8 +43,9 @@ export async function startNextDemandWorkerForRuntime(
   changeId: string,
   prompt: string | undefined,
   live: WorkflowRuntimeLiveSink | undefined,
+  skillNative?: SkillNativeDemandWorkerRuntime,
 ): Promise<unknown> {
-  return startDemandWorkerForChange(project, changeId, prompt, live);
+  return startDemandWorkerForChange(project, changeId, prompt, live, skillNative);
 }
 
 export async function pumpDemandWorkersForRuntime(
@@ -41,9 +53,9 @@ export async function pumpDemandWorkersForRuntime(
   prompt: string | undefined,
   live: WorkflowRuntimeLiveSink | undefined,
   liveChangeId?: string,
+  skillNative?: SkillNativeDemandWorkerRuntime,
 ): Promise<unknown> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "Demand worker pump");
+  const memory = await resolveDemandWorkerStore(project, skillNative, "Demand worker pump");
   const claimed = await claimAvailableDemandWorkers(memory);
   if (claimed.length === 0) {
     if (liveChangeId) {
@@ -65,7 +77,7 @@ export async function pumpDemandWorkersForRuntime(
   const liveClaim = liveChangeId ? claimed.find((claim) => claim.worker.changeId === liveChangeId) : undefined;
   const backgroundClaims = claimed.filter((claim) => claim !== liveClaim);
   for (const claim of backgroundClaims) {
-    scheduleClaimedDemandWorker(project, memory, claim);
+    scheduleClaimedDemandWorker(project, memory, claim, skillNative);
   }
   if (!liveClaim) {
     if (liveChangeId) {
@@ -85,7 +97,7 @@ export async function pumpDemandWorkersForRuntime(
     return { status: "pumped", claimed: claimed.length, backgroundStarted: backgroundClaims.length, results: [] };
   }
   try {
-    const result = await runClaimedDemandWorker(project, memory, liveClaim, prompt, live);
+    const result = await runClaimedDemandWorker(project, memory, liveClaim, prompt, live, skillNative);
     return { status: "pumped", claimed: claimed.length, backgroundStarted: backgroundClaims.length, results: [result] };
   } catch (error) {
     return {
@@ -102,20 +114,31 @@ export async function pumpDemandWorkersForRuntime(
   }
 }
 
-export async function evaluateDemandOrchestratorRuntime(project: ManagedProject, changeId: string): Promise<unknown> {
-  const memory = await resolveProjectMemory(project);
+export async function evaluateDemandOrchestratorRuntime(
+  project: ManagedProject,
+  changeId: string,
+  skillNative?: SkillNativeDemandWorkerRuntime,
+): Promise<unknown> {
+  const memory = await resolveDemandWorkerStore(project, skillNative);
   const worker = await getDemandWorkerForChange(memory, changeId);
   const decisions = (await reconcileDemandWorkers(memory)).decisions.filter((decision) => decision.changeId === changeId);
   return { worker, decisions };
 }
 
-export async function reconcileDemandWorkersForRuntime(project: ManagedProject): Promise<unknown> {
-  return reconcileDemandWorkers(await resolveProjectMemory(project));
+export async function reconcileDemandWorkersForRuntime(
+  project: ManagedProject,
+  skillNative?: SkillNativeDemandWorkerRuntime,
+): Promise<unknown> {
+  return reconcileDemandWorkers(await resolveDemandWorkerStore(project, skillNative));
 }
 
-export async function releaseDemandWorkerForRuntime(project: ManagedProject, changeId: string, reason: string | undefined): Promise<unknown> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "Demand worker release");
+export async function releaseDemandWorkerForRuntime(
+  project: ManagedProject,
+  changeId: string,
+  reason: string | undefined,
+  skillNative?: SkillNativeDemandWorkerRuntime,
+): Promise<unknown> {
+  const memory = await resolveDemandWorkerStore(project, skillNative, "Demand worker release");
   return releaseDemandWorker(memory, changeId, reason?.trim() || "Demand worker released by user action.");
 }
 
@@ -124,9 +147,10 @@ async function startDemandWorkerForChange(
   changeId: string,
   prompt: string | undefined,
   live: WorkflowRuntimeLiveSink | undefined,
+  skillNative?: SkillNativeDemandWorkerRuntime,
 ): Promise<unknown> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "Demand worker start");
+  const memory = skillNative?.runtime ?? await resolveProjectMemory(project);
+  if (!skillNative) assertWritableMemory(memory as ResolvedMemory, "Demand worker start");
   const claimed = await claimNextDemandWorker(memory, { changeId });
   if (!claimed) {
     const worker = await getDemandWorkerForChange(memory, changeId);
@@ -140,15 +164,16 @@ async function startDemandWorkerForChange(
     });
     return { status: "queued", worker };
   }
-  return runClaimedDemandWorker(project, memory, claimed, prompt, live);
+  return runClaimedDemandWorker(project, memory, claimed, prompt, live, skillNative);
 }
 
 async function runClaimedDemandWorker(
   project: ManagedProject,
-  memory: ResolvedMemory,
+  memory: DemandWorkerRuntimeStore,
   claimed: ClaimedDemandWorker,
   prompt: string | undefined,
   live: WorkflowRuntimeLiveSink | undefined,
+  skillNative?: SkillNativeDemandWorkerRuntime,
 ): Promise<unknown> {
   const changeId = claimed.worker.changeId;
   const running = await markDemandWorkerRunning(memory, claimed.worker, claimed.attempt);
@@ -160,14 +185,14 @@ async function runClaimedDemandWorker(
     summary: "本地主 orchestrator 已领取该需求，开始 Workflow Runtime 默认代码变更流程。",
   });
   try {
-    if (!await hasConfirmedPlanningArtifacts(memory, changeId)) {
+    if (!await hasConfirmedPlanningArtifacts(memory, changeId, skillNative)) {
       const completed = await completeDemandWorkerAttempt(memory, running.worker, running.attempt, {
         status: "needs-user-input",
         resultStatus: "needs-user-input",
         summary: "Demand execution needs confirmed planning artifacts before role agents can run.",
         failureReason: "The demand worker was queued without confirmed spec, plan, tasks, and AC map artifacts.",
       });
-      scheduleDemandWorkerPump(project);
+      scheduleDemandWorkerPump(project, skillNative);
       return { status: completed.worker.status, worker: completed.worker, attempt: completed.attempt, decision: completed.decision };
     }
     const beforeTasks = await listAgentTasks(memory, changeId).catch(() => []);
@@ -183,7 +208,7 @@ async function runClaimedDemandWorker(
       failureReason: status === "needs-user-input" || status === "failed" ? summarizePipelineResult(result) : undefined,
       agentTaskIds: newAgentTaskIds,
     });
-    scheduleDemandWorkerPump(project);
+    scheduleDemandWorkerPump(project, skillNative);
     return { status: completed.worker.status, worker: completed.worker, attempt: completed.attempt, orchestrationResult: result, rolePipeline: result, decision: completed.decision };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -193,16 +218,31 @@ async function runClaimedDemandWorker(
       summary: `Workflow Runtime top-level role-chain execution failed: ${message}`,
       failureReason: message,
     });
-    scheduleDemandWorkerPump(project);
+    scheduleDemandWorkerPump(project, skillNative);
     throw Object.assign(error instanceof Error ? error : new Error(message), { demandWorker: completed.worker.id });
   }
 }
 
-async function hasConfirmedPlanningArtifacts(memory: ResolvedMemory, changeId: string): Promise<boolean> {
+async function hasConfirmedPlanningArtifacts(
+  memory: DemandWorkerRuntimeStore,
+  changeId: string,
+  skillNative?: SkillNativeDemandWorkerRuntime,
+): Promise<boolean> {
   try {
-    const active = (await getActiveChanges(memory)).find((item) => item.name === changeId);
+    if (skillNative) {
+      const changeDir = await skillNative.changeRoot(changeId);
+      if (!existsSync(join(changeDir, "ac-map.json"))) return false;
+      for (const file of ["spec.md", "plan.md", "tasks.md"]) {
+        const path = join(changeDir, file);
+        if (!existsSync(path)) return false;
+        if (hasUnresolvedPlanningPlaceholder(await readFile(path, "utf8"))) return false;
+      }
+      return true;
+    }
+    const legacyMemory = memory as ResolvedMemory;
+    const active = (await getActiveChanges(legacyMemory)).find((item) => item.name === changeId);
     if (!active) return false;
-    const changeDir = join(memory.memoryRoot, active.path);
+    const changeDir = join(legacyMemory.memoryRoot, active.path);
     if (!existsSync(join(changeDir, "ac-map.json"))) return false;
     for (const file of ["spec.md", "plan.md", "tasks.md"]) {
       const path = join(changeDir, file);
@@ -220,16 +260,32 @@ function hasUnresolvedPlanningPlaceholder(content: string): boolean {
   return /(^|\n)\s*(?:-\s*)?(?:\[[ xX]\]\s*)?TBD\s*(?=\n|$)/.test(content);
 }
 
-function scheduleClaimedDemandWorker(project: ManagedProject, memory: ResolvedMemory, claimed: ClaimedDemandWorker): void {
+function scheduleClaimedDemandWorker(
+  project: ManagedProject,
+  memory: DemandWorkerRuntimeStore,
+  claimed: ClaimedDemandWorker,
+  skillNative?: SkillNativeDemandWorkerRuntime,
+): void {
   setTimeout(() => {
-    void runClaimedDemandWorker(project, memory, claimed, undefined, undefined).catch(() => undefined);
+    void runClaimedDemandWorker(project, memory, claimed, undefined, undefined, skillNative).catch(() => undefined);
   }, 0);
 }
 
-function scheduleDemandWorkerPump(project: ManagedProject): void {
+function scheduleDemandWorkerPump(project: ManagedProject, skillNative?: SkillNativeDemandWorkerRuntime): void {
   setTimeout(() => {
-    void pumpDemandWorkersForRuntime(project, undefined, undefined).catch(() => undefined);
+    void pumpDemandWorkersForRuntime(project, undefined, undefined, undefined, skillNative).catch(() => undefined);
   }, 0);
+}
+
+async function resolveDemandWorkerStore(
+  project: ManagedProject,
+  skillNative?: SkillNativeDemandWorkerRuntime,
+  writeAction?: string,
+): Promise<DemandWorkerRuntimeStore> {
+  if (skillNative) return skillNative.runtime;
+  const memory = await resolveProjectMemory(project);
+  if (writeAction) assertWritableMemory(memory, writeAction);
+  return memory;
 }
 
 function workerStatusFromPipelineResult(result: unknown): "result-ready" | "needs-user-input" | "failed" {

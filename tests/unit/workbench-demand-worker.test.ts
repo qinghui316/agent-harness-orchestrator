@@ -1,7 +1,12 @@
 ﻿import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
+import {
+  prepareSkillNativeWorkbenchFixture,
+  resolveSkillNativeWorkbenchRuntime,
+  type SkillNativeWorkbenchFixture,
+} from "../helpers/skill-native-workbench-fixture.js";
 import {
   claimAvailableDemandWorkers,
   claimNextDemandWorker,
@@ -13,11 +18,16 @@ import {
   reconcileDemandWorkers,
   writeDemandWorker,
 } from "../../src/demand-worker/manager.js";
-import { initHarness } from "../../src/harness/init.js";
-import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
-import { getTempDir, project } from "./workbench/fixtures.js";
-import { startNextDemandWorkerForRuntime } from "../../src/workflow-runtime/code-workflow.js";
+import { getTempDir, project } from "../helpers/skill-native-test-environment.js";
+import {
+  enqueueDemandWorkerForAction,
+  evaluateDemandOrchestrator,
+  pumpDemandWorkersForAction,
+  reconcileDemandWorkersForAction,
+  releaseDemandWorkerForAction,
+  startNextDemandWorkerForAction,
+} from "../../src/workbench/demand-workers/orchestration.js";
 
 const runtimeControls = vi.hoisted(() => ({
   calls: [] as Array<{ changeId: string; prompt?: string }>,
@@ -26,9 +36,8 @@ const runtimeControls = vi.hoisted(() => ({
 vi.mock("../../src/workflow-runtime/top-level-role-chain.js", () => ({
   runTopLevelRoleChainWorkflow: vi.fn(async (input: { project: ReturnType<typeof project>; changeId: string; prompt?: string }) => {
     runtimeControls.calls.push({ changeId: input.changeId, prompt: input.prompt });
-    const { resolveProjectMemory } = await import("../../src/memory/resolver.js");
     const { createAgentTask } = await import("../../src/agent-task/manager.js");
-    const memory = await resolveProjectMemory(input.project);
+    const memory = await resolveSkillNativeWorkbenchRuntime(input.project);
     await createAgentTask(memory, {
       conversationId: input.changeId,
       changeId: input.changeId,
@@ -49,15 +58,21 @@ vi.mock("../../src/workflow-runtime/top-level-role-chain.js", () => ({
 }));
 
 describe("workbench demand worker domain", () => {
+  let fixture: SkillNativeWorkbenchFixture;
+
+  beforeEach(async () => {
+    fixture = await prepareSkillNativeWorkbenchFixture({ project: project() });
+  });
+
   afterEach(() => {
     runtimeControls.calls = [];
+    fixture.restoreEnvironment();
   });
 
   it("claims one demand at a time when configured for sequential execution", async () => {
-    await initHarness(project());
     const first = await createConversationChangeFixture(project(), { title: "First Demand", body: "A" });
     const second = await createConversationChangeFixture(project(), { title: "Second Demand", body: "B" });
-    const memory = await resolveProjectMemory(project());
+    const memory = fixture.runtime;
     await enqueueDemandWorker(memory, { changeId: first.changeId });
     await enqueueDemandWorker(memory, { changeId: second.changeId });
 
@@ -77,9 +92,8 @@ describe("workbench demand worker domain", () => {
   });
 
   it("resumes existing demand workers instead of creating duplicates", async () => {
-    await initHarness(project());
     const topic = await createConversationChangeFixture(project(), { title: "Duplicate Demand", body: "A" });
-    const memory = await resolveProjectMemory(project());
+    const memory = fixture.runtime;
 
     const first = await enqueueDemandWorker(memory, { changeId: topic.changeId });
     const second = await enqueueDemandWorker(memory, { changeId: topic.changeId, waitingReason: "Still queued." });
@@ -90,10 +104,9 @@ describe("workbench demand worker domain", () => {
   });
 
   it("scoped demand worker claims do not claim other queued demands", async () => {
-    await initHarness(project());
     const first = await createConversationChangeFixture(project(), { title: "First Demand", body: "A" });
     const second = await createConversationChangeFixture(project(), { title: "Second Demand", body: "B" });
-    const memory = await resolveProjectMemory(project());
+    const memory = fixture.runtime;
     await enqueueDemandWorker(memory, { changeId: first.changeId });
     await enqueueDemandWorker(memory, { changeId: second.changeId });
 
@@ -108,9 +121,8 @@ describe("workbench demand worker domain", () => {
   });
 
   it("fails closed when a queued worker already has an active attempt", async () => {
-    await initHarness(project());
     const topic = await createConversationChangeFixture(project(), { title: "Guard Demand", body: "A" });
-    const memory = await resolveProjectMemory(project());
+    const memory = fixture.runtime;
     await enqueueDemandWorker(memory, { changeId: topic.changeId });
     const claimed = await claimNextDemandWorker(memory, { changeId: topic.changeId });
     if (!claimed) throw new Error("Expected worker to be claimed.");
@@ -121,11 +133,10 @@ describe("workbench demand worker domain", () => {
   });
 
   it("claims available demand workers up to the default bounded worker slots", async () => {
-    await initHarness(project());
     const first = await createConversationChangeFixture(project(), { title: "First Demand", body: "A" });
     const second = await createConversationChangeFixture(project(), { title: "Second Demand", body: "B" });
     const third = await createConversationChangeFixture(project(), { title: "Third Demand", body: "C" });
-    const memory = await resolveProjectMemory(project());
+    const memory = fixture.runtime;
     await enqueueDemandWorker(memory, { changeId: first.changeId });
     await enqueueDemandWorker(memory, { changeId: second.changeId });
     await enqueueDemandWorker(memory, { changeId: third.changeId });
@@ -145,10 +156,9 @@ describe("workbench demand worker domain", () => {
   });
 
   it("projects demand worker state into conversation summaries without task-level queue coupling", async () => {
-    await initHarness(project());
     const running = await createConversationChangeFixture(project(), { title: "Running Demand", body: "A" });
     const queued = await createConversationChangeFixture(project(), { title: "Queued Demand", body: "B" });
-    const memory = await resolveProjectMemory(project());
+    const memory = fixture.runtime;
     await enqueueDemandWorker(memory, { changeId: running.changeId });
     const claimed = await claimNextDemandWorker(memory, { changeId: running.changeId });
     if (!claimed) throw new Error("Expected worker to be claimed.");
@@ -166,9 +176,8 @@ describe("workbench demand worker domain", () => {
   });
 
   it("records MainOrchestrator decisions for demand enqueue and claim", async () => {
-    await initHarness(project());
     const topic = await createConversationChangeFixture(project(), { title: "Decision Demand", body: "A" });
-    const memory = await resolveProjectMemory(project());
+    const memory = fixture.runtime;
     await enqueueDemandWorker(memory, { changeId: topic.changeId });
     const claimed = await claimNextDemandWorker(memory, { changeId: topic.changeId });
     expect(claimed).toBeTruthy();
@@ -178,10 +187,34 @@ describe("workbench demand worker domain", () => {
     expect(decisions.every((decision) => decision.changeId === topic.changeId)).toBe(true);
   });
 
+  it("routes the Workbench DemandWorker action family through the Skill-native runtime", async () => {
+    const releasable = await createConversationChangeFixture(project(), { title: "Action Family Release", body: "A" });
+    await expect(enqueueDemandWorkerForAction(project(), releasable.changeId)).resolves.toMatchObject({
+      worker: expect.objectContaining({ changeId: releasable.changeId, status: "queued" }),
+    });
+    await expect(evaluateDemandOrchestrator(project(), releasable.changeId)).resolves.toMatchObject({
+      worker: expect.objectContaining({ changeId: releasable.changeId }),
+    });
+    await expect(reconcileDemandWorkersForAction(project())).resolves.toMatchObject({
+      workers: expect.arrayContaining([expect.objectContaining({ changeId: releasable.changeId })]),
+    });
+    await expect(releaseDemandWorkerForAction(project(), releasable.changeId, "Fixture release.")).resolves.toMatchObject({
+      changeId: releasable.changeId,
+      status: "released",
+    });
+
+    const pumpable = await createConversationChangeFixture(project(), { title: "Action Family Pump", body: "B" });
+    await enqueueDemandWorkerForAction(project(), pumpable.changeId);
+    await expect(pumpDemandWorkersForAction(project(), "run it", undefined, pumpable.changeId)).resolves.toMatchObject({
+      status: "pumped",
+      results: [expect.objectContaining({ status: "needs-user-input" })],
+    });
+    expect(runtimeControls.calls).toHaveLength(0);
+  });
+
   it("reconciles demand worker evidence without changing worker state", async () => {
-    await initHarness(project());
     const topic = await createConversationChangeFixture(project(), { title: "Reconcile Demand", body: "A" });
-    const memory = await resolveProjectMemory(project());
+    const memory = fixture.runtime;
     await enqueueDemandWorker(memory, { changeId: topic.changeId });
     const claimed = await claimNextDemandWorker(memory, { changeId: topic.changeId });
     if (!claimed) throw new Error("Expected worker to be claimed.");
@@ -195,12 +228,11 @@ describe("workbench demand worker domain", () => {
   });
 
   it("fails closed before Workflow Runtime when confirmed planning artifacts are missing", async () => {
-    await initHarness(project());
     const topic = await createConversationChangeFixture(project(), { title: "Missing Plan Demand", body: "A" });
-    const memory = await resolveProjectMemory(project());
+    const memory = fixture.runtime;
     await enqueueDemandWorker(memory, { changeId: topic.changeId });
 
-    const result = await startNextDemandWorkerForRuntime(project(), topic.changeId, "run it", undefined);
+    const result = await startNextDemandWorkerForAction(project(), topic.changeId, "run it", undefined);
 
     expect(runtimeControls.calls).toHaveLength(0);
     expect(result).toMatchObject({ status: "needs-user-input" });
@@ -213,13 +245,12 @@ describe("workbench demand worker domain", () => {
   });
 
   it("runs claimed DemandWorker execution through Workflow Runtime and preserves new AgentTask ids", async () => {
-    await initHarness(project());
     const topic = await createConversationChangeFixture(project(), { title: "Runtime Demand", body: "A" });
-    const memory = await resolveProjectMemory(project());
-    await writeConfirmedPlanningArtifacts(memory, topic.changeId);
+    const memory = fixture.runtime;
+    await writeConfirmedPlanningArtifacts(fixture.skillRoot, topic.changeId);
     await enqueueDemandWorker(memory, { changeId: topic.changeId });
 
-    const result = await startNextDemandWorkerForRuntime(project(), topic.changeId, "implement it", undefined);
+    const result = await startNextDemandWorkerForAction(project(), topic.changeId, "implement it", undefined);
 
     expect(runtimeControls.calls).toEqual([{ changeId: topic.changeId, prompt: "implement it" }]);
     expect(result).toMatchObject({
@@ -240,8 +271,8 @@ describe("workbench demand worker domain", () => {
   });
 });
 
-async function writeConfirmedPlanningArtifacts(memory: Awaited<ReturnType<typeof resolveProjectMemory>>, changeId: string): Promise<void> {
-  const changeDir = join(memory.changesRoot, "active", changeId);
+async function writeConfirmedPlanningArtifacts(skillRoot: string, changeId: string): Promise<void> {
+  const changeDir = join(skillRoot, "state", "changes", "active", changeId);
   await writeFile(join(changeDir, "spec.md"), "# Spec\n\n## Acceptance Criteria\n\n- AC-001: Do the work.\n", "utf8");
   await writeFile(join(changeDir, "plan.md"), "# Plan\n\nImplement the accepted work.\n", "utf8");
   await writeFile(join(changeDir, "tasks.md"), "# Tasks\n\n- [ ] T-001: Implement.\n  - Covers: AC-001\n", "utf8");

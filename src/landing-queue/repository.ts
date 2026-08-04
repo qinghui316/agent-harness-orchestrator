@@ -9,16 +9,17 @@ import type {
   LandingQueueSnapshot,
   ResolvedMemory,
 } from "../types/index.js";
+import type { ProjectWorkbenchArtifactPathPort } from "../project-runtime/paths.js";
 import { contentHash, displayLandingQueueArtifactPath, landingQueueRoot } from "./paths.js";
 import { renderResultSummary, renderSnapshotSummary, summaryForQueue } from "./rendering.js";
 import { decisionSchema, resultSchema, snapshotSchema } from "./schemas.js";
 
-export async function latestLandingQueueSnapshot(memory: ResolvedMemory): Promise<LandingQueueSnapshot | null> {
+export async function latestLandingQueueSnapshot(memory: ProjectWorkbenchArtifactPathPort): Promise<LandingQueueSnapshot | null> {
   const snapshots = await listLandingQueueSnapshots(memory);
   return snapshots[0] ?? null;
 }
 
-export async function listLandingQueueSnapshots(memory: ResolvedMemory): Promise<LandingQueueSnapshot[]> {
+export async function listLandingQueueSnapshots(memory: ProjectWorkbenchArtifactPathPort): Promise<LandingQueueSnapshot[]> {
   const root = landingQueueRoot(memory);
   if (!existsSync(root)) return [];
   const entries = await readdir(root, { withFileTypes: true });

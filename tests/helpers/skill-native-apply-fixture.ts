@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { acceptSkillNativeAudit } from "../../src/audit/acceptance.js";
 import { collectWorktreeDiff } from "../../src/audit/diff.js";
 import { projectApplyActionScope, resolveProjectApplyExecutionScope, resolveWorktreeApprovalScope } from "../../src/apply/execution-scope.js";
+import { evaluateSkillNativeApplyGate, worktreeApplyManifestHash } from "../../src/apply/gate.js";
 import { writeJsonFile } from "../../src/fs/json.js";
 import { integrationCheckActionManifestHash } from "../../src/integration-check/apply-discard.js";
 import { runSkillNativeIntegrationCheck } from "../../src/integration-check/service.js";
@@ -66,6 +67,9 @@ export async function prepareSkillNativeApplyFixture(input: {
   title?: string;
   changedPath?: string;
   changedContent?: string;
+  authorizationMode?: "stepwise" | "scoped-auto";
+  auditStatus?: "approved" | "approved-with-notes";
+  acceptAudit?: boolean;
 }): Promise<SkillNativeApplyFixture> {
   const harness = await createReadyProjectHarnessFixture({
     projectRoot: input.projectRoot,
@@ -170,7 +174,7 @@ export async function prepareSkillNativeApplyFixture(input: {
     conversationId: topic.conversationId,
     providerThreadId: `fixture-main-${topic.conversationId}`,
     goalIdentityHash: sha256(`fixture-goal:${topic.conversationId}`),
-    mode: "stepwise",
+    mode: input.authorizationMode ?? "stepwise",
     acceptedPlanId: accepted.proposalId,
     acceptedPlanHash: accepted.proposalHash,
     graphId: accepted.workflowGraphPlan.id,
@@ -217,16 +221,24 @@ export async function prepareSkillNativeApplyFixture(input: {
   const validationId = `validation-${worktree.metadata.worktreeId}`;
   const auditId = `audit-${worktree.metadata.worktreeId}`;
   await writeFixtureValidation(runtime.runsRoot, accepted.changeId, validationId, worktree.metadata.worktreeId, diff.diffHash);
-  await writeFixtureAudit(runtime.runsRoot, accepted.changeId, auditId, validationId, worktree.metadata.worktreeId, diff.diffHash);
-  await acceptSkillNativeAudit({
-    project: harness.project,
-    runtime,
-    evidenceRoot,
-    writerRoot: projectHarnessSharedWriterRoot(resolution.paths.sidecarRoot),
-    auditId,
-  });
+  await writeFixtureAudit(runtime.runsRoot, accepted.changeId, auditId, validationId, worktree.metadata.worktreeId, diff.diffHash, input.auditStatus ?? "approved");
+  if (input.acceptAudit !== false) {
+    await acceptSkillNativeAudit({
+      project: harness.project,
+      runtime,
+      evidenceRoot,
+      writerRoot: projectHarnessSharedWriterRoot(resolution.paths.sidecarRoot),
+      auditId,
+    });
+  }
   const refreshed = await resolveReady(harness.project, input.ahoHome);
-  const actionScope = await resolveWorktreeApprovalScope(harness.project, worktree.metadata.worktreeId);
+  const actionScope = input.acceptAudit === false
+    ? await resolveProjectApplyExecutionScope(harness.project, worktree.metadata.worktreeId).then(async (scope) =>
+      projectApplyActionScope(
+        scope,
+        worktreeApplyManifestHash(await evaluateSkillNativeApplyGate(harness.project, scope.runtime, scope.harness, worktree.metadata.worktreeId)),
+      ))
+    : await resolveWorktreeApprovalScope(harness.project, worktree.metadata.worktreeId);
   return {
     project: harness.project,
     resolution: refreshed,
@@ -387,6 +399,7 @@ async function writeFixtureAudit(
   validationId: string,
   worktreeId: string,
   diffHash: string,
+  status: "approved" | "approved-with-notes" = "approved",
 ): Promise<void> {
   const directory = join(runsRoot, auditId);
   const now = new Date().toISOString();
@@ -396,7 +409,7 @@ async function writeFixtureAudit(
     id: auditId,
     runId: auditId,
     changeId,
-    status: "approved",
+    status,
     worktreeId,
     validationId,
     worktreeDiffHash: diffHash,

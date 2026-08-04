@@ -1,7 +1,10 @@
 import { existsSync } from "node:fs";
+import type { AgentTaskStorePort } from "../../../agent-task/paths.js";
 import { listRuns } from "../../../run/manager.js";
 import { listDemandWorkers } from "../../../demand-worker/manager.js";
+import type { DemandWorkerStorePort } from "../../../demand-worker/paths.js";
 import { listTaskQueues } from "../../../task-queue/manager.js";
+import type { ProjectRunsPathPort } from "../../../project-runtime/paths.js";
 import { getLatestWorkflowRun, summarizeWorkflowRun } from "../../../workflow-run/manager.js";
 import { readLatestWorkflowGraphPlan } from "../../../workflow-artifacts/manager.js";
 import type { SchedulerCurrentTransition } from "../../../workflow-actions/scheduler-current-transition.js";
@@ -508,7 +511,7 @@ function buildScopedFeedbackTarget(topic: WorkbenchTopicDetail, taskGraph: Workb
   };
 }
 
-function buildRolePipelineSummary(
+export function buildRolePipelineSummary(
   topic: WorkbenchTopicDetail,
   agentTasks: WorkbenchAgentTaskSummary[],
 ): WorkbenchRolePipelineSummary | undefined {
@@ -551,7 +554,7 @@ function rolePipelineStageForActiveTask(roleId: string): WorkbenchRolePipelineSu
   return "planning";
 }
 
-function buildWorkpadBackground(workpads: WorkbenchWorkpadSummary[], selectedId: string | undefined): WorkpadBackgroundActivitySummary {
+export function buildWorkpadBackground(workpads: WorkbenchWorkpadSummary[], selectedId: string | undefined): WorkpadBackgroundActivitySummary {
   const backgroundItems = workpads.filter((item) => item.id !== selectedId && ["running", "queued", "blocked", "waiting-decision"].includes(item.runtimeStatus));
   return {
     totalCount: workpads.length,
@@ -708,7 +711,7 @@ function workpadMissingWarnings(specReady: boolean, planReady: boolean, tasksRea
   return warnings;
 }
 
-function buildWorkpadNextAction(
+export function buildWorkpadNextAction(
   topic: WorkbenchTopicDetail,
   approvals: WorkbenchApprovalItem[],
   readiness: { specReady: boolean; planReady: boolean; tasksReady: boolean },
@@ -902,7 +905,7 @@ function buildQueueBlockedNextAction(queue?: WorkbenchTaskQueueSummary, taskGrap
 }
 
 export async function buildMultiWorkpadSummaries(
-  memory: ResolvedMemory,
+  memory: ProjectRunsPathPort & DemandWorkerStorePort & AgentTaskStorePort,
   topics: WorkbenchTopicSummary[],
   approvals: WorkbenchApprovalItem[],
   selectedTopicId: string | undefined,
@@ -919,6 +922,7 @@ export async function buildMultiWorkpadSummaries(
         userStatus: topic.state === "archive" ? "completed" : "later",
         userStatusLabel: userDecisionStateLabel(topic.state === "archive" ? "completed" : "later"),
         conversationLifecycle: topic.state === "archive" ? "archived-readonly" : "active",
+        linkedFromChangeId: topic.boundChangeId ?? undefined,
         selected: topic.id === selectedTopicId,
         waitingDecisionCount: 0,
         updatedAt: topic.updatedAt,
@@ -975,6 +979,7 @@ export async function buildMultiWorkpadSummaries(
       userStatus: userDecisionStateForRuntime(runtimeStatus),
       userStatusLabel: userDecisionStateLabel(userDecisionStateForRuntime(runtimeStatus)),
       conversationLifecycle: topic.state === "archive" ? "archived-readonly" : runtimeStatus === "running" ? "running" : "active",
+      linkedFromChangeId: topic.boundChangeId ?? undefined,
       selected: topic.id === selectedTopicId || topic.name === selectedTopicId,
       waitingDecisionCount: topicApprovals.length,
       latestRunStatus: demandWorker?.status ?? latestRun?.status,

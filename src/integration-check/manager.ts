@@ -14,8 +14,8 @@ export type {
 } from "./types.js";
 export type { IntegrationFixRepairRunner } from "./fix-attempts.js";
 export type { RunIntegrationCheckOptions } from "./service.js";
-export { findIntegrationCheckCandidate } from "./candidates.js";
-export { runIntegrationCheck } from "./service.js";
+export { collectSkillNativeReadyTargets, findIntegrationCheckCandidate, findSkillNativeIntegrationCheckCandidate } from "./candidates.js";
+export { runIntegrationCheck, runSkillNativeIntegrationCheck } from "./service.js";
 export {
   applyIntegrationCheck,
   discardIntegrationCheck,

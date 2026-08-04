@@ -1,6 +1,7 @@
 import type { ManagedProject } from "../types/index.js";
 import { applyResultToProject } from "../apply/manager.js";
 import { resolveProjectMemory } from "../memory/resolver.js";
+import type { ProjectRunsPathPort } from "../project-runtime/paths.js";
 import {
   blockQueuedTaskItem,
   failQueuedTaskItem,
@@ -154,7 +155,7 @@ export async function runWorkflowGraphSequentialExecution(input: WorkflowGraphSe
   return failQueue(memory, input.project, input.changeId, queue, workflow, "WorkflowGraph sequential runtime exceeded the V0 safety iteration limit.");
 }
 
-export async function selectNextSequentialGraphQueueItem(memory: ResolvedMemory, graph: WorkflowGraphPlan, queue: TaskQueueRun): Promise<TaskQueueItem | null> {
+export async function selectNextSequentialGraphQueueItem(memory: ProjectRunsPathPort, graph: WorkflowGraphPlan, queue: TaskQueueRun): Promise<TaskQueueItem | null> {
   assertSequentialGraphScope(graph, queue);
   const items = await listTaskQueueItems(memory, queue.changeId, queue.id);
   if (items.some((item) => item.status === "running")) return null;

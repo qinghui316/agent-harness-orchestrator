@@ -5,6 +5,7 @@ import { isActiveTaskRunStatus, listTaskRuns, listWorkerLeases } from "../task-r
 import { listValidationResults } from "../validation/artifacts.js";
 import { readWorkflowRun, syncWorkflowRunFromQueue } from "../workflow-run/manager.js";
 import type { ManagedProject, TaskQueueItem, TaskQueueRun } from "../types/index.js";
+import type { ProjectRunsPathPort } from "../project-runtime/paths.js";
 import type { TaskQueueReconcileOptions } from "./types.js";
 import { finishTaskQueueItem, pauseTaskQueue, requeueTaskQueueItemAfterInterruption, updateTaskQueueAfterItem } from "./item-transitions.js";
 import { listTaskQueueItems, listTaskQueues, readTaskQueueRun } from "./repository.js";
@@ -12,6 +13,13 @@ import { listTaskQueueItems, listTaskQueues, readTaskQueueRun } from "./reposito
 export async function reconcileTaskQueues(project: ManagedProject, options: TaskQueueReconcileOptions): Promise<{ queues: TaskQueueRun[]; items: TaskQueueItem[] }> {
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "TaskQueue reconcile");
+  return reconcileTaskQueuesFromRuntime(memory, options);
+}
+
+export async function reconcileTaskQueuesFromRuntime(
+  memory: ProjectRunsPathPort,
+  options: TaskQueueReconcileOptions,
+): Promise<{ queues: TaskQueueRun[]; items: TaskQueueItem[] }> {
   const queues = await listTaskQueues(memory, options.changeId);
   const taskRuns = await listTaskRuns(memory, options.changeId);
   await listWorkerLeases(memory, options.changeId);

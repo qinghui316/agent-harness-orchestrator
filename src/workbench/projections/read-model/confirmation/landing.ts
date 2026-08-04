@@ -5,7 +5,8 @@ import { latestPrFeedbackSummaryForDraft } from "../../../../pr-feedback/manager
 import { latestPrReviewReadinessForDraft, latestPrReviewReplyDraftForLanding } from "../../../../pr-review/manager.js";
 import { latestMergedRemoteLandingResultForLanding, latestRemoteLandingReadinessForDraft } from "../../../../remote-landing/manager.js";
 import { latestPostMergeHandoffForLanding } from "../../../../post-merge/manager.js";
-import type { ManagedProject, ResolvedMemory, LandingQueueCandidate, LandingQueueSnapshot } from "../../../../types/index.js";
+import type { ProjectWorkbenchArtifactPathPort } from "../../../../project-runtime/paths.js";
+import type { ManagedProject, LandingQueueCandidate, LandingQueueSnapshot } from "../../../../types/index.js";
 import { selectLandingReviewArtifactRef } from "../../../artifact-selection.js";
 import type { WorkbenchConfirmationQueueItem, WorkbenchDecisionAction } from "../../../read-model-types.js";
 import { evidenceActions } from "../evidence-actions.js";
@@ -44,7 +45,7 @@ export function landingCandidateQueueItem(project: ManagedProject, candidate: La
 
 export async function landingQueuePrepareItem(
   project: ManagedProject,
-  memory: ResolvedMemory,
+  memory: ProjectWorkbenchArtifactPathPort,
   packages: LandingReadinessPackage[],
   selectedChangeId: string | undefined,
 ): Promise<WorkbenchConfirmationQueueItem | null> {
@@ -255,7 +256,7 @@ export function landingLocalTerminalBlockerQueueItem(
 
 export async function prDraftQueueItem(
   project: ManagedProject,
-  memory: ResolvedMemory,
+  memory: ProjectWorkbenchArtifactPathPort,
   pkg: LandingReadinessPackage,
   selectedChangeId: string | undefined,
 ): Promise<WorkbenchConfirmationQueueItem> {

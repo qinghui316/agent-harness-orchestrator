@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
-import { canApplyResultFromGate, classifyApplyReadiness, previewWorktreeApply, type WorktreeGateState } from "../apply/manager.js";
+import { canApplyResultFromGate, classifyApplyReadiness, evaluateSkillNativeCandidateGate } from "../apply/gate.js";
+import { previewWorktreeApply, type WorktreeGateState } from "../apply/manager.js";
 import { resolveProjectMemory } from "../memory/resolver.js";
+import type { ProjectExecutionRuntimePort, ProjectHarnessExecutionPort } from "../project-runtime/execution-ports.js";
 import { listWorktreeStatuses } from "../worktree/manager.js";
 import type { ManagedProject, ResolvedMemory } from "../types/index.js";
 import { compactTimestamp } from "./paths.js";
-import type { IntegrationCheckCandidate, IntegrationCheckTarget } from "./types.js";
+import type { IntegrationCheckCandidate, IntegrationCheckTarget, SkillNativeIntegrationCheckTarget } from "./types.js";
 
 export async function findIntegrationCheckCandidate(project: ManagedProject, changeId?: string): Promise<IntegrationCheckCandidate | null> {
   const memory = await resolveProjectMemory(project);
@@ -17,6 +19,74 @@ export async function findIntegrationCheckCandidate(project: ManagedProject, cha
     summary: `${targets.length} 个结果可以先做兼容性检查。`,
     riskSummary: "检查会在临时工作区里按顺序试应用这些结果，不会修改项目源码。",
   };
+}
+
+export async function findSkillNativeIntegrationCheckCandidate(
+  project: ManagedProject,
+  runtime: ProjectExecutionRuntimePort,
+  harness: ProjectHarnessExecutionPort,
+  changeId?: string,
+): Promise<IntegrationCheckCandidate | null> {
+  const targets = selectIntegrationCandidateTargets(
+    await collectSkillNativeReadyTargets(project, runtime, harness, undefined, changeId),
+    changeId,
+  );
+  if (targets.length < 2) return null;
+  return {
+    id: `candidate:${targets.map((target) => target.worktreeId).join("+")}`,
+    targets,
+    summary: `${targets.length} 个结果可以先做兼容性检查。`,
+    riskSummary: "检查会在临时工作区里按顺序试应用这些结果，不会修改项目源码。",
+  };
+}
+
+export async function collectSkillNativeReadyTargets(
+  project: ManagedProject,
+  runtime: ProjectExecutionRuntimePort,
+  harness: ProjectHarnessExecutionPort,
+  requestedWorktreeIds?: string[],
+  expectedChangeId?: string,
+): Promise<SkillNativeIntegrationCheckTarget[]> {
+  const requested = requestedWorktreeIds?.length ? requestedWorktreeIds : null;
+  if (requested) assertUniqueRequestedWorktreeIds(requested);
+  const requestedSet = requested ? new Set(requested) : null;
+  const statuses = await listWorktreeStatuses(runtime);
+  const statusById = new Map(statuses.map((status) => [status.worktreeId, status]));
+  if (requested) {
+    for (const worktreeId of requested) {
+      if (!statusById.has(worktreeId)) throw new Error(`Requested worktree ${worktreeId} is not known to the project.`);
+    }
+  }
+
+  const targets: SkillNativeIntegrationCheckTarget[] = [];
+  for (const worktree of statuses.filter((item) => item.status !== "applied")) {
+    if (requestedSet && !requestedSet.has(worktree.worktreeId)) continue;
+    const gate = await evaluateSkillNativeCandidateGate(project, runtime, harness, worktree.worktreeId).catch(() => null);
+    if (!gate || !canApplyResultFromGate(gate) || classifyApplyReadiness(gate).kind !== "ready" || !gate.validation || !gate.audit) continue;
+    targets.push({
+      ...targetFromGate(gate),
+      validationRunId: gate.validation.id,
+      auditRunId: gate.audit.id,
+    });
+  }
+  const sorted = targets.sort((left, right) => `${left.changeId}:${left.worktreeId}`.localeCompare(`${right.changeId}:${right.worktreeId}`));
+  const scoped = expectedChangeId && !requested
+    ? sorted.filter((target) => target.changeId === expectedChangeId)
+    : sorted;
+  assertSameChangeTargets(scoped);
+  if (expectedChangeId && scoped.some((target) => target.changeId !== expectedChangeId)) {
+    throw new Error("Integration check targets must belong to the requested Change.");
+  }
+  if (requested) {
+    const readyIds = new Set(scoped.map((target) => target.worktreeId));
+    for (const worktreeId of requested) {
+      const status = statusById.get(worktreeId);
+      if (status?.status === "applied") throw new Error(`Requested worktree ${worktreeId} has already been applied.`);
+      if (!readyIds.has(worktreeId)) throw new Error(`Requested worktree ${worktreeId} is not ready for integration check.`);
+    }
+    if (scoped.length !== requested.length) throw new Error("Requested integration-check targets did not resolve exactly.");
+  }
+  return scoped;
 }
 
 export async function collectReadyTargets(project: ManagedProject, memory: ResolvedMemory, requestedWorktreeIds?: string[], expectedChangeId?: string): Promise<IntegrationCheckTarget[]> {

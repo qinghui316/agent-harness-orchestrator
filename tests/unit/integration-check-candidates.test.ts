@@ -1,31 +1,32 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ManagedProject, ResolvedMemory } from "../../src/types/index.js";
+import type { ProjectExecutionRuntimePort, ProjectHarnessExecutionPort } from "../../src/project-runtime/execution-ports.js";
+import type { ManagedProject } from "../../src/types/index.js";
 
 const statuses: Array<{ worktreeId: string; status: string }> = [];
 const gates = new Map<string, unknown>();
-
-vi.mock("../../src/memory/resolver.js", () => ({
-  resolveProjectMemory: vi.fn(async () => memory),
-}));
 
 vi.mock("../../src/worktree/manager.js", () => ({
   listWorktreeStatuses: vi.fn(async () => statuses),
 }));
 
-vi.mock("../../src/apply/manager.js", () => ({
+vi.mock("../../src/apply/gate.js", () => ({
   canApplyResultFromGate: vi.fn(() => true),
   classifyApplyReadiness: vi.fn(() => ({ kind: "ready" })),
-  previewWorktreeApply: vi.fn(async (_project: ManagedProject, worktreeId: string) => gates.get(worktreeId)),
+  evaluateSkillNativeCandidateGate: vi.fn(async (
+    _project: ManagedProject,
+    _runtime: ProjectExecutionRuntimePort,
+    _harness: ProjectHarnessExecutionPort,
+    worktreeId: string,
+  ) => gates.get(worktreeId)),
 }));
 
-const project: ManagedProject = { id: "project-1", path: "E:/tmp/project" };
-const memory = {
-  mode: "repo-local",
-  supported: true,
-  writable: true,
+const project: ManagedProject = { id: "project-1", path: "project-root" };
+const runtime = {
   projectId: "project-1",
-  memoryRoot: "E:/tmp/project/.agent-harness",
-} as ResolvedMemory;
+} as ProjectExecutionRuntimePort;
+const harness = {
+  evidenceRoot: "project-skill/state/changes/active/change-a",
+} as ProjectHarnessExecutionPort;
 
 describe("IntegrationCheck candidate Change boundary", () => {
   beforeEach(() => {
@@ -34,13 +35,13 @@ describe("IntegrationCheck candidate Change boundary", () => {
   });
 
   it("groups candidates by Change and only returns the selected Change group", async () => {
-    const { findIntegrationCheckCandidate } = await import("../../src/integration-check/candidates.js");
+    const { findSkillNativeIntegrationCheckCandidate } = await import("../../src/integration-check/candidates.js");
     addReadyGate("wt-a1", "change-a");
     addReadyGate("wt-b1", "change-b");
     addReadyGate("wt-b2", "change-b");
 
-    await expect(findIntegrationCheckCandidate(project, "change-a")).resolves.toBeNull();
-    await expect(findIntegrationCheckCandidate(project, "change-b")).resolves.toMatchObject({
+    await expect(findSkillNativeIntegrationCheckCandidate(project, runtime, harness, "change-a")).resolves.toBeNull();
+    await expect(findSkillNativeIntegrationCheckCandidate(project, runtime, harness, "change-b")).resolves.toMatchObject({
       targets: [
         expect.objectContaining({ changeId: "change-b", worktreeId: "wt-b1" }),
         expect.objectContaining({ changeId: "change-b", worktreeId: "wt-b2" }),
@@ -49,30 +50,32 @@ describe("IntegrationCheck candidate Change boundary", () => {
   });
 
   it("rejects explicit IntegrationCheck targets from different Changes", async () => {
-    const { collectReadyTargets } = await import("../../src/integration-check/candidates.js");
+    const { collectSkillNativeReadyTargets } = await import("../../src/integration-check/candidates.js");
     addReadyGate("wt-a1", "change-a");
     addReadyGate("wt-b1", "change-b");
 
-    await expect(collectReadyTargets(project, memory, ["wt-a1", "wt-b1"], "change-a")).rejects.toThrow(/same Change/i);
+    await expect(collectSkillNativeReadyTargets(project, runtime, harness, ["wt-a1", "wt-b1"], "change-a")).rejects.toThrow(/same Change/i);
   });
 
   it("rejects same-group worktrees when they do not belong to the requested Change", async () => {
-    const { collectReadyTargets } = await import("../../src/integration-check/candidates.js");
+    const { collectSkillNativeReadyTargets } = await import("../../src/integration-check/candidates.js");
     addReadyGate("wt-b1", "change-b");
     addReadyGate("wt-b2", "change-b");
 
-    await expect(collectReadyTargets(project, memory, ["wt-b1", "wt-b2"], "change-a")).rejects.toThrow(/requested Change/i);
-    await expect(collectReadyTargets(project, memory, ["wt-b1", "wt-b2"], "change-b")).resolves.toHaveLength(2);
+    await expect(collectSkillNativeReadyTargets(project, runtime, harness, ["wt-b1", "wt-b2"], "change-a")).rejects.toThrow(/requested Change/i);
+    await expect(collectSkillNativeReadyTargets(project, runtime, harness, ["wt-b1", "wt-b2"], "change-b")).resolves.toHaveLength(2);
   });
 });
 
 function addReadyGate(worktreeId: string, changeId: string): void {
   statuses.push({ worktreeId, status: "ready" });
-  gates.set(worktreeId, { gate: {
+  gates.set(worktreeId, {
     changeId,
     worktree: { worktreeId },
     diffHash: `diff-${worktreeId}`,
     diffStat: `${worktreeId}.ts | 1 +`,
     sourceHead: `head-${changeId}`,
-  } });
+    validation: { id: `validation-${worktreeId}` },
+    audit: { id: `audit-${worktreeId}` },
+  });
 }

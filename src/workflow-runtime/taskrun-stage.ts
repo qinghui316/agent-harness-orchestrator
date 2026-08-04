@@ -21,7 +21,6 @@ import {
 import type {
   ManagedProject,
   ChangeStatus,
-  ResolvedMemory,
   RunMetadata,
   StageResumeVerdict,
   AuditResult,
@@ -170,7 +169,7 @@ export async function runStartedTaskRunStage(input: RuntimeTaskRunStageOptions):
 }
 
 export async function findTaskRunStageResumeCandidate(
-  memory: ResolvedMemory,
+  memory: WorkflowRoleRuntimePort,
   changeId: string,
   item: TaskQueueItem,
 ): Promise<{ taskRun: TaskRun; verdict: StageResumeVerdict } | null> {
@@ -191,13 +190,14 @@ export async function findTaskRunStageResumeCandidate(
 
 export async function runResumedTaskRunStage(input: {
   project: ManagedProject;
-  memory: ResolvedMemory;
+  memory: WorkflowRoleRuntimePort;
   taskRun: TaskRun;
   verdict: StageResumeVerdict;
   prompt?: string;
   live?: WorkflowRuntimeLiveSink;
   executionGate?: CodeExecutionGateOptions;
   onRetryTaskRunStarted?: (started: RuntimeStartedTaskRun) => Promise<void>;
+  skillNative?: SkillNativeTaskRunStageContext;
 }): Promise<RuntimeTaskRunStageResult> {
   const resumed = await executeResumedTaskRunStage(input);
   const taskRun = isRecord(resumed) && isTaskRunLike(resumed.taskRun) ? resumed.taskRun : null;
@@ -213,12 +213,13 @@ export async function runResumedTaskRunStage(input: {
     loopRunId: createWorkflowRuntimeEvidenceRunId(taskRun.changeId),
     orchestrationState: workflow.orchestration,
     onRetryTaskRunStarted: input.onRetryTaskRunStarted,
+    skillNative: input.skillNative,
   });
   if (rework) return { taskRun: rework.taskRun, lease: rework.lease, workflow: rework.workflow, autoRework: { previousTaskRun: taskRun, result: rework } };
   return { taskRun, lease: null, workflow };
 }
 
-export async function assertTaskRunResumeEvidenceScope(memory: ResolvedMemory, changeId: string, item: TaskQueueItem, verdict: StageResumeVerdict): Promise<void> {
+export async function assertTaskRunResumeEvidenceScope(memory: WorkflowRoleRuntimePort, changeId: string, item: TaskQueueItem, verdict: StageResumeVerdict): Promise<void> {
   if (verdict.taskId && verdict.taskId.toUpperCase() !== item.taskId.toUpperCase()) {
     throw new Error(`TaskQueue resume evidence is scoped to ${verdict.taskId}, not ${item.taskId}.`);
   }
@@ -533,10 +534,11 @@ function shouldRunRework(taskRun: TaskRun, workflow: RuntimeTaskRunWorkflowResul
 
 async function executeResumedTaskRunStage(input: {
   project: ManagedProject;
-  memory: ResolvedMemory;
+  memory: WorkflowRoleRuntimePort;
   taskRun: TaskRun;
   verdict: StageResumeVerdict;
   live?: WorkflowRuntimeLiveSink;
+  skillNative?: SkillNativeTaskRunStageContext;
 }): Promise<{ taskRun: TaskRun; workflow: RuntimeTaskRunWorkflowResult }> {
   const runs = await listRuns(input.memory);
   const coderRun = input.verdict.runId ? runs.find((run) => run.id === input.verdict.runId) : undefined;
@@ -576,7 +578,8 @@ async function executeResumedTaskRunStage(input: {
       summary: "Coder evidence already exists; AHO is resuming from validation.",
       artifactRef: coderRun.artifacts.directory,
     });
-    validation = await startValidationRun(input.project, { changeId: input.taskRun.changeId, worktree: coderRun.worktree.worktreeId });
+    const startValidation = input.skillNative?.leafServices.startValidation ?? startValidationRun;
+    validation = await startValidation(input.project, { changeId: input.taskRun.changeId, worktree: coderRun.worktree.worktreeId });
     emitValidationAssistantEvents(input.live, coderRun.id, validation);
     if (validation.validation.status !== "passed") {
       const workflow = workflowFromUnknown({ code: { run: coderRun }, validation, stoppedAt: "validation" }, input.taskRun.changeId);
@@ -593,7 +596,8 @@ async function executeResumedTaskRunStage(input: {
     summary: "Validation evidence is available; AHO is resuming from audit.",
     artifactRef: validation?.run.artifacts.validation ?? input.verdict.evidenceRefs[0],
   });
-  const audit = await startAuditRun(input.project, {
+  const startAudit = input.skillNative?.leafServices.startAudit ?? startAuditRun;
+  const audit = await startAudit(input.project, {
     changeId: input.taskRun.changeId,
     worktreeId: coderRun.worktree.worktreeId,
     prompt: "This audit resumed from WorkflowRun stage recovery after coder and validation evidence were already present.",

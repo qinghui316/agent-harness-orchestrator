@@ -1,46 +1,75 @@
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
-import { createConcurrentChange, closeChange } from "../../src/change/manager.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
-import { initHarness } from "../../src/harness/init.js";
+import {
+  initializeSkillNativeSequentialFixture,
+  prepareSkillNativeWorkbenchFixture,
+  resolveSkillNativeWorkbenchHarness,
+  skillNativeChangeRoot,
+  writeSkillNativeAuditResult,
+  writeSkillNativeCoderRun,
+  writeSkillNativeAcceptedSpecAndTasks,
+  writeSkillNativeTaskQueueItemRecord,
+  writeSkillNativeTaskQueueRecord,
+  writeSkillNativeTaskRunRecord,
+  writeSkillNativeValidationResult,
+  writeSkillNativeWorkerLeaseRecord,
+  type SkillNativeWorkbenchFixture,
+} from "../helpers/skill-native-workbench-fixture.js";
 import { listRuns } from "../../src/run/manager.js";
+import { projectSkillArtifact } from "../../src/project-harness/contracts.js";
+import { resolveOwnedArtifactPath } from "../../src/project-harness/path-safety.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
-import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import {
   mainAgentLoopRunsRoot,
 } from "../../src/main-agent-orchestration/index.js";
-import { listTaskQueueItems, listTaskQueues, pauseTaskQueue, reconcileTaskQueues, startOrResumeTaskQueue } from "../../src/task-queue/manager.js";
-import { finishTaskRunFromWorkflowResult, markTaskRunStarted, resumeInterruptedTaskRun } from "../../src/task-run/manager.js";
+import { listTaskQueueItems, listTaskQueues, pauseTaskQueue, reconcileTaskQueuesFromRuntime } from "../../src/task-queue/manager.js";
+import { finishTaskRunFromWorkflowResult, markTaskRunStarted, resumeInterruptedTaskRunFromRuntime } from "../../src/task-run/manager.js";
 import { appendWorkflowTaskEvent, listWorkflowRuns, readWorkflowRun, readWorkflowRunEvents, syncWorkflowRunFromQueue } from "../../src/workflow-run/manager.js";
-import { hashArtifactRefs, hashFile, readLatestWorkflowGraphPlan } from "../../src/workflow-artifacts/manager.js";
+import { hashFile, readLatestWorkflowGraphPlanAt } from "../../src/workflow-artifacts/manager.js";
 import type { TaskQueueRun, WorkflowRun } from "../../src/types/index.js";
 import { findTaskRunStageResumeCandidate, runResumedTaskRunStage } from "../../src/workflow-runtime/code-workflow.js";
-import { runTaskQueueSequentialWorkflow } from "../../src/workflow-runtime/taskqueue.js";
+import { runSkillNativeSequentialExecution } from "../../src/workflow-runtime/skill-native-sequential.js";
 import { selectNextSequentialGraphQueueItem } from "../../src/workflow-runtime/workflowgraph-sequential.js";
 import {
   getTempDir,
-  prepareAcceptedSequentialWorkflowGraph,
   project,
-  writeAcceptedSpecAndTasks,
-  writeAuditResult,
-  writeCoderRun,
-  writeTaskQueueItemRecord,
-  writeTaskQueueRecord,
-  writeTaskRunRecord,
-  writeValidationResult,
-  writeValidationResultWithHash,
-  writeWorkerLeaseRecord,
-} from "./workbench/fixtures.js";
+} from "../helpers/skill-native-test-environment.js";
 
 let tempDir: string;
+let skillNativeFixture: SkillNativeWorkbenchFixture;
 
-beforeEach(() => {
+beforeEach(async () => {
   tempDir = getTempDir();
+  skillNativeFixture = await prepareSkillNativeWorkbenchFixture({ project: project() });
 });
 
-async function pauseTaskQueueWithWorkflow(memory: Awaited<ReturnType<typeof resolveProjectMemory>>, queue: TaskQueueRun, reason: string): Promise<TaskQueueRun> {
+afterEach(() => skillNativeFixture.restoreEnvironment());
+
+async function writeAcceptedSpecAndTasks(changeId: string): Promise<void> {
+  await writeSkillNativeAcceptedSpecAndTasks(skillNativeFixture, changeId);
+}
+
+const writeTaskRunRecord = (...args: Parameters<typeof writeSkillNativeTaskRunRecord> extends [unknown, ...infer Rest] ? Rest : never) =>
+  writeSkillNativeTaskRunRecord(skillNativeFixture, ...args);
+const writeWorkerLeaseRecord = (...args: Parameters<typeof writeSkillNativeWorkerLeaseRecord> extends [unknown, ...infer Rest] ? Rest : never) =>
+  writeSkillNativeWorkerLeaseRecord(skillNativeFixture, ...args);
+const writeCoderRun = (...args: Parameters<typeof writeSkillNativeCoderRun> extends [unknown, ...infer Rest] ? Rest : never) =>
+  writeSkillNativeCoderRun(skillNativeFixture, ...args);
+const writeValidationResult = (...args: Parameters<typeof writeSkillNativeValidationResult> extends [unknown, ...infer Rest] ? Rest : never) =>
+  writeSkillNativeValidationResult(skillNativeFixture, ...args);
+const writeValidationResultWithHash = (changeId: string, validationId: string, worktreeId: string, diffHash: string, status: "passed" | "failed") =>
+  writeSkillNativeValidationResult(skillNativeFixture, changeId, validationId, worktreeId, status, diffHash);
+const writeAuditResult = (...args: Parameters<typeof writeSkillNativeAuditResult> extends [unknown, ...infer Rest] ? Rest : never) =>
+  writeSkillNativeAuditResult(skillNativeFixture, ...args);
+const writeTaskQueueRecord = (...args: Parameters<typeof writeSkillNativeTaskQueueRecord> extends [unknown, ...infer Rest] ? Rest : never) =>
+  writeSkillNativeTaskQueueRecord(skillNativeFixture, ...args);
+const writeTaskQueueItemRecord = (...args: Parameters<typeof writeSkillNativeTaskQueueItemRecord> extends [unknown, ...infer Rest] ? Rest : never) =>
+  writeSkillNativeTaskQueueItemRecord(skillNativeFixture, ...args);
+
+async function pauseTaskQueueWithWorkflow(memory: SkillNativeWorkbenchFixture["runtime"], queue: TaskQueueRun, reason: string): Promise<TaskQueueRun> {
   const paused = await pauseTaskQueue(memory, queue, reason);
   if (paused.workflowRunId) {
     const workflow = await readWorkflowRun(memory, paused.changeId, paused.workflowRunId);
@@ -52,11 +81,17 @@ async function pauseTaskQueueWithWorkflow(memory: Awaited<ReturnType<typeof reso
 
 describe("workbench task runtime domain", () => {
   it("disables task run actions for archived topics without losing TaskGraph facts", async () => {
-    await initHarness(project());
-    await createConversationChangeFixture(project(), { title: "Archived TaskGraph" });
+    const topic = await createConversationChangeFixture(project(), { title: "Archived TaskGraph" });
     await writeAcceptedSpecAndTasks("archived-taskgraph");
-    await writeFile(join(tempDir, "harness", "changes", "active", "archived-taskgraph", "reviews", "review.md"), "Status: approved\n", "utf8");
-    await closeChange(tempDir);
+    await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      abandon: {
+        changeId: topic.changeId,
+        conversationId: topic.conversationId,
+        graphScopeId: `graph:${topic.conversationId}`,
+        reason: "Archive the fixture conversation.",
+      },
+      confirm: true,
+    });
 
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "archived-taskgraph" });
 
@@ -70,7 +105,6 @@ describe("workbench task runtime domain", () => {
   });
 
   it("rejects unknown task ids before starting a Workbench task run", async () => {
-    await initHarness(project());
     await createConversationChangeFixture(project(), { title: "Unknown Task" });
     await writeAcceptedSpecAndTasks("unknown-task");
 
@@ -85,7 +119,6 @@ describe("workbench task runtime domain", () => {
   });
 
   it("fails closed when task-scoped Workbench actions miss required targets", async () => {
-    await initHarness(project());
     await createConversationChangeFixture(project(), { title: "Missing Task Scope" });
     await writeAcceptedSpecAndTasks("missing-task-scope");
 
@@ -121,7 +154,6 @@ describe("workbench task runtime domain", () => {
   });
 
   it("rejects forged task ids on change-level code.run when task scope is explicit", async () => {
-    await initHarness(project());
     await createConversationChangeFixture(project(), { title: "Code Scope" });
     await writeAcceptedSpecAndTasks("code-scope");
 
@@ -134,7 +166,6 @@ describe("workbench task runtime domain", () => {
   });
 
   it("projects latest TaskRun and WorkerLease state on the matching TaskGraph node", async () => {
-    await initHarness(project());
     await createConversationChangeFixture(project(), { title: "TaskRun State" });
     await writeAcceptedSpecAndTasks("taskrun-state");
     await writeTaskRunRecord("taskrun-state", "taskrun-1", "T-001", "blocked", 1, {
@@ -161,7 +192,6 @@ describe("workbench task runtime domain", () => {
   });
 
   it("reconciles a claimed TaskRun from run, validation, and audit artifacts", async () => {
-    await initHarness(project());
     await createConversationChangeFixture(project(), { title: "TaskRun Reconcile" });
     await writeAcceptedSpecAndTasks("taskrun-reconcile");
     await writeTaskRunRecord("taskrun-reconcile", "taskrun-reconcile-1", "T-001", "claimed", 1, {
@@ -196,7 +226,6 @@ describe("workbench task runtime domain", () => {
   });
 
   it("does not reconcile a TaskRun from cross-change coder Run evidence", async () => {
-    await initHarness(project());
     await createConversationChangeFixture(project(), { title: "TaskRun Scoped Reconcile" });
     await writeAcceptedSpecAndTasks("taskrun-scoped-reconcile");
     await writeTaskRunRecord("taskrun-scoped-reconcile", "taskrun-scoped-1", "T-001", "claimed", 1, {
@@ -229,12 +258,11 @@ describe("workbench task runtime domain", () => {
   });
 
   it("rejects scoped TaskRun started/completion updates for the wrong Change", async () => {
-    await initHarness(project());
     await writeTaskRunRecord("taskrun-finish-scope", "taskrun-finish-1", "T-001", "claimed", 1, {
       leaseId: "lease-finish-1",
     });
     await writeWorkerLeaseRecord("taskrun-finish-scope", "lease-finish-1", "taskrun-finish-1", "T-001", "claimed");
-    const memory = await resolveProjectMemory(project());
+    const memory = skillNativeFixture.runtime;
 
     await expect(markTaskRunStarted(memory, "taskrun-finish-1", { changeId: "wrong-change", taskId: "T-001" }))
       .rejects.toThrow();
@@ -254,75 +282,65 @@ describe("workbench task runtime domain", () => {
   });
 
   it("keeps workflow artifact hash normalization stable", async () => {
-    await initHarness(project());
     await createConversationChangeFixture(project(), { title: "Workflow Artifact Hash" });
-    const memory = await resolveProjectMemory(project());
-    const acMapPath = join(tempDir, "harness", "changes", "active", "workflow-artifact-hash", "ac-map.json");
+    await writeAcceptedSpecAndTasks("workflow-artifact-hash");
+    const artifact = projectSkillArtifact("state/changes/active/workflow-artifact-hash/ac-map.json");
+    const acMapPath = await resolveOwnedArtifactPath({
+      projectSkill: skillNativeFixture.skillRoot,
+      runtimeSidecar: skillNativeFixture.resolution.paths.sidecarRoot,
+      projectSource: tempDir,
+    }, artifact);
     await writeFile(acMapPath, JSON.stringify({ version: "1.0", generatedAt: "one", acceptance: [] }), "utf8");
     const first = await hashFile(acMapPath);
     await writeFile(acMapPath, JSON.stringify({ version: "1.0", generatedAt: "two", acceptance: [] }), "utf8");
 
     await expect(hashFile(acMapPath)).resolves.toBe(first);
-    await expect(hashArtifactRefs(memory, ["harness/changes/active/workflow-artifact-hash/ac-map.json"]))
-      .resolves.toEqual({ "harness/changes/active/workflow-artifact-hash/ac-map.json": first });
+    await expect(resolveOwnedArtifactPath({
+      projectSkill: skillNativeFixture.skillRoot,
+      runtimeSidecar: skillNativeFixture.resolution.paths.sidecarRoot,
+      projectSource: tempDir,
+    }, artifact)).resolves.toBe(acMapPath);
   });
 
   it("creates a TaskQueue from accepted tasks and skips checked tasks", async () => {
-    await initHarness(project());
     await createConversationChangeFixture(project(), { title: "Task Queue" });
-    await writeAcceptedSpecAndTasks("task-queue");
-    await writeFile(join(tempDir, "harness", "changes", "active", "task-queue", "tasks.md"), [
-      "# Tasks",
-      "",
-      "- [x] T-001: Completed task.",
-      "  - Covers: AC-001",
-      "- [ ] T-002: Runnable task.",
-      "  - Covers: AC-001",
-      "",
-    ].join("\n"), "utf8");
-
-    const prepared = await prepareAcceptedSequentialWorkflowGraph("task-queue", ["T-001", "T-002"]);
-    const result = await startOrResumeTaskQueue(project(), {
-      changeId: "task-queue",
-      workflowGraphPlanId: prepared.workflowGraphPlanId,
+    await writeSkillNativeAcceptedSpecAndTasks(skillNativeFixture, "task-queue", {
+      tasks: [
+        { id: "T-001", text: "Completed task.", done: true },
+        { id: "T-002", text: "Runnable task." },
+      ],
     });
-    const memory = await resolveProjectMemory(project());
-    const runPaths = { runsRoot: memory.runsRoot };
+    const result = await initializeSkillNativeSequentialFixture(skillNativeFixture, "task-queue");
+    const runPaths = skillNativeFixture.runtime;
     const items = await listTaskQueueItems(runPaths, "task-queue", result.queue.id);
 
     expect(result.queue).toMatchObject({ status: "queued", totalCount: 1, completedCount: 0 });
     expect(items).toEqual([
-      expect.objectContaining({ taskId: "T-001", status: "skipped", order: 1, workflowGraphPlanId: prepared.workflowGraphPlanId, workflowRunId: result.queue.workflowRunId }),
-      expect.objectContaining({ taskId: "T-002", status: "queued", order: 2, workflowGraphPlanId: prepared.workflowGraphPlanId, workflowRunId: result.queue.workflowRunId }),
+      expect.objectContaining({ taskId: "T-001", status: "skipped", order: 1, workflowGraphPlanId: result.queue.workflowGraphPlanId, workflowRunId: result.queue.workflowRunId }),
+      expect.objectContaining({ taskId: "T-002", status: "queued", order: 2, workflowGraphPlanId: result.queue.workflowGraphPlanId, workflowRunId: result.queue.workflowRunId }),
     ]);
     await expect(readWorkflowRun(runPaths, "task-queue", result.queue.workflowRunId!)).resolves.toMatchObject({
       id: result.queue.workflowRunId,
       status: "running",
       queueRunId: result.queue.id,
-      workflowGraphPlanId: prepared.workflowGraphPlanId,
+      workflowGraphPlanId: result.queue.workflowGraphPlanId,
     });
   });
 
   it("selects the next TaskQueue item from WorkflowGraph sequential order", async () => {
-    await initHarness(project());
     await createConversationChangeFixture(project(), { title: "WorkflowGraph Sequential Order" });
-    await writeAcceptedSpecAndTasks("workflowgraph-sequential-order");
-    await writeFile(join(tempDir, "harness", "changes", "active", "workflowgraph-sequential-order", "tasks.md"), [
-      "# Tasks",
-      "",
-      "- [ ] T-001: Implement first task.",
-      "  - Covers: AC-001",
-      "- [ ] T-002: Implement second task.",
-      "  - Covers: AC-001",
-      "",
-    ].join("\n"), "utf8");
-    const prepared = await prepareAcceptedSequentialWorkflowGraph("workflowgraph-sequential-order", ["T-001", "T-002"]);
-    const result = await startOrResumeTaskQueue(project(), {
-      changeId: "workflowgraph-sequential-order",
-      workflowGraphPlanId: prepared.workflowGraphPlanId,
+    await writeSkillNativeAcceptedSpecAndTasks(skillNativeFixture, "workflowgraph-sequential-order", {
+      tasks: [
+        { id: "T-001", text: "Implement first task." },
+        { id: "T-002", text: "Implement second task." },
+      ],
     });
-    const memory = await resolveProjectMemory(project());
-    const graph = await readLatestWorkflowGraphPlan(memory, join("harness", "changes", "active", "workflowgraph-sequential-order"));
+    const result = await initializeSkillNativeSequentialFixture(skillNativeFixture, "workflowgraph-sequential-order");
+    const memory = skillNativeFixture.runtime;
+    const graph = await readLatestWorkflowGraphPlanAt(
+      skillNativeChangeRoot(skillNativeFixture, "workflowgraph-sequential-order"),
+      "workflowgraph-sequential-order",
+    );
     const reversedNodes = graph.nodes.slice().reverse().map((node, index) => ({ ...node, order: index + 1 }));
     const reversedGraph = {
       ...graph,
@@ -335,24 +353,22 @@ describe("workbench task runtime domain", () => {
   });
 
   it("guards WorkflowRun read, list, and event journal scope", async () => {
-    await initHarness(project());
     await createConversationChangeFixture(project(), { title: "Workflow Scope A" });
-    await createConcurrentChange(project(), { title: "Workflow Scope B" });
+    await createConversationChangeFixture(project(), { title: "Workflow Scope B" });
     await writeAcceptedSpecAndTasks("workflow-scope-a");
     await writeAcceptedSpecAndTasks("workflow-scope-b");
-    const prepared = await prepareAcceptedSequentialWorkflowGraph("workflow-scope-a", ["T-001"]);
-    const started = await startOrResumeTaskQueue(project(), { changeId: "workflow-scope-a", workflowGraphPlanId: prepared.workflowGraphPlanId });
-    const memory = await resolveProjectMemory(project());
+    const started = await initializeSkillNativeSequentialFixture(skillNativeFixture, "workflow-scope-a");
+    const memory = skillNativeFixture.runtime;
     const run = await readWorkflowRun(memory, "workflow-scope-a", started.queue.workflowRunId!);
 
-    const misplacedDir = join(tempDir, ".agent-harness", "runs", "workflows", "workflow-scope-b");
+    const misplacedDir = join(memory.runsRoot, "workflows", "workflow-scope-b");
     await mkdir(misplacedDir, { recursive: true });
     await writeFile(join(misplacedDir, `${run.id}.json`), JSON.stringify(run, null, 2), "utf8");
 
     await expect(readWorkflowRun(memory, "workflow-scope-b", run.id)).rejects.toThrow("not scoped to Change workflow-scope-b");
     expect(await listWorkflowRuns(memory, "workflow-scope-b")).toEqual([]);
 
-    const eventDir = join(tempDir, ".agent-harness", "runs", "workflow-events", "workflow-scope-a");
+    const eventDir = join(memory.runsRoot, "workflow-events", "workflow-scope-a");
     await mkdir(eventDir, { recursive: true });
     await writeFile(join(eventDir, `${run.id}.jsonl`), `${JSON.stringify({
       version: "1.0",
@@ -367,16 +383,11 @@ describe("workbench task runtime domain", () => {
   });
 
   it("keeps WorkflowRun event append canonical and rejects cross-queue lifecycle sync", async () => {
-    await initHarness(project());
     await createConversationChangeFixture(project(), { title: "Workflow Event Scope" });
     await writeAcceptedSpecAndTasks("workflow-event-scope");
-    const prepared = await prepareAcceptedSequentialWorkflowGraph("workflow-event-scope", ["T-001"]);
-    const result = await startOrResumeTaskQueue(project(), {
-      changeId: "workflow-event-scope",
-      workflowGraphPlanId: prepared.workflowGraphPlanId,
-    });
+    const result = await initializeSkillNativeSequentialFixture(skillNativeFixture, "workflow-event-scope");
     const workflowRunId = result.queue.workflowRunId!;
-    const memory = await resolveProjectMemory(project());
+    const memory = skillNativeFixture.runtime;
 
     await appendWorkflowTaskEvent(memory, workflowRunId, "workflow-event-scope", "task.started", {
       workflowRunId: "workflow-forged",
@@ -405,24 +416,18 @@ describe("workbench task runtime domain", () => {
   });
 
   it("rejects direct TaskQueue start without an accepted WorkflowGraphPlan", async () => {
-    await initHarness(project());
     const change = await createConversationChangeFixture(project(), { title: "Task Queue Direct Start" });
-    await writeAcceptedSpecAndTasks(change.changeId);
-
-    await expect(startOrResumeTaskQueue(project(), { changeId: change.changeId })).rejects.toThrow("TaskQueue start requires an accepted authored sequential WorkflowGraphPlan");
+    await expect(initializeSkillNativeSequentialFixture(skillNativeFixture, change.changeId))
+      .rejects.toThrow();
+    expect(await listTaskQueues(skillNativeFixture.runtime, change.changeId)).toEqual([]);
   });
 
   it("resumes a paused TaskQueue from existing completed task evidence without starting a new coder run", async () => {
-    await initHarness(project());
     await createConversationChangeFixture(project(), { title: "Workflow Resume Evidence" });
     await writeAcceptedSpecAndTasks("workflow-resume-evidence");
-    const prepared = await prepareAcceptedSequentialWorkflowGraph("workflow-resume-evidence", ["T-001"]);
-    const startedQueue = await startOrResumeTaskQueue(project(), {
-      changeId: "workflow-resume-evidence",
-      workflowGraphPlanId: prepared.workflowGraphPlanId,
-    });
+    const startedQueue = await initializeSkillNativeSequentialFixture(skillNativeFixture, "workflow-resume-evidence");
     const workflowRunId = startedQueue.queue.workflowRunId!;
-    const memory = await resolveProjectMemory(project());
+    const memory = skillNativeFixture.runtime;
     await pauseTaskQueueWithWorkflow(memory, startedQueue.queue, "test pause");
     await writeTaskRunRecord("workflow-resume-evidence", "taskrun-resume-1", "T-001", "evidence-ready", 1, {
       runId: "run-resume-coder",
@@ -447,20 +452,16 @@ describe("workbench task runtime domain", () => {
       audit: { audit: { status: "approved" } },
     });
 
-    const result = await executeWorkbenchAction({ project: project(), path: tempDir }, {
-      actionType: "task.queue.start",
-      changeId: "workflow-resume-evidence",
-      workflowRunId,
-      workflowGraphPlanId: prepared.workflowGraphPlanId,
-      queueRunId: startedQueue.queue.id,
-      confirm: true,
+    const result = await runSkillNativeSequentialExecution({
+      project: project(),
+      runtime: skillNativeFixture.runtime,
+      harness: await resolveSkillNativeWorkbenchHarness(skillNativeFixture, "workflow-resume-evidence"),
+      initialized: startedQueue,
     });
 
-    expect(result.result).toMatchObject({
+    expect(result).toMatchObject({
       status: "completed",
-      result: {
-        queue: expect.objectContaining({ status: "completed", workflowRunId }),
-      },
+      queue: expect.objectContaining({ status: "completed", workflowRunId }),
     });
     const items = await listTaskQueueItems(memory, "workflow-resume-evidence", startedQueue.queue.id);
     expect(items).toEqual([expect.objectContaining({ status: "completed", taskRunId: "taskrun-resume-1" })]);
@@ -475,10 +476,9 @@ describe("workbench task runtime domain", () => {
   });
 
   it("does not reuse validation evidence captured for an older worktree diff", async () => {
-    await initHarness(project());
     await createConversationChangeFixture(project(), { title: "Stale Validation Resume" });
     await writeAcceptedSpecAndTasks("stale-validation-resume");
-    const memory = await resolveProjectMemory(project());
+    const memory = skillNativeFixture.runtime;
     await writeTaskQueueRecord("stale-validation-resume", "queue-stale-validation", "paused", { totalCount: 1 });
     await writeTaskQueueItemRecord("stale-validation-resume", "queue-stale-validation", "item-stale-validation", "T-001", 1, "queued", { taskRunId: "taskrun-stale-validation" });
     await writeTaskRunRecord("stale-validation-resume", "taskrun-stale-validation", "T-001", "evidence-ready", 1, {
@@ -497,15 +497,10 @@ describe("workbench task runtime domain", () => {
   });
 
   it("reclaims an interrupted TaskRun without changing its attempt or worktree", async () => {
-    await initHarness(project());
     await createConversationChangeFixture(project(), { title: "Workflow Interrupted Resume" });
     await writeAcceptedSpecAndTasks("workflow-interrupted-resume");
-    const prepared = await prepareAcceptedSequentialWorkflowGraph("workflow-interrupted-resume", ["T-001"]);
-    const startedQueue = await startOrResumeTaskQueue(project(), {
-      changeId: "workflow-interrupted-resume",
-      workflowGraphPlanId: prepared.workflowGraphPlanId,
-    });
-    const memory = await resolveProjectMemory(project());
+    const startedQueue = await initializeSkillNativeSequentialFixture(skillNativeFixture, "workflow-interrupted-resume");
+    const memory = skillNativeFixture.runtime;
     await pauseTaskQueueWithWorkflow(memory, startedQueue.queue, "provider switch");
     const [item] = await listTaskQueueItems(memory, "workflow-interrupted-resume", startedQueue.queue.id);
     if (!item) throw new Error("Expected interrupted queue item.");
@@ -517,7 +512,7 @@ describe("workbench task runtime domain", () => {
     await writeTaskQueueItemRecord("workflow-interrupted-resume", startedQueue.queue.id, item.id, item.taskId, item.order, "queued", {
       taskRunId: "taskrun-interrupted-1",
       workflowRunId: startedQueue.queue.workflowRunId,
-      workflowGraphPlanId: prepared.workflowGraphPlanId,
+      workflowGraphPlanId: startedQueue.queue.workflowGraphPlanId,
     });
 
     const refreshedItem = (await listTaskQueueItems(memory, "workflow-interrupted-resume", startedQueue.queue.id))[0]!;
@@ -525,16 +520,19 @@ describe("workbench task runtime domain", () => {
       taskRun: { id: "taskrun-interrupted-1", attempt: 1, worktreeId: "wt-interrupted-1" },
       verdict: { kind: "continue-coder", worktreeId: "wt-interrupted-1" },
     });
-    const reclaimed = await resumeInterruptedTaskRun(project(), { changeId: "workflow-interrupted-resume", taskRunId: "taskrun-interrupted-1" });
+    const reclaimed = await resumeInterruptedTaskRunFromRuntime(
+      skillNativeFixture.runtime,
+      (await resolveSkillNativeWorkbenchHarness(skillNativeFixture, "workflow-interrupted-resume")).changeStatus,
+      { changeId: "workflow-interrupted-resume", taskRunId: "taskrun-interrupted-1" },
+    );
     expect(reclaimed.taskRun).toMatchObject({ id: "taskrun-interrupted-1", attempt: 1, worktreeId: "wt-interrupted-1", status: "claimed" });
     expect(reclaimed.lease.taskRunId).toBe("taskrun-interrupted-1");
   });
 
   it("does not resume a queue item from TaskRun evidence bound to another queue", async () => {
-    await initHarness(project());
     await createConversationChangeFixture(project(), { title: "Workflow Resume Queue Scope" });
     await writeAcceptedSpecAndTasks("workflow-resume-queue-scope");
-    const memory = await resolveProjectMemory(project());
+    const memory = skillNativeFixture.runtime;
     await writeTaskQueueRecord("workflow-resume-queue-scope", "queue-old", "completed", { totalCount: 1, completedCount: 1 });
     await writeTaskQueueItemRecord("workflow-resume-queue-scope", "queue-old", "queue-old-item-001", "T-001", 1, "completed", { taskRunId: "taskrun-old" });
     await writeTaskRunRecord("workflow-resume-queue-scope", "taskrun-old", "T-001", "evidence-ready", 1, {
@@ -555,16 +553,16 @@ describe("workbench task runtime domain", () => {
   });
 
   it("records a queue pause decision without starting a child TaskRun when live sink is closed", async () => {
-    await initHarness(project());
     await createConversationChangeFixture(project(), { title: "Workflow Queue Pause" });
     await writeAcceptedSpecAndTasks("workflow-queue-pause");
-    const prepared = await prepareAcceptedSequentialWorkflowGraph("workflow-queue-pause", ["T-001"]);
-    const memory = await resolveProjectMemory(project());
+    const initialized = await initializeSkillNativeSequentialFixture(skillNativeFixture, "workflow-queue-pause");
+    const memory = skillNativeFixture.runtime;
 
-    const result = await runTaskQueueSequentialWorkflow({
+    const result = await runSkillNativeSequentialExecution({
       project: project(),
-      changeId: "workflow-queue-pause",
-      workflowGraphPlanId: prepared.workflowGraphPlanId,
+      runtime: memory,
+      harness: await resolveSkillNativeWorkbenchHarness(skillNativeFixture, "workflow-queue-pause"),
+      initialized,
       live: {
       emit: () => undefined,
       isClosed: () => true,
@@ -576,7 +574,7 @@ describe("workbench task runtime domain", () => {
       queue: expect.objectContaining({ status: "paused", pausedReason: "队列已暂停，等待继续。" }),
     });
     await expect(readdir(mainAgentLoopRunsRoot(memory))).rejects.toThrow();
-    await expect(readWorkflowRunEvents(memory, "workflow-queue-pause", result.workflowRun!.id)).resolves.toEqual(
+    await expect(readWorkflowRunEvents(memory, "workflow-queue-pause", result.workflowRun.id)).resolves.toEqual(
       expect.arrayContaining([expect.objectContaining({ type: "workflow.paused", queueRunId: queueResult.queue.id })]),
     );
     const items = await listTaskQueueItems(memory, "workflow-queue-pause", queueResult.queue.id);
@@ -585,16 +583,11 @@ describe("workbench task runtime domain", () => {
   });
 
   it("fails closed when a TaskQueue item loses WorkflowGraph scope", async () => {
-    await initHarness(project());
     await createConversationChangeFixture(project(), { title: "Workflow Item Scope Missing" });
     await writeAcceptedSpecAndTasks("workflow-item-scope-missing");
-    const prepared = await prepareAcceptedSequentialWorkflowGraph("workflow-item-scope-missing", ["T-001"]);
-    const startedQueue = await startOrResumeTaskQueue(project(), {
-      changeId: "workflow-item-scope-missing",
-      workflowGraphPlanId: prepared.workflowGraphPlanId,
-    });
+    const startedQueue = await initializeSkillNativeSequentialFixture(skillNativeFixture, "workflow-item-scope-missing");
     const workflowRunId = startedQueue.queue.workflowRunId!;
-    const memory = await resolveProjectMemory(project());
+    const memory = skillNativeFixture.runtime;
     await pauseTaskQueueWithWorkflow(memory, startedQueue.queue, "test pause");
     const [item] = await listTaskQueueItems(memory, "workflow-item-scope-missing", startedQueue.queue.id);
     if (!item) throw new Error("Expected queued item.");
@@ -602,12 +595,11 @@ describe("workbench task runtime domain", () => {
       workflowRunId,
     });
 
-    const result = await runTaskQueueSequentialWorkflow({
+    const result = await runSkillNativeSequentialExecution({
       project: project(),
-      changeId: "workflow-item-scope-missing",
-      workflowRunId,
-      workflowGraphPlanId: prepared.workflowGraphPlanId,
-      queueRunId: startedQueue.queue.id,
+      runtime: memory,
+      harness: await resolveSkillNativeWorkbenchHarness(skillNativeFixture, "workflow-item-scope-missing"),
+      initialized: startedQueue,
     });
 
     expect(result).toMatchObject({
@@ -622,35 +614,27 @@ describe("workbench task runtime domain", () => {
   });
 
   it("rejects explicit forged typed scope when resuming a paused TaskQueue", async () => {
-    await initHarness(project());
     await createConversationChangeFixture(project(), { title: "Workflow Resume Forged Scope" });
     await writeAcceptedSpecAndTasks("workflow-resume-forged-scope");
-    const prepared = await prepareAcceptedSequentialWorkflowGraph("workflow-resume-forged-scope", ["T-001"]);
-    const startedQueue = await startOrResumeTaskQueue(project(), {
-      changeId: "workflow-resume-forged-scope",
-      workflowGraphPlanId: prepared.workflowGraphPlanId,
-    });
-    const workflowRunId = startedQueue.queue.workflowRunId!;
-    const memory = await resolveProjectMemory(project());
+    const startedQueue = await initializeSkillNativeSequentialFixture(skillNativeFixture, "workflow-resume-forged-scope");
+    const memory = skillNativeFixture.runtime;
     await pauseTaskQueueWithWorkflow(memory, startedQueue.queue, "test pause");
 
-    await expect(startOrResumeTaskQueue(project(), {
-      changeId: "workflow-resume-forged-scope",
-      workflowRunId,
-      queueRunId: startedQueue.queue.id,
-      workflowGraphPlanId: "workflow-graph-forged",
-    })).rejects.toThrow("TaskQueue resume scope is stale or incomplete");
+    await expect(runSkillNativeSequentialExecution({
+      project: project(),
+      runtime: memory,
+      harness: await resolveSkillNativeWorkbenchHarness(skillNativeFixture, "workflow-resume-forged-scope"),
+      initialized: {
+        ...startedQueue,
+        queue: { ...startedQueue.queue, workflowGraphPlanId: "workflow-graph-forged" },
+      },
+    })).rejects.toThrow("Skill-native sequential execution lineage is stale");
   });
 
   it("projects TaskQueue status into Workpad and disables single-task actions while queued", async () => {
-    await initHarness(project());
     await createConversationChangeFixture(project(), { title: "Queued Workpad" });
     await writeAcceptedSpecAndTasks("queued-workpad");
-    const prepared = await prepareAcceptedSequentialWorkflowGraph("queued-workpad", ["T-001"]);
-    const result = await startOrResumeTaskQueue(project(), {
-      changeId: "queued-workpad",
-      workflowGraphPlanId: prepared.workflowGraphPlanId,
-    });
+    const result = await initializeSkillNativeSequentialFixture(skillNativeFixture, "queued-workpad");
     const workflowRunId = result.queue.workflowRunId!;
 
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "queued-workpad" });
@@ -661,20 +645,19 @@ describe("workbench task runtime domain", () => {
       status: "queued",
       totalCount: 1,
       workflowRunId,
-      workflowGraphPlanId: prepared.workflowGraphPlanId,
+      workflowGraphPlanId: result.queue.workflowGraphPlanId,
       nextAction: expect.objectContaining({
         actionType: "task.queue.reconcile",
         label: "刷新执行状态",
         queueRunId: result.queue.id,
         workflowRunId,
-        workflowGraphPlanId: prepared.workflowGraphPlanId,
+        workflowGraphPlanId: result.queue.workflowGraphPlanId,
       }),
     });
     expect(node?.nextAction).toMatchObject({ enabled: false, disabledReason: "本地顺序执行正在运行或等待恢复。" });
   });
 
   it("projects blocked queue as the primary decision and moves stale audit approvals to history", async () => {
-    await initHarness(project());
     await createConversationChangeFixture(project(), { title: "Queue Blocked Decision" });
     await writeAcceptedSpecAndTasks("queue-blocked-decision");
     await writeTaskQueueRecord("queue-blocked-decision", "queue-blocked-1", "blocked", { currentTaskId: "T-001", totalCount: 1, blockedReason: "T-001: Audit blocked." });
@@ -717,7 +700,6 @@ describe("workbench task runtime domain", () => {
   });
 
   it("reconciles a running TaskQueue item from completed TaskRun evidence", async () => {
-    await initHarness(project());
     await createConversationChangeFixture(project(), { title: "Queue Reconcile" });
     await writeAcceptedSpecAndTasks("queue-reconcile");
     await writeTaskQueueRecord("queue-reconcile", "queue-1", "running", { currentTaskId: "T-001", totalCount: 1 });
@@ -732,12 +714,11 @@ describe("workbench task runtime domain", () => {
     await writeValidationResult("queue-reconcile", "validation-queue-1", "wt-queue-1", "passed");
     await writeAuditResult("queue-reconcile", "audit-queue-1", "wt-queue-1", "approved-with-notes");
 
-    const result = await reconcileTaskQueues(project(), { changeId: "queue-reconcile", queueRunId: "queue-1" });
+    const result = await reconcileTaskQueuesFromRuntime(skillNativeFixture.runtime, { changeId: "queue-reconcile", queueRunId: "queue-1" });
 
     expect(result.queues).toEqual([expect.objectContaining({ id: "queue-1", status: "completed", completedCount: 1 })]);
     expect(result.items).toEqual([expect.objectContaining({ id: "queue-1-item-001", status: "completed", taskRunId: "taskrun-queue-1" })]);
-    const memory = await resolveProjectMemory(project());
-    const leases = await listTaskQueues(memory, "queue-reconcile");
+    const leases = await listTaskQueues(skillNativeFixture.runtime, "queue-reconcile");
     expect(leases[0]).toMatchObject({ status: "completed" });
   });
 

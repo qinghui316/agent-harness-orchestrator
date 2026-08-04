@@ -3,6 +3,7 @@ import { listRuns } from "../run/manager.js";
 import { listAuditResults } from "../audit/artifacts.js";
 import { listValidationResults } from "../validation/artifacts.js";
 import type { ManagedProject, RunMetadata, TaskRun, WorkerLease } from "../types/index.js";
+import type { ProjectRunsPathPort } from "../project-runtime/paths.js";
 import { isActiveTaskRunStatus } from "./guards.js";
 import { releaseTaskRunLease } from "./lease-service.js";
 import { listTaskRuns, listWorkerLeases, writeTaskRun } from "./repository.js";
@@ -11,6 +12,13 @@ import type { TaskRunReconcileOptions } from "./types.js";
 export async function reconcileTaskRuns(project: ManagedProject, options: TaskRunReconcileOptions): Promise<{ taskRuns: TaskRun[]; workerLeases: WorkerLease[] }> {
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "TaskRun reconcile");
+  return reconcileTaskRunsFromRuntime(memory, options);
+}
+
+export async function reconcileTaskRunsFromRuntime(
+  memory: ProjectRunsPathPort,
+  options: TaskRunReconcileOptions,
+): Promise<{ taskRuns: TaskRun[]; workerLeases: WorkerLease[] }> {
   const existing = await listTaskRuns(memory, options.changeId);
   const runs = await listRuns(memory);
   const validations = await listValidationResults(memory, options.changeId);

@@ -22,6 +22,7 @@ export type ProjectWorkbenchPathPort = Pick<
   ProjectRuntimePaths,
   "projectId" | "workbenchDbPath" | "workbenchRoot"
 >;
+export type ProjectWorkbenchArtifactPathPort = Pick<ProjectRuntimePaths, "workbenchRoot">;
 export type ProjectWorktreeMetadataPathPort = Pick<ProjectRuntimePaths, "worktreeMetadataRoot">;
 export type ProjectWorktreeIndexPathPort = Pick<ProjectRuntimePaths, "worktreeIndexPath">;
 

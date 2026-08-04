@@ -1,13 +1,14 @@
 import { listAgentTasks, readAgentTaskResult } from "../../../agent-task/manager.js";
-import type { ResolvedMemory, AgentTask } from "../../../types/index.js";
+import type { AgentTaskStorePort } from "../../../agent-task/paths.js";
+import type { AgentTask } from "../../../types/index.js";
 import type { WorkbenchAgentTaskSummary } from "../../read-model-types.js";
 
-export async function buildAgentTaskSummaries(memory: ResolvedMemory, changeId: string): Promise<WorkbenchAgentTaskSummary[]> {
+export async function buildAgentTaskSummaries(memory: AgentTaskStorePort, changeId: string): Promise<WorkbenchAgentTaskSummary[]> {
   const tasks = await listAgentTasks(memory, changeId).catch(() => []);
   return Promise.all(tasks.slice(-12).map(async (task) => agentTaskToSummary(memory, task)));
 }
 
-export async function agentTaskToSummary(memory: ResolvedMemory, task: AgentTask): Promise<WorkbenchAgentTaskSummary> {
+export async function agentTaskToSummary(memory: AgentTaskStorePort, task: AgentTask): Promise<WorkbenchAgentTaskSummary> {
   const result = await readAgentTaskResult(memory, task.id).catch(() => null);
   return {
     id: task.id,

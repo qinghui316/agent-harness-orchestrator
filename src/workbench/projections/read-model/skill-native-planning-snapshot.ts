@@ -5,12 +5,13 @@ import { canApplyResultFromGate, classifyApplyReadiness, evaluateSkillNativeAppl
 import { worktreeApplyManifestHash } from "../../../apply/gate.js";
 import { projectApplyActionScope, resolveProjectApplyExecutionScope } from "../../../apply/execution-scope.js";
 import { listCompletedWorktreeDispositions } from "../../../apply/manager.js";
+import { listDemandWorkers } from "../../../demand-worker/manager.js";
 import type { HighImpactApprovalScope } from "../../../workflow-actions/high-impact-approval.js";
 import { integrationCheckActionManifestHash } from "../../../integration-check/manager.js";
 import { listAuditResults, summarizeAudit } from "../../../audit/repository.js";
 import { getProjectStatus } from "../../../project/status.js";
 import { readProjectHarnessPlanningGate } from "../../../project-harness/planning-gate-query.js";
-import { projectExecutionRuntimePort, projectHarnessExecutionPort } from "../../../project-runtime/execution-ports.js";
+import { projectExecutionRuntimePort, projectHarnessArchivedChangeReadPort, projectHarnessExecutionPort } from "../../../project-runtime/execution-ports.js";
 import { skillNativeSchedulerExecutionPort } from "../../../scheduler-runtime/execution-port.js";
 import { listPendingSkillNativeProjectHarnessChangeFinalizations } from "../../../project-runtime/change-finalization.js";
 import type { ProjectRuntimeResolution } from "../../../project-runtime/context.js";
@@ -29,6 +30,7 @@ import { getSpecTestContextForChange, getSpecTestEvidenceFingerprint, getSpecTes
 import { listSpecTestProposalSummaries, showSpecTestProposal, specTestProposalManifestHash } from "../../../spec-test/proposal.js";
 import type { AuditResult, ManagedProject, ValidationResult, WorkflowGraphPlan, WorkflowRun } from "../../../types/index.js";
 import { buildConversationInteractionQueue } from "../../conversation-interactions.js";
+import { fromStoredThreadMessage } from "../../conversation-thread-log.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../persistence/open-workbench-database.js";
 import type { StoredDecisionRecord } from "../../persistence/contracts.js";
 import type {
@@ -56,11 +58,32 @@ import { sequentialWorkflowToConfirmationItems } from "./confirmation/typed-work
 import { schedulerNextActionToConfirmationItems } from "./confirmation/typed-workflow.js";
 import { changeFinalizationToConfirmationItems } from "./confirmation/change-finalization.js";
 import { decisionContextToConfirmationItems } from "./confirmation/decision-context.js";
-import { emptyDecisionInspector } from "./decision-inspector.js";
+import { alignDecisionInspectorWithConfirmationPrimary, buildDecisionInspector } from "./decision-inspector.js";
 import { approvalAction } from "./confirmation/shared.js";
 import { buildHarnessGaps, buildRepoSummary } from "./support.js";
-import { buildDiagnosticWorkpad } from "./workpad.js";
+import { buildDiagnosticWorkpad, buildMultiWorkpadSummaries, buildRolePipelineSummary, buildWorkpadBackground, buildWorkpadNextAction } from "./workpad.js";
+import { buildAgentTaskSummaries } from "./agent-task-summary.js";
+import { buildCodingPackages, buildTaskGraph, buildTaskQueueSummary, taskNodeToPreview } from "./task-graph.js";
 import { listWorkbenchRoles } from "./roles.js";
+import { buildThreadStreamFromMessages } from "./thread-stream.js";
+import { readIntakeState } from "../../intake.js";
+import { mergeSkillNativeProjectWideConfirmations } from "./skill-native-project-wide-confirmations.js";
+
+function demandWorkerSummaryState(status: string | undefined): Pick<WorkbenchWorkpadSummary, "runtimeStatus" | "userStatus" | "userStatusLabel"> | null {
+  if (status === "claimed" || status === "running") {
+    return { runtimeStatus: "running", userStatus: "processing", userStatusLabel: "处理中" };
+  }
+  if (status === "queued") {
+    return { runtimeStatus: "queued", userStatus: "later", userStatusLabel: "稍后处理" };
+  }
+  if (status === "needs-user-input" || status === "failed") {
+    return { runtimeStatus: "blocked", userStatus: "waiting-confirmation", userStatusLabel: "等待确认" };
+  }
+  if (status === "result-ready") {
+    return { runtimeStatus: "waiting-decision", userStatus: "waiting-confirmation", userStatusLabel: "等待确认" };
+  }
+  return null;
+}
 
 export async function tryBuildSkillNativePlanningSnapshot(input: {
   project: ManagedProject;
@@ -81,13 +104,29 @@ export async function tryBuildSkillNativePlanningSnapshot(input: {
   const status = projectHarnessStatus(input.resolution);
   const gaps = buildHarnessGaps();
   let topic = conversationTopic(selected);
+  topic = { ...topic, threadItems: await readPlanningThread(input.resolution, topic) };
   const warnings: string[] = [];
   let graph: WorkflowGraphPlan | null = null;
   let planningEvidence: Awaited<ReturnType<typeof readProjectHarnessPlanningGate>> | null = null;
   let schedulerProjection: WorkbenchSchedulerCurrentTransitionProjection | null = null;
   let schedulerIntegrationBarrier: WorkbenchConfirmationQueue["current"][number] | null = null;
   let gateReady = false;
-  if (!selected.boundChangeId || !selected.currentGraphScopeId) {
+  let planningAgentTasks: Awaited<ReturnType<typeof buildAgentTaskSummaries>> = [];
+  let auditApprovals: WorkbenchApprovalItem[] = [];
+  let executionHarness: Awaited<ReturnType<typeof projectHarnessExecutionPort>> | null = null;
+  let archivedHarness: Awaited<ReturnType<typeof projectHarnessArchivedChangeReadPort>> | null = null;
+  if (selected.state === "archive" && selected.boundChangeId) {
+    try {
+      archivedHarness = await projectHarnessArchivedChangeReadPort(
+        input.project,
+        input.resolution.harness.skillRoot,
+        selected.boundChangeId,
+      );
+      graph = archivedHarness.graph;
+    } catch (error) {
+      warnings.push(error instanceof Error ? error.message : String(error));
+    }
+  } else if (!selected.boundChangeId || !selected.currentGraphScopeId) {
     warnings.push("Planning gate requires an exact Change and current Conversation graph scope.");
   } else try {
     const evidence = await readProjectHarnessPlanningGate({
@@ -183,6 +222,61 @@ export async function tryBuildSkillNativePlanningSnapshot(input: {
     : null;
   if (specTestProjection) topic = { ...topic, specTest: specTestProjection.status, drift: specTestProjection.drift };
 
+  if (archivedHarness && selected.boundChangeId) {
+    topic = {
+      ...topic,
+      path: `state/changes/archive/${selected.boundChangeId}`,
+      change: archivedHarness.changeStatus.change,
+      reviewStatus: archivedHarness.changeStatus.reviewStatus,
+      closeGate: archivedHarness.changeStatus.closeGate,
+      acMap: archivedHarness.changeStatus.acMap,
+      acCount: archivedHarness.changeStatus.acMap?.acceptanceCriteria.length,
+      taskCount: archivedHarness.changeStatus.acMap?.tasks.length,
+    };
+  }
+
+  if (selected.boundChangeId && planningEvidence) {
+    const runtime = projectExecutionRuntimePort(input.project, input.resolution);
+    const evidenceRoot = join(input.resolution.harness.skillRoot, "state", "changes", "active", selected.boundChangeId);
+    const harness = await projectHarnessExecutionPort(input.project, evidenceRoot, planningEvidence);
+    executionHarness = harness;
+    const [runs, taskQueues, taskQueueItems, taskRuns, workerLeases, worktrees, validations, audits, agentTasks] = await Promise.all([
+      listRuns(runtime).then((items) => items.filter((item) => item.changeId === selected.boundChangeId)),
+      listTaskQueues(runtime, selected.boundChangeId),
+      listTaskQueueItems(runtime, selected.boundChangeId),
+      listTaskRuns(runtime, selected.boundChangeId),
+      listWorkerLeases(runtime, selected.boundChangeId),
+      listWorktreesForChange(runtime, selected.boundChangeId),
+      listValidationResults(runtime, selected.boundChangeId),
+      listAuditResults(runtime, selected.boundChangeId),
+      buildAgentTaskSummaries(runtime, selected.boundChangeId),
+    ]);
+    planningAgentTasks = agentTasks;
+    auditApprovals = await buildSkillNativeAuditApprovals(
+      input.project,
+      join(input.resolution.harness.skillRoot, "state", "changes", "active", selected.boundChangeId),
+      audits,
+    );
+    topic = {
+      ...topic,
+      path: `state/changes/active/${selected.boundChangeId}`,
+      change: harness.changeStatus.change,
+      reviewStatus: harness.changeStatus.reviewStatus,
+      closeGate: harness.changeStatus.closeGate,
+      acMap: harness.changeStatus.acMap,
+      acCount: harness.changeStatus.acMap?.acceptanceCriteria.length,
+      taskCount: harness.changeStatus.acMap?.tasks.length,
+      runs,
+      taskQueues,
+      taskQueueItems,
+      taskRuns,
+      workerLeases,
+      worktrees,
+      validations: validations.map(summarizeValidation),
+      audits: audits.map(summarizeAudit),
+    };
+  }
+
   if (existingWorkflowRun && graph && planningEvidence && selected.boundChangeId) {
     return buildSkillNativeExecutionSnapshot({
       ...input,
@@ -197,8 +291,35 @@ export async function tryBuildSkillNativePlanningSnapshot(input: {
     });
   }
 
+  const approvals = [...(specTestProjection?.approvals ?? []), ...auditApprovals];
   const graphSummary = graph ? workflowGraphSummary(graph) : undefined;
-  const baseWorkpad = planningWorkpad(input.project, topic, graphSummary, gateReady, warnings, gaps);
+  const readiness = {
+    specReady: Boolean(topic.acMap),
+    planReady: Boolean(graphSummary),
+    tasksReady: Boolean(topic.acMap?.tasks.length),
+  };
+  const taskQueue = buildTaskQueueSummary(topic, readiness);
+  const taskGraph = buildTaskGraph(topic, readiness, taskQueue);
+  const basePlanningWorkpad = planningWorkpad(input.project, topic, graphSummary, gateReady, warnings, gaps);
+  const executionEvidenceAction = buildWorkpadNextAction(
+    topic,
+    specTestProjection?.approvals ?? [],
+    readiness,
+    basePlanningWorkpad.intake,
+    taskQueue,
+    taskGraph,
+    graphSummary,
+  );
+  const baseWorkpad = {
+    ...basePlanningWorkpad,
+    taskQueue,
+    taskGraph,
+    mainAgentExecution: buildRolePipelineSummary(topic, planningAgentTasks),
+    nextAction: taskGraph.nodes.some((node) => node.autoRework?.available)
+      || (taskQueue && ["blocked", "failed"].includes(taskQueue.status))
+      ? executionEvidenceAction
+      : basePlanningWorkpad.nextAction,
+  };
   const workpad = schedulerProjection && graph?.graphMode === "ready-set-v1" && graphSummary
     ? {
         ...baseWorkpad,
@@ -223,7 +344,7 @@ export async function tryBuildSkillNativePlanningSnapshot(input: {
     ? schedulerNextActionToConfirmationItems(input.project, topic, workpad)
     : [];
   const currentItems = schedulerIntegrationBarrier ? [schedulerIntegrationBarrier] : schedulerItems.length ? schedulerItems : gateItems;
-  const confirmationQueue: WorkbenchConfirmationQueue = {
+  let confirmationQueue: WorkbenchConfirmationQueue = {
     primary: currentItems[0] ?? null,
     current: currentItems,
     otherDemands: [],
@@ -231,19 +352,39 @@ export async function tryBuildSkillNativePlanningSnapshot(input: {
     history: [],
   };
   const topics = conversations.map(conversationTopicSummary);
-  const workpads = topics.map((item): WorkbenchWorkpadSummary => ({
-    id: item.id,
-    title: item.title,
-    state: item.state,
-    runtimeStatus: item.id === topic.id ? "waiting-decision" : "active",
-    userStatus: item.id === topic.id ? "waiting-confirmation" : "processing",
-    userStatusLabel: item.id === topic.id ? "等待确认" : "处理中",
-    conversationLifecycle: item.state === "active" ? "active" : "archived-readonly",
-    linkedFromChangeId: item.boundChangeId ?? undefined,
-    selected: item.id === topic.id,
-    waitingDecisionCount: item.id === topic.id && currentItems.length ? 1 : 0,
-    updatedAt: item.updatedAt,
-  }));
+  const runtime = projectExecutionRuntimePort(input.project, input.resolution);
+  if (executionHarness) {
+    confirmationQueue = await mergeSkillNativeProjectWideConfirmations({
+      project: input.project,
+      runtime,
+      harness: executionHarness,
+      topic,
+      base: confirmationQueue,
+    });
+  }
+  const [demandWorkers, agentTasks] = await Promise.all([
+    listDemandWorkers(runtime).catch(() => []),
+    planningAgentTasks.length > 0
+      ? Promise.resolve(planningAgentTasks)
+      : selected.boundChangeId ? buildAgentTaskSummaries(runtime, selected.boundChangeId) : Promise.resolve([]),
+  ]);
+  const workpads = topics.map((item): WorkbenchWorkpadSummary => {
+    const demandWorker = demandWorkers.find((worker) => worker.changeId === item.boundChangeId);
+    const demandState = demandWorkerSummaryState(demandWorker?.status);
+    return {
+      id: item.id,
+      title: item.title,
+      state: item.state,
+      runtimeStatus: demandState?.runtimeStatus ?? (item.id === topic.id ? "waiting-decision" : "active"),
+      userStatus: demandState?.userStatus ?? (item.id === topic.id ? "waiting-confirmation" : "processing"),
+      userStatusLabel: demandState?.userStatusLabel ?? (item.id === topic.id ? "等待确认" : "处理中"),
+      conversationLifecycle: item.state === "active" ? "active" : "archived-readonly",
+      linkedFromChangeId: item.boundChangeId ?? undefined,
+      selected: item.id === topic.id,
+      waitingDecisionCount: demandState ? 0 : item.id === topic.id && currentItems.length ? 1 : 0,
+      updatedAt: demandWorker?.updatedAt ?? item.updatedAt,
+    };
+  });
   const [projectStatus, roles, conversationInteractions] = await Promise.all([
     getProjectStatus(input.project, input.project.path),
     listWorkbenchRoles(),
@@ -251,6 +392,30 @@ export async function tryBuildSkillNativePlanningSnapshot(input: {
       ? buildConversationInteractionQueue(input.resolution.paths, selected.conversationId, selected.currentGraphScopeId)
       : Promise.resolve({ items: [] }),
   ]);
+  const projectedWorkpad = {
+    ...applySkillNativeWorkpadEvidence(workpad, topic, taskGraph, agentTasks, existingWorkflowRun),
+    mainAgentExecution: buildRolePipelineSummary(topic, agentTasks),
+    background: buildWorkpadBackground(workpads, topic.id),
+  };
+  if (selected.boundChangeId) {
+    const intakeState = await readIntakeState(input.resolution.paths, selected.boundChangeId);
+    projectedWorkpad.intake = projectSkillNativeIntake(
+      projectedWorkpad.intake,
+      intakeState,
+    );
+    if (!graph && intakeState.latestIteration && projectedWorkpad.intake.pendingClarifications.length === 0) {
+      projectedWorkpad.nextAction = {
+        id: `intake-reanalyze:${selected.boundChangeId}`,
+        label: "继续需求分析",
+        description: "当前需求分析已完成一轮，等待新的用户信息再重新分析。",
+        kind: "workflow-action",
+        actionType: "intake.reanalyze",
+        enabled: false,
+        requiresConfirmation: false,
+        disabledReason: "当前没有待处理的需求确认。",
+      };
+    }
+  }
   return {
     project: input.project,
     memory: status,
@@ -263,16 +428,21 @@ export async function tryBuildSkillNativePlanningSnapshot(input: {
     },
     center: {
       selectedTopic: topic,
-      workpad,
-      thread: { items: [] },
+      workpad: projectedWorkpad,
+      thread: { items: topic.threadItems },
       conversationInteractions,
       activeTab: "conversation",
       agentLoop: { runs: [] },
     },
     right: {
-      approvals: specTestProjection?.approvals ?? [],
+      approvals,
       decisions: [],
-      decisionInspector: emptyDecisionInspector(),
+      decisionInspector: alignDecisionInspectorWithConfirmationPrimary(buildDecisionInspector({
+        selectedTopic: topic,
+        workpad: projectedWorkpad,
+        approvals,
+        decisions: [],
+      }), confirmationQueue.primary, topic.id),
       confirmationQueue,
     },
     roles,
@@ -325,6 +495,10 @@ async function buildSkillNativeExecutionSnapshot(input: {
     listCompletedWorktreeDispositions(runtime, input.selected.boundChangeId),
   ]);
   const decisions = decisionRecords.map(mapSkillNativeDecisionRecord);
+  const approvals = [
+    ...(specTestProjection?.approvals ?? []),
+    ...await buildSkillNativeAuditApprovals(input.project, evidenceRoot, audits),
+  ];
   const terminalWorktreeIds = new Set([
     ...worktrees.filter((worktree) => worktree.status === "applied").map((worktree) => worktree.worktreeId),
     ...worktreeDispositions.map((disposition) => disposition.worktreeId),
@@ -348,7 +522,7 @@ async function buildSkillNativeExecutionSnapshot(input: {
     audits: audits.map(summarizeAudit),
     specTest: specTestProjection?.status ?? null,
     drift: specTestProjection?.drift ?? null,
-    threadItems: [],
+    threadItems: await readPlanningThread(input.resolution, conversationTopic(input.selected)),
   };
   const resultReview = await buildSkillNativeResultReview(
     input.project,
@@ -361,43 +535,41 @@ async function buildSkillNativeExecutionSnapshot(input: {
   );
   const resultTerminal = !resultReview && terminalWorktreeIds.size > 0;
   let applyActionScope: HighImpactApprovalScope | undefined;
-  if (resultReview?.worktreeId) {
+  if (resultReview?.worktreeId && resultReview.status === "ready-to-apply") {
     const executionScope = await resolveProjectApplyExecutionScope(input.project, resultReview.worktreeId);
     const gate = await evaluateSkillNativeApplyGate(input.project, executionScope.runtime, executionScope.harness, resultReview.worktreeId);
     applyActionScope = projectApplyActionScope(executionScope, worktreeApplyManifestHash(gate));
   }
   const graphSummary = workflowGraphSummary(input.graph);
   const base = planningWorkpad(input.project, topic, graphSummary, false, input.warnings, input.gaps);
-  const queue = taskQueues[0];
+  const readiness = { specReady: true, planReady: true, tasksReady: true };
+  const taskQueue = buildTaskQueueSummary(topic, readiness);
+  const taskGraph = buildTaskGraph(topic, readiness, taskQueue);
+  const agentTasks = await buildAgentTaskSummaries(runtime, input.selected.boundChangeId);
+  const executionNextAction = buildWorkpadNextAction(
+    topic,
+    approvals,
+    readiness,
+    base.intake,
+    taskQueue,
+    taskGraph,
+    graphSummary,
+  );
+  const queueOrReworkAction = taskGraph.nodes.some((node) => node.autoRework?.available)
+    || (taskQueue && ["blocked", "failed"].includes(taskQueue.status))
+    ? executionNextAction
+    : null;
   const workpad: WorkbenchWorkpad = {
-    ...base,
+    ...applySkillNativeWorkpadEvidence(base, topic, taskGraph, agentTasks, input.workflowRun),
     userStatus: resultTerminal ? "completed" : "waiting-confirmation",
     userStatusLabel: resultTerminal ? "结果处理完成" : "等待确认",
     workflowRun: summarizeWorkflowRun(input.workflowRun),
+    mainAgentExecution: buildRolePipelineSummary(topic, agentTasks),
     resultReview,
-    taskQueue: queue ? {
-      id: queue.id,
-      status: queue.status,
-      currentTaskId: queue.currentTaskId,
-      totalCount: queue.totalCount,
-      completedCount: queue.completedCount,
-      blockedReason: queue.blockedReason,
-      failureReason: queue.failureReason,
-      pausedReason: queue.pausedReason,
-      workflowRunId: queue.workflowRunId,
-      workflowGraphPlanId: queue.workflowGraphPlanId,
-      items: taskQueueItems.filter((item) => item.queueRunId === queue.id).map((item) => ({
-        id: item.id,
-        taskId: item.taskId,
-        order: item.order,
-        status: item.status,
-        taskRunId: item.taskRunId,
-        blockedReason: item.blockedReason,
-        failureReason: item.failureReason,
-      })),
-    } : undefined,
+    taskQueue,
+    taskGraph,
     evidence: resultReview?.evidence ?? [],
-    nextAction: resultTerminal
+    nextAction: queueOrReworkAction ?? (resultTerminal
       ? {
           id: "result-terminal",
           label: "结果处理完成",
@@ -424,34 +596,49 @@ async function buildSkillNativeExecutionSnapshot(input: {
           approvalId: resultReview?.audit ? `audit:${resultReview.audit.id}` : undefined,
           enabled: Boolean(resultReview?.audit),
           requiresConfirmation: true,
-        },
+        }),
   };
   const decision = resultDecisionContext(input.project, topic, resultReview, applyActionScope);
   const finalizationItems = changeFinalizationToConfirmationItems(input.project, finalizationRequests);
   const current = finalizationItems.length
     ? finalizationItems
     : decisionContextToConfirmationItems(decision, true, topic.id);
-  const confirmationQueue: WorkbenchConfirmationQueue = {
+  const confirmationQueue = await mergeSkillNativeProjectWideConfirmations({
+    project: input.project,
+    runtime,
+    harness,
+    topic,
+    base: {
     primary: current[0] ?? null,
     current,
     otherDemands: [],
     maintenance: [],
     history: [],
-  };
+    },
+  });
   const topics = input.conversations.map(conversationTopicSummary);
-  const workpads = topics.map((item): WorkbenchWorkpadSummary => ({
-    id: item.id,
-    title: item.title,
-    state: item.state,
-    runtimeStatus: item.id === topic.id ? (resultTerminal ? "active" : "waiting-decision") : "active",
-    userStatus: item.id === topic.id ? (resultTerminal ? "completed" : "waiting-confirmation") : "processing",
-    userStatusLabel: item.id === topic.id ? (resultTerminal ? "结果处理完成" : "等待确认") : "处理中",
-    conversationLifecycle: item.state === "active" ? "active" : "archived-readonly",
-    linkedFromChangeId: item.boundChangeId ?? undefined,
-    selected: item.id === topic.id,
-    waitingDecisionCount: item.id === topic.id && current.length ? 1 : 0,
-    updatedAt: item.updatedAt,
-  }));
+  const workpads = await buildMultiWorkpadSummaries(
+    runtime,
+    topics,
+    specTestProjection?.approvals ?? [],
+    topic.id,
+  );
+  workpad.background = buildWorkpadBackground(workpads, topic.id);
+  workpad.memoryIsolation = {
+    ...workpad.memoryIsolation,
+    runNamespaces: runs.slice(0, 5).map((run) => `run/${run.id}`),
+    relatedWorkpads: workpads
+      .filter((item) => item.id !== topic.id && ["running", "queued", "blocked", "waiting-decision"].includes(item.runtimeStatus))
+      .slice(0, 6)
+      .map((item) => ({
+        changeId: item.linkedFromChangeId ?? item.id,
+        title: item.title,
+        status: item.runtimeStatus,
+        factBoundary: item.runtimeStatus === "running" || item.runtimeStatus === "queued"
+          ? "local-evidence-only"
+          : "summary-only",
+      })),
+  };
   const [projectStatus, roles, conversationInteractions] = await Promise.all([
     getProjectStatus(input.project, input.project.path),
     listWorkbenchRoles(),
@@ -459,6 +646,17 @@ async function buildSkillNativeExecutionSnapshot(input: {
       ? buildConversationInteractionQueue(input.resolution.paths, input.selected.conversationId, input.selected.currentGraphScopeId)
       : Promise.resolve({ items: [] }),
   ]);
+  const decisionInspector = buildDecisionInspector({
+    selectedTopic: topic,
+    workpad,
+    approvals,
+    decisions,
+  });
+  const alignedDecisionInspector = alignDecisionInspectorWithConfirmationPrimary(
+    decision ? { ...decisionInspector, primary: null } : decisionInspector,
+    confirmationQueue.primary,
+    topic.id,
+  );
   return {
     project: input.project,
     memory: input.status,
@@ -466,15 +664,86 @@ async function buildSkillNativeExecutionSnapshot(input: {
     center: {
       selectedTopic: topic,
       workpad,
-      thread: { items: [] },
+      thread: { items: topic.threadItems },
       conversationInteractions,
       activeTab: "conversation",
       agentLoop: { runs },
     },
-    right: { approvals: specTestProjection?.approvals ?? [], decisions, decisionInspector: emptyDecisionInspector(), confirmationQueue },
+    right: {
+      approvals,
+      decisions,
+      decisionInspector: alignedDecisionInspector,
+      confirmationQueue,
+    },
     roles,
     harnessGaps: input.gaps,
     warnings: input.warnings,
+  };
+}
+
+function applySkillNativeWorkpadEvidence(
+  workpad: WorkbenchWorkpad,
+  topic: WorkbenchTopicDetail,
+  taskGraph: ReturnType<typeof buildTaskGraph>,
+  agentTasks: Awaited<ReturnType<typeof buildAgentTaskSummaries>>,
+  workflowRun: WorkflowRun | null,
+): WorkbenchWorkpad {
+  const latestRun = [...topic.runs].sort((left, right) =>
+    (right.finishedAt ?? right.startedAt).localeCompare(left.finishedAt ?? left.startedAt))[0];
+  const latestValidationStatus = latestProjectedStatus(topic.validations);
+  const latestAuditStatus = latestProjectedStatus(topic.audits);
+  const active = topic.runs.some((run) => run.status === "created" || run.status === "running")
+    || agentTasks.some((task) => ["queued", "claimed", "running"].includes(task.status))
+    || workflowRun?.status === "created"
+    || workflowRun?.status === "running";
+  return {
+    ...workpad,
+    progress: {
+      topicState: topic.state,
+      spec: topic.acMap ? "ready" : "missing",
+      plan: workpad.workflowGraphPlan ? "ready" : "missing",
+      tasks: topic.acMap?.tasks.length ? "ready" : "missing",
+      acCount: topic.acCount ?? 0,
+      taskCount: topic.taskCount ?? 0,
+      runCount: topic.runs.length,
+      latestRunStatus: latestRun?.status,
+      validationStatus: latestValidationStatus,
+      auditStatus: latestAuditStatus,
+    },
+    tasks: taskGraph.nodes.map(taskNodeToPreview),
+    codingPackages: buildCodingPackages(topic, taskGraph),
+    runControlState: {
+      canStop: active,
+      stopActionType: active ? "conversation.interrupt" : undefined,
+      pendingFeedbackCount: topic.threadItems.filter((item) => item.kind === "user-message" && item.status === "pending-feedback").length,
+      explanation: active
+        ? "支持实时引导时，补充要求会发送给当前执行；不支持时会记录到下一轮。停止会保留证据并进入下一轮方案或修改。"
+        : "当前没有正在执行的需求。",
+    },
+  };
+}
+
+function latestProjectedStatus(items: readonly unknown[]): string | undefined {
+  return items
+    .filter((item): item is { status: string; finishedAt?: string } => Boolean(
+      item && typeof item === "object" && "status" in item && typeof (item as { status?: unknown }).status === "string",
+    ))
+    .sort((left, right) => (right.finishedAt ?? "").localeCompare(left.finishedAt ?? ""))[0]?.status;
+}
+
+function projectSkillNativeIntake(
+  current: WorkbenchWorkpad["intake"],
+  state: Awaited<ReturnType<typeof readIntakeState>>,
+): WorkbenchWorkpad["intake"] {
+  return {
+    ...current,
+    currentUnderstanding: state.latestIteration?.currentUnderstanding ?? current.currentUnderstanding,
+    relatedArtifacts: state.latestScan ? [state.latestScan.runId ? `runs/${state.latestScan.runId}/scan.md` : ""] : current.relatedArtifacts,
+    missingInfo: state.latestScan?.missingInfo ?? current.missingInfo,
+    confirmedConstraints: state.latestIteration?.confirmedConstraints ?? current.confirmedConstraints,
+    openQuestions: state.latestIteration?.openQuestions ?? current.openQuestions,
+    assumptions: state.latestIteration?.assumptions ?? current.assumptions,
+    pendingClarifications: state.clarifications.filter((item) => item.status === "pending"),
   };
 }
 
@@ -640,6 +909,8 @@ function resultDecisionContext(
       }],
     };
   }
+  const recovery = skillNativeResultRecoveryDecision(changeId, review);
+  if (recovery) return recovery;
   return {
     id: `approval:audit:${review.audit.id}`,
     kind: "audit-approved",
@@ -666,6 +937,60 @@ function resultDecisionContext(
         mutates: true,
         requiresConfirmation: true,
       },
+    }],
+  };
+}
+
+function skillNativeResultRecoveryDecision(
+  changeId: string,
+  review: WorkbenchResultReview,
+): WorkbenchDecisionContext | null {
+  if (!review.worktreeId) return null;
+  const recovery = (() => {
+    switch (review.applyReadiness.kind) {
+    case "source-drift": return {
+      id: `refresh-rework:${review.worktreeId}`,
+      label: "重新处理这个结果",
+      actionType: "result.refresh-rework" as const,
+      requiresConfirmation: true,
+    };
+    case "dirty-source": return {
+      id: `refresh-status:${review.worktreeId}`,
+      label: "刷新状态",
+      actionType: "result.refresh-status" as const,
+      requiresConfirmation: false,
+    };
+    case "stale-validation": return {
+      id: `revalidate:${review.worktreeId}`,
+      label: "重新验证",
+      actionType: "result.revalidate" as const,
+      requiresConfirmation: true,
+    };
+    case "stale-audit": return {
+      id: `reaudit:${review.worktreeId}`,
+      label: "重新审查",
+      actionType: "result.reaudit" as const,
+      requiresConfirmation: true,
+    };
+    default: return null;
+    }
+  })();
+  if (!recovery) return null;
+  return {
+    id: `result:${changeId}:${review.worktreeId}:${review.applyReadiness.kind}`,
+    kind: "apply-gate",
+    title: review.applyReadiness.message,
+    summary: review.summary,
+    severity: review.applyReadiness.kind === "dirty-source" ? "warning" : "blocking",
+    changeId,
+    targetId: review.worktreeId,
+    artifact: review.audit?.artifact,
+    actions: [{
+      ...recovery,
+      kind: "workflow-action",
+      changeId,
+      worktreeId: review.worktreeId,
+      enabled: true,
     }],
   };
 }
@@ -711,6 +1036,38 @@ async function reviewAcceptsAudit(evidenceRoot: string, auditId: string): Promis
   return (await readFile(path, "utf8")).includes(`Audit ID: ${auditId}`);
 }
 
+async function buildSkillNativeAuditApprovals(
+  project: ManagedProject,
+  evidenceRoot: string,
+  audits: AuditResult[],
+): Promise<WorkbenchApprovalItem[]> {
+  const approvals: WorkbenchApprovalItem[] = [];
+  for (const audit of audits
+    .filter((item) => item.status === "approved" || item.status === "approved-with-notes")
+    .slice(0, 3)) {
+    if (await reviewAcceptsAudit(evidenceRoot, audit.id)) continue;
+    approvals.push({
+      id: `audit:${audit.id}`,
+      kind: "audit-proposal",
+      label: `Audit proposal can be accepted: ${audit.id}`,
+      changeId: audit.changeId,
+      runId: audit.runId,
+      targetId: audit.id,
+      severity: "info",
+      action: approvalAction(
+        "audit.accept",
+        "Accept audit",
+        "audit",
+        ["accept", project.id, audit.id],
+        true,
+      ),
+      artifact: audit.artifacts.audit,
+      reason: audit.status === "approved" ? undefined : "Audit approved with notes requires manual acceptance.",
+    });
+  }
+  return approvals;
+}
+
 interface PlanningConversation {
   conversationId: string;
   title: string;
@@ -735,6 +1092,24 @@ async function readPlanningConversations(resolution: ProjectRuntimeResolution): 
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
     }));
+  } finally {
+    store.close();
+  }
+}
+
+async function readPlanningThread(
+  resolution: ProjectRuntimeResolution,
+  topic: WorkbenchTopicDetail,
+): Promise<WorkbenchTopicDetail["threadItems"]> {
+  const store = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
+  try {
+    return buildThreadStreamFromMessages(
+      topic,
+      store.timeline
+        .listConversationMessages(resolution.harness.projectId, topic.id)
+        .map(fromStoredThreadMessage),
+      { includeChangeState: false },
+    );
   } finally {
     store.close();
   }
@@ -820,7 +1195,7 @@ function planningWorkpad(
     ...base,
     title: topic.title,
     subtitle: topic.boundChangeId ?? topic.id,
-    state: "active",
+    state: topic.state === "active" ? "active" : "readonly",
     userStatus: gateReady ? "waiting-confirmation" : "processing",
     userStatusLabel: gateReady ? "等待确认" : "处理中",
     conversationId: topic.id,

@@ -23,6 +23,7 @@ import type {
   RemoteLandingResult,
   ResolvedMemory,
 } from "../types/index.js";
+import type { ProjectWorkbenchArtifactPathPort } from "../project-runtime/paths.js";
 
 import { localSyncReadinessSchema, cleanupReadinessSchema, handoffSchema, stateSnapshotSchema, localSyncResultSchema, cleanupResultSchema } from "./schemas.js";
 
@@ -177,11 +178,11 @@ export async function cleanupRemoteBranchAfterMerge(project: ManagedProject, lan
   }
 }
 
-export async function latestPostMergeHandoffForLanding(memory: ResolvedMemory, landingPackageId: string): Promise<PostMergeHandoff | null> {
+export async function latestPostMergeHandoffForLanding(memory: ProjectWorkbenchArtifactPathPort, landingPackageId: string): Promise<PostMergeHandoff | null> {
   return (await listPostMergeHandoffs(memory)).find((item) => item.landingPackageId === landingPackageId) ?? null;
 }
 
-export async function listPostMergeHandoffs(memory: ResolvedMemory): Promise<PostMergeHandoff[]> {
+export async function listPostMergeHandoffs(memory: ProjectWorkbenchArtifactPathPort): Promise<PostMergeHandoff[]> {
   const root = postMergeRoot(memory);
   if (!existsSync(root)) return [];
   const entries = await readdir(root, { withFileTypes: true });
@@ -450,7 +451,7 @@ function stringField(value: unknown, key: string): string | undefined {
   return undefined;
 }
 
-function postMergeRoot(memory: ResolvedMemory): string {
+function postMergeRoot(memory: ProjectWorkbenchArtifactPathPort): string {
   return join(memory.workbenchRoot, "post-merge");
 }
 

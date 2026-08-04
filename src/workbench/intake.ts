@@ -1,20 +1,19 @@
 ﻿import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { extname, join, relative } from "node:path";
-import { buildChangeIndex } from "../ecl/index.js";
 import { parseJsonText, writeJsonFile } from "../fs/json.js";
-import { resolveProjectMemory } from "../memory/resolver.js";
-import { getMemoryStatus } from "../memory/status.js";
 import { getProjectStatus } from "../project/status.js";
+import { listProjectHarnessChanges, loadProjectHarnessChange } from "../project-harness/change.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
 import type { ProjectRuntimeResolution } from "../project-runtime/context.js";
+import { projectExecutionRuntimePort, projectRunArtifactReference } from "../project-runtime/execution-ports.js";
 import type { ProjectWorkbenchPathPort } from "../project-runtime/paths.js";
-import { appendRunEvent, buildRunId, displayArtifactPath } from "../run/manager.js";
+import { appendRunEvent, buildRunId } from "../run/manager.js";
 import { listRuns } from "../run/manager.js";
 import { listAuditResults, summarizeAudit } from "../audit/artifacts.js";
 import { listValidationResults, summarizeValidation } from "../validation/artifacts.js";
-import type { ManagedProject, ResolvedMemory, RunMetadata } from "../types/index.js";
+import type { ManagedProject, RunMetadata } from "../types/index.js";
 import { appendCanonicalTimelineEntry } from "./canonical-timeline-command.js";
 import { readConversationThread } from "./conversation-thread-log.js";
 import type { TopicThreadEntry } from "./types.js";
@@ -101,13 +100,15 @@ interface IntakeState {
 const scanSchemaVersion = "1.0";
 
 export async function runIntakeScan(project: ManagedProject, changeId: string, prompt = ""): Promise<{ run: RunMetadata; scan: WorkbenchIntakeScan }> {
-  const memory = await resolveProjectMemory(project);
-  assertActiveTopic(memory, changeId);
+  const resolution = await requireReadyProjectRuntime(project);
+  await assertActiveTopic(resolution, changeId);
+  const runtime = projectExecutionRuntimePort(project, resolution);
   const runId = buildRunId(changeId, ["intake", "scan"]);
-  const directory = join(memory.runsRoot, runId);
-  const relativeDir = displayArtifactPath(memory.artifactBase === "memory-root" ? memory.memoryRoot : memory.projectRoot, directory);
+  const directory = join(runtime.runsRoot, runId);
+  const artifactReference = projectRunArtifactReference(runtime, directory);
+  const relativeDir = artifactReference.directory;
   const artifacts = {
-    base: memory.artifactBase,
+    base: artifactReference.base,
     directory: relativeDir,
     context: `${relativeDir}/context.md`,
     events: `${relativeDir}/events.jsonl`,
@@ -151,7 +152,7 @@ export async function runIntakeScan(project: ManagedProject, changeId: string, p
   await writeJsonFile(paths.run, run);
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "intake.scan.started", runId, data: { prompt } });
 
-  const scan = await buildIntakeScan(project, memory, changeId, runId, prompt);
+  const scan = await buildIntakeScan(project, resolution, changeId, runId, prompt);
   await writeJsonFile(paths.scan, scan);
   await writeFile(paths.scanMarkdown, renderScanMarkdown(scan), "utf8");
   await writeFile(paths.context, renderScanContext(scan), "utf8");
@@ -175,11 +176,8 @@ export async function runIntakeScan(project: ManagedProject, changeId: string, p
 }
 
 export async function reanalyzeIntake(project: ManagedProject, changeId: string, message: string): Promise<{ iteration: WorkbenchIntakeIteration; clarification: ClarificationRequest | null }> {
-  const [memory, runtime] = await Promise.all([
-    resolveProjectMemory(project),
-    requireReadyProjectRuntime(project),
-  ]);
-  assertActiveTopic(memory, changeId);
+  const runtime = await requireReadyProjectRuntime(project);
+  await assertActiveTopic(runtime, changeId);
   const state = await readIntakeState(runtime.paths, changeId);
   const now = new Date().toISOString();
   const constraints = mergeConstraints(state.latestIteration?.confirmedConstraints ?? [], extractConstraints(message));
@@ -211,11 +209,8 @@ export async function reanalyzeIntake(project: ManagedProject, changeId: string,
 }
 
 export async function answerClarification(project: ManagedProject, changeId: string, clarificationId: string, answers: ClarificationAnswer[]): Promise<{ clarification: ClarificationRequest; iteration: WorkbenchIntakeIteration }> {
-  const [memory, runtime] = await Promise.all([
-    resolveProjectMemory(project),
-    requireReadyProjectRuntime(project),
-  ]);
-  assertActiveTopic(memory, changeId);
+  const runtime = await requireReadyProjectRuntime(project);
+  await assertActiveTopic(runtime, changeId);
   const state = await readIntakeState(runtime.paths, changeId);
   const existing = state.clarifications.find((item) => item.id === clarificationId);
   if (!existing) throw new Error(`Clarification not found: ${clarificationId}`);
@@ -232,11 +227,8 @@ export async function answerClarification(project: ManagedProject, changeId: str
 }
 
 export async function skipClarification(project: ManagedProject, changeId: string, clarificationId: string): Promise<{ clarification: ClarificationRequest }> {
-  const [memory, runtime] = await Promise.all([
-    resolveProjectMemory(project),
-    requireReadyProjectRuntime(project),
-  ]);
-  assertActiveTopic(memory, changeId);
+  const runtime = await requireReadyProjectRuntime(project);
+  await assertActiveTopic(runtime, changeId);
   const state = await readIntakeState(runtime.paths, changeId);
   const existing = state.clarifications.find((item) => item.id === clarificationId);
   if (!existing) throw new Error(`Clarification not found: ${clarificationId}`);
@@ -274,14 +266,14 @@ async function requireReadyProjectRuntime(project: ManagedProject): Promise<Proj
   return state.resolution;
 }
 
-async function buildIntakeScan(project: ManagedProject, memory: ResolvedMemory, changeId: string, runId: string, prompt: string): Promise<WorkbenchIntakeScan> {
-  const [projectStatus, memoryStatus, index, runs, validations, audits] = await Promise.all([
+async function buildIntakeScan(project: ManagedProject, resolution: ProjectRuntimeResolution, changeId: string, runId: string, prompt: string): Promise<WorkbenchIntakeScan> {
+  const runtime = projectExecutionRuntimePort(project, resolution);
+  const [projectStatus, changes, runs, validations, audits] = await Promise.all([
     getProjectStatus(project, project.path).catch(() => null),
-    getMemoryStatus(project, project.path),
-    buildChangeIndex(memory).catch(() => ({ active: [], parking: [], archive: [], generated_at: "" })),
-    listRuns(memory).catch(() => []),
-    listValidationResults(memory).then((items) => items.map(summarizeValidation)).catch(() => []),
-    listAuditResults(memory).then((items) => items.map(summarizeAudit)).catch(() => []),
+    listProjectHarnessChanges(resolution.harness.skillRoot).catch(() => []),
+    listRuns(runtime).catch(() => []),
+    listValidationResults(runtime).then((items) => items.map(summarizeValidation)).catch(() => []),
+    listAuditResults(runtime).then((items) => items.map(summarizeAudit)).catch(() => []),
   ]);
   return {
     version: scanSchemaVersion,
@@ -296,15 +288,15 @@ async function buildIntakeScan(project: ManagedProject, memory: ResolvedMemory, 
       dirty: projectStatus?.dirty ?? null,
     },
     memory: {
-      mode: memoryStatus.memoryMode,
-      harnessReady: memoryStatus.harnessReady,
-      artifactBase: memoryStatus.artifactBase,
+      mode: "skill-native",
+      harnessReady: true,
+      artifactBase: runtime.runArtifactBase ?? "memory-root",
     },
     scripts: await readPackageScripts(project.path),
     candidateFiles: await discoverCandidateFiles(project.path),
     changes: {
-      active: index.active.map((item) => item.name),
-      archive: index.archive.slice(-8).map((item) => item.name),
+      active: changes.filter((item) => ["claiming", "planning", "active", "parking"].includes(item.status)).map((item) => item.change_id),
+      archive: changes.filter((item) => ["completed", "blocked", "abandoned"].includes(item.status)).slice(-8).map((item) => item.change_id),
     },
     evidence: [
       ...runs.filter((run) => run.changeId === changeId).slice(0, 5).map((run) => ({ label: `${run.runtime} ${run.status}`, status: run.status, artifact: run.artifacts.directory })),
@@ -313,7 +305,6 @@ async function buildIntakeScan(project: ManagedProject, memory: ResolvedMemory, 
     ],
     missingInfo: buildScanMissingInfo(prompt),
     warnings: [
-      ...(memoryStatus.harnessReady ? [] : ["Harness memory is not fully ready."]),
       ...(projectStatus?.dirty ? ["Source repository has uncommitted changes."] : []),
     ],
   };
@@ -466,8 +457,9 @@ function firstUserGoal(entries: TopicThreadEntry[], fallback: string): string {
   return entries.find((entry) => entry.type === "user.message" && entry.text?.trim())?.text?.trim() ?? fallback;
 }
 
-function assertActiveTopic(memory: ResolvedMemory, changeId: string): void {
-  if (!existsSync(join(memory.changesRoot, "active", changeId))) {
+async function assertActiveTopic(resolution: ProjectRuntimeResolution, changeId: string): Promise<void> {
+  const change = await loadProjectHarnessChange(resolution.harness.skillRoot, changeId, false).catch(() => null);
+  if (!change || !["claiming", "planning", "active"].includes(change.status)) {
     throw new Error(`Intake actions require an active Topic: ${changeId}`);
   }
 }

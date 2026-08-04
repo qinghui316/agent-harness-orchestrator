@@ -31,6 +31,18 @@ export async function prepareIntegrationFixCheckout(project: ManagedProject, che
   });
 }
 
+export async function prepareSkillNativeIntegrationFixCheckout(
+  project: ManagedProject,
+  runtime: { projectWriteLeasePath: string },
+  checkoutPath: string,
+  patchPath: string,
+): Promise<void> {
+  return withProjectWriteLeaseAtPath(runtime.projectWriteLeasePath, {}, async (lease) => {
+    await lease.assertCurrent();
+    await prepareIntegrationCheckoutWithLease(project, checkoutPath, patchPath, true);
+  });
+}
+
 async function prepareIntegrationCheckoutWithLease(project: ManagedProject, checkoutPath: string, patchPath: string, threeWay: boolean): Promise<void> {
   await git(project.path, ["worktree", "remove", "--force", checkoutPath]).catch(() => "");
   await rm(checkoutPath, { recursive: true, force: true }).catch(() => undefined);
