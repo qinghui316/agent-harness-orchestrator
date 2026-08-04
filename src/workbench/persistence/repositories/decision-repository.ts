@@ -109,4 +109,10 @@ listDecisions(projectId: string, changeId?: string): StoredDecisionRecord[] {
       `).all(projectId) as SqliteRow[];
     return rows.map(mapDecisionRow);
   }
+
+  deleteDecision(projectId: string, decisionId: string): boolean {
+    return this.db.prepare(`
+      DELETE FROM decision_records WHERE project_id = ? AND id = ?
+    `).run(projectId, decisionId).changes === 1;
+  }
 }

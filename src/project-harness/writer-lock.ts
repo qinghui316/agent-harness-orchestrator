@@ -9,7 +9,7 @@ export interface ProjectHarnessWriterLock {
   schemaVersion: "1.0";
   projectId: string;
   ownerId: string;
-  operation: "init" | "migrate" | "change-publish" | "change-finalize" | "workflow-start" | "audit-accept" | "spec-test-map" | "source-apply" | "worktree-discard" | "integration-check-apply" | "integration-check-discard" | "integration-finalize" | "evolution-publish";
+  operation: "init" | "migrate" | "change-publish" | "change-abandon" | "change-finalize" | "workflow-start" | "audit-accept" | "spec-test-map" | "source-apply" | "worktree-discard" | "integration-check-apply" | "integration-check-discard" | "integration-finalize" | "evolution-publish";
   token: string;
   pid: number;
   acquiredAt: string;

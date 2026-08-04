@@ -46,6 +46,14 @@ export interface StoredConversation {
   deletedAt: string | null;
 }
 
+export interface StoredConversationGraphScope {
+  projectId: string;
+  conversationId: string;
+  graphScopeId: string;
+  status: "active" | "terminal";
+  updatedAt: string;
+}
+
 export interface StoredProviderThreadLink {
   projectId: string;
   conversationId: string;

@@ -63,7 +63,7 @@ describe("ProviderChildLifecycleOwner", () => {
       finalText: "late",
       changedFiles: [],
     });
-    expect(fixture.completeProviderAttempt.mock.calls.map((call) => call[2])).toEqual(["completed", "terminated"]);
+    expect(fixture.commitProviderCallback.mock.calls.map((call) => call[0].terminal?.status)).toEqual(["completed", "terminated"]);
     expect(fixture.owner.registeredForThread("thread-child")?.status).toBe("terminated");
   });
 
@@ -110,9 +110,13 @@ describe("ProviderChildLifecycleOwner", () => {
     });
     const closed = fixture.owner.onLifecycle(started({ kind: "closed", activityId: "close-previous" }));
     expect(closed).toEqual(expect.objectContaining({ attemptId: "attempt-previous-child", status: "terminated" }));
-    expect(fixture.completeProviderAttempt).toHaveBeenCalledWith(
-      "project-1", "attempt-previous-child", "terminated", "thread-child", expect.any(String),
-    );
+    expect(fixture.commitProviderCallback).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: "project-1",
+      conversationId: "conversation-1",
+      attemptId: "attempt-previous-child",
+      expectedGraphScopeId: "scope-1",
+      terminal: { status: "terminated", nativeSessionId: "thread-child" },
+    }));
   });
 
   it.each([
@@ -142,7 +146,7 @@ describe("ProviderChildLifecycleOwner", () => {
     });
 
     expect(fixture.owner.onLifecycle(started({ kind: "closed", activityId: "close-previous" }))).toBeNull();
-    expect(fixture.completeProviderAttempt).not.toHaveBeenCalled();
+    expect(fixture.commitProviderCallback).not.toHaveBeenCalled();
   });
 });
 
@@ -150,20 +154,25 @@ function ownerFixture() {
   const createProviderAttempt = vi.fn();
   const bindProviderAttemptThread = vi.fn();
   const completeProviderAttempt = vi.fn();
+  const commitProviderCallback = vi.fn(() => []);
+  const assertCurrentRunningAttemptGraph = vi.fn();
   const listProviderThreads = vi.fn(() => []);
   const readProviderAttempt = vi.fn(() => null);
   const database = {
+    transaction: (operation: () => unknown) => operation(),
+    unitOfWork: { commitProviderCallback },
     providerAttempts: {
       createProviderAttempt,
       bindProviderAttemptThread,
       completeProviderAttempt,
+      assertCurrentRunningAttemptGraph,
       listProviderThreads,
       readProviderAttempt,
     },
   } as unknown as WorkbenchDatabase;
   const owner = new ProviderChildLifecycleOwner({
     database,
-    delivery: { upsert: vi.fn() } as unknown as CanonicalTimelineDelivery,
+    delivery: { upsert: vi.fn(), publishCommittedMany: vi.fn() } as unknown as CanonicalTimelineDelivery,
     catalog: catalog(),
     projectId: "project-1",
     conversationId: "conversation-1",
@@ -183,6 +192,7 @@ function ownerFixture() {
     createProviderAttempt,
     bindProviderAttemptThread,
     completeProviderAttempt,
+    commitProviderCallback,
     listProviderThreads,
     readProviderAttempt,
   };

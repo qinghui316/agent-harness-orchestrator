@@ -339,7 +339,7 @@ export type Snapshot = {
   warnings: string[];
 };
 
-export type Topic = { id: string; title: string; state: string; updatedAt?: string; kind?: "conversation" | "change"; boundChangeId?: string | null; selectedProviderId?: string };
+export type Topic = { id: string; title: string; state: string; updatedAt?: string; kind?: "conversation" | "change"; boundChangeId?: string | null; graphScopeId?: string; selectedProviderId?: string };
 export type WorkpadRuntimeStatus = "active" | "running" | "queued" | "blocked" | "waiting-decision" | "archived" | "readonly";
 export type WorkpadUserStatus = "processing" | "waiting-confirmation" | "needs-rework" | "later" | "completed" | "abandoned";
 export type ConversationLifecycle = "active" | "running" | "waiting-user" | "archived-readonly" | "abandoned";

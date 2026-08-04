@@ -85,33 +85,41 @@ export class ProviderChildLifecycleOwner {
       ...(event.displayName ? { displayName: event.displayName } : {}),
       status: "running",
     };
-    this.input.database.providerAttempts.createProviderAttempt({
-      projectId: this.input.projectId,
-      conversationId: this.input.conversationId,
-      attemptId,
-      graphScopeId: this.input.graphScopeId,
-      changeId: this.input.changeId,
-      agentTaskId: null,
-      roleId: record.roleId,
-      operationProfile: resolved.operationProfile,
-      providerId: this.input.providerId,
-      nativeSessionId: record.threadId,
-      model: this.input.model,
-      capabilitySnapshot: this.input.capabilitySnapshot,
-      handoffHash,
-      deliveredThroughCompletedTurn: this.input.deliveredThroughCompletedTurn,
-      worktreeId: null,
-      status: "running",
-      createdAt: now,
-      updatedAt: now,
+    this.input.database.transaction(() => {
+      this.input.database.providerAttempts.assertCurrentRunningAttemptGraph(
+        this.input.projectId,
+        this.input.conversationId,
+        this.input.parentAttemptId,
+        this.input.graphScopeId,
+      );
+      this.input.database.providerAttempts.createProviderAttempt({
+        projectId: this.input.projectId,
+        conversationId: this.input.conversationId,
+        attemptId,
+        graphScopeId: this.input.graphScopeId,
+        changeId: this.input.changeId,
+        agentTaskId: null,
+        roleId: record.roleId,
+        operationProfile: resolved.operationProfile,
+        providerId: this.input.providerId,
+        nativeSessionId: record.threadId,
+        model: this.input.model,
+        capabilitySnapshot: this.input.capabilitySnapshot,
+        handoffHash,
+        deliveredThroughCompletedTurn: this.input.deliveredThroughCompletedTurn,
+        worktreeId: null,
+        status: "running",
+        createdAt: now,
+        updatedAt: now,
+      });
+      this.input.database.providerAttempts.bindProviderAttemptThread(this.input.projectId, {
+        attemptId,
+        threadId: record.threadId,
+        parentThreadId: record.parentThreadId,
+        displayName: record.displayName,
+        runId: this.input.runId,
+      }, now);
     });
-    this.input.database.providerAttempts.bindProviderAttemptThread(this.input.projectId, {
-      attemptId,
-      threadId: record.threadId,
-      parentThreadId: record.parentThreadId,
-      displayName: record.displayName,
-      runId: this.input.runId,
-    }, now);
     this.byActivity.set(record.activityId, record);
     this.latestByThread.set(record.threadId, record);
     this.input.onInvalidated();
@@ -122,19 +130,12 @@ export class ProviderChildLifecycleOwner {
     if (result.providerId !== this.input.providerId) return null;
     const child = result.activityId ? this.byActivity.get(result.activityId) : this.latestByThread.get(result.threadId);
     if (!child || child.threadId !== result.threadId || child.parentThreadId !== result.parentThreadId) return null;
-    if (result.displayName && child.displayName !== result.displayName) {
-      child.displayName = result.displayName;
-      this.input.database.providerAttempts.bindProviderAttemptThread(this.input.projectId, {
-        attemptId: child.attemptId,
-        threadId: child.threadId,
-        parentThreadId: child.parentThreadId,
-        displayName: child.displayName,
-        runId: this.input.runId,
-      }, new Date().toISOString());
-      this.input.onInvalidated();
-    }
+    if (child.status !== "running") return child;
+    const displayName = result.displayName && child.displayName !== result.displayName
+      ? result.displayName
+      : null;
     const terminal = childResultStatus(result.status);
-    if (terminal) this.complete(child, terminal);
+    const timelineMessages: ReturnType<typeof toCanonicalTimelineMessage>[] = [];
     if (result.initialInput) {
       const entry = childInitialInputMessage({
         conversationId: this.input.conversationId,
@@ -150,7 +151,31 @@ export class ProviderChildLifecycleOwner {
         text: result.initialInput.text,
       });
       entry.agentSurfaceId = agentThreadSurfaceId(this.input.providerId, child.threadId);
-      this.input.delivery.upsert(toCanonicalTimelineMessage(this.input.projectId, this.input.conversationId, entry));
+      timelineMessages.push(toCanonicalTimelineMessage(this.input.projectId, this.input.conversationId, entry));
+    }
+    if (displayName || terminal || timelineMessages.length > 0) {
+      const now = new Date().toISOString();
+      const rows = this.input.database.unitOfWork.commitProviderCallback({
+        projectId: this.input.projectId,
+        conversationId: this.input.conversationId,
+        attemptId: child.attemptId,
+        expectedGraphScopeId: this.input.graphScopeId,
+        updatedAt: now,
+        ...(terminal ? { terminal: { status: terminal, nativeSessionId: child.threadId } } : {}),
+        ...(displayName ? {
+          thread: {
+            threadId: child.threadId,
+            parentThreadId: child.parentThreadId,
+            displayName,
+            runId: this.input.runId,
+          },
+        } : {}),
+        ...(timelineMessages.length > 0 ? { timelineMessages } : {}),
+      });
+      this.input.delivery.publishCommittedMany(rows);
+      if (displayName) child.displayName = displayName;
+      if (terminal) child.status = terminal;
+      this.input.onInvalidated();
     }
     return child;
   }
@@ -223,14 +248,15 @@ export class ProviderChildLifecycleOwner {
   private complete(child: RegisteredProviderChild, status: ChildTerminalStatus): void {
     if (child.status === "terminated") return;
     if (status !== "terminated" && child.status !== "running") return;
+    this.input.database.unitOfWork.commitProviderCallback({
+      projectId: this.input.projectId,
+      conversationId: this.input.conversationId,
+      attemptId: child.attemptId,
+      expectedGraphScopeId: this.input.graphScopeId,
+      updatedAt: new Date().toISOString(),
+      terminal: { status, nativeSessionId: child.threadId },
+    });
     child.status = status;
-    this.input.database.providerAttempts.completeProviderAttempt(
-      this.input.projectId,
-      child.attemptId,
-      status,
-      child.threadId,
-      new Date().toISOString(),
-    );
     this.input.onInvalidated();
   }
 }

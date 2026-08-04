@@ -262,8 +262,25 @@ completeProviderAttempt(projectId: string, attemptId: string, status: StoredProv
     graphScopeId: string,
     failureMessage = "Provider terminal callback no longer owns the current conversation graph.",
   ): void {
+    this.assertCurrentAttemptGraph(
+      projectId,
+      conversationId,
+      attemptId,
+      graphScopeId,
+      { requireRunning: true, failureMessage },
+    );
+  }
+
+  assertCurrentAttemptGraph(
+    projectId: string,
+    conversationId: string,
+    attemptId: string,
+    graphScopeId: string,
+    options: { requireRunning?: boolean; failureMessage?: string } = {},
+  ): void {
     const lineage = this.db.prepare(`
       SELECT conversations.current_graph_scope_id AS currentGraphScopeId,
+        conversations.state AS conversationState,
         attempts.graph_scope_id AS attemptGraphScopeId, attempts.status AS attemptStatus
       FROM conversations
       JOIN provider_attempts attempts
@@ -274,10 +291,13 @@ completeProviderAttempt(projectId: string, attemptId: string, status: StoredProv
         AND conversations.deleted_at IS NULL
     `).get(attemptId, projectId, conversationId) as SqliteRow | undefined;
     if (!lineage
+      || String(lineage.conversationState) !== "active"
       || nullableString(lineage.currentGraphScopeId) !== graphScopeId
       || nullableString(lineage.attemptGraphScopeId) !== graphScopeId
-      || String(lineage.attemptStatus) !== "running") {
-      throw new Error(failureMessage);
+      || (options.requireRunning
+        ? String(lineage.attemptStatus) !== "running"
+        : String(lineage.attemptStatus) === "terminated")) {
+      throw new Error(options.failureMessage ?? "Provider callback no longer owns the current conversation graph.");
     }
   }
 

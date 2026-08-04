@@ -188,6 +188,12 @@ export function useConversationActionController({
     if (action.kind === "approval" && !action.action) return;
 
     const projectId = current.projectId;
+    const currentTopic = current.snapshot.center.selectedTopic?.id === current.conversationId
+      ? current.snapshot.center.selectedTopic
+      : current.snapshot.left.topics.find((topic) => topic.id === current.conversationId);
+    if (action.kind === "abandon" && (!context.changeId || !current.conversationId || !currentTopic?.graphScopeId)) {
+      throw new Error("Abandon requires the current Conversation, graph, and Change identity.");
+    }
     const operationToken = actionPorts.operationGate.begin(`decision.${action.id}`);
     try {
       const body = action.kind === "approval"
@@ -195,7 +201,12 @@ export function useConversationActionController({
           ? { action: action.action, confirm: true, options: action.options }
           : { action: action.action, confirm: true }
         : {
-            abandon: { changeId: context.changeId, reason: "用户选择放弃这个需求。" },
+            abandon: {
+              changeId: context.changeId,
+              conversationId: current.conversationId,
+              graphScopeId: currentTopic?.graphScopeId,
+              reason: "用户选择放弃这个需求。",
+            },
             confirm: true,
             feedbackContext: {
               contextId: context.id,

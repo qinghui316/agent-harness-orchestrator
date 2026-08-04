@@ -34,7 +34,12 @@ describe("Conversation action controller", () => {
       decisionContext(),
     ));
     expect(harness.ports.postJson).toHaveBeenNthCalledWith(2, "/api/projects/repo-1/workbench/actions", {
-      abandon: { changeId: "change-1", reason: "用户选择放弃这个需求。" },
+      abandon: {
+        changeId: "change-1",
+        conversationId: "conversation-1",
+        graphScopeId: "graph:conversation-1",
+        reason: "用户选择放弃这个需求。",
+      },
       confirm: true,
       feedbackContext: {
         contextId: "decision-1",
@@ -329,7 +334,7 @@ function interactionDraft(feedback: string): ConversationInteractionDraft {
 
 function snapshot(selectedTopicId: string | null): Snapshot {
   const selectedTopic = selectedTopicId
-    ? { id: selectedTopicId, title: "Current topic", state: "active" }
+    ? { id: selectedTopicId, title: "Current topic", state: "active", graphScopeId: `graph:${selectedTopicId}` }
     : null;
   return {
     project: { id: "repo-1", name: "Repo", path: "E:/repo" },

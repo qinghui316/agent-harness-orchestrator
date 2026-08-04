@@ -1,4 +1,6 @@
-import { abandonChangeForChange } from "../../change/manager.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../provider-runtime/project-harness-discovery.js";
+import { abandonSkillNativeProjectHarnessChange } from "../../project-runtime/change-abandonment.js";
+import { resolveProjectRuntimeState } from "../../project-runtime/coordinator.js";
 import type { ManagedProject } from "../../types/index.js";
 import { resumeNativeGoalAfterAction, runWorkbenchWorkflowAction } from "../../workbench/workflow-conversation-bridge.js";
 import { postConversationMessage } from "../../workbench/conversation-service.js";
@@ -69,28 +71,31 @@ async function executeAbandonAction(input: WorkbenchProjectInput & { project: Ma
     throw error;
   }
   const changeId = body.abandon?.changeId ?? body.feedbackContext?.changeId ?? null;
-  await recordWorkbenchDecision(input.project, {
-    id: `abandon:${changeId ?? "active"}:${Date.now()}`,
-    changeId,
-    decisionType: "workpad.abandon",
-    status: "dismissed",
-    label: "放弃这个需求对话",
-    summary: "User abandoned this demand conversation. Source code was not changed by this action.",
-    targetId: changeId,
-    runId: null,
-    artifact: null,
-    actionId: "workpad.abandon",
-    feedback: body.abandon?.reason ?? body.feedback ?? null,
-    payload: body.abandon,
-    completedAt: new Date().toISOString(),
-  });
   if (!changeId) {
     const error = new Error("Abandoning a demand conversation requires an explicit changeId.");
     error.name = "BadRequest";
     throw error;
   }
-  const result = await abandonChangeForChange(input.project, changeId, body.abandon?.reason ?? body.feedback);
-  return { result, snapshot: await getWorkbenchSnapshot(input) };
+  const expectedConversationId = body.abandon?.conversationId;
+  const expectedGraphScopeId = body.abandon?.graphScopeId;
+  if (!expectedConversationId || !expectedGraphScopeId) {
+    const error = new Error("Abandoning a demand conversation requires exact Conversation and graph identity.");
+    error.name = "BadRequest";
+    throw error;
+  }
+  const state = await resolveProjectRuntimeState(input.project, {
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
+  if (state.state !== "ready") {
+    throw new Error(`Project Harness is not ready for Change abandon: ${state.state}.`);
+  }
+  const result = await abandonSkillNativeProjectHarnessChange(input.project, state.resolution, {
+    changeId,
+    expectedConversationId,
+    expectedGraphScopeId,
+    reason: body.abandon?.reason ?? body.feedback,
+  });
+  return { result, snapshot: await getWorkbenchSnapshot(input, { topicId: changeId }) };
 }
 
 async function executeWorkflowAction(input: WorkbenchProjectInput & { project: ManagedProject }, body: WorkbenchActionRequest): Promise<{ result: unknown; snapshot: unknown }> {

@@ -137,19 +137,34 @@ export async function finishProviderAttempt(
     const now = new Date().toISOString();
     const attempt = store.providerAttempts.readProviderAttempt(projectId, attemptId);
     if (!attempt) throw new Error(`Provider attempt not found: ${attemptId}`);
-    if (nativeSessionId && attempt.conversationId && attempt.graphScopeId) {
-      const parentAgentSurfaceId = thread?.parentAgentSurfaceId !== undefined
-        ? thread.parentAgentSurfaceId
-        : attempt.parentAgentSurfaceId ?? undefined;
-      store.providerAttempts.bindProviderAttemptThread(projectId, {
+    const threadBinding = nativeSessionId && attempt.conversationId && attempt.graphScopeId
+      ? {
+          threadId: nativeSessionId,
+          ...(thread?.parentThreadId !== undefined ? { parentThreadId: thread.parentThreadId } : {}),
+          ...(thread?.parentAgentSurfaceId !== undefined
+            ? { parentAgentSurfaceId: thread.parentAgentSurfaceId }
+            : attempt.parentAgentSurfaceId !== null
+              ? { parentAgentSurfaceId: attempt.parentAgentSurfaceId }
+              : {}),
+          ...(thread?.displayName !== undefined ? { displayName: thread.displayName } : {}),
+        }
+      : undefined;
+    if (attempt.conversationId && attempt.graphScopeId) {
+      store.unitOfWork.commitProviderCallback({
+        projectId,
+        conversationId: attempt.conversationId,
         attemptId,
-        threadId: nativeSessionId,
-        ...(thread?.parentThreadId !== undefined ? { parentThreadId: thread.parentThreadId } : {}),
-        ...(parentAgentSurfaceId !== undefined ? { parentAgentSurfaceId } : {}),
-        displayName: thread?.displayName,
-      }, now);
+        expectedGraphScopeId: attempt.graphScopeId,
+        updatedAt: now,
+        terminal: { status, nativeSessionId },
+        ...(threadBinding ? { thread: threadBinding } : {}),
+      });
+    } else {
+      if (attempt.conversationId || attempt.graphScopeId) {
+        throw new Error(`Provider attempt ${attemptId} has incomplete Conversation graph lineage.`);
+      }
+      store.providerAttempts.completeProviderAttempt(projectId, attemptId, status, nativeSessionId, now);
     }
-    store.providerAttempts.completeProviderAttempt(projectId, attemptId, status, nativeSessionId, now);
     if (attempt.conversationId) publishAgentSurfacesInvalidated(projectId, {
       conversationId: attempt.conversationId,
       graphScopeId: attempt.graphScopeId ?? undefined,

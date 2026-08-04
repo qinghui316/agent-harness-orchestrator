@@ -687,6 +687,7 @@ async function runProjectScopedMainAgentTurnActivity(
           const transition = resolutionStore.interactions.transitionProviderUserInputRequest(
             projectId,
             conversationId,
+            graphScopeId,
             requestKey,
             "pending",
             "submitted",

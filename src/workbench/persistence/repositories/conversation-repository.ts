@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import type { ProviderId } from "../../../provider-runtime/index.js";
-import type { StoredConversation } from "../contracts.js";
+import type { StoredConversation, StoredConversationGraphScope } from "../contracts.js";
 import { mapConversationRow, nullableString, type SqliteRow } from "../sql-mappers.js";
 
 export class ConversationRepository {
@@ -192,6 +192,78 @@ setConversationState(projectId: string, conversationId: string, state: StoredCon
     `).run(state, updatedAt, projectId, conversationId);
   }
 
+  initializeConversationGraphScope(
+    projectId: string,
+    conversationId: string,
+    graphScopeId: string,
+    updatedAt: string,
+  ): void {
+    const conversation = this.readConversation(projectId, conversationId);
+    if (!conversation
+      || conversation.state !== "active"
+      || conversation.currentGraphScopeId !== graphScopeId
+      || conversation.updatedAt !== updatedAt) {
+      throw new Error("Initial Conversation graph scope does not match its active Conversation identity.");
+    }
+    this.db.prepare(`
+      INSERT INTO conversation_graph_scopes (project_id, conversation_id, graph_scope_id, status, updated_at)
+      VALUES (?, ?, ?, 'active', ?)
+    `).run(projectId, conversationId, graphScopeId, updatedAt);
+  }
+
+archiveBoundConversation(
+    projectId: string,
+    conversationId: string,
+    changeId: string,
+    graphScopeId: string,
+    updatedAt: string,
+  ): void {
+    const result = this.db.prepare(`
+      UPDATE conversations
+      SET state = 'archive', updated_at = ?
+      WHERE project_id = ? AND conversation_id = ? AND state = 'active'
+        AND bound_change_id = ? AND current_graph_scope_id = ? AND deleted_at IS NULL
+    `).run(updatedAt, projectId, conversationId, changeId, graphScopeId);
+    if (result.changes !== 1) {
+      throw new Error("Conversation abandon lineage is stale or no longer active.");
+    }
+  }
+
+restoreConversationAfterAbandonment(
+    snapshot: StoredConversation,
+    expectedUpdatedAt: string,
+  ): void {
+    const result = this.db.prepare(`
+      UPDATE conversations
+      SET title = ?, state = ?, surface_kind = ?, bound_change_id = ?, current_graph_scope_id = ?,
+        selected_provider_id = ?, completed_turn_sequence = ?, timeline_position = ?, timeline_revision = ?,
+        created_at = ?, updated_at = ?, deleted_at = ?
+      WHERE project_id = ? AND conversation_id = ? AND state = 'archive'
+        AND bound_change_id = ? AND current_graph_scope_id = ? AND updated_at = ?
+    `).run(
+      snapshot.title,
+      snapshot.state,
+      snapshot.surfaceKind ?? "user",
+      snapshot.boundChangeId,
+      snapshot.currentGraphScopeId,
+      snapshot.selectedProviderId,
+      snapshot.completedTurnSequence,
+      snapshot.timelinePosition,
+      snapshot.timelineRevision,
+      snapshot.createdAt,
+      snapshot.updatedAt,
+      snapshot.deletedAt,
+      snapshot.projectId,
+      snapshot.conversationId,
+      snapshot.boundChangeId,
+      snapshot.currentGraphScopeId,
+      expectedUpdatedAt,
+    );
+    if (result.changes !== 1) {
+      throw new Error("Conversation abandon rollback refused because sidecar lineage changed.");
+    }
+  }
+
 selectConversationProvider(projectId: string, conversationId: string, providerId: ProviderId, updatedAt: string): void {
     const result = this.db.prepare(`
       UPDATE conversations SET selected_provider_id = ?, updated_at = ?
@@ -225,7 +297,7 @@ linkConversationChange(projectId: string, conversationId: string, changeId: stri
     `).run(changeId, linkedAt, projectId, conversationId);
   }
 
-markConversationGraphScopeTerminal(projectId: string, conversationId: string, graphScopeId: string, updatedAt: string): void {
+  markConversationGraphScopeTerminal(projectId: string, conversationId: string, graphScopeId: string, updatedAt: string): void {
     this.db.prepare(`
       INSERT INTO conversation_graph_scopes (project_id, conversation_id, graph_scope_id, status, updated_at)
       VALUES (?, ?, ?, 'terminal', ?)
@@ -233,6 +305,88 @@ markConversationGraphScopeTerminal(projectId: string, conversationId: string, gr
         status = 'terminal',
         updated_at = excluded.updated_at
     `).run(projectId, conversationId, graphScopeId, updatedAt);
+  }
+
+  readConversationGraphScope(projectId: string, graphScopeId: string): StoredConversationGraphScope | null {
+    const row = this.db.prepare(`
+      SELECT project_id AS projectId, conversation_id AS conversationId,
+        graph_scope_id AS graphScopeId, status, updated_at AS updatedAt
+      FROM conversation_graph_scopes
+      WHERE project_id = ? AND graph_scope_id = ?
+    `).get(projectId, graphScopeId) as SqliteRow | undefined;
+    if (!row) return null;
+    const status = String(row.status);
+    if (status !== "active" && status !== "terminal") {
+      throw new Error(`Conversation graph scope has an invalid status: ${status}.`);
+    }
+    return {
+      projectId: String(row.projectId),
+      conversationId: String(row.conversationId),
+      graphScopeId: String(row.graphScopeId),
+      status,
+      updatedAt: String(row.updatedAt),
+    };
+  }
+
+  terminalizeConversationGraphScopeForAbandonment(
+    snapshot: StoredConversationGraphScope,
+    updatedAt: string,
+  ): void {
+    const result = this.db.prepare(`
+      UPDATE conversation_graph_scopes
+      SET status = 'terminal', updated_at = ?
+      WHERE project_id = ? AND conversation_id = ? AND graph_scope_id = ?
+        AND status = ? AND updated_at = ?
+    `).run(
+      updatedAt,
+      snapshot.projectId,
+      snapshot.conversationId,
+      snapshot.graphScopeId,
+      snapshot.status,
+      snapshot.updatedAt,
+    );
+    if (result.changes !== 1) {
+      throw new Error("Conversation graph scope abandon lineage changed before sidecar commit.");
+    }
+  }
+
+  restoreConversationGraphScopeStatus(
+    projectId: string,
+    conversationId: string,
+    graphScopeId: string,
+    status: "active" | "terminal",
+    updatedAt: string,
+  ): void {
+    const result = this.db.prepare(`
+      UPDATE conversation_graph_scopes
+      SET status = ?, updated_at = ?
+      WHERE project_id = ? AND conversation_id = ? AND graph_scope_id = ?
+    `).run(status, updatedAt, projectId, conversationId, graphScopeId);
+    if (result.changes !== 1) {
+      throw new Error("Conversation graph scope abandon rollback refused because lineage changed.");
+    }
+  }
+
+  restoreConversationGraphScopeAfterAbandonment(
+    snapshot: StoredConversationGraphScope,
+    expectedUpdatedAt: string,
+  ): void {
+    const result = this.db.prepare(`
+      UPDATE conversation_graph_scopes
+      SET status = ?, updated_at = ?
+      WHERE project_id = ? AND conversation_id = ? AND graph_scope_id = ?
+        AND status = 'terminal' AND updated_at = ?
+    `).run(
+      snapshot.status,
+      snapshot.updatedAt,
+      snapshot.projectId,
+      snapshot.conversationId,
+      snapshot.graphScopeId,
+      expectedUpdatedAt,
+    );
+    if (result.changes !== 1) {
+      throw new Error("Conversation graph scope abandon rollback refused because lineage changed.");
+    }
   }
 
 isConversationGraphScopeTerminal(projectId: string, graphScopeId: string): boolean {

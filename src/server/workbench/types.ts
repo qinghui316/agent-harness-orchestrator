@@ -103,7 +103,9 @@ export interface WorkbenchActionRequest {
     artifact?: string;
   };
   abandon?: {
-    changeId?: string;
+    changeId: string;
+    conversationId: string;
+    graphScopeId: string;
     reason?: string;
   };
   options?: {

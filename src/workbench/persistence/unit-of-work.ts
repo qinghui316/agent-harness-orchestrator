@@ -28,6 +28,14 @@ export class WorkbenchUnitOfWork {
   ): StoredTopicMessage {
     return this.db.transaction(() => {
       this.conversations.createConversation(conversation);
+      if (conversation.currentGraphScopeId) {
+        this.conversations.initializeConversationGraphScope(
+          conversation.projectId,
+          conversation.conversationId,
+          conversation.currentGraphScopeId,
+          conversation.updatedAt,
+        );
+      }
       return this.timeline.appendMessage(message);
     })();
   }
@@ -236,6 +244,69 @@ export class WorkbenchUnitOfWork {
         updatedAt,
       );
       return [...rows, ...this.timeline.moveRunToGraphScope(projectId, conversationId, runId, lineage.graphScopeId)];
+    })();
+  }
+
+  commitProviderCallback(input: {
+    projectId: string;
+    conversationId: string;
+    attemptId: string;
+    expectedGraphScopeId: string;
+    updatedAt: string;
+    terminal?: {
+      status: StoredProviderAttempt["status"];
+      nativeSessionId: string | null;
+    };
+    thread?: {
+      threadId: string;
+      parentThreadId?: string | null;
+      parentAgentSurfaceId?: string | null;
+      displayName?: string | null;
+      runId?: string | null;
+    };
+    timelineMessages?: StoredTopicMessageWrite[];
+  }): StoredTopicMessage[] {
+    return this.db.transaction(() => {
+      if (input.terminal?.status === "terminated") {
+        this.providerAttempts.assertCurrentAttemptGraph(
+          input.projectId,
+          input.conversationId,
+          input.attemptId,
+          input.expectedGraphScopeId,
+        );
+      } else {
+        this.providerAttempts.assertCurrentRunningAttemptGraph(
+          input.projectId,
+          input.conversationId,
+          input.attemptId,
+          input.expectedGraphScopeId,
+        );
+      }
+      if (input.thread) {
+        this.providerAttempts.bindProviderAttemptThread(
+          input.projectId,
+          { attemptId: input.attemptId, ...input.thread },
+          input.updatedAt,
+        );
+      }
+      const timelineMessages = input.timelineMessages ?? [];
+      if (new Set(timelineMessages.map((message) => message.id)).size !== timelineMessages.length) {
+        throw new Error("Provider callback requires one mutation per canonical message.");
+      }
+      const rows = timelineMessages.map((message) =>
+        this.timeline.readMessage(message.projectId, message.conversationId, message.id)
+          ? this.timeline.updateMessage(message)
+          : this.timeline.appendMessage(message));
+      if (input.terminal) {
+        this.providerAttempts.completeProviderAttempt(
+          input.projectId,
+          input.attemptId,
+          input.terminal.status,
+          input.terminal.nativeSessionId,
+          input.updatedAt,
+        );
+      }
+      return rows;
     })();
   }
 

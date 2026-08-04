@@ -224,6 +224,12 @@ export interface CloseProjectHarnessChangeInput extends PreflightProjectHarnessC
   failureInjection?: (stage: "evidence-moved" | "record-written" | "lane-cleared") => void | Promise<void>;
 }
 
+export interface AbandonProjectHarnessChangeInput {
+  changeId: string;
+  now?: () => string;
+  failureInjection?: (stage: "evidence-moved" | "record-written" | "lane-cleared" | "index-rebuilt") => void | Promise<void>;
+}
+
 const TERMINAL_STATUSES = new Set<ProjectHarnessChangeStatus>(["completed", "blocked", "abandoned"]);
 const changeRecordSchema = z.object({
   schema_version: z.literal("1.0"),
@@ -506,6 +512,77 @@ export async function closeProjectHarnessChange(
       else await atomicWriteFile(indexPath, indexBefore);
     } catch (rollbackError) {
       throw new AggregateError([error, rollbackError], "Project Harness Change close failed and rollback could not restore the prior state.");
+    }
+    throw error;
+  }
+}
+
+export async function abandonProjectHarnessChange(
+  context: ProjectHarnessRegistryContext,
+  input: AbandonProjectHarnessChangeInput,
+): Promise<{
+  status: "abandoned" | "already_abandoned";
+  change: ProjectHarnessChangeRecord;
+  index: ProjectHarnessChangeIndex;
+}> {
+  const record = await loadProjectHarnessChange(context.skillRoot, input.changeId, true);
+  assertLaneOwner(context, record);
+  if (TERMINAL_STATUSES.has(record.status)) {
+    if (record.status === "abandoned") {
+      return {
+        status: "already_abandoned",
+        change: record,
+        index: await readChangeIndex(context.skillRoot),
+      };
+    }
+    throw new Error(`Change is already terminal: ${record.status}.`);
+  }
+  if (!isActiveChange(record)) {
+    throw new Error(`Only a planning or active Change may be abandoned: ${record.status}.`);
+  }
+
+  const source = await changeEvidencePath(context.skillRoot, "active", record.change_id, false);
+  const destination = await changeEvidencePath(context.skillRoot, "archive", record.change_id, true);
+  if (!existsSync(source)) throw new Error("Active Change evidence is missing.");
+  await assertEvidenceTreePhysical(source);
+  if (existsSync(destination)) throw new Error(`Archive Change evidence already exists: ${record.change_id}.`);
+  const evidence = await validateProjectHarnessChangeEvidence(source);
+  const recordBefore = structuredClone(record);
+  const laneBefore = await readProjectHarnessLane(context);
+  assertExactActiveLane(context, laneBefore, record);
+  const indexPath = join(context.skillRoot, "state", "changes", "INDEX.json");
+  const indexBefore = existsSync(indexPath) ? await readFile(indexPath, "utf8") : null;
+  let evidenceMoved = false;
+  try {
+    await rename(source, destination);
+    evidenceMoved = true;
+    await input.failureInjection?.("evidence-moved");
+    record.status = "abandoned";
+    record.completion_commit = null;
+    record.evidence_complete = evidence.valid;
+    record.evidence_paths = [`state/changes/archive/${record.change_id}`];
+    record.updated_at = (input.now ?? (() => new Date().toISOString()))();
+    await writeProjectHarnessChange(context.skillRoot, record);
+    await input.failureInjection?.("record-written");
+    await ensureProjectHarnessLane(context, null);
+    await input.failureInjection?.("lane-cleared");
+    const index = await rebuildProjectHarnessChangeIndex(context.skillRoot);
+    await input.failureInjection?.("index-rebuilt");
+    return { status: "abandoned", change: record, index };
+  } catch (error) {
+    try {
+      if (evidenceMoved && existsSync(destination) && !existsSync(source)) {
+        await rename(destination, source);
+      }
+      await writeProjectHarnessChange(context.skillRoot, recordBefore);
+      await restoreProjectHarnessLane(context, laneBefore);
+      if (indexBefore === null) await rebuildProjectHarnessChangeIndex(context.skillRoot);
+      else await atomicWriteFile(indexPath, indexBefore);
+    } catch (rollbackError) {
+      throw new AggregateError(
+        [error, rollbackError],
+        "Project Harness Change abandon failed and rollback could not restore the prior state.",
+      );
     }
     throw error;
   }
@@ -1054,6 +1131,29 @@ async function changeEvidencePath(
 
 function assertLaneOwner(context: ProjectHarnessRegistryContext, record: ProjectHarnessChangeRecord): void {
   if (record.lane_id !== projectHarnessLaneId(context)) throw new Error("Only the owning Lane may mutate this Change.");
+}
+
+function assertExactActiveLane(
+  context: ProjectHarnessRegistryContext,
+  lane: ProjectHarnessLaneRecord | null,
+  record: ProjectHarnessChangeRecord,
+): void {
+  const laneId = projectHarnessLaneId(context);
+  const logicalLaneMatches = context.lane?.kind === "conversation"
+    ? lane?.kind === "conversation"
+      && lane.conversation_id === context.lane.conversationId
+      && lane.graph_scope_id === context.lane.graphScopeId
+    : lane?.kind === "repository"
+      && lane.repository_lane_id === laneId
+      && lane.conversation_id === null
+      && lane.graph_scope_id === null;
+  if (!lane
+    || lane.lane_id !== laneId
+    || lane.active_change_id !== record.change_id
+    || lane.status !== "active"
+    || !logicalLaneMatches) {
+    throw new Error("Change mutation requires the exact active Change to own its Lane.");
+  }
 }
 
 function assertMutableChange(record: ProjectHarnessChangeRecord): void {

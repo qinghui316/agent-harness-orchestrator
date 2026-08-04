@@ -53,6 +53,12 @@ export async function createConversationChangeFixture(
       updatedAt: now,
       deletedAt: null,
     });
+    store.unitOfWork.startConversationGraphScope(
+      runtime.resolution.harness.projectId,
+      conversationId,
+      graphScopeId,
+      now,
+    );
     store.unitOfWork.acceptConversationChangeBinding(
       runtime.resolution.harness.projectId,
       conversationId,

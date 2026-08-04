@@ -62,7 +62,7 @@ async function settleProviderInput(
     const provider = defaultProviderRegistry.get(request.providerId);
     const active = provider.conversation.getActiveTurn(request.runtimeScopeId);
     if (!active || active.attemptId !== request.attemptId) throw conflict("对应Agent回合当前不可用，请恢复该任务后重试。");
-    await transitionProviderRequest(project, conversationId, request.requestKey, "pending", "submitting", undefined, live);
+    await transitionProviderRequest(project, conversationId, requireRequestGraphScope(request), request.requestKey, "pending", "submitting", undefined, live);
     transitioned = true;
     transportInvoked = true;
     await active.respondToUserInput(request.requestId, normalized, {
@@ -70,7 +70,7 @@ async function settleProviderInput(
       sessionId: request.threadId,
       turnId: request.turnId,
     });
-    await transitionProviderRequest(project, conversationId, request.requestKey, "submitting", "submitted", {
+    await transitionProviderRequest(project, conversationId, requireRequestGraphScope(request), request.requestKey, "submitting", "submitted", {
       publicAnswers: sanitizeAnswers(resolved.public.questions, normalized.answers),
       skippedQuestionIds: normalized.skippedQuestionIds,
       disposition: normalized.disposition,
@@ -78,7 +78,7 @@ async function settleProviderInput(
     return { status: "submitted", interactionId };
   } catch (cause) {
     if (transitioned && !transportInvoked) {
-      await transitionProviderRequest(project, conversationId, request.requestKey, "submitting", "pending", undefined, live).catch(() => undefined);
+      await transitionProviderRequest(project, conversationId, requireRequestGraphScope(request), request.requestKey, "submitting", "pending", undefined, live).catch(() => undefined);
     }
     throw cause;
   } finally {
@@ -180,6 +180,7 @@ function sanitizeAnswers(
 async function transitionProviderRequest(
   project: ManagedProject,
   conversationId: string,
+  expectedGraphScopeId: string,
   requestKey: string,
   expectedStatus: "pending" | "submitting",
   nextStatus: "pending" | "submitting" | "submitted",
@@ -190,7 +191,7 @@ async function transitionProviderRequest(
   const projectId = runtime.harness.projectId;
   const store = await openProjectRuntimeWorkbenchDatabase(runtime.paths);
   try {
-    const transition = store.interactions.transitionProviderUserInputRequest(projectId, conversationId, requestKey, expectedStatus, nextStatus, settlement, new Date().toISOString());
+    const transition = store.interactions.transitionProviderUserInputRequest(projectId, conversationId, expectedGraphScopeId, requestKey, expectedStatus, nextStatus, settlement, new Date().toISOString());
     new CanonicalTimelineDelivery(store, live).publishCommitted(transition.row);
     const graphScopeId = store.conversations.readConversation(projectId, conversationId)?.currentGraphScopeId;
     publishAgentSurfacesInvalidated(projectId, {
@@ -201,6 +202,11 @@ async function transitionProviderRequest(
   } finally {
     store.close();
   }
+}
+
+function requireRequestGraphScope(request: { graphScopeId?: string }): string {
+  if (!request.graphScopeId) throw conflict("对应Agent问题缺少当前任务身份，无法提交。");
+  return request.graphScopeId;
 }
 
 async function requireReadyProjectRuntime(project: ManagedProject): Promise<ProjectRuntimeResolution> {

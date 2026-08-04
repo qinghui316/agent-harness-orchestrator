@@ -10,7 +10,7 @@ import {
   type ProjectHarnessOnboardingRecord,
 } from "../project-harness/onboarding.js";
 import { assertPhysicalDirectory } from "../project-harness/path-safety.js";
-import { withProjectHarnessWriterLock } from "../project-harness/writer-lock.js";
+import { withProjectHarnessWriterLock, type WriterLockScope } from "../project-harness/writer-lock.js";
 import type { ProjectRegistryStore } from "../registry/store.js";
 import type { ManagedProject } from "../types/index.js";
 import {
@@ -26,6 +26,7 @@ import type { ProjectRuntimeResolution } from "./context.js";
 import { assertProjectRuntimePathSafety, resolveProjectRuntimePaths, type ProjectRuntimePaths } from "./paths.js";
 import { initializeProjectRuntimeSidecar } from "./lifecycle.js";
 import { resolveProjectRuntime } from "./resolution.js";
+import { recoverPendingProjectHarnessChangeAbandonmentsUnderWriterLock } from "./change-abandonment.js";
 
 export type ProjectRuntimeState =
   | {
@@ -102,7 +103,7 @@ export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort 
       projectId: "project-runtime-identities",
       ownerId: `workbench-startup-${process.pid}`,
       operation: "migrate",
-    }, async () => {
+    }, async (lock) => {
       const recoveries = await recoverPendingProjectIdentityMigrations(
         projectsRoot,
         (journal) => buildProjectIdentityRecoveryDocuments(journal, this.options.store, this.discoveryPolicy),
@@ -110,7 +111,7 @@ export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort 
       const migrations: ProjectIdentityMigrationResult[] = [];
       const states: ProjectRuntimeState[] = [];
       for (const initial of await this.options.store.listProjects()) {
-        const reconciled = await this.reconcileRegisteredProject(initial);
+        const reconciled = await this.reconcileRegisteredProject(initial, lock);
         if (reconciled.migration) migrations.push(reconciled.migration);
         states.push(reconciled.state);
       }
@@ -153,7 +154,7 @@ export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort 
     return state.resolution;
   }
 
-  private async reconcileRegisteredProject(project: ManagedProject): Promise<{
+  private async reconcileRegisteredProject(project: ManagedProject, lock: WriterLockScope): Promise<{
     state: ProjectRuntimeState;
     migration: ProjectIdentityMigrationResult | null;
   }> {
@@ -162,6 +163,7 @@ export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort 
     if (!discovery) return { state: await this.resolve(project), migration: null };
     assertRequiredProjectHarnessBindings(discovery, this.discoveryPolicy);
     if (discovery.handle.projectId === project.id) {
+      await this.recoverChangeAbandonments(project, lock);
       return { state: await this.resolve(project), migration: null };
     }
     const sourcePaths = resolveProjectRuntimePaths(project.id, this.ahoHome);
@@ -181,7 +183,16 @@ export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort 
     if (!migratedProject || migratedProject.path !== project.path) {
       throw new Error("Identity migration committed but the canonical Registry project cannot be resolved.");
     }
+    await this.recoverChangeAbandonments(migratedProject, lock);
     return { state: await this.resolve(migratedProject), migration };
+  }
+
+  private async recoverChangeAbandonments(project: ManagedProject, lock: WriterLockScope): Promise<void> {
+    const resolution = await resolveProjectRuntime(project, {
+      ahoHome: this.ahoHome,
+      discoveryPolicy: this.discoveryPolicy,
+    });
+    await recoverPendingProjectHarnessChangeAbandonmentsUnderWriterLock(resolution, lock);
   }
 }
 

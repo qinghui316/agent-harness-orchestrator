@@ -240,7 +240,7 @@ async function runExactChildAgentTurnActivity(input: {
   };
   const capture = createAssistantTranscriptCapture(input.live, (snapshot) => {
     try {
-      for (const write of buildCanonicalCaptureWrites({
+      const writes = buildCanonicalCaptureWrites({
         projectId: runtime.harness.projectId,
         conversationId: input.conversationId,
         graphScopeId: target.graphScopeId,
@@ -250,7 +250,16 @@ async function runExactChildAgentTurnActivity(input: {
         mainTimelineId: `assistant:${input.conversationId}:${target.providerId}:${runId}:unused-main`,
         mainSessionId: null,
         snapshot,
-      })) delivery.upsert(write);
+      });
+      const rows = store.unitOfWork.commitProviderCallback({
+        projectId: runtime.harness.projectId,
+        conversationId: input.conversationId,
+        attemptId,
+        expectedGraphScopeId: target.graphScopeId,
+        updatedAt: new Date().toISOString(),
+        timelineMessages: writes,
+      });
+      delivery.publishCommittedMany(rows);
       return true;
     } catch {
       return false;
@@ -365,10 +374,7 @@ async function runExactChildAgentTurnActivity(input: {
       mainSessionId: null,
       snapshot: capture,
     });
-    for (const write of writes) {
-      delivery.upsert(write);
-      assistant = importStoredEntry(write);
-    }
+    for (const write of writes) assistant = importStoredEntry(write);
     if (!assistant && (result.lastMessage || result.error)) {
       assistant = {
         id: `assistant:${input.conversationId}:${target.providerId}:${runId}:feedback`,
@@ -390,9 +396,18 @@ async function runExactChildAgentTurnActivity(input: {
         agentRoleId: target.roleId,
         agentSurfaceId: input.agentSurfaceId,
       };
-      delivery.append(toCanonicalTimelineMessage(runtime.harness.projectId, input.conversationId, assistant));
+      writes.push(toCanonicalTimelineMessage(runtime.harness.projectId, input.conversationId, assistant));
     }
-    store.providerAttempts.completeProviderAttempt(runtime.harness.projectId, attemptId, result.status, target.threadId, new Date().toISOString());
+    const terminalRows = store.unitOfWork.commitProviderCallback({
+      projectId: runtime.harness.projectId,
+      conversationId: input.conversationId,
+      attemptId,
+      expectedGraphScopeId: target.graphScopeId,
+      updatedAt: new Date().toISOString(),
+      terminal: { status: result.status, nativeSessionId: target.threadId },
+      timelineMessages: writes,
+    });
+    delivery.publishCommittedMany(terminalRows);
     publishAgentSurfacesInvalidated(runtime.harness.projectId, { conversationId: input.conversationId, graphScopeId: target.graphScopeId, reason: "attempt-updated" });
     return {
       user,
@@ -405,7 +420,14 @@ async function runExactChildAgentTurnActivity(input: {
   } catch (error) {
     const attempt = store.providerAttempts.readProviderAttempt(runtime.harness.projectId, attemptId);
     if (attempt?.status === "running" || attempt?.status === "queued") {
-      store.providerAttempts.completeProviderAttempt(runtime.harness.projectId, attemptId, "failed", target.threadId, new Date().toISOString());
+      store.unitOfWork.commitProviderCallback({
+        projectId: runtime.harness.projectId,
+        conversationId: input.conversationId,
+        attemptId,
+        expectedGraphScopeId: target.graphScopeId,
+        updatedAt: new Date().toISOString(),
+        terminal: { status: "failed", nativeSessionId: target.threadId },
+      });
       publishAgentSurfacesInvalidated(runtime.harness.projectId, { conversationId: input.conversationId, graphScopeId: target.graphScopeId, reason: "attempt-updated" });
     }
     throw error;

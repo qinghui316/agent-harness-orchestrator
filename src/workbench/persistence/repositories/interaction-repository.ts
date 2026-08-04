@@ -54,6 +54,7 @@ export class InteractionRepository {
 transitionProviderUserInputRequest(
     projectId: string,
     conversationId: string,
+    expectedGraphScopeId: string,
     requestKey: string,
     expectedStatus: WorkbenchProviderUserInputRequest["status"],
     nextStatus: WorkbenchProviderUserInputRequest["status"],
@@ -65,6 +66,20 @@ transitionProviderUserInputRequest(
     updatedAt: string,
   ): { request: WorkbenchProviderUserInputRequest; row: StoredTopicMessage } {
     return this.db.transaction(() => {
+      const activeScope = this.db.prepare(`
+        SELECT 1
+        FROM conversations c
+        INNER JOIN conversation_graph_scopes g
+          ON g.project_id = c.project_id
+          AND g.conversation_id = c.conversation_id
+          AND g.graph_scope_id = c.current_graph_scope_id
+        WHERE c.project_id = ? AND c.conversation_id = ?
+          AND c.state = 'active' AND c.deleted_at IS NULL
+          AND c.current_graph_scope_id = ? AND g.status = 'active'
+      `).get(projectId, conversationId, expectedGraphScopeId);
+      if (!activeScope) {
+        throw new Error("Provider user input settlement no longer owns the current active conversation graph.");
+      }
       const row = this.timeline.listConversationMessages(projectId, conversationId)
         .reverse()
         .find((message) => {
@@ -77,6 +92,9 @@ transitionProviderUserInputRequest(
         });
       if (!row) throw new Error(`Provider user input request was not persisted: ${requestKey}.`);
       const raw = JSON.parse(row.rawJson) as Record<string, unknown> & { providerUserInput: WorkbenchProviderUserInputRequest };
+      if (raw.providerUserInput.graphScopeId !== expectedGraphScopeId) {
+        throw new Error("Provider user input request no longer matches the current conversation graph.");
+      }
       if (raw.providerUserInput.status !== expectedStatus) {
         throw new Error(`Provider user input request ${requestKey} is ${raw.providerUserInput.status}, not ${expectedStatus}.`);
       }
