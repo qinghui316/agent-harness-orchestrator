@@ -66,9 +66,12 @@ describe("ProviderAttempt-owned thread binding", () => {
       store.close();
     }
     const db = new Database(memory.workbenchDbPath, { readonly: true });
-    expect(db.pragma("user_version", { simple: true })).toBe(10);
+    expect(db.pragma("user_version", { simple: true })).toBe(11);
     expect(db.prepare("PRAGMA table_info(provider_thread_links)").all()).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "attempt_id", notnull: 1 }),
+      expect.objectContaining({ name: "parent_agent_surface_id" }),
+    ]));
+    expect(db.prepare("PRAGMA table_info(provider_attempts)").all()).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "parent_agent_surface_id" }),
     ]));
     db.close();

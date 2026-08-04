@@ -34,8 +34,13 @@ export function assertWorkflowActionScope(request: WorkbenchWorkflowActionReques
     case "result.refresh-status":
     case "validate.run":
     case "audit.run":
-    case "spec-test.drift":
       requireOne("worktreeId", [request.worktreeId]);
+      return;
+    case "spec-test.propose":
+    case "spec-test.generate":
+    case "spec-test.drift":
+      requireOne("graphScopeId", [request.graphScopeId]);
+      requireOne("specTestEvidenceFingerprint", [request.specTestEvidenceFingerprint]);
       return;
     case "landing.prepare":
     case "landing.refresh":
@@ -58,6 +63,7 @@ export async function auditHighImpactWorkflowAction(project: ManagedProject, con
   if (!HIGH_IMPACT_WORKBENCH_ACTIONS.has(request.actionType)) return;
   if (request.actionType === "workflow.run.start"
     || request.actionType === "harness-change.close"
+    || request.actionType === "spec-test.generate"
     || request.actionType.startsWith("planning.scheduler.")) {
     const state = await resolveProjectRuntimeState(project, {
       discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
@@ -71,6 +77,10 @@ export async function auditHighImpactWorkflowAction(project: ManagedProject, con
       return;
     }
     if (request.actionType.startsWith("planning.scheduler.")) {
+      await recordHighImpactToolAudit(state.resolution.paths, conversationId, changeId, request, live);
+      return;
+    }
+    if (request.actionType === "spec-test.generate") {
       await recordHighImpactToolAudit(state.resolution.paths, conversationId, changeId, request, live);
       return;
     }

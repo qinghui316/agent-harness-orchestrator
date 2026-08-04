@@ -1,33 +1,30 @@
 import { defaultProviderRegistry, type ProviderDescriptor, type ProviderOperationProfile } from "../../provider-runtime/index.js";
-import type { ManagedProject, ResolvedMemory } from "../../types/index.js";
-import { openWorkbenchDatabase } from "../../workbench/persistence/open-workbench-database.js";
+import type { ManagedProject } from "../../types/index.js";
+import { openProjectRuntimeWorkbenchDatabase } from "../../workbench/persistence/open-workbench-database.js";
+import type { SpecTestContext } from "./context.js";
 
 export async function resolveSpecTestProvider(
-  memory: ResolvedMemory,
+  context: SpecTestContext,
   project: ManagedProject,
-  changeId: string,
   profile: ProviderOperationProfile,
   cwd: string,
 ): Promise<ProviderDescriptor> {
-  const store = await openWorkbenchDatabase(memory);
+  const store = await openProjectRuntimeWorkbenchDatabase(context.runtime);
   let selectedProviderId: string | undefined;
   try {
-    selectedProviderId = store.conversations.findConversationForChange(project.id, changeId)?.selectedProviderId;
+    const conversation = store.conversations.readConversation(context.projectId, context.conversationId);
+    if (!conversation
+      || conversation.boundChangeId !== context.changeId
+      || conversation.currentGraphScopeId !== context.graphScopeId
+      || conversation.state !== "active") {
+      throw new Error("Spec-Test Provider selection Conversation scope is stale.");
+    }
+    selectedProviderId = conversation.selectedProviderId ?? undefined;
   } finally {
     store.close();
   }
-
   if (!selectedProviderId) {
-    if (project.defaultProviderId) selectedProviderId = defaultProviderRegistry.get(project.defaultProviderId).id;
+    throw new Error(`Spec-Test execution requires an explicitly selected Provider for Conversation ${context.conversationId}.`);
   }
-
-  if (!selectedProviderId) {
-    const registered = defaultProviderRegistry.list();
-    if (registered.length !== 1) {
-      throw new Error(`Spec-test execution requires exactly one registered provider when Change ${changeId} is not bound to a Conversation; found ${registered.length}.`);
-    }
-    selectedProviderId = registered[0]!.id;
-  }
-
-  return await defaultProviderRegistry.require(selectedProviderId, profile, project, cwd);
+  return defaultProviderRegistry.require(selectedProviderId, profile, project, cwd);
 }

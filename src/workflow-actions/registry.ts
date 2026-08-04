@@ -82,6 +82,8 @@ export const WORKFLOW_ACTION_TYPES = [
   "task.queue.reconcile",
   "validate.run",
   "audit.run",
+  "spec-test.propose",
+  "spec-test.generate",
   "spec-test.drift",
 ] as const;
 
@@ -174,6 +176,7 @@ export const LIVE_WORKFLOW_ACTION_TYPES = [
   "post-merge.cleanup-branch.prepare",
   "post-merge.cleanup-branch.run",
   "code.run",
+  "spec-test.generate",
   "task.run.start",
   "task.run.retry",
   "task.queue.start",
@@ -199,6 +202,7 @@ export const HIGH_IMPACT_WORKFLOW_ACTION_TYPES = [
   "workflow.run.start",
   "harness-change.close",
   "code.run",
+  "spec-test.generate",
   "task.run.start",
   "task.run.retry",
   "task.queue.start",
@@ -291,6 +295,7 @@ export const WORKFLOW_ACTION_SCOPE_KEYS = [
   "reworkValidationRunId",
   "auditRunId",
   "reworkAuditRunId",
+  "specTestEvidenceFingerprint",
   "taskIds",
 ] as const;
 
@@ -526,6 +531,7 @@ export function workflowActionScopePayload(request: WorkflowActionScopeCarrier, 
     reworkValidationRunId: request.reworkValidationRunId ?? extractString(result, "validationRun", "id") ?? extractString(result, "schedulerReworkValidation", "validationRunId") ?? extractString(result, "schedulerReworkAudit", "validationRunId"),
     auditRunId: request.auditRunId ?? extractString(result, "auditRun", "id") ?? extractString(result, "schedulerAudit", "auditRunId") ?? extractString(result, "reworkPlan", "auditRunId") ?? extractString(result, "schedulerReworkAudit", "auditRunId"),
     reworkAuditRunId: request.reworkAuditRunId ?? extractString(result, "auditRun", "id") ?? extractString(result, "schedulerReworkAudit", "auditRunId"),
+    specTestEvidenceFingerprint: request.specTestEvidenceFingerprint,
     taskIds: request.taskIds,
   };
 }
@@ -727,6 +733,7 @@ export function workflowActionScopesMatchStrict(left: WorkflowActionScopeCarrier
     && sameStrictOptional(left.reworkValidationRunId, right.reworkValidationRunId)
     && sameStrictOptional(left.auditRunId, right.auditRunId)
     && sameStrictOptional(left.reworkAuditRunId, right.reworkAuditRunId)
+    && sameStrictOptional(left.specTestEvidenceFingerprint, right.specTestEvidenceFingerprint)
     && sameStrictOptionalArray(left.taskIds, right.taskIds);
 }
 
@@ -778,6 +785,7 @@ export function workflowActionScopesMatchCompatible(left: WorkflowActionScopeCar
     && sameCompatibleOptional(left.reworkValidationRunId, right.reworkValidationRunId)
     && sameCompatibleOptional(left.auditRunId, right.auditRunId)
     && sameCompatibleOptional(left.reworkAuditRunId, right.reworkAuditRunId)
+    && sameCompatibleOptional(left.specTestEvidenceFingerprint, right.specTestEvidenceFingerprint)
     && sameCompatibleOptionalArray(left.taskIds, right.taskIds);
 }
 

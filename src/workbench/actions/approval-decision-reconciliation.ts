@@ -1,4 +1,8 @@
 import type { ManagedProject } from "../../types/index.js";
+import {
+  completeSpecTestAcceptanceTransaction,
+  type SpecTestAcceptanceRecoveryReceipt,
+} from "../../spec-test/proposal.js";
 import type { HighImpactApprovalRecoveryReceipt } from "../../workflow-actions/high-impact-approval.js";
 import {
   buildWorkbenchApprovalDecisionId,
@@ -14,6 +18,7 @@ import {
 } from "./approval-execution.js";
 
 const RECOVERABLE_APPROVAL_ACTIONS = new Set([
+  "spec-test.proposal.accept-all-existing",
   "result.apply",
   "worktree.discard",
   "apply-check.apply",
@@ -46,14 +51,18 @@ export async function recordAcceptedApprovalDecision(
     payload: result,
     completedAt: new Date().toISOString(),
   });
+  const acceptanceTransactionId = specTestAcceptanceTransactionId(action, result);
+  if (acceptanceTransactionId) {
+    await completeSpecTestAcceptanceTransaction(project, acceptanceTransactionId);
+  }
 }
 
 export async function reconcileRecoveredApprovalDecisions(
   project: ManagedProject,
-  receipts: readonly HighImpactApprovalRecoveryReceipt[],
+  receipts: readonly (HighImpactApprovalRecoveryReceipt | SpecTestAcceptanceRecoveryReceipt)[],
 ): Promise<void> {
   for (const receipt of receipts) {
-    if (receipt.approvalActionId === null) continue;
+    if ("approvalActionId" in receipt && receipt.approvalActionId === null) continue;
     const action = actionForRecoveryReceipt(receipt);
     const decisionId = buildWorkbenchApprovalDecisionId(action.actionId, action.args);
     const status = await readWorkbenchDecisionStatus(project, decisionId);
@@ -62,7 +71,20 @@ export async function reconcileRecoveredApprovalDecisions(
   }
 }
 
-function actionForRecoveryReceipt(receipt: HighImpactApprovalRecoveryReceipt): WorkbenchApprovalAction {
+function actionForRecoveryReceipt(
+  receipt: HighImpactApprovalRecoveryReceipt | SpecTestAcceptanceRecoveryReceipt,
+): WorkbenchApprovalAction {
+  if ("actionId" in receipt) {
+    return {
+      actionId: receipt.actionId,
+      label: receipt.label,
+      command: receipt.command,
+      args: receipt.args,
+      mutates: true,
+      requiresConfirmation: true,
+      scope: receipt.scope,
+    };
+  }
   switch (receipt.operation) {
     case "source.apply":
       assertRecoveryActionId(receipt, "result.apply");
@@ -101,6 +123,11 @@ function actionForRecoveryReceipt(receipt: HighImpactApprovalRecoveryReceipt): W
         receipt,
       );
   }
+}
+
+function specTestAcceptanceTransactionId(action: WorkbenchApprovalAction, result: unknown): string | null {
+  if (action.actionId !== "spec-test.proposal.accept-all-existing" || !isRecord(result)) return null;
+  return typeof result.acceptanceTransactionId === "string" ? result.acceptanceTransactionId : null;
 }
 
 function assertRecoveryActionId(

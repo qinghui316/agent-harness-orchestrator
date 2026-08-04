@@ -82,6 +82,9 @@ export interface WorkbenchActionRequest {
   validationRunId?: string;
   reworkValidationRunId?: string;
   auditRunId?: string;
+  specTestEvidenceFingerprint?: string;
+  specTestAcIds?: string[];
+  specTestMissing?: boolean;
   confirm?: boolean;
   feedback?: string;
   feedbackContext?: {

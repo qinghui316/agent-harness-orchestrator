@@ -16,7 +16,10 @@ export interface ToolPolicyRequest {
   enforcementMode?: RuntimeEnforcementMode;
 }
 
-const HIGH_IMPACT_ACTIONS = new Set<string>(HIGH_IMPACT_WORKFLOW_ACTION_TYPES);
+const HIGH_IMPACT_ACTIONS = new Set<string>([
+  ...HIGH_IMPACT_WORKFLOW_ACTION_TYPES,
+  "spec-test.proposal.accept-all-existing",
+]);
 
 const FORBIDDEN_ROLE_GOAL_PHRASES = [
   "apply",

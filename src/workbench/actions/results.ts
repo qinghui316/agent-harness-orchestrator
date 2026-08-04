@@ -222,6 +222,17 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
 
 export function workflowFailureMessage(actionType: string, result: unknown): string | null {
   if (!isRecord(result)) return null;
+  if ((actionType === "spec-test.propose" || actionType === "spec-test.generate")
+    && isRecord(result.run)
+    && result.run.status === "failed") {
+    const warnings = Array.isArray(result.warnings)
+      ? result.warnings
+      : isRecord(result.proposal) && Array.isArray(result.proposal.warnings)
+        ? result.proposal.warnings
+        : [];
+    const firstWarning = warnings.find((warning): warning is string => typeof warning === "string" && warning.trim().length > 0);
+    return firstWarning ?? `${actionType} provider run failed.`;
+  }
   const workflow = (actionType === "task.run.start" || actionType === "task.run.retry") && isRecord(result.workflow) ? result.workflow : result;
   if (actionType !== "code.run" && actionType !== "task.run.start" && actionType !== "task.run.retry") return null;
   const stoppedAt = typeof workflow.stoppedAt === "string" ? workflow.stoppedAt : null;
@@ -316,6 +327,8 @@ export function labelForAction(actionType: string): string {
     case "workpad.abandon": return "Workpad abandoned";
     case "validate.run": return "Validation run completed";
     case "audit.run": return "Audit run completed";
+    case "spec-test.propose": return "Spec-Test evidence proposed";
+    case "spec-test.generate": return "Spec-Test generation completed";
     case "spec-test.drift": return "Spec-Test drift checked";
     default: return actionType;
   }

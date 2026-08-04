@@ -7,8 +7,6 @@ import { summarizeAudit } from "../../../audit/artifacts.js";
 import { buildAcMap } from "../../../ecl/anchors.js";
 import { buildChangeIndex } from "../../../ecl/index.js";
 import { listRuns } from "../../../run/manager.js";
-import { getSpecTestDriftReport } from "../../../spec-test/drift.js";
-import { getSpecTestStatus } from "../../../spec-test/manager.js";
 import { listTaskQueueItems, listTaskQueues } from "../../../task-queue/manager.js";
 import { listTaskRuns, listWorkerLeases } from "../../../task-run/manager.js";
 import { listValidationResults } from "../../../validation/artifacts.js";
@@ -201,12 +199,10 @@ export async function selectTopicDetail(
   ]);
 
   let statusDetail: Awaited<ReturnType<typeof getChangeStatusForChange>> | null = null;
-  let specTest: unknown = null;
-  let drift: unknown = null;
+  const specTest: unknown = null;
+  const drift: unknown = null;
   if (project && topic.state === "active") {
     statusDetail = await getChangeStatusForChange(project, topic.id).catch(() => null);
-    specTest = await getSpecTestStatus(memory, { changeId: topic.id }).catch(() => null);
-    drift = await getSpecTestDriftReport(memory, { changeId: topic.id }).catch(() => null);
   }
   const acMap = statusDetail?.acMap ?? await buildTopicAcMap(memory, topic);
 

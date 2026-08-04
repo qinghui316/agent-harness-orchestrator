@@ -1,24 +1,29 @@
 ﻿import { existsSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 import { collectWorktreeDiff } from "../../audit/diff.js";
-import { resolveRunnableChangeTarget } from "../../change/target.js";
 import { buildRoleContextArtifact, buildRoleContextPacket, contextSourceRef } from "../../context/packets.js";
 import { writeJsonFile } from "../../fs/json.js";
-import { assertWritableMemory, resolveProjectMemory } from "../../memory/resolver.js";
-import { resolveProjectHarnessAgentInput } from "../../project-harness/agent-input.js";
 import type { ProviderTurnResult } from "../../provider-runtime/index.js";
-import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../provider-runtime/project-harness-discovery.js";
+import { projectRunArtifactReference } from "../../project-runtime/execution-ports.js";
 import { getGitStatusShortIgnoringAhoMemory } from "../../project/git.js";
+import { withProjectWriteLeaseAtPath } from "../../project/project-write-lease.js";
 import { appendRunEvent, buildRunId } from "../../run/manager.js";
-import { finishProviderAttempt, startProviderAttempt } from "../../workbench/provider-attempts.js";
+import {
+  finishProviderAttempt,
+  resolveCurrentMainAgentProviderThread,
+  rollbackProviderAttempt,
+  startProviderAttempt,
+} from "../../workbench/provider-attempts.js";
 import { getTemplateRoot } from "../../template-source/paths.js";
-import { getLatestValidationSummary } from "../../validation/artifacts.js";
-import { createWorktree, getWorktreeMetadataPath } from "../../worktree/manager.js";
-import { getSpecTestStatus } from "./status.js";
+import { getLatestValidationSummary } from "../../validation/repository.js";
+import { createWorktreeWithRuntimePort } from "../../worktree/creation.js";
+import { removeWorktreeUnderLease } from "../../worktree/lifecycle.js";
+import { getWorktreeMetadataPath } from "../../worktree/paths.js";
+import { getActiveSpecTestContext, getSpecTestContextForChange, getSpecTestStatus } from "./status.js";
 import { resolveSpecTestProvider } from "./provider.js";
-import type { ChangeStatus, ManagedProject, ResolvedMemory, RunMetadata, RunStatus, RunWorktreeInfo, SpecTestAcStatus } from "../../types/index.js";
+import type { ChangeStatus, ManagedProject, RunMetadata, RunStatus, RunWorktreeInfo, SpecTestAcStatus } from "../../types/index.js";
 import { defaultProjectRuntimeActivityRegistry } from "../../project-runtime/activity.js";
 
 export interface SpecTestGenerateOptions {
@@ -53,11 +58,11 @@ async function startSpecTestGenerationRunActivity(project: ManagedProject, optio
     throw new Error("Use --missing or provide at least one --ac.");
   }
 
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "Spec-test generation run");
-  const target = await resolveRunnableChangeTarget(project, { changeId: options.changeId });
-  const changeStatus = target.status;
-  const changeId = target.changeId;
+  const contextScope = options.changeId
+    ? await getSpecTestContextForChange(project, options.changeId)
+    : await getActiveSpecTestContext(project);
+  const changeStatus = contextScope.changeStatus;
+  const changeId = contextScope.changeId;
 
   const specTestStatus = await getSpecTestStatus(project, { changeId });
   const selectedAcs = selectAcs(specTestStatus.acceptanceCriteria, options);
@@ -69,25 +74,32 @@ async function startSpecTestGenerationRunActivity(project: ManagedProject, optio
       warnings: ["No Acceptance Criteria without linked evidence were found."],
     };
   }
-  const projectHarnessInput = await resolveProjectHarnessAgentInput(project, DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY);
-
   const extraPrompt = options.prompt?.trim() || undefined;
   const runId = buildRunId(changeId, ["spec-test-generator", ...selectedAcs, extraPrompt ?? ""]);
   const sourceBefore = await getSortedSourceStatus(project.path);
-  const created = await createWorktree(project, memory, changeId, { runId });
+  const provider = await resolveSpecTestProvider(contextScope, project, "coder", project.path);
+  const providerId = provider.id;
+  const [capabilitySnapshot, mainThread] = await Promise.all([
+    provider.capabilitySnapshot(project, project.path),
+    resolveCurrentMainAgentProviderThread(contextScope.runtime, changeId, providerId),
+  ]);
+  const created = await createWorktreeWithRuntimePort(project, contextScope.runtime, changeId, { runId });
   const worktree: RunWorktreeInfo = {
     worktreeId: created.metadata.worktreeId,
     branchName: created.metadata.branchName,
     baseRef: created.metadata.baseRef,
     baseCommit: created.metadata.baseCommit,
     checkoutPath: created.metadata.checkoutPath,
-    metadataPath: getWorktreeMetadataPath(memory, created.metadata.worktreeId),
+    metadataPath: getWorktreeMetadataPath(contextScope.runtime, created.metadata.worktreeId),
   };
 
-  const directory = join(memory.runsRoot, runId);
-  const relativeDir = displayArtifactPath(memory, directory);
+  const directory = join(contextScope.runtime.runsRoot, runId);
+  let providerAttemptStarted = false;
+  try {
+  const artifactRoot = projectRunArtifactReference(contextScope.runtime, directory);
+  const relativeDir = artifactRoot.directory;
   const artifacts = {
-    base: memory.artifactBase,
+    base: artifactRoot.base,
     directory: relativeDir,
     context: `${relativeDir}/context.md`,
     contextPacket: `${relativeDir}/context-packet.json`,
@@ -120,7 +132,7 @@ async function startSpecTestGenerationRunActivity(project: ManagedProject, optio
 
   await mkdir(directory, { recursive: true });
   const now = new Date().toISOString();
-  const latestValidation = await getLatestValidationSummary(memory, changeId);
+  const latestValidation = await getLatestValidationSummary(contextScope.runtime, changeId);
   const contextArtifact = buildRoleContextArtifact(buildRoleContextPacket({
     roleId: "spec-test-generator",
     changeStatus,
@@ -128,7 +140,7 @@ async function startSpecTestGenerationRunActivity(project: ManagedProject, optio
     runId,
     taskIds: selectedAcs,
     worktree,
-    projectHarness: projectHarnessInput.identity,
+    projectHarness: contextScope.projectHarness,
     writableRoots: [worktree.checkoutPath],
     sandboxPolicy: "workspace-write",
     evidenceSummary: [
@@ -174,57 +186,47 @@ async function startSpecTestGenerationRunActivity(project: ManagedProject, optio
     selectedAcs,
     specTestStatus: JSON.stringify(specTestStatus, null, 2),
     latestValidation: latestValidation ? JSON.stringify(latestValidation, null, 2) : "No validation run recorded for this change.",
-    sourceTests: await collectTestFileSummary(memory.projectRoot),
+    sourceTests: await collectTestFileSummary(contextScope.projectRoot),
     worktree,
     sourceProjectPath: project.path,
     extraPrompt,
   });
   await writeFile(paths.prompt, prompt, "utf8");
 
-  let provider;
-  try {
-    provider = await resolveSpecTestProvider(memory, project, changeId, "coder", worktree.checkoutPath);
-  } catch (error) {
-    const failure = error instanceof Error ? error.message : String(error);
-    await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "provider.exited", runId, data: { status: "failed", error: failure } });
-    const message = renderUnavailableMessage([failure]);
-    await writeEmptyArtifacts(paths, message);
-    run = await finishRun(paths.run, run, "failed", 1, null);
-    await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: "spec-test.generation.failed", runId, data: { selectedAcs } });
-    await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: "run.failed", runId });
-    return { run, selectedAcs, noOp: false, warnings: [failure] };
-  }
-
-  const providerId = provider.id;
-  const capabilitySnapshot = await provider.capabilitySnapshot(project, worktree.checkoutPath);
   run = {
     ...run,
     command: ["provider", "turn.start"],
     status: "running",
-    enabledSkills: [{ ...projectHarnessInput.providerSkillInput, providerId }],
+    enabledSkills: [{ ...contextScope.providerSkillInput, providerId }],
   };
   await writeJsonFile(paths.run, run);
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "spec-test.generation.started", runId, data: { cwd: worktree.checkoutPath, command: run.command, selectedAcs } });
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "provider.started", runId, data: { cwd: worktree.checkoutPath, providerId, capabilitySnapshot } });
 
-  await startProviderAttempt(memory, {
+  await startProviderAttempt(contextScope.runtime, {
     attemptId: runId,
     providerId,
     capabilitySnapshot,
     operationProfile: "coder",
     roleId: "spec-test-generator",
+    parentAgentSurfaceId: mainThread.roleId,
     handoffHash: createHash("sha256").update(prompt).digest("hex"),
     changeId,
+    conversationId: contextScope.conversationId,
+    graphScopeId: contextScope.graphScopeId,
     worktreeId: worktree.worktreeId,
     model: capabilitySnapshot.effectiveModel ? { providerId, modelId: capabilitySnapshot.effectiveModel } : null,
   });
+  providerAttemptStarted = true;
 
   let providerResult: ProviderTurnResult;
   try {
     providerResult = await provider.leafExecution.runTurn({
       providerId,
       operationProfile: "coder",
-      projectId: project.id,
+      projectId: contextScope.projectId,
+      conversationId: contextScope.conversationId,
+      graphScopeId: contextScope.graphScopeId,
       changeId,
       runtimeScopeId: runId,
       roleId: "spec-test-generator",
@@ -232,7 +234,7 @@ async function startSpecTestGenerationRunActivity(project: ManagedProject, optio
       attemptId: runId,
       cwd: worktree.checkoutPath,
       prompt,
-      skillInputs: [projectHarnessInput.providerSkillInput],
+      skillInputs: [contextScope.providerSkillInput],
       sandboxPolicy: "workspace-write",
       paths: {
         events: paths.providerEvents,
@@ -240,7 +242,7 @@ async function startSpecTestGenerationRunActivity(project: ManagedProject, optio
         lastMessage: paths.lastMessage,
         session: paths.providerSession,
       },
-      runtimeWorkspaceRoots: [...new Set([worktree.checkoutPath, project.path, memory.memoryRoot])],
+      runtimeWorkspaceRoots: [...new Set([worktree.checkoutPath, contextScope.projectRoot, contextScope.evidenceRoot])],
       writableRoots: [worktree.checkoutPath],
       model: capabilitySnapshot.effectiveModel ? { providerId, modelId: capabilitySnapshot.effectiveModel } : null,
     });
@@ -251,7 +253,7 @@ async function startSpecTestGenerationRunActivity(project: ManagedProject, optio
 
   const lastMessage = await ensureProviderMessage(paths.lastMessage, providerResult);
   await writeFile(paths.stdout, providerResult.lastMessage, "utf8");
-  const diffResult = await collectWorktreeDiff(memory, worktree.worktreeId, changeId);
+  const diffResult = await collectWorktreeDiff(contextScope.runtime, worktree.worktreeId, changeId);
   await writeFile(paths.diff, diffResult.diff, "utf8");
   await writeFile(paths.diffStat, diffResult.diffStat, "utf8");
   const diffPolicy = classifySpecTestDiff(diffResult.diff);
@@ -263,10 +265,10 @@ async function startSpecTestGenerationRunActivity(project: ManagedProject, optio
 
   const warnings = [
     ...created.warnings,
+    ...(providerResult.status !== "completed" ? [`Spec-test provider turn ${providerResult.status}${providerResult.error ? `: ${providerResult.error}` : "."}`] : []),
     ...(diffResult.diff.trim() ? [] : ["Spec-test generation completed without producing a worktree diff."]),
     ...(diffPolicy.rejected.length > 0 ? [`Spec-test generation produced non-test changes: ${diffPolicy.rejected.join(", ")}.`] : []),
     ...(sourceChanged ? ["Source project git status changed during spec-test generation; the provider may have modified outside the assigned worktree."] : []),
-    ...(providerResult.status !== "completed" ? [`Spec-test provider turn ${providerResult.status}${providerResult.error ? `: ${providerResult.error}` : "."}`] : []),
   ];
   await writeFile(paths.implementation, renderGenerationSummary({
     lastMessage,
@@ -280,12 +282,44 @@ async function startSpecTestGenerationRunActivity(project: ManagedProject, optio
   }), "utf8");
 
   const status: RunStatus = providerResult.status === "completed" && !sourceChanged && diffPolicy.rejected.length === 0 ? "completed" : "failed";
-  await finishProviderAttempt(memory, runId, providerResult.status === "completed" ? "completed" : providerResult.status === "interrupted" ? "interrupted" : "failed", providerResult.session?.sessionId ?? null);
+  await finishProviderAttempt(
+    contextScope.runtime,
+    runId,
+    providerResult.status === "completed" ? "completed" : providerResult.status === "interrupted" ? "interrupted" : "failed",
+    providerResult.session?.sessionId ?? null,
+    {
+      parentAgentSurfaceId: mainThread.roleId,
+    },
+  );
   run = await finishRun(paths.run, run, status, status === "completed" ? 0 : 1, null);
   await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: status === "completed" ? "spec-test.generation.completed" : "spec-test.generation.failed", runId, data: { selectedAcs, warnings } });
   await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: status === "completed" ? "run.completed" : "run.failed", runId, data: { warnings } });
 
+  if (status === "failed") {
+    await rollbackSpecTestGeneration(contextScope.runtime, runId, worktree.worktreeId, directory, providerAttemptStarted);
+  }
   return { run, selectedAcs, noOp: false, warnings };
+  } catch (error) {
+    await rollbackSpecTestGeneration(contextScope.runtime, runId, worktree.worktreeId, directory, providerAttemptStarted);
+    throw error;
+  }
+}
+
+async function rollbackSpecTestGeneration(
+  runtime: Parameters<typeof rollbackProviderAttempt>[0]
+    & Parameters<typeof removeWorktreeUnderLease>[0]
+    & { projectWriteLeasePath: string },
+  runId: string,
+  worktreeId: string,
+  directory: string,
+  providerAttemptStarted: boolean,
+): Promise<void> {
+  if (providerAttemptStarted) await rollbackProviderAttempt(runtime, runId, "spec-test-generator");
+  await withProjectWriteLeaseAtPath(runtime.projectWriteLeasePath, {}, async (lease) => {
+    await lease.assertCurrent();
+    await removeWorktreeUnderLease(runtime, worktreeId, true);
+  });
+  await rm(directory, { recursive: true, force: true });
 }
 
 export function selectAcsForGeneration(items: SpecTestAcStatus[], options: SpecTestGenerateOptions): string[] {
@@ -465,16 +499,6 @@ async function ensureProviderMessage(path: string, result: ProviderTurnResult): 
   return message;
 }
 
-async function writeEmptyArtifacts(paths: { stdout: string; stderr: string; providerEvents: string; lastMessage: string; diff: string; diffStat: string; implementation: string }, message: string): Promise<void> {
-  await writeFile(paths.stdout, "", "utf8");
-  await writeFile(paths.stderr, message, "utf8");
-  await writeFile(paths.providerEvents, "", "utf8");
-  await writeFile(paths.lastMessage, message, "utf8");
-  await writeFile(paths.diff, "", "utf8");
-  await writeFile(paths.diffStat, "", "utf8");
-  await writeFile(paths.implementation, message, "utf8");
-}
-
 function renderGenerationSummary(input: {
   lastMessage: string;
   selectedAcs: string[];
@@ -534,19 +558,6 @@ async function getSortedSourceStatus(projectPath: string): Promise<string[]> {
   return (await getGitStatusShortIgnoringAhoMemory(projectPath)).slice().sort();
 }
 
-function renderUnavailableMessage(errors: string[]): string {
-  return [
-    "Status: failed",
-    "",
-    "# Spec-Test Generation Unavailable",
-    "",
-    "AHO could not start a provider with the required workspace-write capability.",
-    "",
-    ...errors.map((error) => `- ${error}`),
-    "",
-  ].join("\n");
-}
-
 function failedProviderTurn(providerId: string, error: unknown): ProviderTurnResult {
   return {
     providerId,
@@ -558,11 +569,6 @@ function failedProviderTurn(providerId: string, error: unknown): ProviderTurnRes
     changedFiles: [],
     error: error instanceof Error ? error.message : String(error),
   };
-}
-
-function displayArtifactPath(memory: ResolvedMemory, absolutePath: string): string {
-  const base = memory.artifactBase === "memory-root" ? memory.memoryRoot : memory.projectRoot;
-  return relative(base, absolutePath).replace(/\\/g, "/");
 }
 
 async function finishRun(path: string, run: RunMetadata, status: RunStatus, exitCode: number | null, signal: NodeJS.Signals | null): Promise<RunMetadata> {

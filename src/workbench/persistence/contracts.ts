@@ -82,6 +82,7 @@ export interface StoredProviderAttempt {
   changeId: string | null;
   agentTaskId: string | null;
   roleId: string;
+  parentAgentSurfaceId?: string | null;
   operationProfile: string;
   providerId: ProviderId;
   nativeSessionId: string | null;

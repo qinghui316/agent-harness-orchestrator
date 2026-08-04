@@ -24,6 +24,9 @@ import { summarizeWorkflowRun } from "../../../workflow-run/summary.js";
 import { readExecutionAuthorization } from "../../../workflow-runtime/execution-authorization.js";
 import { readLatestSchedulerCurrentTransitionView } from "../../../workflow-runtime/scheduler-current-transition-view.js";
 import { listSkillNativeSchedulerRuns } from "../../../workflow-runtime/skill-native-ready-set.js";
+import { getSpecTestDriftReport } from "../../../spec-test/drift.js";
+import { getSpecTestContextForChange, getSpecTestEvidenceFingerprint, getSpecTestStatus, requireActiveSpecTestExecutionAuthorization } from "../../../spec-test/manager.js";
+import { listSpecTestProposalSummaries, showSpecTestProposal, specTestProposalManifestHash } from "../../../spec-test/proposal.js";
 import type { AuditResult, ManagedProject, ValidationResult, WorkflowGraphPlan, WorkflowRun } from "../../../types/index.js";
 import { buildConversationInteractionQueue } from "../../conversation-interactions.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../persistence/open-workbench-database.js";
@@ -31,6 +34,7 @@ import type { StoredDecisionRecord } from "../../persistence/contracts.js";
 import type {
   HarnessGap,
   WorkbenchConfirmationQueue,
+  WorkbenchApprovalItem,
   WorkbenchProjectHarnessStatus,
   WorkbenchSnapshot,
   WorkbenchDecisionContext,
@@ -53,6 +57,7 @@ import { schedulerNextActionToConfirmationItems } from "./confirmation/typed-wor
 import { changeFinalizationToConfirmationItems } from "./confirmation/change-finalization.js";
 import { decisionContextToConfirmationItems } from "./confirmation/decision-context.js";
 import { emptyDecisionInspector } from "./decision-inspector.js";
+import { approvalAction } from "./confirmation/shared.js";
 import { buildHarnessGaps, buildRepoSummary } from "./support.js";
 import { buildDiagnosticWorkpad } from "./workpad.js";
 import { listWorkbenchRoles } from "./roles.js";
@@ -75,7 +80,7 @@ export async function tryBuildSkillNativePlanningSnapshot(input: {
     : null;
   const status = projectHarnessStatus(input.resolution);
   const gaps = buildHarnessGaps();
-  const topic = conversationTopic(selected);
+  let topic = conversationTopic(selected);
   const warnings: string[] = [];
   let graph: WorkflowGraphPlan | null = null;
   let planningEvidence: Awaited<ReturnType<typeof readProjectHarnessPlanningGate>> | null = null;
@@ -101,6 +106,7 @@ export async function tryBuildSkillNativePlanningSnapshot(input: {
         evidence.authorizationIntent.authorizationId,
       );
       if (authorization.status !== "active"
+        || Date.parse(authorization.expiresAt) <= Date.now()
         || authorization.projectId !== input.resolution.harness.projectId
         || authorization.changeId !== selected.boundChangeId
         || authorization.conversationId !== selected.conversationId
@@ -167,6 +173,15 @@ export async function tryBuildSkillNativePlanningSnapshot(input: {
     }
     gateReady = false;
   }
+
+  const specTestProjection = selected.boundChangeId && planningEvidence
+    ? await buildSkillNativeSpecTestProjection(input.project, selected.boundChangeId, planningEvidence)
+      .catch((error) => {
+        warnings.push(error instanceof Error ? error.message : String(error));
+        return null;
+      })
+    : null;
+  if (specTestProjection) topic = { ...topic, specTest: specTestProjection.status, drift: specTestProjection.drift };
 
   if (existingWorkflowRun && graph && planningEvidence && selected.boundChangeId) {
     return buildSkillNativeExecutionSnapshot({
@@ -255,7 +270,7 @@ export async function tryBuildSkillNativePlanningSnapshot(input: {
       agentLoop: { runs: [] },
     },
     right: {
-      approvals: [],
+      approvals: specTestProjection?.approvals ?? [],
       decisions: [],
       decisionInspector: emptyDecisionInspector(),
       confirmationQueue,
@@ -288,6 +303,14 @@ async function buildSkillNativeExecutionSnapshot(input: {
     input.selected.boundChangeId,
   );
   const harness = await projectHarnessExecutionPort(input.project, evidenceRoot, input.planningEvidence);
+  const specTestProjection = await buildSkillNativeSpecTestProjection(
+    input.project,
+    input.selected.boundChangeId,
+    input.planningEvidence,
+  ).catch((error) => {
+    input.warnings.push(error instanceof Error ? error.message : String(error));
+    return null;
+  });
   const [runs, taskQueues, taskQueueItems, taskRuns, workerLeases, worktrees, validations, audits, finalizationRequests, decisionRecords, worktreeDispositions] = await Promise.all([
     listRuns(runtime).then((items) => items.filter((item) => item.changeId === input.selected.boundChangeId)),
     listTaskQueues(runtime, input.selected.boundChangeId),
@@ -323,6 +346,8 @@ async function buildSkillNativeExecutionSnapshot(input: {
     worktrees,
     validations: validations.map(summarizeValidation),
     audits: audits.map(summarizeAudit),
+    specTest: specTestProjection?.status ?? null,
+    drift: specTestProjection?.drift ?? null,
     threadItems: [],
   };
   const resultReview = await buildSkillNativeResultReview(
@@ -446,11 +471,66 @@ async function buildSkillNativeExecutionSnapshot(input: {
       activeTab: "conversation",
       agentLoop: { runs },
     },
-    right: { approvals: [], decisions, decisionInspector: emptyDecisionInspector(), confirmationQueue },
+    right: { approvals: specTestProjection?.approvals ?? [], decisions, decisionInspector: emptyDecisionInspector(), confirmationQueue },
     roles,
     harnessGaps: input.gaps,
     warnings: input.warnings,
   };
+}
+
+async function buildSkillNativeSpecTestProjection(
+  project: ManagedProject,
+  changeId: string,
+  planning: Awaited<ReturnType<typeof readProjectHarnessPlanningGate>>,
+): Promise<{ status: unknown; drift: unknown; approvals: WorkbenchApprovalItem[] }> {
+  const [status, drift, proposals, evidenceDigest] = await Promise.all([
+    getSpecTestStatus(project, { changeId }),
+    getSpecTestDriftReport(project, { changeId }),
+    listSpecTestProposalSummaries(project),
+    getSpecTestEvidenceFingerprint(project, changeId),
+  ]);
+  const authorizationId = planning.authorizationIntent.authorizationId;
+  const approvals: WorkbenchApprovalItem[] = [];
+  if (planning.authorizationIntent.status === "issued" && authorizationId) {
+    const context = await getSpecTestContextForChange(project, changeId);
+    await requireActiveSpecTestExecutionAuthorization(context);
+    for (const summary of proposals.filter((item) => item.changeId === changeId
+      && item.status === "proposed"
+      && item.acceptedSourceRootCount > 0)) {
+      const proposal = await showSpecTestProposal(project, summary.id);
+      const scope: HighImpactApprovalScope = {
+        projectId: planning.mainAcceptance.projectId,
+        changeId,
+        conversationId: planning.mainAcceptance.conversationId,
+        graphScopeId: planning.mainAcceptance.graphScopeId,
+        workflowGraphPlanId: planning.graph.id,
+        acceptedProposalHash: planning.mainAcceptance.proposalHash,
+        authorizationId,
+        evidenceDigest,
+        targetManifestHash: specTestProposalManifestHash(proposal),
+      };
+      approvals.push({
+        id: `spec-test:${proposal.id}`,
+        kind: "spec-test-proposal",
+        label: "Accept source-root spec-test evidence",
+        changeId,
+        runId: proposal.runId,
+        targetId: proposal.id,
+        severity: "info",
+        action: approvalAction(
+          "spec-test.proposal.accept-all-existing",
+          "Accept source-root spec-test evidence",
+          "spec-test",
+          ["proposal", "accept", project.id, proposal.id, "--all-existing"],
+          true,
+          scope,
+        ),
+        artifact: proposal.artifacts.proposalMarkdown,
+        reason: `${summary.acceptedSourceRootCount} source-root evidence candidate(s) await explicit acceptance.`,
+      });
+    }
+  }
+  return { status, drift, approvals };
 }
 
 async function buildSkillNativeResultReview(

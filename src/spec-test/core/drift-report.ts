@@ -2,7 +2,6 @@
 import { join } from "node:path";
 import type {
   ManagedProject,
-  ResolvedMemory,
   SpecTestAcStatus,
   SpecTestDriftAcStatus,
   SpecTestDriftReport,
@@ -17,16 +16,16 @@ export interface SpecTestDriftOptions {
 
 const STRICT_FAILING_STATUSES: SpecTestDriftStatus[] = ["invalid", "stale", "failed"];
 
-export async function getSpecTestDriftReport(project: ManagedProject | ResolvedMemory, options: SpecTestDriftOptions = {}): Promise<SpecTestDriftReport> {
+export async function getSpecTestDriftReport(project: ManagedProject, options: SpecTestDriftOptions = {}): Promise<SpecTestDriftReport> {
   const context = options.changeId
     ? await getSpecTestContextForChange(project, options.changeId)
     : await getActiveSpecTestContext(project);
-  const status = await getSpecTestStatus(context.memory, { changeId: context.changeId, worktreeId: options.worktreeId });
-  const specTests = await readSpecTestsOrDefault(context.changeDir, context.changeId);
+  const status = await getSpecTestStatus(project, { changeId: context.changeId, worktreeId: options.worktreeId });
+  const specTests = await readSpecTestsOrDefault(context.evidenceRoot, context.changeId);
   const specTestsUpdatedAt = specTests.updatedAt;
   const freshness = {
-    specChangedAfterEvidence: await fileChangedAfter(join(context.changeDir, "spec.md"), specTestsUpdatedAt),
-    tasksChangedAfterEvidence: await fileChangedAfter(join(context.changeDir, "tasks.md"), specTestsUpdatedAt),
+    specChangedAfterEvidence: await fileChangedAfter(join(context.evidenceRoot, "spec.md"), specTestsUpdatedAt),
+    tasksChangedAfterEvidence: await fileChangedAfter(join(context.evidenceRoot, "tasks.md"), specTestsUpdatedAt),
     validationOlderThanEvidence: isBefore(status.latestValidation?.finishedAt, specTestsUpdatedAt),
   };
   const globalStaleReasons = [

@@ -9,6 +9,7 @@ export interface StartProviderAttemptInput {
   capabilitySnapshot: ProviderCapabilitySnapshot;
   operationProfile: ProviderOperationProfile;
   roleId: string;
+  parentAgentSurfaceId?: string | null;
   handoffHash: string;
   conversationId?: string | null;
   graphScopeId?: string | null;
@@ -72,6 +73,7 @@ export async function startProviderAttempt(memory: ProviderAttemptStorePort, inp
       changeId: input.changeId ?? conversation?.boundChangeId ?? null,
       agentTaskId: input.agentTaskId ?? null,
       roleId: input.roleId,
+      parentAgentSurfaceId: input.parentAgentSurfaceId ?? null,
       operationProfile: input.operationProfile,
       providerId: input.providerId,
       nativeSessionId: null,
@@ -136,11 +138,14 @@ export async function finishProviderAttempt(
     const attempt = store.providerAttempts.readProviderAttempt(projectId, attemptId);
     if (!attempt) throw new Error(`Provider attempt not found: ${attemptId}`);
     if (nativeSessionId && attempt.conversationId && attempt.graphScopeId) {
+      const parentAgentSurfaceId = thread?.parentAgentSurfaceId !== undefined
+        ? thread.parentAgentSurfaceId
+        : attempt.parentAgentSurfaceId ?? undefined;
       store.providerAttempts.bindProviderAttemptThread(projectId, {
         attemptId,
         threadId: nativeSessionId,
-        parentThreadId: thread?.parentThreadId,
-        parentAgentSurfaceId: thread?.parentAgentSurfaceId,
+        ...(thread?.parentThreadId !== undefined ? { parentThreadId: thread.parentThreadId } : {}),
+        ...(parentAgentSurfaceId !== undefined ? { parentAgentSurfaceId } : {}),
         displayName: thread?.displayName,
       }, now);
     }
@@ -150,6 +155,20 @@ export async function finishProviderAttempt(
       graphScopeId: attempt.graphScopeId ?? undefined,
       reason: status === "interrupted" ? "provider-interrupted" : status === "terminated" ? "provider-terminated" : "attempt-updated",
     });
+  } finally {
+    store.close();
+  }
+}
+
+export async function rollbackProviderAttempt(
+  memory: ProviderAttemptStorePort,
+  attemptId: string,
+  expectedRoleId: string,
+): Promise<void> {
+  const projectId = requireProjectId(memory);
+  const store = await openProjectRuntimeWorkbenchDatabase({ projectId, workbenchDbPath: memory.workbenchDbPath });
+  try {
+    store.providerAttempts.deleteProviderAttempt(projectId, attemptId, expectedRoleId);
   } finally {
     store.close();
   }

@@ -1,25 +1,27 @@
 ﻿import { existsSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { z } from "zod";
 import { collectWorktreeDiff } from "../../audit/diff.js";
 import { buildRoleContextArtifact, buildRoleContextPacket, contextSourceRef } from "../../context/packets.js";
 import { readRequiredJsonFile, writeJsonFile } from "../../fs/json.js";
-import { assertWritableMemory, resolveProjectMemory } from "../../memory/resolver.js";
-import { resolveProjectHarnessAgentInput } from "../../project-harness/agent-input.js";
 import type { ProviderTurnResult } from "../../provider-runtime/index.js";
-import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../provider-runtime/project-harness-discovery.js";
+import { projectRunArtifactReference } from "../../project-runtime/execution-ports.js";
+import type { ProjectRunsPathPort } from "../../project-runtime/paths.js";
 import { appendRunEvent, buildRunId } from "../../run/manager.js";
-import { finishProviderAttempt, startProviderAttempt } from "../../workbench/provider-attempts.js";
+import {
+  finishProviderAttempt,
+  resolveCurrentMainAgentProviderThread,
+  rollbackProviderAttempt,
+  startProviderAttempt,
+} from "../../workbench/provider-attempts.js";
 import { getTemplateRoot } from "../../template-source/paths.js";
-import { getLatestValidationSummary } from "../../validation/artifacts.js";
-import { resolveRunnableChangeTarget } from "../../change/target.js";
-import { getSpecTestContextForChange, getSpecTestStatus, linkSpecTestRefs } from "./status.js";
+import { getLatestValidationSummary } from "../../validation/repository.js";
+import { getActiveSpecTestContext, getSpecTestContextForChange, getSpecTestEvidenceFingerprint, getSpecTestStatus, linkSpecTestEvidenceBatch } from "./status.js";
 import { resolveSpecTestProvider } from "./provider.js";
 import type {
   ManagedProject,
-  ResolvedMemory,
   RunMetadata,
   RunStatus,
   SpecTestProposal,
@@ -28,6 +30,8 @@ import type {
   SpecTestProposalSummary,
 } from "../../types/index.js";
 import { defaultProjectRuntimeActivityRegistry } from "../../project-runtime/activity.js";
+import type { HighImpactApprovalScope } from "../../workflow-actions/high-impact-approval.js";
+import { createSpecTestAcceptancePublication } from "./acceptance-recovery.js";
 
 const specTestRefSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("file"), path: z.string() }),
@@ -120,6 +124,7 @@ export interface SpecTestProposalAcceptOptions {
   ac?: string;
   ref?: string;
   allExisting?: boolean;
+  scope?: HighImpactApprovalScope;
 }
 
 export interface SpecTestProposalAcceptResult {
@@ -127,6 +132,7 @@ export interface SpecTestProposalAcceptResult {
   accepted: SpecTestProposalEvidence[];
   skipped: Array<{ refId: string; reason: string }>;
   status: Awaited<ReturnType<typeof getSpecTestStatus>>;
+  acceptanceTransactionId: string | null;
 }
 
 export function startSpecTestProposalRun(project: ManagedProject, options: SpecTestProposeOptions = {}): Promise<SpecTestProposalRunResult> {
@@ -134,18 +140,18 @@ export function startSpecTestProposalRun(project: ManagedProject, options: SpecT
 }
 
 async function startSpecTestProposalRunActivity(project: ManagedProject, options: SpecTestProposeOptions): Promise<SpecTestProposalRunResult> {
-  const projectHarnessInput = await resolveProjectHarnessAgentInput(project, DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY);
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "Spec-test proposal run");
-  const target = await resolveRunnableChangeTarget(project, { changeId: options.changeId });
-  const changeStatus = target.status;
-  const changeId = target.changeId;
+  const contextScope = options.changeId
+    ? await getSpecTestContextForChange(project, options.changeId)
+    : await getActiveSpecTestContext(project);
+  const changeStatus = contextScope.changeStatus;
+  const changeId = contextScope.changeId;
 
   const runId = buildRunId(changeId, ["spec-test-proposer", options.worktreeId ?? "source-root", options.prompt ?? ""]);
-  const directory = join(memory.runsRoot, runId);
-  const relativeDir = displayArtifactPath(memory, directory);
+  const directory = join(contextScope.runtime.runsRoot, runId);
+  const artifactRoot = projectRunArtifactReference(contextScope.runtime, directory);
+  const relativeDir = artifactRoot.directory;
   const artifacts = {
-    base: memory.artifactBase,
+    base: artifactRoot.base,
     directory: relativeDir,
     context: `${relativeDir}/context.md`,
     contextPacket: `${relativeDir}/context-packet.json`,
@@ -174,17 +180,25 @@ async function startSpecTestProposalRunActivity(project: ManagedProject, options
     proposalMarkdown: join(directory, "spec-test-proposal.md"),
   };
 
-  await mkdir(directory, { recursive: true });
   const now = new Date().toISOString();
   const specTestStatus = await getSpecTestStatus(project, { changeId, worktreeId: options.worktreeId });
-  const latestValidation = await getLatestValidationSummary(memory, changeId, options.worktreeId ? { worktreeId: options.worktreeId } : {});
-  const worktreeDiff = options.worktreeId ? await collectWorktreeDiff(memory, options.worktreeId, changeId) : null;
+  const latestValidation = await getLatestValidationSummary(contextScope.runtime, changeId, options.worktreeId ? { worktreeId: options.worktreeId } : {});
+  const worktreeDiff = options.worktreeId ? await collectWorktreeDiff(contextScope.runtime, options.worktreeId, changeId) : null;
+  const provider = await resolveSpecTestProvider(contextScope, project, "auditor", contextScope.projectRoot);
+  const providerId = provider.id;
+  const [capabilitySnapshot, mainThread] = await Promise.all([
+    provider.capabilitySnapshot(project, project.path),
+    resolveCurrentMainAgentProviderThread(contextScope.runtime, changeId, providerId),
+  ]);
+  let providerAttemptStarted = false;
+  try {
+  await mkdir(directory, { recursive: true });
   const contextArtifact = buildRoleContextArtifact(buildRoleContextPacket({
     roleId: "spec-test-proposer",
     changeStatus,
     goal: "Propose existing test evidence for the selected Acceptance Criteria without changing project state.",
     runId,
-    projectHarness: projectHarnessInput.identity,
+    projectHarness: contextScope.projectHarness,
     writableRoots: [],
     sandboxPolicy: "read-only",
     evidenceSummary: [
@@ -224,11 +238,10 @@ async function startSpecTestProposalRunActivity(project: ManagedProject, options
   await writeFile(paths.context, context, "utf8");
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "context.prepared", runId, data: { path: artifacts.context, contextPacket: artifacts.contextPacket, contextPacketHash: contextArtifact.hash } });
   const prompt = await composeSpecTestProposalPrompt({
-    memory,
     context,
     specTestStatus: JSON.stringify(specTestStatus, null, 2),
     latestValidation: latestValidation ? JSON.stringify(latestValidation, null, 2) : "No validation run recorded for this change.",
-    sourceTests: await collectTestFileSummary(memory.projectRoot),
+    sourceTests: await collectTestFileSummary(contextScope.projectRoot),
     worktreeId: options.worktreeId,
     worktreeDiffStat: worktreeDiff?.diffStat,
     worktreeDiff: worktreeDiff?.diff,
@@ -236,63 +249,40 @@ async function startSpecTestProposalRunActivity(project: ManagedProject, options
   });
   await writeFile(paths.prompt, prompt, "utf8");
 
-  let provider;
-  try {
-    provider = await resolveSpecTestProvider(memory, project, changeId, "auditor", project.path);
-  } catch (error) {
-    const failure = error instanceof Error ? error.message : String(error);
-    await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "provider.exited", runId, data: { status: "failed", error: failure } });
-    const message = renderUnavailableProposalMessage([failure]);
-    await writeFile(paths.lastMessage, message, "utf8");
-    await writeFile(paths.stdout, "", "utf8");
-    await writeFile(paths.providerEvents, "", "utf8");
-    await writeFile(paths.stderr, `${failure}\n`, "utf8");
-    const proposal = await writeProposal(paths.proposal, paths.proposalMarkdown, {
-      runId,
-      changeId,
-      status: "failed",
-      message,
-      output: { status: "failed", evidence: [], warnings: [failure] },
-      worktreeId: options.worktreeId,
-      artifacts,
-      startedAt: now,
-    });
-    run = await finishRun(paths.run, run, "failed", 1, null);
-    await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: "spec-test.proposal.failed", runId, data: { proposalStatus: proposal.status } });
-    await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: "run.failed", runId });
-    return { run, proposal };
-  }
-
-  const providerId = provider.id;
-  const capabilitySnapshot = await provider.capabilitySnapshot(project, project.path);
   run = {
     ...run,
     command: ["provider", "turn.start"],
     status: "running",
-    enabledSkills: [{ ...projectHarnessInput.providerSkillInput, providerId }],
+    enabledSkills: [{ ...contextScope.providerSkillInput, providerId }],
   };
   await writeJsonFile(paths.run, run);
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "spec-test.proposal.started", runId, data: { cwd: project.path, command: run.command } });
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "provider.started", runId, data: { cwd: project.path, providerId, capabilitySnapshot } });
 
-  await startProviderAttempt(memory, {
+  await startProviderAttempt(contextScope.runtime, {
     attemptId: runId,
     providerId,
     capabilitySnapshot,
     operationProfile: "auditor",
     roleId: "spec-test-proposer",
+    parentAgentSurfaceId: mainThread.roleId,
     handoffHash: createHash("sha256").update(prompt).digest("hex"),
     changeId,
+    conversationId: contextScope.conversationId,
+    graphScopeId: contextScope.graphScopeId,
     worktreeId: options.worktreeId ?? null,
     model: capabilitySnapshot.effectiveModel ? { providerId, modelId: capabilitySnapshot.effectiveModel } : null,
   });
+  providerAttemptStarted = true;
 
   let providerResult: ProviderTurnResult;
   try {
     providerResult = await provider.leafExecution.runTurn({
       providerId,
       operationProfile: "auditor",
-      projectId: project.id,
+      projectId: contextScope.projectId,
+      conversationId: contextScope.conversationId,
+      graphScopeId: contextScope.graphScopeId,
       changeId,
       runtimeScopeId: runId,
       roleId: "spec-test-proposer",
@@ -300,7 +290,7 @@ async function startSpecTestProposalRunActivity(project: ManagedProject, options
       attemptId: runId,
       cwd: project.path,
       prompt,
-      skillInputs: [projectHarnessInput.providerSkillInput],
+      skillInputs: [contextScope.providerSkillInput],
       sandboxPolicy: "read-only",
       paths: {
         events: paths.providerEvents,
@@ -309,8 +299,8 @@ async function startSpecTestProposalRunActivity(project: ManagedProject, options
         session: paths.providerSession,
       },
       runtimeWorkspaceRoots: [...new Set([
-        project.path,
-        memory.memoryRoot,
+        contextScope.projectRoot,
+        contextScope.evidenceRoot,
         ...(worktreeDiff ? [worktreeDiff.worktree.checkoutPath] : []),
       ])],
       writableRoots: [],
@@ -329,35 +319,65 @@ async function startSpecTestProposalRunActivity(project: ManagedProject, options
 
   const lastMessage = await ensureProviderMessage(paths.lastMessage, providerResult);
   await writeFile(paths.stdout, providerResult.lastMessage, "utf8");
+  if (providerResult.status !== "completed") {
+    throw new Error(providerResult.error ?? `Spec-test proposer Provider turn ${providerResult.status}.`);
+  }
   const parsed = parseSpecTestProposalMessage(lastMessage);
-  const providerSucceeded = providerResult.status === "completed";
-  await finishProviderAttempt(memory, runId, providerSucceeded ? "completed" : providerResult.status === "interrupted" ? "interrupted" : "failed", providerResult.session?.sessionId ?? null);
+  if (parsed.status === "failed") {
+    throw new Error(parsed.warnings[0] ?? "Spec-test proposal output failed schema validation.");
+  }
+  await finishProviderAttempt(
+    contextScope.runtime,
+    runId,
+    "completed",
+    providerResult.session?.sessionId ?? null,
+    {
+      parentAgentSurfaceId: mainThread.roleId,
+    },
+  );
   const proposal = await writeProposal(paths.proposal, paths.proposalMarkdown, {
     runId,
     changeId,
-    status: providerSucceeded ? parsed.status : "failed",
+    status: parsed.status,
     message: lastMessage,
     output: parsed,
     worktreeId: options.worktreeId,
     artifacts,
     startedAt: now,
   });
-  const status: RunStatus = providerSucceeded && proposal.status !== "failed" ? "completed" : "failed";
+  const status: RunStatus = "completed";
   run = await finishRun(paths.run, run, status, status === "completed" ? 0 : 1, null);
   await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: proposal.status === "failed" ? "spec-test.proposal.failed" : "spec-test.proposal.completed", runId, data: { proposalStatus: proposal.status } });
   await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: status === "completed" ? "run.completed" : "run.failed", runId });
   return { run, proposal };
+  } catch (error) {
+    try {
+      if (providerAttemptStarted) {
+        await rollbackProviderAttempt(contextScope.runtime, runId, "spec-test-proposer");
+      }
+      await rm(directory, { recursive: true, force: true });
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        "Spec-Test proposer cleanup failed; Run and ProviderAttempt evidence were retained for recovery.",
+      );
+    }
+    throw error;
+  }
 }
 
 export async function listSpecTestProposalSummaries(project: ManagedProject): Promise<SpecTestProposalSummary[]> {
-  const memory = await resolveProjectMemory(project);
-  const proposals = await listSpecTestProposals(memory);
+  const context = await getActiveSpecTestContext(project);
+  const proposals = (await listSpecTestProposals(context.runtime))
+    .filter((proposal) => proposal.changeId === context.changeId);
   return proposals.map(summarizeProposal);
 }
 
 export async function showSpecTestProposal(project: ManagedProject, proposalId: string): Promise<SpecTestProposal> {
-  const memory = await resolveProjectMemory(project);
-  return readSpecTestProposal(memory, proposalId);
+  const context = await getActiveSpecTestContext(project);
+  const proposal = await readSpecTestProposal(context.runtime, proposalId);
+  if (proposal.changeId !== context.changeId) throw new Error("Spec-Test proposal scope is stale.");
+  return proposal;
 }
 
 export async function acceptSpecTestProposal(project: ManagedProject, proposalId: string, options: SpecTestProposalAcceptOptions): Promise<SpecTestProposalAcceptResult> {
@@ -367,9 +387,24 @@ export async function acceptSpecTestProposal(project: ManagedProject, proposalId
   if (options.allExisting && (options.ac || options.ref)) {
     throw new Error("Use either --all-existing or --ac/--ref, not both.");
   }
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "Spec-test proposal accept");
-  const proposal = await readSpecTestProposal(memory, proposalId);
+  const activeContext = await getActiveSpecTestContext(project);
+  const proposal = await readSpecTestProposal(activeContext.runtime, proposalId);
+  if (proposal.changeId !== activeContext.changeId) throw new Error("Spec-Test proposal scope is stale.");
+  const proposalManifestHash = specTestProposalManifestHash(proposal);
+  if (options.scope) {
+    const currentFingerprint = await getSpecTestEvidenceFingerprint(project, proposal.changeId);
+    if (options.scope.projectId !== activeContext.projectId
+      || options.scope.changeId !== proposal.changeId
+      || options.scope.conversationId !== activeContext.conversationId
+      || options.scope.graphScopeId !== activeContext.graphScopeId
+      || options.scope.workflowGraphPlanId !== activeContext.planning.graph.id
+      || options.scope.acceptedProposalHash !== activeContext.planning.mainAcceptance.proposalHash
+      || options.scope.authorizationId !== activeContext.planning.authorizationIntent.authorizationId
+      || options.scope.evidenceDigest !== currentFingerprint
+      || options.scope.targetManifestHash !== proposalManifestHash) {
+      throw new Error("Spec-Test proposal approval scope is stale.");
+    }
+  }
   const accepted: SpecTestProposalEvidence[] = [];
   const skipped: Array<{ refId: string; reason: string }> = [];
   const candidates = options.allExisting
@@ -380,10 +415,9 @@ export async function acceptSpecTestProposal(project: ManagedProject, proposalId
     throw new Error(`Proposal evidence not found for AC ${options.ac} and ref ${options.ref}.`);
   }
 
-  const context = await getSpecTestContextForChange(project, proposal.changeId);
-  let status = await getSpecTestStatus(project, { changeId: proposal.changeId });
+  const acceptedCandidates: SpecTestProposalEvidence[] = [];
   for (const candidate of candidates) {
-    const reason = getAcceptRejectReason(candidate, memory);
+    const reason = getAcceptRejectReason(candidate, activeContext.projectRoot);
     if (reason) {
       if (!options.allExisting) {
         throw new Error(reason);
@@ -391,11 +425,28 @@ export async function acceptSpecTestProposal(project: ManagedProject, proposalId
       skipped.push({ refId: candidate.refId, reason });
       continue;
     }
-    status = await linkSpecTestRefs(project, candidate.acId, candidate.refs, context);
-    accepted.push(candidate);
+    acceptedCandidates.push(candidate);
   }
-
-  return { proposal, accepted, skipped, status };
+  const publication = acceptedCandidates.length > 0 && options.scope
+    ? createSpecTestAcceptancePublication({
+      runtime: activeContext.runtime,
+      proposal,
+      accepted: acceptedCandidates,
+      skipped,
+      scope: options.scope,
+    })
+    : null;
+  const status = acceptedCandidates.length > 0
+    ? await linkSpecTestEvidenceBatch(
+      project,
+      proposal.changeId,
+      acceptedCandidates,
+      options.scope?.evidenceDigest,
+      publication?.hooks,
+    )
+    : await getSpecTestStatus(project, { changeId: proposal.changeId });
+  accepted.push(...acceptedCandidates);
+  return { proposal, accepted, skipped, status, acceptanceTransactionId: publication?.transactionId ?? null };
 }
 
 export function parseSpecTestProposalMessage(message: string): { status: SpecTestProposalStatus; evidence: SpecTestProposalEvidence[]; warnings: string[] } {
@@ -422,25 +473,28 @@ export function parseSpecTestProposalMessage(message: string): { status: SpecTes
   }
 }
 
-async function listSpecTestProposals(memory: ResolvedMemory): Promise<SpecTestProposal[]> {
-  if (!existsSync(memory.runsRoot)) return [];
-  const entries = await readdir(memory.runsRoot, { withFileTypes: true });
+async function listSpecTestProposals(runtime: ProjectRunsPathPort): Promise<SpecTestProposal[]> {
+  if (!existsSync(runtime.runsRoot)) return [];
+  const entries = await readdir(runtime.runsRoot, { withFileTypes: true });
   const proposals: SpecTestProposal[] = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    const path = join(memory.runsRoot, entry.name, "spec-test-proposal.json");
+    const path = join(runtime.runsRoot, entry.name, "spec-test-proposal.json");
     if (!existsSync(path)) continue;
-    proposals.push(await readSpecTestProposal(memory, entry.name));
+    proposals.push(await readSpecTestProposal(runtime, entry.name));
   }
   return proposals.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
 }
 
-async function readSpecTestProposal(memory: ResolvedMemory, proposalId: string): Promise<SpecTestProposal> {
-  return await readRequiredJsonFile(join(memory.runsRoot, proposalId, "spec-test-proposal.json"), proposalSchema) as SpecTestProposal;
+async function readSpecTestProposal(runtime: ProjectRunsPathPort, proposalId: string): Promise<SpecTestProposal> {
+  return await readRequiredJsonFile(join(runtime.runsRoot, proposalId, "spec-test-proposal.json"), proposalSchema) as SpecTestProposal;
+}
+
+export function specTestProposalManifestHash(proposal: SpecTestProposal): string {
+  return createHash("sha256").update(stableJson(proposal), "utf8").digest("hex");
 }
 
 async function composeSpecTestProposalPrompt(input: {
-  memory: ResolvedMemory;
   context: string;
   specTestStatus: string;
   latestValidation: string;
@@ -637,28 +691,21 @@ function renderProposalMarkdown(proposal: SpecTestProposal, message: string): st
   ].join("\n");
 }
 
-function parseStatusLine(message: string): SpecTestProposalStatus | null {
-  const match = /^Status:\s*(proposed|blocked|failed)\s*$/im.exec(message);
-  return match ? match[1] as SpecTestProposalStatus : null;
-}
-
 function extractProposalJson(message: string): string | null {
   const fenced = /```json\s*([\s\S]*?)```/i.exec(message);
   if (fenced) return fenced[1].trim();
   const begin = message.indexOf("{");
   const end = message.lastIndexOf("}");
   if (begin >= 0 && end > begin) return message.slice(begin, end + 1);
-  const status = parseStatusLine(message);
-  if (status) return JSON.stringify({ status, evidence: [], warnings: ["No JSON payload found; parsed status line only."] });
   return null;
 }
 
-function getAcceptRejectReason(candidate: SpecTestProposalEvidence, memory: ResolvedMemory): string | null {
+function getAcceptRejectReason(candidate: SpecTestProposalEvidence, projectRoot: string): string | null {
   if (candidate.kind !== "existingEvidence") return `Cannot accept ${candidate.kind}; only existingEvidence can be accepted.`;
   if (candidate.source !== "source-root") return `Cannot accept ${candidate.source} evidence in Phase 4B.`;
   if (candidate.refs.length === 0) return "Candidate has no refs.";
   for (const ref of candidate.refs) {
-    if ((ref.type === "file" || ref.type === "testName") && !existsSync(join(memory.projectRoot, ref.path))) {
+    if ((ref.type === "file" || ref.type === "testName") && !existsSync(join(projectRoot, ref.path))) {
       return `Source-root evidence file does not exist: ${ref.path}.`;
     }
   }
@@ -679,23 +726,6 @@ function summarizeProposal(proposal: SpecTestProposal): SpecTestProposalSummary 
     existingEvidenceCount: existing.length,
     acceptedSourceRootCount: existing.filter((item) => item.source === "source-root").length,
   };
-}
-
-function renderUnavailableProposalMessage(errors: string[]): string {
-  return [
-    "Status: failed",
-    "",
-    "# Spec-Test Proposal Unavailable",
-    "",
-    "AHO could not start a provider with the required read-only structured-output capability.",
-    "",
-    ...errors.map((error) => `- ${error}`),
-    "",
-    "```json",
-    JSON.stringify({ status: "failed", evidence: [], warnings: errors }, null, 2),
-    "```",
-    "",
-  ].join("\n");
 }
 
 async function ensureProviderMessage(path: string, result: ProviderTurnResult): Promise<string> {
@@ -730,14 +760,18 @@ function failedProviderTurn(providerId: string, error: unknown): ProviderTurnRes
   };
 }
 
-function displayArtifactPath(memory: ResolvedMemory, absolutePath: string): string {
-  const base = memory.artifactBase === "memory-root" ? memory.memoryRoot : memory.projectRoot;
-  return relative(base, absolutePath).replace(/\\/g, "/");
-}
-
 async function finishRun(path: string, run: RunMetadata, status: RunStatus, exitCode: number | null, signal: NodeJS.Signals | null): Promise<RunMetadata> {
   const finished = { ...run, status, exitCode, signal, finishedAt: new Date().toISOString() };
   await writeJsonFile(path, finished);
   return finished;
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
 }
 

@@ -167,10 +167,10 @@ createProviderAttempt(attempt: StoredProviderAttempt): void {
     this.db.prepare(`
       INSERT INTO provider_attempts (
         project_id, conversation_id, attempt_id, graph_scope_id, provider_id,
-        change_id, agent_task_id, role_id, operation_profile,
+        change_id, agent_task_id, role_id, parent_agent_surface_id, operation_profile,
         native_session_id, model_json, capability_snapshot_json, handoff_hash,
         delivered_through_completed_turn, worktree_id, status, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       attempt.projectId,
       attempt.conversationId,
@@ -180,6 +180,7 @@ createProviderAttempt(attempt: StoredProviderAttempt): void {
       attempt.changeId,
       attempt.agentTaskId,
       attempt.roleId,
+      attempt.parentAgentSurfaceId,
       attempt.operationProfile,
       attempt.nativeSessionId,
       attempt.model ? JSON.stringify(attempt.model) : null,
@@ -192,6 +193,21 @@ createProviderAttempt(attempt: StoredProviderAttempt): void {
       attempt.updatedAt,
     );
   }
+
+deleteProviderAttempt(projectId: string, attemptId: string, expectedRoleId: string): boolean {
+  return this.db.transaction(() => {
+    const attempt = this.db.prepare("SELECT role_id AS roleId FROM provider_attempts WHERE project_id = ? AND attempt_id = ?")
+      .get(projectId, attemptId) as SqliteRow | undefined;
+    if (!attempt) return false;
+    if (String(attempt.roleId) !== expectedRoleId) {
+      throw new Error(`Provider attempt rollback role mismatch: ${attemptId}.`);
+    }
+    this.db.prepare("DELETE FROM provider_thread_links WHERE project_id = ? AND attempt_id = ?")
+      .run(projectId, attemptId);
+    return this.db.prepare("DELETE FROM provider_attempts WHERE project_id = ? AND attempt_id = ?")
+      .run(projectId, attemptId).changes === 1;
+  })();
+}
 
 startQueuedProviderAttempt(
     projectId: string,
@@ -229,7 +245,8 @@ completeProviderAttempt(projectId: string, attemptId: string, status: StoredProv
     const row = this.db.prepare(`
       SELECT project_id AS projectId, conversation_id AS conversationId, attempt_id AS attemptId,
         graph_scope_id AS graphScopeId, provider_id AS providerId, native_session_id AS nativeSessionId,
-        change_id AS changeId, agent_task_id AS agentTaskId, role_id AS roleId, operation_profile AS operationProfile,
+        change_id AS changeId, agent_task_id AS agentTaskId, role_id AS roleId,
+        parent_agent_surface_id AS parentAgentSurfaceId, operation_profile AS operationProfile,
         model_json AS modelJson, capability_snapshot_json AS capabilitySnapshotJson,
         handoff_hash AS handoffHash, delivered_through_completed_turn AS deliveredThroughCompletedTurn,
         worktree_id AS worktreeId, status, created_at AS createdAt, updated_at AS updatedAt
@@ -280,7 +297,8 @@ bindProviderAttemptThread(
       const attemptRow = this.db.prepare(`
         SELECT project_id AS projectId, conversation_id AS conversationId, attempt_id AS attemptId,
           graph_scope_id AS graphScopeId, provider_id AS providerId, native_session_id AS nativeSessionId,
-          change_id AS changeId, role_id AS roleId, operation_profile AS operationProfile, status
+          change_id AS changeId, role_id AS roleId, parent_agent_surface_id AS parentAgentSurfaceId,
+          operation_profile AS operationProfile, status
         FROM provider_attempts
         WHERE project_id = ? AND attempt_id = ?
       `).get(projectId, input.attemptId) as SqliteRow | undefined;
@@ -331,9 +349,16 @@ bindProviderAttemptThread(
       const parentThreadId = input.parentThreadId === undefined && existingThread
         ? nullableString(existingThread.parentThreadId)
         : input.parentThreadId ?? null;
-      const requestedParentAgentSurfaceId = input.parentAgentSurfaceId === undefined && existingThread
-        ? nullableString(existingThread.parentAgentSurfaceId)
-        : input.parentAgentSurfaceId;
+      const persistedParentAgentSurfaceId = nullableString(attemptRow.parentAgentSurfaceId);
+      if (persistedParentAgentSurfaceId
+        && input.parentAgentSurfaceId !== undefined
+        && input.parentAgentSurfaceId !== persistedParentAgentSurfaceId) {
+        throw new Error(`Provider thread conflicts with attempt Agent surface lineage: ${input.attemptId}`);
+      }
+      const requestedParentAgentSurfaceId = persistedParentAgentSurfaceId
+        ?? (input.parentAgentSurfaceId === undefined && existingThread
+          ? nullableString(existingThread.parentAgentSurfaceId)
+          : input.parentAgentSurfaceId);
       const parentAgentSurfaceId = resolveParentAgentSurfaceId({
         db: this.db,
         projectId,
@@ -413,7 +438,8 @@ listProviderAttempts(projectId: string, conversationId: string): StoredProviderA
     const rows = this.db.prepare(`
       SELECT project_id AS projectId, conversation_id AS conversationId, attempt_id AS attemptId,
         graph_scope_id AS graphScopeId, provider_id AS providerId, native_session_id AS nativeSessionId,
-        change_id AS changeId, agent_task_id AS agentTaskId, role_id AS roleId, operation_profile AS operationProfile,
+        change_id AS changeId, agent_task_id AS agentTaskId, role_id AS roleId,
+        parent_agent_surface_id AS parentAgentSurfaceId, operation_profile AS operationProfile,
         model_json AS modelJson, capability_snapshot_json AS capabilitySnapshotJson,
         handoff_hash AS handoffHash, delivered_through_completed_turn AS deliveredThroughCompletedTurn,
         worktree_id AS worktreeId, status, created_at AS createdAt, updated_at AS updatedAt

@@ -1,10 +1,10 @@
 import type Database from "better-sqlite3";
 import type { SqliteRow } from "./sql-mappers.js";
 
-export const WORKBENCH_SCHEMA_VERSION = 10;
+export const WORKBENCH_SCHEMA_VERSION = 11;
 
 export function requiresRuntimeSchemaRebuild(currentVersion: number): boolean {
-  return currentVersion !== 9 && currentVersion !== WORKBENCH_SCHEMA_VERSION;
+  return currentVersion !== 9 && currentVersion !== 10 && currentVersion !== WORKBENCH_SCHEMA_VERSION;
 }
 
 export function migrate(db: Database.Database): void {
@@ -120,6 +120,7 @@ export function migrate(db: Database.Database): void {
       change_id TEXT,
       agent_task_id TEXT,
       role_id TEXT NOT NULL,
+      parent_agent_surface_id TEXT,
       operation_profile TEXT NOT NULL,
       native_session_id TEXT,
       model_json TEXT,
@@ -227,6 +228,7 @@ export function migrate(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_decision_records_topic ON decision_records(project_id, change_id, updated_at);
   `);
+  ensureColumn(db, "provider_attempts", "parent_agent_surface_id", "TEXT");
   db.exec("DELETE FROM skill_roots WHERE source_kind <> 'custom';");
   db.exec(`
     DELETE FROM conversation_change_links
@@ -248,6 +250,13 @@ export function migrate(db: Database.Database): void {
   `);
   db.exec("CREATE INDEX IF NOT EXISTS idx_timeline_conversation ON canonical_timeline_items(project_id, conversation_id, position);");
   db.pragma(`user_version = ${WORKBENCH_SCHEMA_VERSION}`);
+}
+
+function ensureColumn(db: Database.Database, table: string, column: string, declaration: string): void {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as SqliteRow[];
+  if (!columns.some((item) => String(item.name) === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${declaration}`);
+  }
 }
 
 export function hasWorkbenchRuntimeTables(db: Database.Database): boolean {

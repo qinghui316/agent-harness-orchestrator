@@ -153,6 +153,9 @@ async function executeWorkflowAction(input: WorkbenchProjectInput & { project: M
     validationRunId: body.validationRunId,
     reworkValidationRunId: body.reworkValidationRunId,
     auditRunId: body.auditRunId,
+    specTestEvidenceFingerprint: body.specTestEvidenceFingerprint,
+    specTestAcIds: body.specTestAcIds,
+    specTestMissing: body.specTestMissing,
   }, undefined, workflowConversationPorts);
   return { result, snapshot: await getWorkbenchSnapshot(input, { topicId: body.changeId }) };
 }

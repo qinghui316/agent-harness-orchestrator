@@ -5,6 +5,9 @@ import { reconcileWorkflowTaskQueue, runTaskQueueSequentialWorkflow } from "../.
 import { runDefaultCodeChangeWorkflow, runSourceRefreshReworkWorkflow, runTaskRunStageAction, runTopLevelRoleChainWorkflow, sourceRefreshReworkPrompt } from "../../../workflow-runtime/code-workflow.js";
 import { startValidationRun } from "../../../validation/manager.js";
 import { getSpecTestDriftReport } from "../../../spec-test/drift.js";
+import { startSpecTestGenerationRun } from "../../../spec-test/generate.js";
+import { startSpecTestProposalRun } from "../../../spec-test/proposal.js";
+import { getSpecTestContextForChange, getSpecTestEvidenceFingerprint, requireActiveSpecTestExecutionAuthorization } from "../../../spec-test/manager.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../../provider-runtime/project-harness-discovery.js";
 import { resolveProjectRuntimeState } from "../../../project-runtime/coordinator.js";
 import { finalizeSkillNativeProjectHarnessChange } from "../../../project-runtime/change-finalization.js";
@@ -142,7 +145,45 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
   "task.queue.reconcile": async (project, changeId, request) => reconcileWorkflowTaskQueue(project, { changeId, queueRunId: request.queueRunId }),
   "validate.run": async (project, changeId, request) => startValidationRun(project, { changeId, worktree: request.worktreeId }),
   "audit.run": async (project, changeId, request) => startAuditRun(project, { changeId, worktreeId: request.worktreeId, prompt: request.prompt }),
-  "spec-test.drift": async (project, changeId, request) => getSpecTestDriftReport(project, { changeId, worktreeId: request.worktreeId }),
+  "spec-test.propose": async (project, changeId, request, _live, conversationId) => {
+    await assertCurrentSpecTestAction(project, changeId, request, conversationId);
+    return startSpecTestProposalRun(project, { changeId, worktreeId: request.worktreeId, prompt: request.prompt });
+  },
+  "spec-test.generate": async (project, changeId, request, _live, conversationId) => {
+    await assertCurrentSpecTestAction(project, changeId, request, conversationId);
+    return startSpecTestGenerationRun(project, {
+      changeId,
+      acIds: request.specTestAcIds,
+      missing: request.specTestMissing,
+      prompt: request.prompt,
+    });
+  },
+  "spec-test.drift": async (project, changeId, request, _live, conversationId) => {
+    await assertCurrentSpecTestAction(project, changeId, request, conversationId);
+    return getSpecTestDriftReport(project, { changeId, worktreeId: request.worktreeId });
+  },
   };
   return handlers;
+}
+
+async function assertCurrentSpecTestAction(
+  project: ManagedProject,
+  changeId: string,
+  request: Parameters<WorkbenchActionHandler>[2],
+  conversationId?: string,
+): Promise<void> {
+  if (!conversationId || !request.graphScopeId || !request.specTestEvidenceFingerprint) {
+    throw new Error(`${request.actionType} requires exact Conversation, graph scope, and Spec-Test evidence fingerprint.`);
+  }
+  const context = await getSpecTestContextForChange(project, changeId);
+  if (context.conversationId !== conversationId || context.graphScopeId !== request.graphScopeId) {
+    throw new Error(`${request.actionType} Conversation or graph scope is stale.`);
+  }
+  await requireActiveSpecTestExecutionAuthorization(context).catch(() => {
+    throw new Error(`${request.actionType} execution authorization is not active.`);
+  });
+  const currentFingerprint = await getSpecTestEvidenceFingerprint(project, changeId);
+  if (currentFingerprint !== request.specTestEvidenceFingerprint) {
+    throw new Error(`${request.actionType} Spec-Test evidence or source scope is stale.`);
+  }
 }

@@ -361,6 +361,9 @@ export interface WorkbenchWorkflowActionRequest {
   reworkValidationRunId?: string;
   auditRunId?: string;
   reworkAuditRunId?: string;
+  specTestEvidenceFingerprint?: string;
+  specTestAcIds?: string[];
+  specTestMissing?: boolean;
   applyCheckId?: string;
   landingPackageId?: string;
   remoteLandingResultId?: string;

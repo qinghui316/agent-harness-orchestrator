@@ -110,6 +110,7 @@ export function mapProviderAttemptRow(row: SqliteRow): StoredProviderAttempt {
     changeId: nullableString(row.changeId),
     agentTaskId: nullableString(row.agentTaskId),
     roleId: String(row.roleId),
+    parentAgentSurfaceId: nullableString(row.parentAgentSurfaceId),
     operationProfile: String(row.operationProfile),
     providerId: String(row.providerId),
     nativeSessionId: nullableString(row.nativeSessionId),

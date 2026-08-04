@@ -3,6 +3,7 @@ import { auditHighImpactApproval } from "../../workflow-actions/high-impact-appr
 import type { WorkbenchApprovalAction } from "../read-model-types.js";
 
 const REVALIDATED_APPROVAL_ACTIONS = new Set([
+  "spec-test.proposal.accept-all-existing",
   "result.apply",
   "worktree.discard",
   "apply-check.apply",
@@ -62,6 +63,9 @@ function approvalTargetId(action: WorkbenchApprovalAction): string {
 function collectApprovalActions(snapshot: unknown): WorkbenchApprovalAction[] {
   if (!isRecord(snapshot) || !isRecord(snapshot.right)) return [];
   const result: WorkbenchApprovalAction[] = [];
+  for (const item of asArray(snapshot.right.approvals)) {
+    if (isRecord(item) && isRecord(item.action)) collectFromActions([item], result);
+  }
   const inspector = snapshot.right.decisionInspector;
   if (isRecord(inspector) && isRecord(inspector.primary) && Array.isArray(inspector.primary.actions)) {
     collectFromActions(inspector.primary.actions, result);

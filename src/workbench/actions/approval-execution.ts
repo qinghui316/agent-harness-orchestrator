@@ -30,7 +30,7 @@ export async function runAllowlistedAction(project: ManagedProject, action: Work
   switch (action.actionId) {
     case "spec-test.proposal.accept-all-existing":
       assertArgs(action, "spec-test", ["proposal", "accept"], 5);
-      return acceptSpecTestProposal(project, args[3], { allExisting: true });
+      return acceptSpecTestProposal(project, args[3], { allExisting: true, scope: action.scope });
     case "audit.accept":
       assertArgs(action, "audit", ["accept"], 3);
       return acceptAuditForWorkbenchProject(project, args[2]);

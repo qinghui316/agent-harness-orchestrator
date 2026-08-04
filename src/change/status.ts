@@ -2,10 +2,13 @@ import { join } from "node:path";
 import { buildAcMap, parseReviewStatus } from "../ecl/anchors.js";
 import { buildChangeIndex, getActiveChanges } from "../ecl/index.js";
 import { isGitDirtyIgnoringAhoMemory } from "../project/git.js";
-import { getSpecTestStatus } from "../spec-test/manager.js";
 import { getLatestAuditSummary } from "../audit/artifacts.js";
 import { getLatestValidationSummary } from "../validation/artifacts.js";
 import { listWorktreesForChange } from "../worktree/manager.js";
+import { listProjectHarnessChanges } from "../project-harness/change.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
+import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
+import { getSpecTestContextForChange, getSpecTestStatus } from "../spec-test/manager.js";
 import type { ChangeIndexItem, ChangeStatus, CloseGateResult, ManagedProject, ResolvedMemory, ReviewStatus } from "../types/index.js";
 import { resolveChangeMemory } from "./utils.js";
 import { evaluateActiveCount, uniqueSorted } from "./close-gate.js";
@@ -13,6 +16,10 @@ import { buildPlaceholderFiles, getMissingRequiredFiles, readChangeContents } fr
 import { readScopedChangeMetadata } from "./metadata.js";
 
 export async function getChangeStatus(project: ManagedProject | string | ResolvedMemory): Promise<ChangeStatus> {
+  if (isManagedProject(project)) {
+    const skillNative = await getSkillNativeChangeStatus(project);
+    if (skillNative) return skillNative;
+  }
   const memory = await resolveChangeMemory(project);
   const activeChanges = await getActiveChanges(memory);
   const baseGate = evaluateActiveCount(activeChanges);
@@ -35,6 +42,10 @@ export async function getChangeStatus(project: ManagedProject | string | Resolve
 }
 
 export async function getChangeStatusForChange(project: ManagedProject | string | ResolvedMemory, changeId: string): Promise<ChangeStatus> {
+  if (isManagedProject(project)) {
+    const skillNative = await getSkillNativeChangeStatus(project, changeId);
+    if (skillNative) return skillNative;
+  }
   const memory = await resolveChangeMemory(project);
   const activeChanges = await getActiveChanges(memory);
   const index = await buildChangeIndex(memory);
@@ -57,6 +68,61 @@ export async function getChangeStatusForChange(project: ManagedProject | string 
     };
   }
   return getChangeStatusForActive(memory, active, [active], evaluateActiveCount([active]));
+}
+
+async function getSkillNativeChangeStatus(
+  project: ManagedProject,
+  explicitChangeId?: string,
+): Promise<ChangeStatus | null> {
+  const state = await resolveProjectRuntimeState(project, {
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
+  if (state.state !== "ready") return null;
+  const active = (await listProjectHarnessChanges(state.resolution.harness.skillRoot))
+    .filter((change) => change.status === "active");
+  const activeChanges = active.map((change) => ({
+    name: change.change_id,
+    path: `state/changes/active/${change.change_id}`,
+  }));
+  const selected = explicitChangeId
+    ? active.find((change) => change.change_id === explicitChangeId)
+    : active.length === 1 ? active[0] : undefined;
+  if (!selected) {
+    const baseGate = explicitChangeId
+      ? {
+        ready: false,
+        warnings: [],
+        blockingIssues: [`Active demand conversation not found for scoped run: ${explicitChangeId}.`],
+      }
+      : evaluateActiveCount(activeChanges);
+    return {
+      projectPath: project.path,
+      activeChanges,
+      change: null,
+      reviewStatus: "missing",
+      acMap: null,
+      specTest: null,
+      latestValidation: null,
+      latestAudit: null,
+      closeGate: baseGate,
+    };
+  }
+  const context = await getSpecTestContextForChange(project, selected.change_id);
+  const specTest = await getSpecTestStatus(project, { changeId: selected.change_id });
+  return {
+    ...context.changeStatus,
+    activeChanges,
+    specTest,
+    closeGate: {
+      ready: context.changeStatus.closeGate.ready && specTest.blockingIssues.length === 0,
+      warnings: uniqueSorted([...context.changeStatus.closeGate.warnings, ...specTest.warnings]),
+      blockingIssues: uniqueSorted([...context.changeStatus.closeGate.blockingIssues, ...specTest.blockingIssues]),
+    },
+  };
+}
+
+function isManagedProject(value: ManagedProject | string | ResolvedMemory): value is ManagedProject {
+  return Boolean(value && typeof value === "object" && "id" in value && "path" in value);
 }
 
 async function getChangeStatusForActive(
@@ -94,11 +160,7 @@ async function getChangeStatusForActive(
     blockingIssues.push(...acMap.blockingIssues);
   }
 
-  const specTest = change ? await getSpecTestStatusForMemory(memory, change.id) : null;
-  if (specTest) {
-    warnings.push(...specTest.warnings);
-    blockingIssues.push(...specTest.blockingIssues);
-  }
+  const specTest = null;
 
   blockingIssues.push(...reviewBlockingIssues(reviewStatus));
   if (change) {
@@ -166,22 +228,6 @@ async function getChangeStatusForActive(
   };
 }
 
-async function getSpecTestStatusForMemory(memory: ResolvedMemory, changeId: string) {
-  try {
-    return await getSpecTestStatus(memory, { changeId });
-  } catch (error) {
-    return {
-      version: "1.0" as const,
-      changeId,
-      selectedRoot: memory.projectRoot,
-      latestValidation: null,
-      mappings: [],
-      acceptanceCriteria: [],
-      warnings: [],
-      blockingIssues: [`Spec-test mapping could not be evaluated: ${(error as Error).message}`],
-    };
-  }
-}
 
 export { evaluateActiveCount };
 

@@ -80,7 +80,7 @@ export async function closeChange(project: ManagedProject | string): Promise<Cha
   const memory = await resolveChangeMemory(project);
   assertWritableMemory(memory, "Change close");
   return withProjectWriteLease(memory.projectRoot, {}, async (lease) => {
-    const status = await getChangeStatus(memory);
+    const status = await getChangeStatus(project);
     return closeChangeFromStatus(memory, status, "legacy", null, lease);
   });
 }
@@ -91,7 +91,7 @@ export async function closeChangeForChange(project: ManagedProject | string, cha
   return withProjectWriteLease(memory.projectRoot, {}, async (lease) => {
     const existing = await readCloseTransaction(memory, changeId);
     if (existing) return recoverCloseTransaction(memory, existing, lease);
-    const status = await getChangeStatusForChange(memory, changeId);
+    const status = await getChangeStatusForChange(project, changeId);
     return closeChangeFromStatus(memory, status, "scoped", null, lease);
   });
 }
@@ -108,7 +108,7 @@ export async function closeChangeForFinalization(project: ManagedProject | strin
       return recoverCloseTransaction(memory, existing, lease);
     }
     const request = await assertFinalizationAuthority(memory, input);
-    const status = await assertChangeFinalizationReady(memory, input.changeId);
+    const status = await assertChangeFinalizationReady(project, input.changeId);
     return closeChangeFromStatus(memory, status, "scoped", { ...input, manifestHash: request.manifestHash }, lease);
   });
 }
@@ -165,7 +165,7 @@ async function assertFinalizationAuthority(memory: ResolvedMemory, input: Author
 
 export async function assertChangeFinalizationReady(project: ManagedProject | string | ResolvedMemory, changeId: string): Promise<ChangeStatus> {
   const memory = typeof project === "object" && "changesRoot" in project ? project : await resolveChangeMemory(project);
-  const status = await getChangeStatusForChange(memory, changeId);
+  const status = await getChangeStatusForChange(project, changeId);
   const issues = [...status.closeGate.blockingIssues];
   if (status.latestValidation?.status !== "passed") issues.push("Automatic finalization requires a passed latest validation.");
   if (status.latestAudit?.status !== "approved" && status.latestAudit?.status !== "approved-with-notes") {
@@ -397,14 +397,14 @@ async function writeDurableCloseIntent(path: string, transaction: ChangeCloseTra
 export async function abandonChange(project: ManagedProject | string, reason?: string): Promise<ChangeAbandonResult> {
   const memory = await resolveChangeMemory(project);
   assertWritableMemory(memory, "Change abandon");
-  const status = await getChangeStatus(memory);
+  const status = await getChangeStatus(project);
   return abandonChangeFromStatus(memory, status, reason, "legacy");
 }
 
 export async function abandonChangeForChange(project: ManagedProject | string, changeId: string, reason?: string): Promise<ChangeAbandonResult> {
   const memory = await resolveChangeMemory(project);
   assertWritableMemory(memory, "Change abandon");
-  const status = await getChangeStatusForChange(memory, changeId);
+  const status = await getChangeStatusForChange(project, changeId);
   return abandonChangeFromStatus(memory, status, reason, "scoped");
 }
 
