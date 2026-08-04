@@ -40,17 +40,18 @@ vi.mock("../../src/workbench/conversation-interactions.js", async (importOrigina
   };
 });
 
-import { initHarness } from "../../src/harness/init.js";
-import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { git } from "../../src/project/git.js";
+import { resolveProjectRuntimePaths, type ProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import { createWorkbenchConversation } from "../../src/workbench/conversation-service.js";
 import { settleConversationInteraction } from "../../src/workbench/conversation-interaction-service.js";
 import { buildConversationInteractionQueue } from "../../src/workbench/conversation-interactions.js";
-import { openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
+import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
+import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
 
 let root: string;
 let originalAhoHome: string | undefined;
+let runtime: ProjectRuntimePaths;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "aho-interaction-settlement-"));
@@ -81,7 +82,13 @@ beforeEach(async () => {
   await writeFile(join(root, "package.json"), "{\"name\":\"interaction-settlement-fixture\"}\n", "utf8");
   await git(root, ["add", "package.json"]);
   await git(root, ["commit", "-m", "fixture baseline"]);
-  await initHarness(project());
+  await createReadyProjectHarnessFixture({
+    projectRoot: root,
+    ahoHome: process.env.AHO_HOME,
+    projectId: project().id,
+    projectName: project().name,
+  });
+  runtime = resolveProjectRuntimePaths(project().id, process.env.AHO_HOME);
 });
 
 afterEach(async () => {
@@ -107,8 +114,7 @@ describe("conversation interaction settlement", () => {
       { answers: { choice: "continue", token: "top-secret-value" } },
       expect.objectContaining({ runId: "run-1", threadId: "thread-main", turnId: "turn-main" }),
     );
-    const memory = await resolveProjectMemory(project());
-    const store = await openWorkbenchDatabase(memory);
+    const store = await openProjectRuntimeWorkbenchDatabase(runtime);
     try {
       const request = store.interactions.readProviderUserInputRequest(project().id, fixture.conversationId, "request-key-1");
       expect(request).toMatchObject({
@@ -146,8 +152,7 @@ describe("conversation interaction settlement", () => {
     await expect(settleConversationInteraction(project(), fixture.conversationId, fixture.interactionId, settlement))
       .rejects.toThrow("transport outcome unknown");
 
-    const memory = await resolveProjectMemory(project());
-    const store = await openWorkbenchDatabase(memory);
+    const store = await openProjectRuntimeWorkbenchDatabase(runtime);
     try {
       expect(store.interactions.readProviderUserInputRequest(project().id, fixture.conversationId, "request-key-1")?.status).toBe("submitting");
       expect(store.timeline.listConversationMessages(project().id, fixture.conversationId).map((item) => item.rawJson).join("\n"))
@@ -163,8 +168,7 @@ describe("conversation interaction settlement", () => {
 
   it("rejects a stale interaction after the graph scope changes", async () => {
     const fixture = await providerInteraction();
-    const memory = await resolveProjectMemory(project());
-    const store = await openWorkbenchDatabase(memory);
+    const store = await openProjectRuntimeWorkbenchDatabase(runtime);
     try {
       store.unitOfWork.startConversationGraphScope(project().id, fixture.conversationId, "scope-next", new Date().toISOString());
     } finally {
@@ -235,8 +239,7 @@ async function providerInteraction(status: "pending" | "submitting" = "pending")
   const conversation = await createWorkbenchConversation(project(), {
     body: "Wait for grouped answers.",
   }, undefined, { runMainAgent: false });
-  const memory = await resolveProjectMemory(project());
-  const store = await openWorkbenchDatabase(memory);
+  const store = await openProjectRuntimeWorkbenchDatabase(runtime);
   const graphScopeId = store.conversations.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
   const entry = {
     id: "provider-input-message",
@@ -293,7 +296,7 @@ async function providerInteraction(status: "pending" | "submitting" = "pending")
   } finally {
     store.close();
   }
-  const queue = await buildConversationInteractionQueue(memory, conversation.conversationId, graphScopeId);
+  const queue = await buildConversationInteractionQueue(runtime, conversation.conversationId, graphScopeId);
   return { conversationId: conversation.conversationId, interactionId: queue.items[0]!.interactionId };
 }
 

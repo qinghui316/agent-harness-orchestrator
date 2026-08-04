@@ -7,6 +7,7 @@ import { writeJsonFile } from "../../fs/json.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../provider-runtime/project-harness-discovery.js";
 import { resolveProjectRuntimeState } from "../../project-runtime/coordinator.js";
 import { projectExecutionRuntimePort, type ProjectCodeExecutionRuntimePort } from "../../project-runtime/execution-ports.js";
+import { resolveProjectRuntimePaths } from "../../project-runtime/paths.js";
 import type { ManagedProject, SpecTestProposal, SpecTestProposalEvidence } from "../../types/index.js";
 import type { HighImpactApprovalScope } from "../../workflow-actions/high-impact-approval.js";
 import { specTestsSchema } from "./schemas.js";
@@ -144,9 +145,13 @@ export async function recoverSpecTestApprovalReceipts(
   project: ManagedProject,
   onReceipt: (receipt: SpecTestAcceptanceRecoveryReceipt) => Promise<void>,
 ): Promise<SpecTestAcceptanceRecoveryReceipt[]> {
+  const unresolvedRoot = transactionRoot(resolveProjectRuntimePaths(project.id));
+  if (!existsSync(unresolvedRoot)) return [];
   const runtime = await resolveRuntime(project);
   const root = transactionRoot(runtime);
-  if (!existsSync(root)) return [];
+  if (!existsSync(root)) {
+    throw new Error("Spec-Test acceptance recovery root changed during project resolution.");
+  }
   const receipts: SpecTestAcceptanceRecoveryReceipt[] = [];
   for (const entry of await readdir(root, { withFileTypes: true })) {
     if (!entry.isFile() || !/^[a-f0-9]{64}\.json$/.test(entry.name)) continue;

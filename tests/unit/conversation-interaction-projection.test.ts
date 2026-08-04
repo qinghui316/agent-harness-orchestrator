@@ -2,20 +2,21 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { initHarness } from "../../src/harness/init.js";
-import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { git } from "../../src/project/git.js";
+import { resolveProjectRuntimePaths, type ProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import { createWorkbenchConversation } from "../../src/workbench/conversation-service.js";
 import { fromStoredThreadMessage } from "../../src/workbench/conversation-thread-log.js";
 import { buildConversationInteractionQueue } from "../../src/workbench/conversation-interactions.js";
 import { canonicalTranscriptCellsFromThreadItem } from "../../src/workbench/parent-agent-transcript.js";
-import { openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
+import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import type { WorkbenchDatabase } from "../../src/workbench/persistence/database.js";
 import { type StoredTopicMessage } from "../../src/workbench/persistence/contracts.js";
+import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
 
 let root: string;
 let originalAhoHome: string | undefined;
+let runtime: ProjectRuntimePaths;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "aho-interaction-projection-"));
@@ -27,7 +28,13 @@ beforeEach(async () => {
   await writeFile(join(root, "package.json"), "{\"name\":\"interaction-projection-fixture\"}\n", "utf8");
   await git(root, ["add", "package.json"]);
   await git(root, ["commit", "-m", "fixture baseline"]);
-  await initHarness(project());
+  await createReadyProjectHarnessFixture({
+    projectRoot: root,
+    ahoHome: process.env.AHO_HOME,
+    projectId: project().id,
+    projectName: project().name,
+  });
+  runtime = resolveProjectRuntimePaths(project().id, process.env.AHO_HOME);
 });
 
 afterEach(async () => {
@@ -41,8 +48,7 @@ describe("conversation interaction projection", () => {
     const conversation = await createWorkbenchConversation(project(), {
       body: "Project pending questions.",
     }, undefined, { runMainAgent: false });
-    const memory = await resolveProjectMemory(project());
-    const store = await openWorkbenchDatabase(memory);
+    const store = await openProjectRuntimeWorkbenchDatabase(runtime);
     const graphScopeId = store.conversations.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
     try {
       appendProviderQuestion(store, conversation.conversationId, "old-scope", "old", "q-old");
@@ -53,7 +59,7 @@ describe("conversation interaction projection", () => {
       store.close();
     }
 
-    const queue = await buildConversationInteractionQueue(memory, conversation.conversationId, graphScopeId);
+    const queue = await buildConversationInteractionQueue(runtime, conversation.conversationId, graphScopeId);
 
     expect(queue.items.map((item) => item.questions[0]?.questionId)).toEqual(["q-first", "q-second"]);
     expect(queue.items.every((item, index, items) => index === 0 || item.canonicalSequence > items[index - 1]!.canonicalSequence)).toBe(true);
@@ -65,7 +71,7 @@ describe("conversation interaction projection", () => {
     expect(publicJson).not.toContain("requestId");
     expect(publicJson).not.toContain("expiresAt");
 
-    const transitionStore = await openWorkbenchDatabase(memory);
+    const transitionStore = await openProjectRuntimeWorkbenchDatabase(runtime);
     try {
       transitionStore.unitOfWork.startConversationGraphScope(project().id, conversation.conversationId, "scope-next", "2026-07-16T00:00:03.000Z");
       expect(transitionStore.interactions.readProviderUserInputRequest(project().id, conversation.conversationId, "request-key-first")?.status).toBe("superseded");
@@ -73,15 +79,14 @@ describe("conversation interaction projection", () => {
     } finally {
       transitionStore.close();
     }
-    expect((await buildConversationInteractionQueue(memory, conversation.conversationId, "scope-next")).items).toEqual([]);
+    expect((await buildConversationInteractionQueue(runtime, conversation.conversationId, "scope-next")).items).toEqual([]);
   });
 
   it("terminalizes provider, clarification, and Plan interactions with the graph scope", async () => {
     const conversation = await createWorkbenchConversation(project(), {
       body: "Finish every pending interaction with the objective.",
     }, undefined, { runMainAgent: false });
-    const memory = await resolveProjectMemory(project());
-    const store = await openWorkbenchDatabase(memory);
+    const store = await openProjectRuntimeWorkbenchDatabase(runtime);
     const graphScopeId = store.conversations.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
     try {
       appendProviderQuestion(store, conversation.conversationId, graphScopeId, "terminal", "q-terminal");
@@ -117,7 +122,7 @@ describe("conversation interaction projection", () => {
       store.close();
     }
 
-    expect((await buildConversationInteractionQueue(memory, conversation.conversationId, graphScopeId)).items).toEqual([]);
+    expect((await buildConversationInteractionQueue(runtime, conversation.conversationId, graphScopeId)).items).toEqual([]);
   });
 
   it.each(["interrupted", "superseded"] as const)("retains %s provider input as read-only history", (status) => {
@@ -160,8 +165,7 @@ describe("conversation interaction projection", () => {
     const conversation = await createWorkbenchConversation(project(), {
       body: "Do not leave a stale dock.",
     }, undefined, { runMainAgent: false });
-    const memory = await resolveProjectMemory(project());
-    const store = await openWorkbenchDatabase(memory);
+    const store = await openProjectRuntimeWorkbenchDatabase(runtime);
     const graphScopeId = store.conversations.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
     try {
       appendProviderQuestion(store, conversation.conversationId, graphScopeId, "terminal", "q-terminal");
@@ -176,7 +180,7 @@ describe("conversation interaction projection", () => {
       store.close();
     }
 
-    expect((await buildConversationInteractionQueue(memory, conversation.conversationId, graphScopeId)).items).toEqual([]);
+    expect((await buildConversationInteractionQueue(runtime, conversation.conversationId, graphScopeId)).items).toEqual([]);
   });
 });
 
