@@ -1,11 +1,5 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-import { readProjectMarker } from "../../../project/marker.js";
 import { getProjectStatus } from "../../../project/status.js";
-import { resolveMemory } from "../../../memory/resolver.js";
-import { readScopedChangeMetadataAt } from "../../../change/metadata.js";
-import type { ChangeMetadata, ResolvedMemory } from "../../../types/index.js";
-import type { HarnessGap, WorkbenchProjectInput, WorkbenchSnapshot, WorkbenchTopicState } from "../../read-model-types.js";
+import type { HarnessGap, WorkbenchSnapshot, WorkbenchTopicState } from "../../read-model-types.js";
 
 export function buildHarnessGaps(): HarnessGap[] {
   return [
@@ -59,17 +53,6 @@ export function buildHarnessGaps(): HarnessGap[] {
       summary: "演进仍是显式受控流程；当前没有自动修改 canonical 文档的后台维护通道。",
     },
   ];
-}
-
-export async function resolveWorkbenchMemory(input: WorkbenchProjectInput): Promise<ResolvedMemory> {
-  const marker = await readProjectMarker(input.path);
-  return resolveMemory(input.project ? { ...input.project, marker } : { path: input.path, marker });
-}
-
-export async function readChangeMetadataAt(memory: ResolvedMemory, relativePath: string): Promise<ChangeMetadata | null> {
-  if (!existsSync(join(memory.memoryRoot, relativePath, "change.json"))) return null;
-  const state = relativePath.includes("/archive/") || relativePath.includes("\\archive\\") ? "archive" : "active";
-  return (await readScopedChangeMetadataAt(memory, relativePath, state)).metadata;
 }
 
 export function stateRank(state: WorkbenchTopicState): number {

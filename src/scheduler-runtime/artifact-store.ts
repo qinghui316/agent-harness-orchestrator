@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { hashFile } from "../workflow-artifacts/hashes.js";
 import type { WorkflowArtifactWithChange } from "../workflow-artifacts/types.js";
+import { assertPortableProjectId } from "../project-harness/project-id.js";
 
 export interface SchedulerArtifactStore {
   changeId: string;
@@ -41,8 +42,8 @@ export function schedulerPlanningRunArtifactPaths(planningRoot: string): Schedul
   const root = join(planningRoot, "scheduler-runs");
   return {
     root,
-    runPath: (schedulerRunId) => join(root, `${schedulerRunId}.json`),
-    journalPath: (schedulerRunId) => join(root, `${schedulerRunId}.jsonl`),
+    runPath: (schedulerRunId) => join(root, `${assertPortableProjectId(schedulerRunId, "SchedulerRun id")}.json`),
+    journalPath: (schedulerRunId) => join(root, `${assertPortableProjectId(schedulerRunId, "SchedulerRun id")}.jsonl`),
     latestRunPath: () => join(planningRoot, "scheduler-run.json"),
     latestRunMarkdownPath: () => join(planningRoot, "scheduler-run.md"),
   };
@@ -52,11 +53,11 @@ export function skillNativeSchedulerRunArtifactPaths(
   runtimeRoot: string,
   currentSchedulerRunId: string,
 ): SchedulerRunArtifactPaths {
-  const currentRoot = join(runtimeRoot, currentSchedulerRunId);
+  const currentRoot = join(runtimeRoot, assertPortableProjectId(currentSchedulerRunId, "SchedulerRun id"));
   return {
     root: runtimeRoot,
-    runPath: (schedulerRunId) => join(runtimeRoot, schedulerRunId, "scheduler-run.json"),
-    journalPath: (schedulerRunId) => join(runtimeRoot, schedulerRunId, "scheduler-run-events.jsonl"),
+    runPath: (schedulerRunId) => join(runtimeRoot, assertPortableProjectId(schedulerRunId, "SchedulerRun id"), "scheduler-run.json"),
+    journalPath: (schedulerRunId) => join(runtimeRoot, assertPortableProjectId(schedulerRunId, "SchedulerRun id"), "scheduler-run-events.jsonl"),
     latestRunPath: () => join(currentRoot, "scheduler-run.json"),
     latestRunMarkdownPath: () => join(currentRoot, "scheduler-run.md"),
   };
@@ -71,7 +72,11 @@ export function schedulerRuntimeRoot(
   _changePath: string,
   schedulerRunId: string,
 ): string {
-  return assertWithin(store.runtimeRoot, join(store.runtimeRoot, schedulerRunId), "Scheduler runtime root");
+  return assertWithin(
+    store.runtimeRoot,
+    join(store.runtimeRoot, assertPortableProjectId(schedulerRunId, "SchedulerRun id")),
+    "Scheduler runtime root",
+  );
 }
 
 export function schedulerArtifactRef(store: SchedulerArtifactStore, absolutePath: string): string {

@@ -9,13 +9,15 @@ import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/w
 import { deleteWorkbenchConversation, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/projections/read-model/implementation.js";
 import { getCanonicalTimelinePage } from "../../src/workbench/canonical-timeline-query.js";
 import { createAgentTask } from "../../src/agent-task/manager.js";
+import { projectExecutionRuntimePort } from "../../src/project-runtime/execution-ports.js";
+import { writeWorkflowRun } from "../../src/workflow-run/repository.js";
 import { alignDecisionInspectorWithConfirmationPrimary, buildDecisionInspector } from "../../src/workbench/projections/read-model/decision-inspector.js";
 import { buildConfirmationQueue } from "../../src/workbench/projections/read-model/confirmation-queue.js";
 import { mainAgentExecutionForWorkpad } from "../../src/workbench/projections/read-model/main-agent-execution.js";
 import { landingCandidateQueueItem } from "../../src/workbench/projections/read-model/confirmation/landing.js";
 import { writeLandingArtifacts } from "../../src/landing/repository.js";
 import type { LandingReadinessPackage } from "../../src/landing/types.js";
-import { getTempDir, project } from "../helpers/skill-native-test-environment.js";
+import { getTempDir, git, initGitRepository, project } from "../helpers/skill-native-test-environment.js";
 import type { RunMetadata } from "../../src/types/index.js";
 import type { WorkbenchConfirmationQueueItem, WorkbenchDecisionInspector, WorkbenchMainAgentExecutionSummary } from "../../src/workbench/read-model-types.js";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
@@ -32,6 +34,7 @@ import {
   writeSkillNativeWorkflowRunRecord,
   type SkillNativeWorkbenchFixture,
 } from "../helpers/skill-native-workbench-fixture.js";
+import { prepareSkillNativeApplyFixture } from "../helpers/skill-native-apply-fixture.js";
 
 let skillNativeFixture: SkillNativeWorkbenchFixture;
 
@@ -213,10 +216,29 @@ describe("workbench read-model projections", () => {
     expect(existsSync(join(skillNativeFixture.skillRoot, "state", "registry", "changes", `${conversation.changeId}.json`))).toBe(true);
   });
 
+  it("returns a ready empty snapshot before the first Conversation", async () => {
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() });
+
+    expect(snapshot.memory).toMatchObject({
+      kind: "project-skill",
+      harnessReady: true,
+      projectId: project().id,
+    });
+    expect(snapshot.center.selectedTopic).toBeNull();
+    expect(snapshot.center.workpad).toMatchObject({
+      state: "empty",
+      userStatus: "later",
+      blockers: [],
+      warnings: [],
+    });
+    expect(snapshot.left.topics).toEqual([]);
+    expect(snapshot.right.confirmationQueue.current).toEqual([]);
+  });
+
   it("keeps ordinary conversations out of Harness gate projections", async () => {
     const conversation = await createWorkbenchConversation(project(), { body: "Just talk to the main Agent." }, undefined, { runMainAgent: false });
 
-    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: conversation.conversationId });
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() });
 
     expect(snapshot.left.topics).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: conversation.conversationId, kind: "conversation", boundChangeId: null }),
@@ -227,6 +249,87 @@ describe("workbench read-model projections", () => {
     expect(snapshot.right.confirmationQueue.current).toEqual([]);
     expect(snapshot.right).not.toHaveProperty("agentWorkspace");
     expect(existsSync(skillNativeChangeRoot(skillNativeFixture, conversation.conversationId))).toBe(false);
+  });
+
+  it("keeps Skill-native apply and blocking evidence in the approvals API", async () => {
+    const applyRoot = join(getTempDir(), "approval-api-project");
+    await mkdir(applyRoot, { recursive: true });
+    await initGitRepository(applyRoot);
+    await writeFile(join(applyRoot, ".gitignore"), ".agents/\n.claude/\n", "utf8");
+    await writeFile(join(applyRoot, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
+    await git(applyRoot, ["add", "."]);
+    await git(applyRoot, ["commit", "-m", "initial"]);
+    const ready = await prepareSkillNativeApplyFixture({
+      projectRoot: applyRoot,
+      ahoHome: skillNativeFixture.ahoHome,
+      projectId: "approval-api-project",
+      projectName: "Approval API Project",
+      title: "Approval API Ready",
+      changedPath: "approval-ready.txt",
+      changedContent: "ready\n",
+    });
+    const workflowTimestamp = new Date().toISOString();
+    await writeWorkflowRun(projectExecutionRuntimePort(ready.project, ready.resolution), {
+      version: "1.0",
+      id: `workflow-${ready.changeId}`,
+      changeId: ready.changeId,
+      status: "completed",
+      source: "default-code-change-workflow",
+      templateId: "default-code-change-workflow",
+      nodes: [{
+        nodeId: "coder",
+        status: "completed",
+        roleId: "coder-agent",
+        attempt: 1,
+        artifactRefs: [],
+        updatedAt: workflowTimestamp,
+      }],
+      maxReworkAttempts: 1,
+      reworkAttempts: 0,
+      recoveryKey: {
+        version: "1.0",
+        changeId: ready.changeId,
+        templateId: "default-code-change-workflow",
+        sourceHash: "fixture-source",
+        policyHash: "fixture-policy",
+        capabilityHash: "fixture-capability",
+        createdAt: workflowTimestamp,
+      },
+      artifactRefs: [],
+      createdAt: workflowTimestamp,
+      updatedAt: workflowTimestamp,
+      startedAt: workflowTimestamp,
+      finishedAt: workflowTimestamp,
+    });
+
+    const readySnapshot = await getWorkbenchSnapshot(
+      { project: ready.project, path: ready.project.path },
+      { topicId: ready.changeId },
+    );
+    expect(readySnapshot.right.approvals).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: `apply:${ready.worktreeId}`,
+        kind: "worktree-apply",
+        changeId: ready.changeId,
+        targetId: ready.worktreeId,
+        action: expect.objectContaining({ actionId: "result.apply", scope: expect.any(Object) }),
+      }),
+    ]));
+
+    const blocked = await createConversationChangeFixture(project(), { title: "Approval API Blocked" });
+    await writeSkillNativeAcceptedSpecAndTasks(skillNativeFixture, blocked.changeId);
+    await writeValidationResult(blocked.changeId, "validation-blocking", "wt-blocking", "failed");
+    const blockedSnapshot = await getWorkbenchSnapshot(
+      { project: project(), path: getTempDir() },
+      { topicId: blocked.changeId },
+    );
+    expect(blockedSnapshot.right.approvals).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: `attention:validation:${blocked.changeId}:validation-blocking`,
+        kind: "attention",
+        severity: "blocking",
+      }),
+    ]));
   });
 
   it("builds a snapshot without synthesizing a close approval", async () => {
@@ -703,20 +806,28 @@ describe("workbench read-model projections", () => {
     expect(stream.diagnostics).toEqual(expect.arrayContaining([expect.stringContaining("stderr")]));
   });
 
-  it("returns a diagnostic snapshot when durable memory is unavailable", async () => {
+  it("returns an explicit Skill-native diagnostic snapshot when no project is registered", async () => {
     const snapshot = await getWorkbenchSnapshot({ project: null, path: getTempDir() });
 
+    expect(snapshot.memory).toEqual({
+      kind: "project-skill",
+      registered: false,
+      managed: false,
+      memoryAvailable: false,
+      harnessReady: false,
+      runtimeAvailable: false,
+      state: "unregistered",
+      reason: "Project is not registered; Workbench will not infer project history.",
+    });
     expect(snapshot.left.topics).toHaveLength(0);
     expect(snapshot.center.selectedTopic).toBeNull();
     expect(snapshot.center.workpad).toMatchObject({
       state: "diagnostic",
       nextAction: expect.objectContaining({ enabled: false }),
     });
-    expect(snapshot.warnings).toEqual(expect.arrayContaining([
-      "Project is not registered; snapshot is diagnostic only.",
-      "Project is not managed by AHO.",
-      "Durable memory is unavailable. AHO will not infer project history.",
-    ]));
+    expect(snapshot.warnings).toEqual([
+      "Project is not registered; Workbench will not infer project history.",
+    ]);
   });
 
   it("summarizes bundled role profiles without enabling scheduling", async () => {

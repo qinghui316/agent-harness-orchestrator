@@ -1,12 +1,17 @@
 import { join } from "node:path";
+import { assertPortableProjectId } from "../project-harness/project-id.js";
 import { schedulerPlanningRoot, type SchedulerArtifactStore } from "../scheduler-runtime/artifact-store.js";
+
+function schedulerPlanningArtifactFileName(id: string, label: string): string {
+  return `${assertPortableProjectId(id, label)}.json`;
+}
 
 export function schedulerContractsDir(memory: SchedulerArtifactStore, changePath: string): string {
   return join(schedulerPlanningRoot(memory, changePath), "scheduler-contracts");
 }
 
 export function schedulerContractPath(memory: SchedulerArtifactStore, changePath: string, schedulerContractId: string): string {
-  return join(schedulerContractsDir(memory, changePath), `${schedulerContractId}.json`);
+  return join(schedulerContractsDir(memory, changePath), schedulerPlanningArtifactFileName(schedulerContractId, "Scheduler contract id"));
 }
 
 export function latestSchedulerContractPath(memory: SchedulerArtifactStore, changePath: string): string {
@@ -22,7 +27,7 @@ export function schedulerDispatchDryRunsDir(memory: SchedulerArtifactStore, chan
 }
 
 export function schedulerDispatchDryRunPath(memory: SchedulerArtifactStore, changePath: string, dryRunId: string): string {
-  return join(schedulerDispatchDryRunsDir(memory, changePath), `${dryRunId}.json`);
+  return join(schedulerDispatchDryRunsDir(memory, changePath), schedulerPlanningArtifactFileName(dryRunId, "Scheduler dispatch dry-run id"));
 }
 
 export function latestSchedulerDispatchDryRunPath(memory: SchedulerArtifactStore, changePath: string): string {
@@ -38,7 +43,7 @@ export function schedulerWorkerSessionPlansDir(memory: SchedulerArtifactStore, c
 }
 
 export function schedulerWorkerSessionPlanPath(memory: SchedulerArtifactStore, changePath: string, workerPlanId: string): string {
-  return join(schedulerWorkerSessionPlansDir(memory, changePath), `${workerPlanId}.json`);
+  return join(schedulerWorkerSessionPlansDir(memory, changePath), schedulerPlanningArtifactFileName(workerPlanId, "Scheduler worker plan id"));
 }
 
 export function latestSchedulerWorkerSessionPlanPath(memory: SchedulerArtifactStore, changePath: string): string {
@@ -54,7 +59,7 @@ export function schedulerClaimReconcilePlansDir(memory: SchedulerArtifactStore, 
 }
 
 export function schedulerClaimReconcilePlanPath(memory: SchedulerArtifactStore, changePath: string, claimReconcilePlanId: string): string {
-  return join(schedulerClaimReconcilePlansDir(memory, changePath), `${claimReconcilePlanId}.json`);
+  return join(schedulerClaimReconcilePlansDir(memory, changePath), schedulerPlanningArtifactFileName(claimReconcilePlanId, "Scheduler claim reconcile plan id"));
 }
 
 export function latestSchedulerClaimReconcilePlanPath(memory: SchedulerArtifactStore, changePath: string): string {
@@ -70,7 +75,7 @@ export function schedulerLaunchPreflightsDir(memory: SchedulerArtifactStore, cha
 }
 
 export function schedulerLaunchPreflightPath(memory: SchedulerArtifactStore, changePath: string, preflightId: string): string {
-  return join(schedulerLaunchPreflightsDir(memory, changePath), `${preflightId}.json`);
+  return join(schedulerLaunchPreflightsDir(memory, changePath), schedulerPlanningArtifactFileName(preflightId, "Scheduler launch preflight id"));
 }
 
 export function latestSchedulerLaunchPreflightPath(memory: SchedulerArtifactStore, changePath: string): string {

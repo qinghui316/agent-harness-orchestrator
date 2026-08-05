@@ -1,9 +1,9 @@
-﻿import { approvalAction } from "./approval-inbox.js";
 import type { AuditSummary, ValidationSummary } from "../../../types/index.js";
 import { latestByTimestamp, sortByTimestampDesc } from "./projection-summary.js";
 import { evidenceActions } from "./evidence-actions.js";
 import { mainAgentExecutionForWorkpad } from "./main-agent-execution.js";
 import type {
+  WorkbenchApprovalAction,
   WorkbenchApprovalItem,
   WorkbenchApprovalKind,
   WorkbenchConfirmationQueueItem,
@@ -20,6 +20,17 @@ import type {
   WorkbenchUserDecisionState,
   WorkbenchWorkpad,
 } from "../../read-model-types.js";
+
+function approvalAction(actionId: string, label: string, command: string, args: string[], mutates: boolean): WorkbenchApprovalAction {
+  return {
+    actionId,
+    label,
+    command,
+    args,
+    mutates,
+    requiresConfirmation: mutates,
+  };
+}
 
 export function emptyDecisionInspector(): WorkbenchDecisionInspector {
   return {

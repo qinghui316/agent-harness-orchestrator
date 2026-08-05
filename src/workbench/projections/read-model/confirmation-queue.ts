@@ -1,7 +1,8 @@
 import { findIntegrationCheckCandidate, listIntegrationChecks } from "../../../integration-check/manager.js";
 import { findLandingCandidate, listLandingPackages } from "../../../landing/manager.js";
 import { latestLandingQueueSnapshot } from "../../../landing-queue/manager.js";
-import type { ManagedProject, ResolvedMemory } from "../../../types/index.js";
+import type { ProjectWorkbenchArtifactPathPort } from "../../../project-runtime/paths.js";
+import type { ManagedProject } from "../../../types/index.js";
 import type { WorkbenchConfirmationQueue, WorkbenchDecisionInspector, WorkbenchTopicDetail, WorkbenchWorkpad } from "../../read-model-types.js";
 import { decisionContextToConfirmationItems } from "./confirmation/decision-context.js";
 import { integrationCandidateQueueItem, integrationCheckHistoryItem, integrationCheckNeedsActionQueueItem, integrationCheckNeedsUserAction, integrationCheckQueueItem, sameIntegrationTargets } from "./confirmation/integration.js";
@@ -14,7 +15,7 @@ export { emptyConfirmationQueue, scopeConfirmationQueueItemActions } from "./con
 
 export async function buildConfirmationQueue(input: {
   project: ManagedProject | null;
-  memory?: ResolvedMemory;
+  memory?: ProjectWorkbenchArtifactPathPort;
   selectedTopic: WorkbenchTopicDetail | null;
   workpad: WorkbenchWorkpad;
   decisionInspector: WorkbenchDecisionInspector;

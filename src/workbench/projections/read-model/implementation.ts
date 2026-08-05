@@ -1,32 +1,24 @@
-import { existsSync } from "node:fs";
 import { latestLandingQueueSnapshot } from "../../../landing-queue/manager.js";
-import { getMemoryStatus } from "../../../memory/status.js";
 import { getProjectStatus } from "../../../project/status.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../../provider-runtime/project-harness-discovery.js";
 import { resolveProjectRuntimeState } from "../../../project-runtime/coordinator.js";
 import type { ProjectRuntimeResolution } from "../../../project-runtime/context.js";
-import type { ProjectWorkbenchPathPort } from "../../../project-runtime/paths.js";
 import { readRun } from "../../../run/manager.js";
-import { providerInteractionHistory } from "../../parent-agent-transcript.js";
-import { buildConversationInteractionQueue } from "../../conversation-interactions.js";
 import { deleteConversation, hideConversation } from "../../conversation-lifecycle.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../persistence/open-workbench-database.js";
 import { summarizeRunArtifacts } from "../artifact-preview.js";
 import { readRunEvents } from "./thread-stream.js";
-import { buildConfirmationQueue, emptyConfirmationQueue } from "./confirmation-queue.js";
-import { listWorkbenchDecisions } from "./decision-store.js";
+import { emptyConfirmationQueue } from "./confirmation-queue.js";
 import { CurrentProjectConversationUnavailableError } from "./errors.js";
-import { alignDecisionInspectorWithConfirmationPrimary, buildDecisionInspector, emptyDecisionInspector } from "./decision-inspector.js";
-import { buildApprovalInbox } from "./approval-inbox.js";
-import { shellWorkbenchWorkpad } from "./workbench-shell.js";
+import { emptyDecisionInspector } from "./decision-inspector.js";
 import { tryBuildSkillNativePlanningSnapshot } from "./skill-native-planning-snapshot.js";
 import { listWorkbenchRoles } from "./roles.js";
-import { buildHarnessGaps, buildRepoSummary, resolveWorkbenchMemory } from "./support.js";
-import { listWorkbenchTopicsFromMemory, selectTopicDetail } from "./topics.js";
-import { buildDiagnosticWorkpad, buildMultiWorkpadSummaries, buildWorkbenchWorkpad } from "./workpad.js";
-import type { LandingQueueSnapshot, ManagedProject, ResolvedMemory } from "../../../types/index.js";
+import { buildHarnessGaps, buildRepoSummary } from "./support.js";
+import { buildDiagnosticWorkpad } from "./workpad.js";
+import type { LandingQueueSnapshot, ManagedProject } from "../../../types/index.js";
 import type {
   WorkbenchApprovalItem,
+  WorkbenchProjectHarnessDiagnosticStatus,
   WorkbenchProjectInput,
   WorkbenchSnapshot,
   WorkbenchStreamPacket,
@@ -132,8 +124,9 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
   ignoreActiveWorkflowActions?: boolean;
   ignoreActiveWorkflowActionTypes?: string[];
 } = {}): Promise<WorkbenchSnapshot> {
+  let runtimeState: Awaited<ReturnType<typeof resolveProjectRuntimeState>> | null = null;
   if (input.project) {
-    const runtimeState = await resolveProjectRuntimeState(input.project, {
+    runtimeState = await resolveProjectRuntimeState(input.project, {
       discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
     });
     if (runtimeState.state === "ready") {
@@ -146,176 +139,35 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
       throw new CurrentProjectConversationUnavailableError();
     }
   }
-  const memoryStatus = await getMemoryStatus(input.project, input.path);
   const projectStatus = await getProjectStatus(input.project, input.path);
-  const memory = await resolveWorkbenchMemory(input);
   const roles = await listWorkbenchRoles();
   const gaps = buildHarnessGaps();
-  const warnings: string[] = [];
-
-  if (!input.project) warnings.push("Project is not registered; snapshot is diagnostic only.");
-  if (!memoryStatus.managed) warnings.push("Project is not managed by AHO.");
-  if (!memoryStatus.memoryAvailable || !memory.supported) {
-    warnings.push("Durable memory is unavailable. AHO will not infer project history.");
-    const diagnosticWorkpad = buildDiagnosticWorkpad(input.project?.name ?? "未选择项目", warnings, gaps);
-    return {
-      project: input.project,
-      memory: memoryStatus,
-      left: {
-        project: input.project,
-        memory: memoryStatus,
-        topics: [],
-        workpads: [],
-        repo: buildRepoSummary(projectStatus),
-      },
-      center: {
-        selectedTopic: null,
-        workpad: diagnosticWorkpad,
-        thread: { items: [] },
-        conversationInteractions: { items: [] },
-        activeTab: "conversation",
-        agentLoop: { runs: [] },
-      },
-      right: { approvals: [], decisions: [], decisionInspector: emptyDecisionInspector(), confirmationQueue: emptyConfirmationQueue() },
-      roles,
-      harnessGaps: gaps,
-      warnings,
-    };
-  }
-
-  const runtime: ProjectWorkbenchPathPort | null = input.project
-    ? (await requireReadyProjectRuntime(input.project)).paths
-    : memory.projectId
-      ? {
-          projectId: memory.projectId,
-          workbenchDbPath: memory.workbenchDbPath,
-          workbenchRoot: memory.workbenchRoot,
-        }
-      : null;
-
-  const visibleTopics = await listWorkbenchTopicsFromMemory(memory);
-  const allTopics = await listWorkbenchTopicsFromMemory(memory, { includeDeleted: true });
-  const workflowTopics = workflowScopedTopics(allTopics);
-  const selectableTopics = options.topicId ? allTopics : visibleTopics;
-  const selectedTopic = await selectTopicDetail(input.project, memory, selectableTopics, options.topicId, { threadMode: "latest", threadLimit: 100 });
-  const selectedChangeId = executionChangeId(selectedTopic);
-  const approvals = input.project ? await buildApprovalInbox(input.project, memory, workflowTopics) : [];
-  const decisions = input.project ? await listWorkbenchDecisions(memory, selectedChangeId) : [];
-  const workpads = await buildMultiWorkpadSummaries(memory, visibleTopics, approvals, selectedTopic?.id);
-  const workpad = await buildWorkbenchWorkpad({
-    project: input.project,
-    memory,
-    topics: visibleTopics,
-    workpads,
-    selectedTopic,
-    approvals,
-    decisions,
-    warnings,
-    gaps,
-  });
-  const graphContext = selectedTopic && runtime ? await resolveAgentGraphContext(runtime, selectedTopic, options.topicId) : null;
-  const conversationInteractions = runtime
-    ? await buildConversationInteractionQueue(runtime, selectedTopic?.id, graphContext?.graphScopeId)
-    : { conversationId: selectedTopic?.id, graphScopeId: graphContext?.graphScopeId, items: [] };
-  const decisionInspector = buildDecisionInspector({
-    selectedTopic: executionScopedTopic(selectedTopic),
-    workpad,
-    approvals,
-    decisions,
-  });
-  const selectedIsPureConversation = selectedTopic?.kind === "conversation" && !selectedTopic.boundChangeId;
-  const confirmationQueue = selectedIsPureConversation
-    ? emptyConfirmationQueue()
-    : await buildConfirmationQueue({
-      project: input.project,
-      memory,
-      selectedTopic,
-      workpad,
-      decisionInspector,
-      ignoreActiveWorkflowActions: options.ignoreActiveWorkflowActions,
-      ignoreActiveWorkflowActionTypes: options.ignoreActiveWorkflowActionTypes,
-    });
-  const alignedDecisionInspector = alignDecisionInspectorWithConfirmationPrimary(decisionInspector, confirmationQueue.primary, selectedTopic?.id);
-  const shellWorkpad = shellWorkbenchWorkpad(workpad);
-  const publicSelectedTopic = selectedTopic ? {
-    ...selectedTopic,
-    threadItems: selectedTopic.threadItems.map(publicThreadItem),
-  } : null;
+  const status = diagnosticProjectHarnessStatus(input, runtimeState);
+  const warnings = [status.reason];
+  const diagnosticWorkpad = buildDiagnosticWorkpad(input.project?.name ?? "未选择项目", warnings, gaps);
   return {
     project: input.project,
-    memory: memoryStatus,
+    memory: status,
     left: {
-        project: input.project,
-        memory: memoryStatus,
-        topics: visibleTopics,
-        workpads,
-        repo: buildRepoSummary(projectStatus),
+      project: input.project,
+      memory: status,
+      topics: [],
+      workpads: [],
+      repo: buildRepoSummary(projectStatus),
     },
     center: {
-      selectedTopic: publicSelectedTopic,
-      workpad: shellWorkpad,
-      thread: { items: publicSelectedTopic?.threadItems ?? [] },
-      conversationInteractions,
+      selectedTopic: null,
+      workpad: diagnosticWorkpad,
+      thread: { items: [] },
+      conversationInteractions: { items: [] },
       activeTab: "conversation",
-      agentLoop: { runs: selectedTopic?.runs ?? [] },
+      agentLoop: { runs: [] },
     },
-    right: {
-      approvals,
-      decisions,
-      decisionInspector: alignedDecisionInspector,
-      confirmationQueue,
-    },
+    right: { approvals: [], decisions: [], decisionInspector: emptyDecisionInspector(), confirmationQueue: emptyConfirmationQueue() },
     roles,
     harnessGaps: gaps,
     warnings,
   };
-}
-
-function publicThreadItem(item: import("../../read-model-types.js").ThreadStreamItem): import("../../read-model-types.js").ThreadStreamItem {
-  if (item.providerUserInput) {
-    const { providerUserInput, ...safe } = item;
-    return { ...safe, interactionHistory: providerInteractionHistory(providerUserInput) };
-  }
-  if (item.clarification) {
-    const { clarification, ...safe } = item;
-    return {
-      ...safe,
-      interactionHistory: {
-        kind: "clarification",
-        status: clarification.status === "expired" ? "superseded" : clarification.status,
-        questions: clarification.questions.map((question) => ({ questionId: question.id, title: question.question })),
-        answers: clarification.answers
-          ? Object.fromEntries(clarification.answers.map((answer) => [answer.questionId, answer.answer]))
-          : undefined,
-      },
-    };
-  }
-  return item;
-}
-
-async function resolveAgentGraphContext(
-  runtime: ProjectWorkbenchPathPort,
-  selectedTopic: WorkbenchTopicDetail,
-  requestedId?: string,
-): Promise<{ graphScopeId: string; changeId?: string } | null> {
-  const store = await openProjectRuntimeWorkbenchDatabase(runtime);
-  try {
-    const conversation = store.conversations.readConversation(runtime.projectId, selectedTopic.id)
-      ?? store.conversations.findConversationForChange(runtime.projectId, requestedId ?? selectedTopic.id);
-    if (!conversation) return null;
-    const requestedChangeId = requestedId && requestedId !== conversation.conversationId
-      ? requestedId
-      : undefined;
-    const graphScopeId = requestedChangeId
-      ? store.conversations.findGraphScopeForChange(runtime.projectId, requestedChangeId)
-      : conversation.currentGraphScopeId;
-    if (!graphScopeId) return null;
-    const changeId = requestedChangeId
-      ?? (conversation.currentGraphScopeId === graphScopeId ? conversation.boundChangeId ?? undefined : undefined);
-    return { graphScopeId, changeId };
-  } finally {
-    store.close();
-  }
 }
 
 async function requireReadyProjectRuntime(project: ManagedProject): Promise<ProjectRuntimeResolution> {
@@ -329,11 +181,7 @@ async function requireReadyProjectRuntime(project: ManagedProject): Promise<Proj
 }
 
 export async function getWorkbenchWorkpadProjection(input: WorkbenchProjectInput, changeId: string): Promise<WorkbenchWorkpad> {
-  const memory = await resolveWorkbenchMemory(input);
-  if (!memory.supported) return buildDiagnosticWorkpad(input.project?.name ?? "未选择项目", ["Durable memory is unavailable."], buildHarnessGaps());
-  const topics = await listWorkbenchTopicsFromMemory(memory, { includeDeleted: true });
-  const selectedTopic = await selectTopicDetail(input.project, memory, topics, changeId);
-  return buildWorkbenchProjectionWorkpad(input, memory, topics, selectedTopic);
+  return (await getWorkbenchSnapshot(input, { topicId: changeId })).center.workpad;
 }
 
 export async function getWorkbenchEvidenceProjection(input: WorkbenchProjectInput, changeId: string): Promise<{
@@ -348,32 +196,9 @@ export async function getWorkbenchEvidenceProjection(input: WorkbenchProjectInpu
 }
 
 export async function getWorkbenchLandingQueueProjection(input: WorkbenchProjectInput): Promise<LandingQueueSnapshot | null> {
-  const memory = await resolveWorkbenchMemory(input);
-  if (!memory.supported) return null;
-  return latestLandingQueueSnapshot(memory).catch(() => null);
-}
-
-async function buildWorkbenchProjectionWorkpad(
-  input: WorkbenchProjectInput,
-  memory: ResolvedMemory,
-  topics: WorkbenchTopicSummary[],
-  selectedTopic: WorkbenchTopicDetail | null,
-): Promise<WorkbenchWorkpad> {
-  const workflowTopics = workflowScopedTopics(topics);
-  const approvals = input.project ? await buildApprovalInbox(input.project, memory, workflowTopics) : [];
-  const decisions = input.project ? await listWorkbenchDecisions(memory, executionChangeId(selectedTopic)) : [];
-  const workpads = await buildMultiWorkpadSummaries(memory, topics, approvals, selectedTopic?.id);
-  return buildWorkbenchWorkpad({
-    project: input.project,
-    memory,
-    topics,
-    workpads,
-    selectedTopic,
-    approvals,
-    decisions,
-    warnings: [],
-    gaps: buildHarnessGaps(),
-  });
+  if (!input.project) return null;
+  const runtime = await requireReadyProjectRuntime(input.project);
+  return latestLandingQueueSnapshot(runtime.paths).catch(() => null);
 }
 
 export async function listWorkbenchTopics(input: WorkbenchProjectInput): Promise<WorkbenchTopicSummary[]> {
@@ -459,36 +284,49 @@ export async function getWorkbenchStream(input: WorkbenchProjectInput, runId: st
 
 export async function listWorkbenchApprovals(input: WorkbenchProjectInput, options: { topicId?: string } = {}): Promise<WorkbenchApprovalItem[]> {
   if (!input.project) return [];
-  const memory = await resolveWorkbenchMemory(input);
-  if (!memory.supported || !existsSync(memory.memoryRoot)) return [];
-  const topics = await listWorkbenchTopicsFromMemory(memory, { includeDeleted: true });
-  const approvals = await buildApprovalInbox(input.project, memory, workflowScopedTopics(topics));
-  if (!options.topicId) return approvals;
-  const topic = topics.find((item) => item.id === options.topicId || item.name === options.topicId);
-  const changeId = topic?.boundChangeId ?? options.topicId;
-  return approvals.filter((item) => !item.changeId || item.changeId === changeId);
+  return (await getWorkbenchSnapshot(input, { topicId: options.topicId })).right.approvals;
 }
 
-function workflowScopedTopics(topics: WorkbenchTopicSummary[]): WorkbenchTopicSummary[] {
-  return topics.flatMap((topic) => {
-    if (topic.kind !== "conversation") return [topic];
-    if (!topic.boundChangeId) return [];
-    return [{
-      ...topic,
-      id: topic.boundChangeId,
-      kind: "change" as const,
-      name: topic.boundChangeId,
-    }];
-  });
-}
-
-function executionChangeId(topic: WorkbenchTopicSummary | null | undefined): string | undefined {
-  return topic?.boundChangeId ?? topic?.id;
-}
-
-function executionScopedTopic(topic: WorkbenchTopicDetail | null): WorkbenchTopicDetail | null {
-  if (!topic?.boundChangeId || topic.boundChangeId === topic.id) return topic;
-  return { ...topic, id: topic.boundChangeId, name: topic.boundChangeId };
+function diagnosticProjectHarnessStatus(
+  input: WorkbenchProjectInput,
+  state: Awaited<ReturnType<typeof resolveProjectRuntimeState>> | null,
+): WorkbenchProjectHarnessDiagnosticStatus {
+  if (!input.project || !state) {
+    return {
+      kind: "project-skill",
+      registered: false,
+      managed: false,
+      memoryAvailable: false,
+      harnessReady: false,
+      runtimeAvailable: false,
+      state: "unregistered",
+      reason: "Project is not registered; Workbench will not infer project history.",
+    };
+  }
+  if (state.state === "onboarding") {
+    return {
+      kind: "project-skill",
+      registered: true,
+      managed: true,
+      memoryAvailable: false,
+      harnessReady: false,
+      runtimeAvailable: true,
+      projectId: state.reservedProjectId,
+      state: "onboarding",
+      reason: "Project Harness onboarding is incomplete; Workbench will not infer project history.",
+    };
+  }
+  return {
+    kind: "project-skill",
+    registered: true,
+    managed: true,
+    memoryAvailable: false,
+    harnessReady: false,
+    runtimeAvailable: true,
+    projectId: state.resolution.harness.projectId,
+    state: "repair-required",
+    reason: "Project Harness doctor or audit requires repair before Workbench can read project history.",
+  };
 }
 
 

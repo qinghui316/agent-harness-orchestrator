@@ -8,7 +8,6 @@ import type {
   AcMap,
   ChangeMetadata,
   ManagedProject,
-  MemoryStatus,
   RunMetadata,
   TaskQueueItem,
   TaskQueueRun,
@@ -75,7 +74,19 @@ export interface WorkbenchProjectHarnessStatus {
   runtimeAvailable: true;
 }
 
-export type WorkbenchRuntimeStatus = MemoryStatus | WorkbenchProjectHarnessStatus;
+export interface WorkbenchProjectHarnessDiagnosticStatus {
+  kind: "project-skill";
+  registered: boolean;
+  managed: boolean;
+  memoryAvailable: false;
+  harnessReady: false;
+  runtimeAvailable: boolean;
+  projectId?: string;
+  state: "unregistered" | "onboarding" | "repair-required";
+  reason: string;
+}
+
+export type WorkbenchRuntimeStatus = WorkbenchProjectHarnessStatus | WorkbenchProjectHarnessDiagnosticStatus;
 
 export interface WorkbenchTopicSummary {
   id: string;

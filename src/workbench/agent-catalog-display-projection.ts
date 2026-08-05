@@ -1,12 +1,10 @@
-import { readAgentCatalog, hashText, type AgentCatalog } from "../agent/catalog.js";
+import { readBundledAgentCatalog, hashText, type AgentCatalog } from "../agent/catalog.js";
 import type { AgentCatalogDisplayProjection } from "./agent-catalog-display-contract.js";
 import type { WorkbenchProjectInput } from "./read-model-types.js";
-import { resolveWorkbenchMemory } from "./projections/read-model/support.js";
 
 export async function getAgentCatalogDisplayProjection(input: WorkbenchProjectInput): Promise<AgentCatalogDisplayProjection> {
-  const memory = await resolveWorkbenchMemory(input);
-  if (!memory.supported) throw notFound("Agent Catalog is unavailable for this project.");
-  return buildAgentCatalogDisplayProjection(await readAgentCatalog(memory));
+  if (!input.project) throw notFound("Agent Catalog is unavailable without a registered project.");
+  return buildAgentCatalogDisplayProjection(readBundledAgentCatalog());
 }
 
 export function buildAgentCatalogDisplayProjection(catalog: AgentCatalog): AgentCatalogDisplayProjection {

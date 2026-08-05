@@ -1,4 +1,4 @@
-import type { ReadySetWorkflowGraphPlan, ResolvedMemory, WorkflowRunSummary } from "../types/index.js";
+import type { ReadySetWorkflowGraphPlan, WorkflowRunSummary } from "../types/index.js";
 import {
   readSchedulerReconcileSnapshotProjection,
   readSchedulerReconcileSnapshotByIdProjection,
@@ -50,14 +50,14 @@ import {
   type SchedulerRuntimeWorkerValidation,
 } from "../scheduler-runtime/manager.js";
 import { readIntegrationCheck } from "../integration-check/manager.js";
-import { createSchedulerArtifactStore } from "../scheduler-runtime/artifact-store.js";
-import { basename, join } from "node:path";
+import type { SchedulerArtifactStore } from "../scheduler-runtime/artifact-store.js";
+import type { ProjectWorkbenchArtifactPathPort } from "../project-runtime/paths.js";
 import type { SchedulerCurrentTransition } from "../workflow-actions/scheduler-current-transition.js";
 import type { SchedulerCurrentTransitionView } from "../workflow-runtime/scheduler-current-transition-view.js";
 import type { WorkbenchThreadActionType } from "../workflow-actions/registry.js";
 import {
-  readLatestWorkflowGraphPlan,
-  readWorkflowGraphPlan,
+  readLatestWorkflowGraphPlanAt,
+  readWorkflowGraphPlanAt,
   type WorkflowGraphPlan,
 } from "../workflow-artifacts/manager.js";
 import {
@@ -82,12 +82,8 @@ import {
   type SchedulerContract,
 } from "../workflow-scheduler/manager.js";
 
-function workbenchSchedulerArtifactStore(memory: ResolvedMemory, changePath: string) {
-  return createSchedulerArtifactStore({
-    changeId: basename(changePath),
-    changeEvidenceRoot: join(memory.memoryRoot, changePath),
-    artifactRoots: [memory.memoryRoot, memory.projectRoot],
-  });
+function workbenchSchedulerArtifactStore(artifacts: SchedulerArtifactStore, _changePath: string): SchedulerArtifactStore {
+  return artifacts;
 }
 
 export interface WorkbenchWorkflowGraphPlanSummary {
@@ -933,8 +929,8 @@ export interface TypedWorkflowProjectionIntake {
   openQuestions: unknown[];
 }
 
-export async function readLatestWorkflowGraphPlanSummary(memory: ResolvedMemory, changePath: string): Promise<WorkbenchWorkflowGraphPlanSummary | null> {
-  const graph = await readLatestWorkflowGraphPlan(memory, changePath).catch(() => null);
+export async function readLatestWorkflowGraphPlanSummary(memory: SchedulerArtifactStore, _changePath: string): Promise<WorkbenchWorkflowGraphPlanSummary | null> {
+  const graph = await readLatestWorkflowGraphPlanAt(memory.changeEvidenceRoot, memory.changeId).catch(() => null);
   if (!graph) return null;
   return {
     id: graph.id,
@@ -954,7 +950,7 @@ export async function readLatestWorkflowGraphPlanSummary(memory: ResolvedMemory,
   };
 }
 
-export async function readLatestSchedulerContractSummary(memory: ResolvedMemory, changePath: string): Promise<WorkbenchSchedulerContractSummary | null> {
+export async function readLatestSchedulerContractSummary(memory: SchedulerArtifactStore, changePath: string): Promise<WorkbenchSchedulerContractSummary | null> {
   const contract = await readLatestSchedulerContract(workbenchSchedulerArtifactStore(memory, changePath), changePath).catch(() => null);
   if (!contract) return null;
   return {
@@ -973,7 +969,7 @@ export async function readLatestSchedulerContractSummary(memory: ResolvedMemory,
   };
 }
 
-export async function readLatestSchedulerDispatchDryRunSummary(memory: ResolvedMemory, changePath: string): Promise<WorkbenchSchedulerDispatchDryRunSummary | null> {
+export async function readLatestSchedulerDispatchDryRunSummary(memory: SchedulerArtifactStore, changePath: string): Promise<WorkbenchSchedulerDispatchDryRunSummary | null> {
   const dryRun = await readLatestSchedulerDispatchDryRun(workbenchSchedulerArtifactStore(memory, changePath), changePath).catch(() => null);
   if (!dryRun) return null;
   return {
@@ -993,7 +989,7 @@ export async function readLatestSchedulerDispatchDryRunSummary(memory: ResolvedM
   };
 }
 
-export async function readLatestSchedulerWorkerSessionPlanSummary(memory: ResolvedMemory, changePath: string): Promise<WorkbenchSchedulerWorkerSessionPlanSummary | null> {
+export async function readLatestSchedulerWorkerSessionPlanSummary(memory: SchedulerArtifactStore, changePath: string): Promise<WorkbenchSchedulerWorkerSessionPlanSummary | null> {
   const plan = await readLatestSchedulerWorkerSessionPlan(workbenchSchedulerArtifactStore(memory, changePath), changePath).catch(() => null);
   if (!plan) return null;
   return {
@@ -1014,7 +1010,7 @@ export async function readLatestSchedulerWorkerSessionPlanSummary(memory: Resolv
   };
 }
 
-export async function readLatestSchedulerClaimReconcilePlanSummary(memory: ResolvedMemory, changePath: string): Promise<WorkbenchSchedulerClaimReconcilePlanSummary | null> {
+export async function readLatestSchedulerClaimReconcilePlanSummary(memory: SchedulerArtifactStore, changePath: string): Promise<WorkbenchSchedulerClaimReconcilePlanSummary | null> {
   const plan = await readLatestSchedulerClaimReconcilePlan(workbenchSchedulerArtifactStore(memory, changePath), changePath).catch(() => null);
   if (!plan) return null;
   return {
@@ -1037,7 +1033,7 @@ export async function readLatestSchedulerClaimReconcilePlanSummary(memory: Resol
   };
 }
 
-export async function readLatestSchedulerLaunchPreflightSummary(memory: ResolvedMemory, changePath: string): Promise<WorkbenchSchedulerLaunchPreflightSummary | null> {
+export async function readLatestSchedulerLaunchPreflightSummary(memory: SchedulerArtifactStore, changePath: string): Promise<WorkbenchSchedulerLaunchPreflightSummary | null> {
   const preflight = await readLatestSchedulerLaunchPreflight(workbenchSchedulerArtifactStore(memory, changePath), changePath).catch(() => null);
   if (!preflight) return null;
   return {
@@ -1061,7 +1057,7 @@ export async function readLatestSchedulerLaunchPreflightSummary(memory: Resolved
   };
 }
 
-export async function readLatestSchedulerRunSummary(memory: ResolvedMemory, changePath: string): Promise<WorkbenchSchedulerRunSummary | null> {
+export async function readLatestSchedulerRunSummary(memory: SchedulerArtifactStore, changePath: string): Promise<WorkbenchSchedulerRunSummary | null> {
   const run = await readLatestSchedulerRun(workbenchSchedulerArtifactStore(memory, changePath), changePath).catch(() => null);
   if (!run) return null;
   const journal = await readSchedulerRunJournal(workbenchSchedulerArtifactStore(memory, changePath), changePath, run.id).catch(() => []);
@@ -1090,7 +1086,7 @@ export async function readLatestSchedulerRunSummary(memory: ResolvedMemory, chan
   };
 }
 
-export async function readSchedulerRuntimeSummary(memory: ResolvedMemory, changePath: string, schedulerRunId?: string): Promise<WorkbenchSchedulerRuntimeSummary | null> {
+export async function readSchedulerRuntimeSummary(memory: SchedulerArtifactStore, changePath: string, schedulerRunId?: string): Promise<WorkbenchSchedulerRuntimeSummary | null> {
   if (!schedulerRunId) return null;
   const state = await readSchedulerRuntimeStateProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId);
   if (!state) return null;
@@ -1114,7 +1110,7 @@ export async function readSchedulerRuntimeSummary(memory: ResolvedMemory, change
   };
 }
 
-export async function readSchedulerClaimReservationSummary(memory: ResolvedMemory, changePath: string, schedulerRunId?: string, reservationId?: string): Promise<WorkbenchSchedulerClaimReservationSummary | null> {
+export async function readSchedulerClaimReservationSummary(memory: SchedulerArtifactStore, changePath: string, schedulerRunId?: string, reservationId?: string): Promise<WorkbenchSchedulerClaimReservationSummary | null> {
   if (!schedulerRunId || !reservationId) return null;
   const reservation = await readSchedulerRuntimeClaimReservationProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, reservationId);
   if (!reservation) return null;
@@ -1146,7 +1142,7 @@ export async function readSchedulerClaimReservationSummary(memory: ResolvedMemor
 }
 
 export async function readLatestSchedulerWorkerStartSummary(
-  memory: ResolvedMemory,
+  memory: SchedulerArtifactStore,
   changePath: string,
   schedulerRunId?: string,
   schedulerClaimReservationId?: string,
@@ -1159,7 +1155,7 @@ export async function readLatestSchedulerWorkerStartSummary(
 }
 
 export async function readSchedulerWorkerPathSummaries(
-  memory: ResolvedMemory,
+  memory: SchedulerArtifactStore,
   changePath: string,
   schedulerRunId?: string,
   schedulerClaimReservationId?: string,
@@ -1184,7 +1180,7 @@ export async function readSchedulerWorkerPathSummaries(
 }
 
 export async function readSchedulerWorkerResultSummary(
-  memory: ResolvedMemory,
+  memory: SchedulerArtifactStore,
   changePath: string,
   schedulerRunId?: string,
   workerStartId?: string,
@@ -1195,7 +1191,7 @@ export async function readSchedulerWorkerResultSummary(
 }
 
 export async function readSchedulerWorkerValidationSummary(
-  memory: ResolvedMemory,
+  memory: SchedulerArtifactStore,
   changePath: string,
   schedulerRunId?: string,
   workerResultId?: string,
@@ -1206,7 +1202,7 @@ export async function readSchedulerWorkerValidationSummary(
 }
 
 export async function readSchedulerWorkerAuditSummary(
-  memory: ResolvedMemory,
+  memory: SchedulerArtifactStore,
   changePath: string,
   schedulerRunId?: string,
   workerValidationId?: string,
@@ -1217,7 +1213,7 @@ export async function readSchedulerWorkerAuditSummary(
 }
 
 export async function readSchedulerWorkerReworkPlanSummary(
-  memory: ResolvedMemory,
+  memory: SchedulerArtifactStore,
   changePath: string,
   schedulerRunId?: string,
   workerValidationId?: string,
@@ -1232,7 +1228,7 @@ export async function readSchedulerWorkerReworkPlanSummary(
 }
 
 export async function readSchedulerWorkerReworkStartSummary(
-  memory: ResolvedMemory,
+  memory: SchedulerArtifactStore,
   changePath: string,
   schedulerRunId?: string,
   reworkPlanId?: string,
@@ -1243,7 +1239,7 @@ export async function readSchedulerWorkerReworkStartSummary(
 }
 
 export async function readSchedulerWorkerReworkResultSummary(
-  memory: ResolvedMemory,
+  memory: SchedulerArtifactStore,
   changePath: string,
   schedulerRunId?: string,
   reworkStartId?: string,
@@ -1254,7 +1250,7 @@ export async function readSchedulerWorkerReworkResultSummary(
 }
 
 export async function readSchedulerWorkerReworkValidationSummary(
-  memory: ResolvedMemory,
+  memory: SchedulerArtifactStore,
   changePath: string,
   schedulerRunId?: string,
   reworkResultId?: string,
@@ -1265,7 +1261,7 @@ export async function readSchedulerWorkerReworkValidationSummary(
 }
 
 export async function readSchedulerWorkerReworkAuditSummary(
-  memory: ResolvedMemory,
+  memory: SchedulerArtifactStore,
   changePath: string,
   schedulerRunId?: string,
   reworkValidationId?: string,
@@ -1276,7 +1272,7 @@ export async function readSchedulerWorkerReworkAuditSummary(
 }
 
 export async function readLatestSchedulerIntegrationCandidateSummary(
-  memory: ResolvedMemory,
+  memory: SchedulerArtifactStore,
   changePath: string,
   schedulerRunId?: string,
   schedulerClaimReservationId?: string,
@@ -1289,7 +1285,8 @@ export async function readLatestSchedulerIntegrationCandidateSummary(
 }
 
 export async function readLatestSchedulerIntegrationCheckHandoffSummary(
-  memory: ResolvedMemory,
+  memory: SchedulerArtifactStore,
+  workbench: ProjectWorkbenchArtifactPathPort,
   changePath: string,
   schedulerRunId?: string,
   schedulerIntegrationCandidateId?: string,
@@ -1298,12 +1295,12 @@ export async function readLatestSchedulerIntegrationCheckHandoffSummary(
   const handoff = await readLatestSchedulerIntegrationCheckHandoffProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId).catch(() => null);
   if (!handoff) return null;
   if (handoff.schedulerIntegrationCandidateId !== schedulerIntegrationCandidateId) return null;
-  const check = await readIntegrationCheck(memory, handoff.integrationCheckId).catch(() => null);
+  const check = await readIntegrationCheck(workbench, handoff.integrationCheckId).catch(() => null);
   return summarizeSchedulerIntegrationCheckHandoff(handoff, check?.status);
 }
 
 export async function readLatestSchedulerIntegrationOutcomeSummary(
-  memory: ResolvedMemory,
+  memory: SchedulerArtifactStore,
   changePath: string,
   schedulerRunId?: string,
   schedulerIntegrationCheckHandoffId?: string,
@@ -1316,7 +1313,7 @@ export async function readLatestSchedulerIntegrationOutcomeSummary(
 }
 
 export async function readLatestSchedulerRunCompletionSummary(
-  memory: ResolvedMemory,
+  memory: SchedulerArtifactStore,
   changePath: string,
   schedulerRunId?: string,
   schedulerIntegrationOutcomeId?: string,
@@ -1329,7 +1326,7 @@ export async function readLatestSchedulerRunCompletionSummary(
 }
 
 export async function readLatestSchedulerRunBlockedCloseoutSummary(
-  memory: ResolvedMemory,
+  memory: SchedulerArtifactStore,
   changePath: string,
   schedulerRunId?: string,
   schedulerIntegrationCandidateId?: string,
@@ -1740,7 +1737,7 @@ function summarizeSchedulerRunBlockedCloseout(closeout: SchedulerRunBlockedClose
   };
 }
 
-export async function readSchedulerReconcileSnapshotSummary(memory: ResolvedMemory, changePath: string, schedulerRunId?: string, snapshotId?: string): Promise<WorkbenchSchedulerReconcileSnapshotSummary | null> {
+export async function readSchedulerReconcileSnapshotSummary(memory: SchedulerArtifactStore, changePath: string, schedulerRunId?: string, snapshotId?: string): Promise<WorkbenchSchedulerReconcileSnapshotSummary | null> {
   if (!schedulerRunId || !snapshotId) return null;
   const snapshot = await readSchedulerReconcileSnapshotProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, snapshotId);
   if (!snapshot) return null;
@@ -1762,107 +1759,107 @@ export async function readSchedulerReconcileSnapshotSummary(memory: ResolvedMemo
   };
 }
 
-export function readWorkflowGraphPlanProjection(memory: ResolvedMemory, changePath: string, workflowGraphPlanId?: string): Promise<WorkflowGraphPlan | null> {
+export function readWorkflowGraphPlanProjection(memory: SchedulerArtifactStore, changePath: string, workflowGraphPlanId?: string): Promise<WorkflowGraphPlan | null> {
   return workflowGraphPlanId
-    ? readWorkflowGraphPlan(memory, changePath, workflowGraphPlanId).catch(() => null)
-    : readLatestWorkflowGraphPlan(memory, changePath).catch(() => null);
+    ? readWorkflowGraphPlanAt(memory.changeEvidenceRoot, memory.changeId, workflowGraphPlanId).catch(() => null)
+    : readLatestWorkflowGraphPlanAt(memory.changeEvidenceRoot, memory.changeId).catch(() => null);
 }
 
-export function readSchedulerContractProjection(memory: ResolvedMemory, changePath: string, schedulerContractId?: string): Promise<SchedulerContract | null> {
+export function readSchedulerContractProjection(memory: SchedulerArtifactStore, changePath: string, schedulerContractId?: string): Promise<SchedulerContract | null> {
   return schedulerContractId
     ? readSchedulerContract(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerContractId).catch(() => null)
     : readLatestSchedulerContract(workbenchSchedulerArtifactStore(memory, changePath), changePath).catch(() => null);
 }
 
-export function readSchedulerDispatchDryRunProjection(memory: ResolvedMemory, changePath: string, dryRunId?: string): Promise<SchedulerDispatchDryRun | null> {
+export function readSchedulerDispatchDryRunProjection(memory: SchedulerArtifactStore, changePath: string, dryRunId?: string): Promise<SchedulerDispatchDryRun | null> {
   return dryRunId
     ? readSchedulerDispatchDryRun(workbenchSchedulerArtifactStore(memory, changePath), changePath, dryRunId).catch(() => null)
     : readLatestSchedulerDispatchDryRun(workbenchSchedulerArtifactStore(memory, changePath), changePath).catch(() => null);
 }
 
-export function readSchedulerWorkerSessionPlanProjection(memory: ResolvedMemory, changePath: string, workerPlanId?: string): Promise<SchedulerWorkerSessionPlan | null> {
+export function readSchedulerWorkerSessionPlanProjection(memory: SchedulerArtifactStore, changePath: string, workerPlanId?: string): Promise<SchedulerWorkerSessionPlan | null> {
   return workerPlanId
     ? readSchedulerWorkerSessionPlan(workbenchSchedulerArtifactStore(memory, changePath), changePath, workerPlanId).catch(() => null)
     : readLatestSchedulerWorkerSessionPlan(workbenchSchedulerArtifactStore(memory, changePath), changePath).catch(() => null);
 }
 
-export function readSchedulerClaimReconcilePlanProjection(memory: ResolvedMemory, changePath: string, claimReconcilePlanId?: string): Promise<SchedulerClaimReconcilePlan | null> {
+export function readSchedulerClaimReconcilePlanProjection(memory: SchedulerArtifactStore, changePath: string, claimReconcilePlanId?: string): Promise<SchedulerClaimReconcilePlan | null> {
   return claimReconcilePlanId
     ? readSchedulerClaimReconcilePlan(workbenchSchedulerArtifactStore(memory, changePath), changePath, claimReconcilePlanId).catch(() => null)
     : readLatestSchedulerClaimReconcilePlan(workbenchSchedulerArtifactStore(memory, changePath), changePath).catch(() => null);
 }
 
-export function readSchedulerLaunchPreflightProjection(memory: ResolvedMemory, changePath: string, preflightId?: string): Promise<SchedulerLaunchPreflight | null> {
+export function readSchedulerLaunchPreflightProjection(memory: SchedulerArtifactStore, changePath: string, preflightId?: string): Promise<SchedulerLaunchPreflight | null> {
   return preflightId
     ? readSchedulerLaunchPreflight(workbenchSchedulerArtifactStore(memory, changePath), changePath, preflightId).catch(() => null)
     : readLatestSchedulerLaunchPreflight(workbenchSchedulerArtifactStore(memory, changePath), changePath).catch(() => null);
 }
 
-export function readSchedulerRunProjection(memory: ResolvedMemory, changePath: string, schedulerRunId?: string): Promise<SchedulerRun | null> {
+export function readSchedulerRunProjection(memory: SchedulerArtifactStore, changePath: string, schedulerRunId?: string): Promise<SchedulerRun | null> {
   return schedulerRunId
     ? readSchedulerRun(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId).catch(() => null)
     : readLatestSchedulerRun(workbenchSchedulerArtifactStore(memory, changePath), changePath).catch(() => null);
 }
 
-export function readSchedulerRuntimeProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string): Promise<SchedulerRuntimeState | null> {
+export function readSchedulerRuntimeProjection(memory: SchedulerArtifactStore, changePath: string, schedulerRunId: string): Promise<SchedulerRuntimeState | null> {
   return readSchedulerRuntimeStateProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId);
 }
 
-export function readSchedulerReconcileProjection(memory: ResolvedMemory, changePath: string, snapshotId: string, schedulerRunId?: string): Promise<SchedulerReconcileSnapshot | null> {
+export function readSchedulerReconcileProjection(memory: SchedulerArtifactStore, changePath: string, snapshotId: string, schedulerRunId?: string): Promise<SchedulerReconcileSnapshot | null> {
   return schedulerRunId
     ? readSchedulerReconcileSnapshotProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, snapshotId)
     : readSchedulerReconcileSnapshotByIdProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, snapshotId);
 }
 
-export function readSchedulerClaimReservationProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reservationId: string): Promise<SchedulerRuntimeClaimReservation | null> {
+export function readSchedulerClaimReservationProjection(memory: SchedulerArtifactStore, changePath: string, schedulerRunId: string, reservationId: string): Promise<SchedulerRuntimeClaimReservation | null> {
   return readSchedulerRuntimeClaimReservationProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, reservationId);
 }
 
-export function readSchedulerWorkerValidationProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, validationId: string): Promise<SchedulerRuntimeWorkerValidation | null> {
+export function readSchedulerWorkerValidationProjection(memory: SchedulerArtifactStore, changePath: string, schedulerRunId: string, validationId: string): Promise<SchedulerRuntimeWorkerValidation | null> {
   return readSchedulerRuntimeWorkerValidationProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, validationId);
 }
 
-export function readSchedulerWorkerAuditProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, auditId: string): Promise<SchedulerRuntimeWorkerAudit | null> {
+export function readSchedulerWorkerAuditProjection(memory: SchedulerArtifactStore, changePath: string, schedulerRunId: string, auditId: string): Promise<SchedulerRuntimeWorkerAudit | null> {
   return readSchedulerRuntimeWorkerAuditProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, auditId);
 }
 
-export function readSchedulerWorkerReworkPlanProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkPlanId: string): Promise<SchedulerRuntimeWorkerReworkPlan | null> {
+export function readSchedulerWorkerReworkPlanProjection(memory: SchedulerArtifactStore, changePath: string, schedulerRunId: string, reworkPlanId: string): Promise<SchedulerRuntimeWorkerReworkPlan | null> {
   return readSchedulerRuntimeWorkerReworkPlanProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, reworkPlanId);
 }
 
-export function readSchedulerWorkerReworkStartProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkStartId: string): Promise<SchedulerRuntimeWorkerReworkStart | null> {
+export function readSchedulerWorkerReworkStartProjection(memory: SchedulerArtifactStore, changePath: string, schedulerRunId: string, reworkStartId: string): Promise<SchedulerRuntimeWorkerReworkStart | null> {
   return readSchedulerRuntimeWorkerReworkStartProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, reworkStartId);
 }
 
-export function readSchedulerWorkerReworkResultProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkResultId: string): Promise<SchedulerRuntimeWorkerReworkResult | null> {
+export function readSchedulerWorkerReworkResultProjection(memory: SchedulerArtifactStore, changePath: string, schedulerRunId: string, reworkResultId: string): Promise<SchedulerRuntimeWorkerReworkResult | null> {
   return readSchedulerRuntimeWorkerReworkResultProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, reworkResultId);
 }
 
-export function readSchedulerWorkerReworkValidationProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkValidationId: string): Promise<SchedulerRuntimeWorkerReworkValidation | null> {
+export function readSchedulerWorkerReworkValidationProjection(memory: SchedulerArtifactStore, changePath: string, schedulerRunId: string, reworkValidationId: string): Promise<SchedulerRuntimeWorkerReworkValidation | null> {
   return readSchedulerRuntimeWorkerReworkValidationProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, reworkValidationId);
 }
 
-export function readSchedulerWorkerReworkAuditProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkAuditId: string): Promise<SchedulerRuntimeWorkerReworkAudit | null> {
+export function readSchedulerWorkerReworkAuditProjection(memory: SchedulerArtifactStore, changePath: string, schedulerRunId: string, reworkAuditId: string): Promise<SchedulerRuntimeWorkerReworkAudit | null> {
   return readSchedulerRuntimeWorkerReworkAuditProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, reworkAuditId);
 }
 
-export function readSchedulerIntegrationCandidateProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, candidateId: string): Promise<SchedulerIntegrationCandidate | null> {
+export function readSchedulerIntegrationCandidateProjection(memory: SchedulerArtifactStore, changePath: string, schedulerRunId: string, candidateId: string): Promise<SchedulerIntegrationCandidate | null> {
   return readSchedulerIntegrationCandidateArtifactProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, candidateId);
 }
 
-export function readSchedulerIntegrationCheckHandoffProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, handoffId: string): Promise<SchedulerIntegrationCheckHandoff | null> {
+export function readSchedulerIntegrationCheckHandoffProjection(memory: SchedulerArtifactStore, changePath: string, schedulerRunId: string, handoffId: string): Promise<SchedulerIntegrationCheckHandoff | null> {
   return readSchedulerIntegrationCheckHandoffArtifactProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, handoffId);
 }
 
-export function readSchedulerIntegrationOutcomeProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, outcomeId: string): Promise<SchedulerIntegrationOutcome | null> {
+export function readSchedulerIntegrationOutcomeProjection(memory: SchedulerArtifactStore, changePath: string, schedulerRunId: string, outcomeId: string): Promise<SchedulerIntegrationOutcome | null> {
   return readSchedulerIntegrationOutcomeArtifactProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, outcomeId);
 }
 
-export function readSchedulerRunCompletionProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, completionId: string): Promise<SchedulerRunCompletion | null> {
+export function readSchedulerRunCompletionProjection(memory: SchedulerArtifactStore, changePath: string, schedulerRunId: string, completionId: string): Promise<SchedulerRunCompletion | null> {
   return readSchedulerRunCompletionArtifactProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, completionId);
 }
 
-export function readSchedulerRunBlockedCloseoutProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, closeoutId: string): Promise<SchedulerRunBlockedCloseout | null> {
+export function readSchedulerRunBlockedCloseoutProjection(memory: SchedulerArtifactStore, changePath: string, schedulerRunId: string, closeoutId: string): Promise<SchedulerRunBlockedCloseout | null> {
   return readSchedulerRunBlockedCloseoutArtifactProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, closeoutId);
 }
 

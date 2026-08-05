@@ -1,5 +1,5 @@
 ﻿import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { assertLatestSchedulerRuntimeClaimReservationForSnapshot } from "../../src/scheduler-runtime/guards.js";
 import { assertLatestWorkbenchActionTarget, assertPreparedWorkbenchActionTarget, assertWorkbenchActionChangeScope, assertWorkbenchActionOptionalStringTarget, assertWorkbenchActionStringArrayTarget } from "../../src/workbench/actions/active-target.js";
 import { selectLandingReviewArtifactRef, selectLandingSummaryArtifactRef } from "../../src/workbench/artifact-selection.js";
@@ -62,11 +62,10 @@ describe("Workbench helper boundaries", () => {
 
     const taskGraph = readFileSync("src/workbench/projections/read-model/task-graph.ts", "utf8");
     const workpad = readFileSync("src/workbench/projections/read-model/workpad.ts", "utf8");
-    const resultReview = readFileSync("src/workbench/projections/read-model/result-review.ts", "utf8");
     const decisionInspector = readFileSync("src/workbench/projections/read-model/decision-inspector.ts", "utf8");
     expect(taskGraph).toContain('from "./projection-summary.js"');
     expect(workpad).toContain('from "./projection-summary.js"');
-    expect(resultReview).toContain('from "./projection-summary.js"');
+    expect(existsSync("src/workbench/projections/read-model/result-review.ts")).toBe(false);
     expect(decisionInspector).toContain('from "./projection-summary.js"');
     expect(decisionInspector).toContain("function compareDecisionContexts");
   });

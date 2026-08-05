@@ -879,25 +879,48 @@ describe("workbench server", () => {
     }
   });
 
-  it("reports missing external-local memory for a restored direct project", async () => {
+  it("reports incomplete Skill-native onboarding for a direct project without a physical Skill", async () => {
     const sourceRoot = await mkdtemp(join(tmpdir(), "aho-external-missing-src-"));
     const ahoHome = await mkdtemp(join(tmpdir(), "aho-external-missing-home-"));
     const store = new ProjectRegistryStore(join(registryRoot, "restore-missing-home"));
+    const directProject: ManagedProject = {
+      id: "missing-skill-repo",
+      name: "Missing Skill Repo",
+      path: sourceRoot,
+      addedAt: "2026-06-25T00:00:00.000Z",
+      lastSeenAt: "2026-06-25T00:00:00.000Z",
+    };
     process.env.AHO_HOME = ahoHome;
-    await writeMarker(sourceRoot, "missing-memory-repo", "Missing Memory Repo");
 
-    const directHandle = await startWorkbenchServer({ project: null, path: sourceRoot }, { port: 0, staticRoot, store });
+    const directHandle = await startWorkbenchServer({ project: directProject, path: sourceRoot }, { port: 0, staticRoot, store });
     try {
-      const projects = await getJson<{ projects: Array<{ project: { id: string } | null; memory: { memoryMode: string; memoryAvailable: boolean; harnessReady: boolean; roots: { memoryRoot: string } } }> }>(`${directHandle.url}/api/projects`);
-      expect(projects.projects[0]).toMatchObject({
-        project: { id: "missing-memory-repo" },
-        memory: { memoryMode: "external-local", memoryAvailable: false, harnessReady: false },
+      const snapshot = await getJson<SnapshotResponse & {
+        memory: {
+          kind: string;
+          registered: boolean;
+          managed: boolean;
+          memoryAvailable: boolean;
+          harnessReady: boolean;
+          runtimeAvailable: boolean;
+          projectId?: string;
+          state: string;
+          reason: string;
+        };
+      }>(`${directHandle.url}/api/projects/missing-skill-repo/workbench/snapshot`);
+      expect(snapshot.memory).toMatchObject({
+        kind: "project-skill",
+        registered: true,
+        managed: true,
+        memoryAvailable: false,
+        harnessReady: false,
+        runtimeAvailable: true,
+        projectId: "missing-skill-repo",
+        state: "onboarding",
       });
-      expect(projects.projects[0].memory.roots.memoryRoot).toContain("missing-memory-repo");
-
-      const snapshot = await getJson<{ warnings: string[]; left: { topics: unknown[] } }>(`${directHandle.url}/api/projects/missing-memory-repo/workbench/snapshot`);
       expect(snapshot.left.topics).toHaveLength(0);
-      expect(snapshot.warnings).toContain("Durable memory is unavailable. AHO will not infer project history.");
+      expect(snapshot.warnings).toEqual([
+        "Project Harness onboarding is incomplete; Workbench will not infer project history.",
+      ]);
     } finally {
       await new Promise<void>((resolve) => directHandle.server.close(() => resolve()));
       await rm(sourceRoot, { recursive: true, force: true });

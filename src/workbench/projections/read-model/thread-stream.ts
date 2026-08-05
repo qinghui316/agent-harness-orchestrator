@@ -5,7 +5,7 @@ import { readConversationThread } from "../../conversation-thread-log.js";
 import { normalizeMainAgentExecutionAction } from "../../../workflow-actions/main-agent-execution.js";
 import type { AssistantTurnActivity, AssistantTurnBlock, TopicThreadEntry } from "../../types.js";
 import type { ClarificationRequest, WorkbenchIntakeIteration, WorkbenchIntakeScan } from "../../intake.js";
-import type { AuditSummary, ResolvedMemory, RunEvent, RunMetadata, ValidationSummary } from "../../../types/index.js";
+import type { AuditSummary, RunEvent, RunMetadata, ValidationSummary } from "../../../types/index.js";
 import type { ProjectRunsPathPort, ProjectWorkbenchPathPort } from "../../../project-runtime/paths.js";
 import type {
   ThreadStreamEvidence,
@@ -564,14 +564,6 @@ function hasInternalRunMetadata(text: string | undefined): boolean {
   const hasArtifactSignal = artifactSignals.some((signal) => normalized.includes(signal));
   const hasRunMetadataShape = normalized.includes('"runtime"') && normalized.includes('"artifacts"') && normalized.includes('"promptstack"');
   return hasRunMetadataShape || (hasArtifactSignal && normalized.includes('"artifacts"'));
-}
-
-export async function isConcreteChangeFile(memory: ResolvedMemory, changePath: string, fileName: "spec.md" | "plan.md" | "tasks.md"): Promise<boolean> {
-  const path = join(memory.memoryRoot, changePath, fileName);
-  if (!existsSync(path)) return false;
-  const content = await readFile(path, "utf8").catch(() => "");
-  if (!content.trim()) return false;
-  return !/^\s*(?:(?:[-*]|\d+[.)])\s*)?(?:\[\s\]\s*)?(?:T-\d{3,}:\s*)?TBD\.?\s*$/im.test(content);
 }
 
 function workflowLabel(actionType: string | undefined, status: string | undefined): string {

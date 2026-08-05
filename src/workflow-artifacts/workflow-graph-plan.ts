@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
+import { assertPortableProjectId } from "../project-harness/project-id.js";
 import type { ReadySetWorkflowGraphPlan, ResolvedMemory, SequentialWorkflowGraphPlan, WorkflowGraphPlan } from "../types/index.js";
 import { assertWorkflowArtifactScope } from "./guards.js";
 import { latestWorkflowGraphPlanPath, workflowGraphPlanPath } from "./paths.js";
@@ -177,6 +178,20 @@ export async function readLatestWorkflowGraphPlanAt(
   expectedChangeId: string,
 ): Promise<WorkflowGraphPlan> {
   const graph = await readRequiredJsonFile(join(changeRoot, "planning", "workflow-graph-plan.json"), workflowGraphPlanSchema);
+  assertWorkflowGraphChangeId(expectedChangeId, graph, "WorkflowGraphPlan");
+  return graph;
+}
+
+export async function readWorkflowGraphPlanAt(
+  changeRoot: string,
+  expectedChangeId: string,
+  workflowGraphPlanId: string,
+): Promise<WorkflowGraphPlan> {
+  const graphId = assertPortableProjectId(workflowGraphPlanId, "WorkflowGraphPlan id");
+  const graph = await readRequiredJsonFile(
+    join(changeRoot, "planning", "workflow-graphs", `${graphId}.json`),
+    workflowGraphPlanSchema,
+  );
   assertWorkflowGraphChangeId(expectedChangeId, graph, "WorkflowGraphPlan");
   return graph;
 }

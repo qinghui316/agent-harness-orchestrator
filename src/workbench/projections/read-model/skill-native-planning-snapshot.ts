@@ -10,6 +10,7 @@ import type { HighImpactApprovalScope } from "../../../workflow-actions/high-imp
 import { integrationCheckActionManifestHash } from "../../../integration-check/manager.js";
 import { listAuditResults, summarizeAudit } from "../../../audit/repository.js";
 import { getProjectStatus } from "../../../project/status.js";
+import { readProjectHarnessEvolutionState } from "../../../project-harness/evolution.js";
 import { readProjectHarnessPlanningGate } from "../../../project-harness/planning-gate-query.js";
 import { projectExecutionRuntimePort, projectHarnessArchivedChangeReadPort, projectHarnessExecutionPort } from "../../../project-runtime/execution-ports.js";
 import { skillNativeSchedulerExecutionPort } from "../../../scheduler-runtime/execution-port.js";
@@ -58,7 +59,7 @@ import { sequentialWorkflowToConfirmationItems } from "./confirmation/typed-work
 import { schedulerNextActionToConfirmationItems } from "./confirmation/typed-workflow.js";
 import { changeFinalizationToConfirmationItems } from "./confirmation/change-finalization.js";
 import { decisionContextToConfirmationItems } from "./confirmation/decision-context.js";
-import { alignDecisionInspectorWithConfirmationPrimary, buildDecisionInspector } from "./decision-inspector.js";
+import { alignDecisionInspectorWithConfirmationPrimary, buildDecisionInspector, emptyDecisionInspector } from "./decision-inspector.js";
 import { approvalAction } from "./confirmation/shared.js";
 import { buildHarnessGaps, buildRepoSummary } from "./support.js";
 import { buildDiagnosticWorkpad, buildMultiWorkpadSummaries, buildRolePipelineSummary, buildWorkpadBackground, buildWorkpadNextAction } from "./workpad.js";
@@ -91,18 +92,24 @@ export async function tryBuildSkillNativePlanningSnapshot(input: {
   topicId?: string;
 }): Promise<WorkbenchSnapshot | null> {
   const conversations = await readPlanningConversations(input.resolution);
+  const status = projectHarnessStatus(input.resolution);
+  const gaps = buildHarnessGaps();
   const selected = input.topicId
     ? conversations.find((item) => item.conversationId === input.topicId || item.boundChangeId === input.topicId)
-    : conversations.find((item) => item.state === "active" && item.boundChangeId);
-  if (!selected) return null;
+    : conversations.find((item) => item.state === "active" && item.boundChangeId)
+      ?? conversations.find((item) => item.state === "active")
+      ?? conversations[0];
+  if (!selected) {
+    return input.topicId
+      ? null
+      : buildEmptySkillNativeSnapshot(input.project, input.resolution, status, gaps);
+  }
   const existingWorkflowRun = selected.boundChangeId
     ? (await listWorkflowRuns(input.resolution.paths, selected.boundChangeId))[0] ?? null
     : null;
   const existingSchedulerRun = selected.boundChangeId
     ? (await listSkillNativeSchedulerRuns(input.resolution.paths, selected.boundChangeId))[0] ?? null
     : null;
-  const status = projectHarnessStatus(input.resolution);
-  const gaps = buildHarnessGaps();
   let topic = conversationTopic(selected);
   topic = { ...topic, threadItems: await readPlanningThread(input.resolution, topic) };
   const warnings: string[] = [];
@@ -113,6 +120,8 @@ export async function tryBuildSkillNativePlanningSnapshot(input: {
   let gateReady = false;
   let planningAgentTasks: Awaited<ReturnType<typeof buildAgentTaskSummaries>> = [];
   let auditApprovals: WorkbenchApprovalItem[] = [];
+  let currentValidations: ValidationResult[] = [];
+  let currentAudits: AuditResult[] = [];
   let executionHarness: Awaited<ReturnType<typeof projectHarnessExecutionPort>> | null = null;
   let archivedHarness: Awaited<ReturnType<typeof projectHarnessArchivedChangeReadPort>> | null = null;
   if (selected.state === "archive" && selected.boundChangeId) {
@@ -252,6 +261,8 @@ export async function tryBuildSkillNativePlanningSnapshot(input: {
       buildAgentTaskSummaries(runtime, selected.boundChangeId),
     ]);
     planningAgentTasks = agentTasks;
+    currentValidations = validations;
+    currentAudits = audits;
     auditApprovals = await buildSkillNativeAuditApprovals(
       input.project,
       join(input.resolution.harness.skillRoot, "state", "changes", "active", selected.boundChangeId),
@@ -291,7 +302,12 @@ export async function tryBuildSkillNativePlanningSnapshot(input: {
     });
   }
 
-  const approvals = [...(specTestProjection?.approvals ?? []), ...auditApprovals];
+  const approvals = [
+    ...(specTestProjection?.approvals ?? []),
+    ...auditApprovals,
+    ...buildSkillNativeBlockingApprovals(selected.boundChangeId, currentValidations, currentAudits),
+    ...await buildSkillNativeEvolutionApprovals(input.resolution),
+  ];
   const graphSummary = graph ? workflowGraphSummary(graph) : undefined;
   const readiness = {
     specReady: Boolean(topic.acMap),
@@ -371,13 +387,14 @@ export async function tryBuildSkillNativePlanningSnapshot(input: {
   const workpads = topics.map((item): WorkbenchWorkpadSummary => {
     const demandWorker = demandWorkers.find((worker) => worker.changeId === item.boundChangeId);
     const demandState = demandWorkerSummaryState(demandWorker?.status);
+    const archived = item.state === "archive";
     return {
       id: item.id,
       title: item.title,
       state: item.state,
-      runtimeStatus: demandState?.runtimeStatus ?? (item.id === topic.id ? "waiting-decision" : "active"),
-      userStatus: demandState?.userStatus ?? (item.id === topic.id ? "waiting-confirmation" : "processing"),
-      userStatusLabel: demandState?.userStatusLabel ?? (item.id === topic.id ? "等待确认" : "处理中"),
+      runtimeStatus: archived ? "archived" : demandState?.runtimeStatus ?? (item.id === topic.id ? "waiting-decision" : "active"),
+      userStatus: archived ? "completed" : demandState?.userStatus ?? (item.id === topic.id ? "waiting-confirmation" : "processing"),
+      userStatusLabel: archived ? "已完成" : demandState?.userStatusLabel ?? (item.id === topic.id ? "等待确认" : "处理中"),
       conversationLifecycle: item.state === "active" ? "active" : "archived-readonly",
       linkedFromChangeId: item.boundChangeId ?? undefined,
       selected: item.id === topic.id,
@@ -495,7 +512,7 @@ async function buildSkillNativeExecutionSnapshot(input: {
     listCompletedWorktreeDispositions(runtime, input.selected.boundChangeId),
   ]);
   const decisions = decisionRecords.map(mapSkillNativeDecisionRecord);
-  const approvals = [
+  const baseApprovals = [
     ...(specTestProjection?.approvals ?? []),
     ...await buildSkillNativeAuditApprovals(input.project, evidenceRoot, audits),
   ];
@@ -540,6 +557,12 @@ async function buildSkillNativeExecutionSnapshot(input: {
     const gate = await evaluateSkillNativeApplyGate(input.project, executionScope.runtime, executionScope.harness, resultReview.worktreeId);
     applyActionScope = projectApplyActionScope(executionScope, worktreeApplyManifestHash(gate));
   }
+  const approvals = [
+    ...baseApprovals,
+    ...buildSkillNativeBlockingApprovals(input.selected.boundChangeId, validations, audits),
+    ...buildSkillNativeApplyApproval(input.project, input.selected.boundChangeId, resultReview, applyActionScope),
+    ...await buildSkillNativeEvolutionApprovals(input.resolution),
+  ];
   const graphSummary = workflowGraphSummary(input.graph);
   const base = planningWorkpad(input.project, topic, graphSummary, false, input.warnings, input.gaps);
   const readiness = { specReady: true, planReady: true, tasksReady: true };
@@ -1030,6 +1053,82 @@ function latestForWorktree<T extends { worktreeId?: string; finishedAt: string }
     .sort((left, right) => right.finishedAt.localeCompare(left.finishedAt))[0];
 }
 
+function buildSkillNativeBlockingApprovals(
+  changeId: string | null,
+  validations: ValidationResult[],
+  audits: AuditResult[],
+): WorkbenchApprovalItem[] {
+  if (!changeId) return [];
+  const approvals: WorkbenchApprovalItem[] = [];
+  const validation = latestForWorktree(validations, undefined);
+  if (validation?.status === "failed") {
+    approvals.push({
+      id: `attention:validation:${changeId}:${validation.id}`,
+      kind: "attention",
+      label: `Latest validation failed: ${validation.id}`,
+      changeId,
+      targetId: validation.id,
+      severity: "blocking",
+      reason: "Failed validation blocks close.",
+    });
+  }
+  const audit = latestForWorktree(audits, undefined);
+  if (audit?.status === "blocked" || audit?.status === "failed") {
+    approvals.push({
+      id: `attention:audit:${changeId}:${audit.id}`,
+      kind: "attention",
+      label: `Latest audit ${audit.status}: ${audit.id}`,
+      changeId,
+      targetId: audit.id,
+      severity: "blocking",
+      reason: "Blocked or failed audit prevents safe close.",
+    });
+  }
+  return approvals;
+}
+
+function buildSkillNativeApplyApproval(
+  project: ManagedProject,
+  changeId: string,
+  review: WorkbenchResultReview | undefined,
+  scope: HighImpactApprovalScope | undefined,
+): WorkbenchApprovalItem[] {
+  if (review?.status !== "ready-to-apply" || !review.worktreeId || !scope) return [];
+  return [{
+    id: `apply:${review.worktreeId}`,
+    kind: "worktree-apply",
+    label: `结果可应用到项目：${review.worktreeId}`,
+    changeId,
+    targetId: review.worktreeId,
+    severity: "info",
+    action: approvalAction(
+      "result.apply",
+      "应用到项目",
+      "result",
+      ["apply", project.id, changeId, review.worktreeId],
+      true,
+      scope,
+    ),
+    artifact: review.audit?.artifact,
+  }];
+}
+
+async function buildSkillNativeEvolutionApprovals(
+  resolution: ProjectRuntimeResolution,
+): Promise<WorkbenchApprovalItem[]> {
+  const state = await readProjectHarnessEvolutionState(resolution.harness.skillRoot).catch(() => null);
+  if (!state?.pending) return [];
+  return [{
+    id: "evolution:pending",
+    kind: "evolution",
+    label: "Harness evolution pending",
+    severity: "warning",
+    action: approvalAction("evolution.handle", "Handle Harness evolution", "harness-evolve", ["status"], false),
+    artifact: "state/evolution/pending.json",
+    reason: "Handle through proposal, independent review, validation, results, and mark-complete.",
+  }];
+}
+
 async function reviewAcceptsAudit(evidenceRoot: string, auditId: string): Promise<boolean> {
   const path = join(evidenceRoot, "reviews", "review.md");
   if (!existsSync(path)) return false;
@@ -1196,8 +1295,8 @@ function planningWorkpad(
     title: topic.title,
     subtitle: topic.boundChangeId ?? topic.id,
     state: topic.state === "active" ? "active" : "readonly",
-    userStatus: gateReady ? "waiting-confirmation" : "processing",
-    userStatusLabel: gateReady ? "等待确认" : "处理中",
+    userStatus: topic.state === "archive" ? "completed" : gateReady ? "waiting-confirmation" : "processing",
+    userStatusLabel: topic.state === "archive" ? "已完成" : gateReady ? "等待确认" : "处理中",
     conversationId: topic.id,
     demandId: topic.id,
     boundChangeId: topic.boundChangeId ?? undefined,
@@ -1224,6 +1323,79 @@ function planningWorkpad(
       writeBoundaries: ["runtime-sidecar", "project-skill"],
       warnings: [],
     },
+  };
+}
+
+async function buildEmptySkillNativeSnapshot(
+  project: ManagedProject,
+  resolution: ProjectRuntimeResolution,
+  status: WorkbenchProjectHarnessStatus,
+  gaps: HarnessGap[],
+): Promise<WorkbenchSnapshot> {
+  const base = buildDiagnosticWorkpad(project.name, [], gaps);
+  const workpad: WorkbenchWorkpad = {
+    ...base,
+    title: "项目需求",
+    subtitle: project.name,
+    state: "empty",
+    userStatus: "later",
+    userStatusLabel: "稍后处理",
+    intake: {
+      ...base.intake,
+      goal: "暂无需求对话。",
+      currentUnderstanding: "项目 Harness 已就绪，可以从 Main 对话开始新的需求。",
+      missingInfo: [],
+    },
+    blockers: [],
+    warnings: [],
+    nextAction: {
+      id: "start-conversation",
+      label: "等待新需求",
+      description: "使用对话输入开始新的项目需求。",
+      kind: "read-only",
+      enabled: false,
+      requiresConfirmation: false,
+      disabledReason: "新需求从对话输入开始，不需要单独的 Workflow action。",
+    },
+    memoryIsolation: {
+      ...base.memoryIsolation,
+      stableFactSources: ["project-harness"],
+      writeBoundaries: ["runtime-sidecar", "project-skill"],
+      warnings: [],
+    },
+  };
+  const [projectStatus, roles, approvals] = await Promise.all([
+    getProjectStatus(project, project.path),
+    listWorkbenchRoles(),
+    buildSkillNativeEvolutionApprovals(resolution),
+  ]);
+  return {
+    project,
+    memory: status,
+    left: {
+      project,
+      memory: status,
+      topics: [],
+      workpads: [],
+      repo: buildRepoSummary(projectStatus),
+    },
+    center: {
+      selectedTopic: null,
+      workpad,
+      thread: { items: [] },
+      conversationInteractions: { items: [] },
+      activeTab: "conversation",
+      agentLoop: { runs: [] },
+    },
+    right: {
+      approvals,
+      decisions: [],
+      decisionInspector: emptyDecisionInspector(),
+      confirmationQueue: { primary: null, current: [], otherDemands: [], maintenance: [], history: [] },
+    },
+    roles,
+    harnessGaps: gaps,
+    warnings: [],
   };
 }
 
