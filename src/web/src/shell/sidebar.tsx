@@ -152,10 +152,10 @@ export function ProjectConversationSidebar({
             const expanded = selected || expandedProjects.has(projectId);
             const projectSnapshot = item.project?.id === selectedProjectId ? snapshot : item.project?.id ? snapshots[item.project.id] : undefined;
             const hasConversationSnapshot = Boolean(projectSnapshot?.left.workpads?.length || projectSnapshot?.left.topics?.length);
-            const memoryReady = projectSnapshot?.memory.harnessReady ?? item.memory?.harnessReady ?? item.harness.readiness === "ready";
-            const memoryIssue = memoryStatusIssue(item, projectSnapshot);
-            const secondary = duplicateName ? shortProjectContext(item.path) : memoryIssue?.short ?? shortProjectContext(item.path);
-            const canStartConversation = Boolean(item.project && item.pathExists && memoryIssue?.kind !== "missing-external-memory");
+            const harnessReady = projectSnapshot?.harness.harnessReady ?? item.harness.readiness === "ready";
+            const harnessIssue = harnessStatusIssue(item, projectSnapshot);
+            const secondary = duplicateName ? shortProjectContext(item.path) : harnessIssue?.short ?? shortProjectContext(item.path);
+            const canStartConversation = Boolean(item.project && item.pathExists);
             const conversations = conversationsForSidebar(projectSnapshot, selectedTopicId);
             const filteredConversations = normalizedSearch
               ? conversations.filter((conversation) => conversation.title.toLowerCase().includes(normalizedSearch) || conversation.status.toLowerCase().includes(normalizedSearch))
@@ -217,8 +217,8 @@ export function ProjectConversationSidebar({
                 ) : null}
                 {expanded ? (
                   <div className="conversation-list">
-                    {memoryReady && !projectSnapshot ? <div className="conversation-placeholder">正在加载对话。</div> : null}
-                    {!memoryReady && !hasConversationSnapshot ? <div className="conversation-placeholder">首次需求时会根据项目情况建立必要工作说明。</div> : null}
+                    {harnessReady && !projectSnapshot ? <div className="conversation-placeholder">正在加载对话。</div> : null}
+                    {!harnessReady && !hasConversationSnapshot ? <div className="conversation-placeholder">首次需求时会根据项目情况建立必要工作说明。</div> : null}
                     {filteredConversations.map((conversation) => {
                       const menuId = `${projectId}:${conversation.id}`;
                       const editing = editingConversation?.menuId === menuId ? editingConversation : null;
@@ -295,7 +295,7 @@ export function ProjectConversationSidebar({
                         </div>
                       );
                     })}
-                    {memoryReady && projectSnapshot && filteredConversations.length === 0 ? <div className="conversation-placeholder">暂无对话。</div> : null}
+                    {harnessReady && projectSnapshot && filteredConversations.length === 0 ? <div className="conversation-placeholder">暂无对话。</div> : null}
                   </div>
                 ) : null}
               </div>
@@ -318,13 +318,13 @@ export function currentWorkpadSummary(snapshot: Snapshot, topic: TopicDetail | n
 
 export function UnmanagedProjectView({ project }: { project: ProjectStatus | null }): ReactElement {
   if (!project?.project) return <EmptyWorkbench title="项目不可用" description="请选择左侧项目或重新刷新项目列表。" />;
-  const issue = memoryStatusIssue(project);
+  const issue = harnessStatusIssue(project);
   return (
     <section className="empty-workbench">
       <p className="eyebrow">项目已添加</p>
       <h1>{projectDisplayName(project.project)}</h1>
       <p>{project.path}</p>
-      <p>{issue?.detail ?? "项目历史不可用，请在项目设置的高级诊断中确认应用数据目录。"}</p>
+      <p>{issue?.detail ?? "项目 Harness 尚未完成准备。"}</p>
     </section>
   );
 }
@@ -378,22 +378,13 @@ type SidebarConversation = {
   state: string;
 };
 
-function memoryStatusIssue(project: ProjectStatus, snapshot?: Snapshot): { kind: "missing-external-memory" | "uninitialized"; short: string; detail: string } | null {
-  const memoryMode = snapshot?.memory.memoryMode ?? project.memory?.memoryMode;
-  const available = project.memory?.memoryAvailable ?? true;
-  const harnessReady = snapshot?.memory.harnessReady ?? project.memory?.harnessReady ?? project.harness.readiness === "ready";
+function harnessStatusIssue(project: ProjectStatus, snapshot?: Snapshot): { kind: "uninitialized"; short: string; detail: string } | null {
+  const harnessReady = snapshot?.harness.harnessReady ?? project.harness.readiness === "ready";
   if (harnessReady) return null;
-  if (project.managed && memoryMode === "external-local" && !available) {
-    return {
-      kind: "missing-external-memory",
-      short: "历史不可用",
-      detail: "项目历史不可用，请在项目设置的高级诊断中确认应用数据目录。",
-    };
-  }
   return {
     kind: "uninitialized",
-    short: "首次对话建立说明",
-    detail: "首次需求时会根据项目情况建立必要工作说明。",
+    short: project.harness.readiness === "partial" ? "项目 Harness 需要修复" : "首次对话建立说明",
+    detail: project.harness.readiness === "partial" ? "项目 Harness 尚未通过完整检查。" : "首次需求时会根据项目情况建立必要工作说明。",
   };
 }
 

@@ -7,7 +7,8 @@ import { listLandingPackages } from "../../../landing/repository.js";
 import type { LandingCandidate, LandingReadinessPackage } from "../../../landing/types.js";
 import { latestLandingQueueSnapshot } from "../../../landing-queue/repository.js";
 import type { ProjectCodeExecutionRuntimePort, ProjectHarnessExecutionPort } from "../../../project-runtime/execution-ports.js";
-import type { ManagedProject } from "../../../types/index.js";
+import type { ManagedProject, WorktreeMetadata } from "../../../types/index.js";
+import { listWorktreeMetadata } from "../../../worktree/repository.js";
 import type { WorkbenchConfirmationQueue, WorkbenchConfirmationQueueItem, WorkbenchTopicDetail } from "../../read-model-types.js";
 import {
   integrationCandidateQueueItem,
@@ -34,11 +35,12 @@ export async function mergeSkillNativeProjectWideConfirmations(input: {
   base: WorkbenchConfirmationQueue;
 }): Promise<WorkbenchConfirmationQueue> {
   const selectedChangeId = input.topic.boundChangeId ?? input.topic.id;
-  const [checks, packages, queueSnapshot, candidate] = await Promise.all([
+  const [checks, packages, queueSnapshot, candidate, worktrees] = await Promise.all([
     listIntegrationChecks(input.runtime),
     listLandingPackages(input.runtime),
     latestLandingQueueSnapshot(input.runtime),
     findSkillNativeIntegrationCheckCandidate(input.project, input.runtime, input.harness, selectedChangeId),
+    listWorktreeMetadata(input.runtime),
   ]);
   const projectItems: WorkbenchConfirmationQueueItem[] = [];
   const selectedChecks = checks.filter((check) =>
@@ -110,7 +112,7 @@ export async function mergeSkillNativeProjectWideConfirmations(input: {
     }
   }
 
-  const landingCandidate = findSkillNativeLandingCandidate(checks, packages);
+  const landingCandidate = findSkillNativeLandingCandidate(checks, packages, worktrees);
   if (landingCandidate) projectItems.push(landingCandidateQueueItem(input.project, landingCandidate, selectedChangeId));
 
   const selectedItems: WorkbenchConfirmationQueueItem[] = [];
@@ -150,15 +152,38 @@ async function actionScopeForCheck(project: ManagedProject, check: IntegrationCh
 function findSkillNativeLandingCandidate(
   checks: IntegrationCheckRecord[],
   packages: LandingReadinessPackage[],
+  worktrees: WorktreeMetadata[],
 ): LandingCandidate | null {
-  const packagedChecks = new Set(packages.map((pkg) => pkg.target.applyCheckId).filter((id): id is string => Boolean(id)));
+  const packagedChecks = new Set(packages
+    .map((pkg) => pkg.target.applyCheckId)
+    .filter((id): id is string => Boolean(id)));
   const check = checks.find((item) => item.status === "applied" && !packagedChecks.has(item.id));
-  if (!check) return null;
+  if (check) {
+    return {
+      kind: "integration-check",
+      applyCheckId: check.id,
+      changeIds: Array.from(new Set(check.resultTargets.map((target) => target.changeId))),
+      summary: "已应用的组合结果可以做提交/PR 前检查。",
+      riskSummary: "检查只生成本地落地证据包，不会 commit、push、创建 PR 或 merge。",
+    };
+  }
+  const packagedWorktreeRuns = new Set(packages
+    .filter((pkg) => pkg.target.kind === "worktree" && pkg.target.applyRunId)
+    .flatMap((pkg) => pkg.target.worktreeIds.map((worktreeId) => `${worktreeId}:${pkg.target.applyRunId}`)));
+  const appliedWorktree = [...worktrees]
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    .find((worktree) => {
+      if (worktree.status !== "applied" || !worktree.applyRunId) return false;
+      if (checks.some((item) => item.status === "applied"
+        && item.resultTargets.some((target) => target.worktreeId === worktree.worktreeId))) return false;
+      return !packagedWorktreeRuns.has(`${worktree.worktreeId}:${worktree.applyRunId}`);
+    });
+  if (!appliedWorktree) return null;
   return {
-    kind: "integration-check",
-    applyCheckId: check.id,
-    changeIds: Array.from(new Set(check.resultTargets.map((target) => target.changeId))),
-    summary: "已应用的组合结果可以做提交/PR 前检查。",
+    kind: "worktree",
+    worktreeId: appliedWorktree.worktreeId,
+    changeIds: [appliedWorktree.changeId],
+    summary: "已应用的单个结果可以做提交/PR 前检查。",
     riskSummary: "检查只生成本地落地证据包，不会 commit、push、创建 PR 或 merge。",
   };
 }

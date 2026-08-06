@@ -1,12 +1,10 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { cp, mkdir, readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { z } from "zod";
-import { parseJsonText, writeJsonFile } from "../fs/json.js";
-import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
-import { getTemplateRoot } from "../template-source/paths.js";
-import type { ManagedProject, ResolvedMemory, RunAgentRecord } from "../types/index.js";
+import { getAgentProfilesRoot } from "../template-source/paths.js";
+import type { ManagedProject, RunAgentRecord } from "../types/index.js";
 
 export const AGENT_CATALOG_VERSION = "1.0";
 
@@ -35,7 +33,7 @@ export interface AgentRole {
   roleId: string;
   displayName: string;
   description: string;
-  source: "bundled" | "memory";
+  source: "bundled";
   sourcePath: string;
   contentHash: string;
   catalogVersion: string;
@@ -53,14 +51,6 @@ export interface AgentRole {
 
 export interface AgentRoleCompatibility {
   requiredCapabilities: string[];
-}
-
-export interface AgentSyncResult {
-  catalogPath: string;
-  agentsRoot: string;
-  commandsRoot: string;
-  written: string[];
-  catalog: AgentCatalog;
 }
 
 const roleIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]*$/);
@@ -125,74 +115,13 @@ export async function resolveBundledAgentRole(roleIdInput: string): Promise<Agen
   };
 }
 
-export async function listAgentRoles(project: ManagedProject): Promise<AgentRole[]> {
-  const memory = await resolveProjectMemory(project);
-  const catalog = await readAgentCatalog(memory);
-  return await Promise.all(catalog.agents.map((entry) => resolveAgentRole(memory, entry.roleId)));
+export async function listAgentRoles(_project: ManagedProject): Promise<AgentRole[]> {
+  const catalog = readBundledAgentCatalog();
+  return Promise.all(catalog.agents.map((entry) => resolveBundledAgentRole(entry.roleId)));
 }
 
-export async function showAgentRole(project: ManagedProject, roleId: string): Promise<AgentRole> {
-  const memory = await resolveProjectMemory(project);
-  return await resolveAgentRole(memory, normalizeRoleId(roleId));
-}
-
-export async function syncAgentCatalog(project: ManagedProject): Promise<AgentSyncResult> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "Agent catalog sync");
-  await mkdir(memory.agentsRoot, { recursive: true });
-  await mkdir(memory.commandsRoot, { recursive: true });
-  const written: string[] = [];
-  for (const entry of defaultCatalog.agents) {
-    const source = bundledAgentPath(entry.roleId);
-    if (!existsSync(source)) continue;
-    const target = join(memory.agentsRoot, `${entry.roleId}.md`);
-    if (!existsSync(target)) {
-      await cp(source, target);
-      written.push(target);
-    }
-  }
-  if (!existsSync(memory.agentCatalogPath)) {
-    await writeJsonFile(memory.agentCatalogPath, defaultCatalog);
-    written.push(memory.agentCatalogPath);
-  }
-  return {
-    catalogPath: memory.agentCatalogPath,
-    agentsRoot: memory.agentsRoot,
-    commandsRoot: memory.commandsRoot,
-    written,
-    catalog: await readAgentCatalog(memory),
-  };
-}
-
-export async function readAgentCatalog(memory: ResolvedMemory): Promise<AgentCatalog> {
-  const parsed = existsSync(memory.agentCatalogPath)
-    ? catalogSchema.parse(parseJsonText(await readFile(memory.agentCatalogPath, "utf8"), memory.agentCatalogPath))
-    : defaultCatalog;
-  const catalog = normalizeCatalog(parsed);
-  validateUniqueRoles(catalog);
-  return catalog;
-}
-
-export async function resolveAgentRole(memory: ResolvedMemory, roleIdInput: string): Promise<AgentRole> {
-  const roleId = normalizeRoleId(roleIdInput);
-  const catalog = await readAgentCatalog(memory);
-  const entry = catalog.agents.find((item) => item.roleId === roleId);
-  if (!entry) throw new Error(`Unknown agent role: ${roleId}`);
-  const sourcePath = resolveProfilePath(memory, entry);
-  if (!existsSync(sourcePath)) throw new Error(`Agent role ${roleId} profile is missing: ${sourcePath}`);
-  const markdown = await readFile(sourcePath, "utf8");
-  validateRolePromptContract(entry.roleId, markdown);
-  const contentHash = hashText(markdown);
-  return {
-    ...entry,
-    source: isInsideMemoryAgents(memory, sourcePath) ? "memory" : "bundled",
-    sourcePath,
-    contentHash,
-    catalogVersion: catalog.version,
-    catalogHash: hashText(JSON.stringify(catalog)),
-    compatibility: roleCompatibility(entry),
-    markdown,
-  };
+export async function showAgentRole(_project: ManagedProject, roleId: string): Promise<AgentRole> {
+  return resolveBundledAgentRole(normalizeRoleId(roleId));
 }
 
 export function validateRolePromptContract(roleId: string, markdown: string): void {
@@ -263,20 +192,8 @@ function normalizeRoleId(roleId: string): string {
   return parsed.data;
 }
 
-function resolveProfilePath(memory: ResolvedMemory, entry: AgentCatalogEntry): string {
-  if (entry.profilePath.startsWith("agents/")) {
-    const memoryPath = join(memory.memoryRoot, entry.profilePath);
-    if (existsSync(memoryPath)) return memoryPath;
-    return bundledAgentPath(entry.roleId);
-  }
-  if (entry.profilePath.includes("..")) {
-    throw new Error(`Agent role ${entry.roleId} has unsafe profilePath: ${entry.profilePath}`);
-  }
-  return join(memory.memoryRoot, entry.profilePath);
-}
-
 function bundledAgentPath(roleId: string): string {
-  return join(dirname(getTemplateRoot()), "agent-profiles", `${roleId}.md`);
+  return join(getAgentProfilesRoot(), `${roleId}.md`);
 }
 
 function validateUniqueRoles(catalog: AgentCatalog): void {
@@ -317,10 +234,6 @@ function roleCompatibility(entry: AgentCatalogEntry): AgentRoleCompatibility {
   if (entry.writeCapability !== "read-only") requiredCapabilities.add("workspace.write");
   if (entry.allowedSkills.length > 0) requiredCapabilities.add("skill.native-load");
   return { requiredCapabilities: [...requiredCapabilities].sort() };
-}
-
-function isInsideMemoryAgents(memory: ResolvedMemory, sourcePath: string): boolean {
-  return sourcePath === memory.agentsRoot || sourcePath.startsWith(`${memory.agentsRoot}\\`) || sourcePath.startsWith(`${memory.agentsRoot}/`);
 }
 
 function stripUtf8Bom(text: string): string {

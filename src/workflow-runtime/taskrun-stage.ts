@@ -5,18 +5,18 @@ import {
   type WorkflowRuntimeExecutionState,
 } from "./execution-contract.js";
 import { listAuditResults } from "../audit/artifacts.js";
-import { startAuditRun } from "../audit/manager.js";
+import { startSkillNativeAuditRun } from "../audit/service.js";
 import type { CodeExecutionGateOptions } from "../code/manager.js";
-import { resolveProjectMemory } from "../memory/resolver.js";
+import { startSkillNativeCodeRun } from "../code/manager.js";
+import { resolveProjectActiveExecutionScope, type ProjectActiveExecutionScope } from "../project-runtime/active-execution-scope.js";
 import { listRuns } from "../run/manager.js";
 import { listTaskQueueItems } from "../task-queue/manager.js";
 import {
   finishTaskRunFromWorkflowResult,
   listTaskRuns,
   markTaskRunStarted,
-  retryTaskRun,
   retryTaskRunFromRuntime,
-  startTaskRun,
+  startTaskRunFromRuntime,
 } from "../task-run/manager.js";
 import type {
   ManagedProject,
@@ -30,7 +30,7 @@ import type {
   WorkerLease,
 } from "../types/index.js";
 import { listValidationResults } from "../validation/artifacts.js";
-import { startValidationRun } from "../validation/manager.js";
+import { startSkillNativeValidationRun } from "../validation/service.js";
 import { deriveStageResumeVerdict } from "../workflow-run/manager.js";
 import {
   runAuditorLeafStage,
@@ -99,7 +99,7 @@ export interface RuntimeTaskRunStageOptions {
   initialDecision?: DelegateDecision<"coder-agent" | "rework-coder">;
   onRetryTaskRunStarted?: (started: RuntimeStartedTaskRun) => Promise<void>;
   existingWorktreeId?: string;
-  skillNative?: SkillNativeTaskRunStageContext;
+  skillNative: SkillNativeTaskRunStageContext;
 }
 
 export interface SkillNativeTaskRunStageContext {
@@ -125,14 +125,17 @@ export async function runTaskRunStageAction(
   live: WorkflowRuntimeLiveSink | undefined,
   mode: "start" | "retry",
 ): Promise<RuntimeTaskRunStageResult> {
+  const scope = await resolveProjectActiveExecutionScope(project, changeId);
+  const skillNative = taskRunStageContext(scope);
   const started = mode === "start"
-    ? await startTaskRun(project, { changeId, taskId: requireSingleTaskId(request.taskIds) })
-    : await retryTaskRun(project, { changeId, taskRunId: requireTaskRunId(request.taskRunId) });
+    ? await startTaskRunFromRuntime(scope.runtime, scope.harness.changeStatus, { changeId, taskId: requireSingleTaskId(request.taskIds) })
+    : await retryTaskRunFromRuntime(scope.runtime, scope.harness.changeStatus, { changeId, taskRunId: requireTaskRunId(request.taskRunId) });
   return runStartedTaskRunStage({
     project,
     started,
     prompt: request.prompt,
     live,
+    skillNative,
   });
 }
 
@@ -161,10 +164,10 @@ export async function runStartedTaskRunStage(input: RuntimeTaskRunStageOptions):
     skillNative: input.skillNative,
   });
   if (rework) {
-    if (ownsLoopFinalization) await finishLoopForTaskRun(input.project, loopRunId, rework.taskRun, rework.workflow, input.skillNative?.runtime);
+    if (ownsLoopFinalization) await finishLoopForTaskRun(input.project, loopRunId, rework.taskRun, rework.workflow, input.skillNative.runtime);
     return { ...rework, autoRework: { previousTaskRun: initial.taskRun, result: rework } };
   }
-  if (ownsLoopFinalization) await finishLoopForTaskRun(input.project, loopRunId, initial.taskRun, initial.workflow, input.skillNative?.runtime);
+  if (ownsLoopFinalization) await finishLoopForTaskRun(input.project, loopRunId, initial.taskRun, initial.workflow, input.skillNative.runtime);
   return initial;
 }
 
@@ -197,7 +200,7 @@ export async function runResumedTaskRunStage(input: {
   live?: WorkflowRuntimeLiveSink;
   executionGate?: CodeExecutionGateOptions;
   onRetryTaskRunStarted?: (started: RuntimeStartedTaskRun) => Promise<void>;
-  skillNative?: SkillNativeTaskRunStageContext;
+  skillNative: SkillNativeTaskRunStageContext;
 }): Promise<RuntimeTaskRunStageResult> {
   const resumed = await executeResumedTaskRunStage(input);
   const taskRun = isRecord(resumed) && isTaskRunLike(resumed.taskRun) ? resumed.taskRun : null;
@@ -260,7 +263,7 @@ async function runOneStartedTaskRunAttempt(input: RuntimeTaskRunStageOptions & {
   initialDecision: DelegateDecision<"coder-agent" | "rework-coder">;
   existingWorktreeId?: string;
 }): Promise<RuntimeTaskRunStageResult> {
-  const memory: WorkflowRoleRuntimePort = input.skillNative?.runtime ?? await resolveProjectMemory(input.project);
+  const memory: WorkflowRoleRuntimePort = input.skillNative.runtime;
   const { run: loopRun, created } = await ensureWorkflowRuntimeEvidenceRun(memory, {
     runtimeRunId: input.loopRunId,
     changeId: input.started.taskRun.changeId,
@@ -303,7 +306,7 @@ async function runOneStartedTaskRunAttempt(input: RuntimeTaskRunStageOptions & {
     orchestration: input.orchestrationState,
     initialDecision: input.initialDecision,
     existingWorktreeId: input.existingWorktreeId,
-    services: input.skillNative?.leafServices,
+    services: input.skillNative.leafServices,
   });
   const taskRun = await finishTaskRunFromWorkflowResult(memory, input.started.taskRun.id, workflow, {
     changeId: input.started.taskRun.changeId,
@@ -490,7 +493,7 @@ async function maybeRunTaskRunRework(input: {
   loopRunId: string;
   orchestrationState: WorkflowRuntimeExecutionState;
   onRetryTaskRunStarted?: (started: RuntimeStartedTaskRun) => Promise<void>;
-  skillNative?: SkillNativeTaskRunStageContext;
+  skillNative: SkillNativeTaskRunStageContext;
 }): Promise<RuntimeTaskRunStageResult | null> {
   if (!shouldRunRework(input.previousTaskRun, input.workflow)) return null;
   emitAssistantEvent(input.live, {
@@ -505,9 +508,7 @@ async function maybeRunTaskRunRework(input: {
     taskRunId: input.previousTaskRun.id,
     roleId: "rework-coder",
   };
-  const retry = input.skillNative
-    ? await retryTaskRunFromRuntime(input.skillNative.runtime, input.skillNative.changeStatus, retryOptions)
-    : await retryTaskRun(input.project, retryOptions);
+  const retry = await retryTaskRunFromRuntime(input.skillNative.runtime, input.skillNative.changeStatus, retryOptions);
   const retryStarted: RuntimeStartedTaskRun = { taskRun: retry.taskRun, lease: retry.lease };
   await input.onRetryTaskRunStarted?.(retryStarted);
   return runOneStartedTaskRunAttempt({
@@ -538,7 +539,7 @@ async function executeResumedTaskRunStage(input: {
   taskRun: TaskRun;
   verdict: StageResumeVerdict;
   live?: WorkflowRuntimeLiveSink;
-  skillNative?: SkillNativeTaskRunStageContext;
+  skillNative: SkillNativeTaskRunStageContext;
 }): Promise<{ taskRun: TaskRun; workflow: RuntimeTaskRunWorkflowResult }> {
   const runs = await listRuns(input.memory);
   const coderRun = input.verdict.runId ? runs.find((run) => run.id === input.verdict.runId) : undefined;
@@ -568,7 +569,7 @@ async function executeResumedTaskRunStage(input: {
     return { taskRun: blocked, workflow };
   }
 
-  let validation: Awaited<ReturnType<typeof startValidationRun>> | undefined = existingValidation;
+  let validation: Awaited<ReturnType<typeof startSkillNativeValidationRun>> | undefined = existingValidation;
   if (input.verdict.kind === "continue-validation") {
     emitAssistantEvent(input.live, {
       runId: input.taskRun.id,
@@ -578,8 +579,7 @@ async function executeResumedTaskRunStage(input: {
       summary: "Coder evidence already exists; AHO is resuming from validation.",
       artifactRef: coderRun.artifacts.directory,
     });
-    const startValidation = input.skillNative?.leafServices.startValidation ?? startValidationRun;
-    validation = await startValidation(input.project, { changeId: input.taskRun.changeId, worktree: coderRun.worktree.worktreeId });
+    validation = await input.skillNative.leafServices.startValidation(input.project, { changeId: input.taskRun.changeId, worktree: coderRun.worktree.worktreeId });
     emitValidationAssistantEvents(input.live, coderRun.id, validation);
     if (validation.validation.status !== "passed") {
       const workflow = workflowFromUnknown({ code: { run: coderRun }, validation, stoppedAt: "validation" }, input.taskRun.changeId);
@@ -596,8 +596,7 @@ async function executeResumedTaskRunStage(input: {
     summary: "Validation evidence is available; AHO is resuming from audit.",
     artifactRef: validation?.run.artifacts.validation ?? input.verdict.evidenceRefs[0],
   });
-  const startAudit = input.skillNative?.leafServices.startAudit ?? startAuditRun;
-  const audit = await startAudit(input.project, {
+  const audit = await input.skillNative.leafServices.startAudit(input.project, {
     changeId: input.taskRun.changeId,
     worktreeId: coderRun.worktree.worktreeId,
     prompt: "This audit resumed from WorkflowRun stage recovery after coder and validation evidence were already present.",
@@ -640,9 +639,9 @@ async function finishLoopForTaskRun(
   loopRunId: string,
   taskRun: TaskRun,
   workflow: RuntimeTaskRunWorkflowResult,
-  runtime?: ProjectExecutionRuntimePort,
+  runtime: ProjectExecutionRuntimePort,
 ): Promise<void> {
-  const memory = runtime ?? await resolveProjectMemory(project);
+  const memory = runtime;
   const { run } = await ensureWorkflowRuntimeEvidenceRun(memory, {
     runtimeRunId: loopRunId,
     changeId: taskRun.changeId,
@@ -654,6 +653,20 @@ async function finishLoopForTaskRun(
     summary: taskRun.status === "completed" ? "TaskRun runtime stage completed." : `TaskRun runtime stage stopped with status ${taskRun.status}.`,
     stoppedAt: workflow.stoppedAt,
   });
+}
+
+function taskRunStageContext(
+  scope: ProjectActiveExecutionScope,
+): SkillNativeTaskRunStageContext {
+  return {
+    runtime: scope.runtime,
+    changeStatus: scope.harness.changeStatus,
+    leafServices: {
+      startCode: (target, options) => startSkillNativeCodeRun(target, scope.runtime, scope.harness, options),
+      startValidation: (target, options) => startSkillNativeValidationRun(target, scope.runtime, scope.harness, options),
+      startAudit: (target, options) => startSkillNativeAuditRun(target, scope.runtime, scope.harness, options),
+    },
+  };
 }
 
 async function appendLeafStarted(

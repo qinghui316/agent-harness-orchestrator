@@ -7,8 +7,8 @@ import type {
   LandingQueueDecision,
   LandingQueueResult,
   LandingQueueSnapshot,
-  ResolvedMemory,
 } from "../types/index.js";
+import type { ProjectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
 import type { ProjectWorkbenchArtifactPathPort } from "../project-runtime/paths.js";
 import { contentHash, displayLandingQueueArtifactPath, landingQueueRoot } from "./paths.js";
 import { renderResultSummary, renderSnapshotSummary, summaryForQueue } from "./rendering.js";
@@ -33,7 +33,7 @@ export async function listLandingQueueSnapshots(memory: ProjectWorkbenchArtifact
   return snapshots.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-export async function writeSnapshot(memory: ResolvedMemory, candidates: LandingQueueCandidate[]): Promise<LandingQueueSnapshot> {
+export async function writeSnapshot(memory: ProjectExecutionRuntimePort, candidates: LandingQueueCandidate[]): Promise<LandingQueueSnapshot> {
   const now = new Date().toISOString();
   const readyCount = candidates.filter((candidate) => candidate.canMerge).length;
   const needsAttentionCount = candidates.filter((candidate) => candidate.status === "needs-attention").length;
@@ -66,7 +66,7 @@ export async function writeSnapshot(memory: ResolvedMemory, candidates: LandingQ
 }
 
 export async function writeDecisionResult(
-  _memory: ResolvedMemory,
+  _memory: ProjectExecutionRuntimePort,
   directory: string,
   decision: LandingQueueDecision,
   result: LandingQueueResult,

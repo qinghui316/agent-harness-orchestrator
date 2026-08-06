@@ -1,5 +1,3 @@
-﻿import type { ArtifactBase } from "./project-memory.js";
-
 export type RunStatus = "created" | "running" | "interrupted" | "completed" | "failed";
 
 export type RunRuntime = "local-command" | "provider-readonly" | "validator" | "auditor" | "provider-code" | "worktree-apply" | "worktree-discard" | "spec-test-proposer" | "spec-test-generator" | "spec-agent" | "planner" | "orchestrator" | "provider-agent" | "intake-scan";
@@ -45,7 +43,7 @@ export interface RunWorktreeInfo {
 }
 
 export interface RunArtifactPaths {
-  base?: ArtifactBase;
+  owner: "project-source" | "runtime-sidecar";
   directory: string;
   context: string;
   contextPacket?: string;
@@ -83,7 +81,7 @@ export interface RunArtifactPaths {
 export interface RunContextPacketRef {
   ref: string;
   hash: string;
-  format: "role-context-packet@1.0" | "role-context-packet@2.0";
+  format: "role-context-packet@2.0";
 }
 
 export type ValidationStatus = "passed" | "failed";
@@ -242,7 +240,7 @@ export interface RunSkillRecord {
 
 export interface RunAgentRecord {
   roleId: string;
-  source: "bundled" | "memory";
+  source: "bundled";
   sourcePath: string;
   sourceHash: string;
   catalogVersion: string;

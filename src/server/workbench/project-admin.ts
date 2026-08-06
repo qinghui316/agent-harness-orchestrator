@@ -3,14 +3,13 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { join, resolve } from "node:path";
 import { resolveExistingDirectory } from "../../fs/path.js";
-import { initHarness } from "../../harness/init.js";
 import { ProjectRuntimeCoordinator, type ProjectRuntimeCoordinatorPort } from "../../project-runtime/coordinator.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../provider-runtime/project-harness-discovery.js";
 import { getProjectStatus } from "../../project/status.js";
 import type { ProjectRegistryStore } from "../../registry/store.js";
-import type { ManagedProject, MemoryMode } from "../../types/index.js";
+import type { ManagedProject } from "../../types/index.js";
 import { assertConfirmed, isWithinDirectory } from "./http.js";
-import type { AddExistingProjectRequest, CreateNewProjectRequest, InitProjectHarnessRequest, RemoveProjectRequest } from "./types.js";
+import type { AddExistingProjectRequest, CreateNewProjectRequest, RemoveProjectRequest } from "./types.js";
 import { listProjectStatusesWithDirect } from "./direct-project.js";
 import type { WorkbenchProjectInput } from "../../workbench/read-model-types.js";
 import type { WorkbenchProjectRemovalConfirmation, WorkbenchProjectRemovalPort } from "./project-removal.js";
@@ -110,19 +109,6 @@ export async function removeRegisteredProject(
   };
 }
 
-export async function initProjectHarness(store: ProjectRegistryStore, projectId: string, body: InitProjectHarnessRequest): Promise<{ result: unknown; status: unknown }> {
-  assertConfirmed(body.confirm);
-  const project = await store.resolveProject(projectId);
-  if (!project) {
-    const error = new Error(`Project not found: ${projectId}`);
-    error.name = "NotFound";
-    throw error;
-  }
-  const memoryMode = parseMemoryMode(body.memoryMode);
-  const result = await initHarness(project, { memoryMode });
-  return { result, status: await getProjectStatus(project, project.path) };
-}
-
 function assertSafeDirectoryName(value: unknown): string {
   if (typeof value !== "string") {
     const error = new Error("Project name is required.");
@@ -140,14 +126,6 @@ function assertSafeDirectoryName(value: unknown): string {
 
 function hasControlCharacter(value: string): boolean {
   return Array.from(value).some((char) => char.charCodeAt(0) < 32);
-}
-
-function parseMemoryMode(value: unknown): Exclude<MemoryMode, "remote"> {
-  if (value === undefined || value === null || value === "external-local") return "external-local";
-  if (value === "repo-local") return "repo-local";
-  const error = new Error("Unsupported memory mode. Use repo-local or external-local.");
-  error.name = "BadRequest";
-  throw error;
 }
 
 async function runGit(cwd: string, args: string[]): Promise<void> {

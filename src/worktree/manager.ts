@@ -1,8 +1,8 @@
-export { createWorktree, createWorktreeWithRuntimePort } from "./creation.js";
+export { createWorktreeWithRuntimePort } from "./creation.js";
 export { prepareWorktreeDependencyBridge, WorktreeDependencyBridgeError } from "./dependencies.js";
 export { getGlobalWorktreeCheckoutRoot, getWorktreeMetadataPath } from "./paths.js";
 export { listWorktreeMetadata } from "./repository.js";
 export { getWorktreeStatus, listWorktreeStatuses, listWorktreesForChange } from "./status.js";
-export { markWorktreeApplied, removeWorktree, removeWorktreeUnderLease } from "./lifecycle.js";
+export { markWorktreeApplied, removeWorktreeUnderLease, removeWorktreeWithRuntimePort } from "./lifecycle.js";
 export { writeWorktreeIndex } from "./index.js";
 export type { WorktreeAppliedUpdate, WorktreeCreateOptions, WorktreeCreateResult, WorktreeRemoveResult } from "./types.js";

@@ -15,7 +15,8 @@ import {
   updateDraftPrFromLanding,
   type PrDraftPackage,
 } from "../pr-draft/manager.js";
-import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
+import { requireProjectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
+import type { ProjectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
 import type {
   AgentTask,
   ManagedProject,
@@ -29,7 +30,6 @@ import type {
   PrReviewThreadCapability,
   PrReviewThreadFinding,
   ReviewFeedbackUserContext,
-  ResolvedMemory,
 } from "../types/index.js";
 import type { ProjectWorkbenchArtifactPathPort } from "../project-runtime/paths.js";
 import type { LandingReadinessPackage } from "../landing/types.js";
@@ -43,8 +43,7 @@ export async function refreshPrFeedback(
   landingPackageId: string,
   options: { expectedChangeId?: string } = {},
 ): Promise<{ snapshot: PrFeedbackSnapshot; summary: PrFeedbackSummary }> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "PR feedback refresh");
+  const memory = await requireProjectExecutionRuntimePort(project);
   const landing = await readLandingPackage(memory, landingPackageId);
   assertSingleChangeFeedbackLanding(landing, options.expectedChangeId);
   const pkg = await findPrDraftPackageForLanding(memory, landingPackageId);
@@ -159,8 +158,7 @@ export async function startPrFeedbackReworkAttempt(
   feedbackPrompt?: string,
   options: { expectedChangeId?: string } = {},
 ): Promise<{ attempt: PrFeedbackReworkAttempt; task: AgentTask; prompt: string; feedback: { snapshot: PrFeedbackSnapshot; summary: PrFeedbackSummary } }> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "PR feedback rework");
+  const memory = await requireProjectExecutionRuntimePort(project);
   const landing = await readLandingPackage(memory, landingPackageId);
   const changeId = assertSingleChangeFeedbackLanding(landing, options.expectedChangeId);
   const exactDraft = await requireExactFeedbackDraftPackage(memory, landingPackageId);
@@ -222,7 +220,7 @@ export async function startPrFeedbackReworkAttempt(
 }
 
 export async function recordReviewFeedbackUserContext(
-  memory: ResolvedMemory,
+  memory: ProjectExecutionRuntimePort,
   input: {
     changeId: string;
     landingPackageId: string;
@@ -266,7 +264,7 @@ export interface CompletePrFeedbackReworkAttemptInput {
 }
 
 export async function completePrFeedbackReworkAttempt(
-  memory: ResolvedMemory,
+  memory: ProjectExecutionRuntimePort,
   attempt: PrFeedbackReworkAttempt,
   input: CompletePrFeedbackReworkAttemptInput,
 ): Promise<{ attempt: PrFeedbackReworkAttempt; result: PrFeedbackReworkResult }> {
@@ -289,7 +287,7 @@ export async function updatePrDraftFromFeedback(
   landingPackageId: string,
   options: { expectedChangeId?: string } = {},
 ): Promise<{ package: PrDraftPackage; revision: PrDraftRevision }> {
-  const memory = await resolveProjectMemory(project);
+  const memory = await requireProjectExecutionRuntimePort(project);
   const landing = await readLandingPackage(memory, landingPackageId);
   assertSingleChangeFeedbackLanding(landing, options.expectedChangeId);
   await requireExactFeedbackDraftPackage(memory, landingPackageId);
@@ -310,7 +308,7 @@ function assertSingleChangeFeedbackLanding(landing: LandingReadinessPackage, exp
   return changeId;
 }
 
-async function requireExactFeedbackDraftPackage(memory: ResolvedMemory, landingPackageId: string): Promise<PrDraftPackage> {
+async function requireExactFeedbackDraftPackage(memory: ProjectExecutionRuntimePort, landingPackageId: string): Promise<PrDraftPackage> {
   const pkg = await findPrDraftPackageForLanding(memory, landingPackageId);
   if (!pkg) {
     throw new Error("PR feedback actions require an exact Draft PR package for the landing package.");
@@ -319,7 +317,7 @@ async function requireExactFeedbackDraftPackage(memory: ResolvedMemory, landingP
 }
 
 async function writePrFeedbackReworkResult(
-  memory: ResolvedMemory,
+  memory: ProjectExecutionRuntimePort,
   attempt: PrFeedbackReworkAttempt,
   input: CompletePrFeedbackReworkAttemptInput,
 ): Promise<PrFeedbackReworkResult> {
@@ -431,7 +429,7 @@ function buildSummary(snapshot: PrFeedbackSnapshot, classification: PrFeedbackCl
   };
 }
 
-async function writeProviderUnavailableFeedback(memory: ResolvedMemory, landingPackageId: string, pkg?: PrDraftPackage | null, reason = "Draft PR package or URL is unavailable."): Promise<{ snapshot: PrFeedbackSnapshot; summary: PrFeedbackSummary }> {
+async function writeProviderUnavailableFeedback(memory: ProjectExecutionRuntimePort, landingPackageId: string, pkg?: PrDraftPackage | null, reason = "Draft PR package or URL is unavailable."): Promise<{ snapshot: PrFeedbackSnapshot; summary: PrFeedbackSummary }> {
   const now = new Date().toISOString();
   const id = `pr-feedback-${contentHash(`${landingPackageId}:${now}:provider-unavailable`).slice(0, 12)}`;
   const directory = join(prFeedbackRoot(memory), id);
@@ -520,7 +518,7 @@ async function ghApiJson(cwd: string, path: string): Promise<unknown> {
 async function detectReviewThreadCapability(
   cwd: string,
   directory: string,
-  memory: ResolvedMemory,
+  memory: ProjectExecutionRuntimePort,
   prRef: GitHubPrRef | null,
 ): Promise<{ capability: PrReviewThreadCapability; raw: unknown }> {
   const rawPath = join(directory, "gh-review-threads.json");
@@ -663,7 +661,7 @@ function inferUserFeedbackIntent(text: string): ReviewFeedbackUserContext["inten
   return "clarify";
 }
 
-async function writeReworkContext(memory: ResolvedMemory, input: {
+async function writeReworkContext(memory: ProjectExecutionRuntimePort, input: {
   changeId: string;
   landingPackageId: string;
   feedback: { snapshot: PrFeedbackSnapshot; summary: PrFeedbackSummary };
@@ -720,12 +718,12 @@ function prFeedbackRoot(memory: ProjectWorkbenchArtifactPathPort): string {
   return join(memory.workbenchRoot, "pr-feedback");
 }
 
-function prFeedbackReworkPath(memory: ResolvedMemory, attemptId: string): string {
+function prFeedbackReworkPath(memory: ProjectExecutionRuntimePort, attemptId: string): string {
   return join(prFeedbackRoot(memory), "rework", `${attemptId}.json`);
 }
 
-function displayArtifactPath(memory: ResolvedMemory, absolutePath: string): string {
-  return `${memory.artifactBase === "memory-root" ? "memory://" : "project://"}${relative(memory.artifactBase === "memory-root" ? memory.memoryRoot : memory.projectRoot, absolutePath).replace(/\\/g, "/")}`;
+function displayArtifactPath(memory: ProjectExecutionRuntimePort, absolutePath: string): string {
+  return `runtime-sidecar://${relative(memory.runArtifactRoot, absolutePath).replace(/\\/g, "/")}`;
 }
 
 function contentHash(content: string): string {

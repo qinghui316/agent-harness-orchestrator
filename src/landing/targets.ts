@@ -4,12 +4,12 @@ import { collectWorktreeDiff } from "../audit/diff.js";
 import { latestArtifactAbsolutePath, latestArtifactForApply } from "../integration-check/artifacts.js";
 import { integrationCheckRoot } from "../integration-check/paths.js";
 import { readIntegrationCheck } from "../integration-check/repository.js";
+import type { ProjectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
 import { getWorktreeStatus } from "../worktree/manager.js";
-import type { ResolvedMemory } from "../types/index.js";
 import type { LandingReadinessTarget } from "./types.js";
 import { diffContentHash, displayLandingArtifactPath, unique } from "./utils.js";
 
-export async function targetFromWorktree(memory: ResolvedMemory, worktreeId: string | undefined): Promise<LandingReadinessTarget> {
+export async function targetFromWorktree(memory: ProjectExecutionRuntimePort, worktreeId: string | undefined): Promise<LandingReadinessTarget> {
   if (!worktreeId) throw new Error("landing.prepare requires worktreeId or applyCheckId.");
   const worktree = await getWorktreeStatus(memory, worktreeId);
   if (worktree.status !== "applied" || !worktree.applyRunId) {
@@ -26,7 +26,7 @@ export async function targetFromWorktree(memory: ResolvedMemory, worktreeId: str
   };
 }
 
-export async function targetFromIntegrationCheck(memory: ResolvedMemory, applyCheckId: string): Promise<LandingReadinessTarget> {
+export async function targetFromIntegrationCheck(memory: ProjectExecutionRuntimePort, applyCheckId: string): Promise<LandingReadinessTarget> {
   const check = await readIntegrationCheck(memory, applyCheckId);
   if (check.status !== "applied") {
     throw new Error(`Cannot prepare landing package: integration check ${applyCheckId} has not been applied.`);

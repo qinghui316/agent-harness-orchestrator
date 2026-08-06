@@ -3,10 +3,11 @@ import { describe, expect, it } from "vitest";
 
 describe("Workbench shell layout contract", () => {
   it("uses two columns when closed and mounts the right rail only while open", async () => {
-    const [app, shellCss, workspaceCss] = await Promise.all([
+    const [app, shellCss, sidebarCss, workspaceCss] = await Promise.all([
       readFile("src/web/src/App.tsx", "utf8"),
       readFile("src/web/src/styles/surfaces/shell.css", "utf8"),
       readFile("src/web/src/styles/surfaces/sidebar.css", "utf8"),
+      readFile("src/web/src/styles/surfaces/workspace.css", "utf8"),
     ]);
     expect(shellCss).toContain("grid-template-columns: var(--left-sidebar-width, 280px) minmax(0, 1fr);");
     expect(shellCss).toContain(".app-shell.right-rail-open");
@@ -14,7 +15,11 @@ describe("Workbench shell layout contract", () => {
     expect(shellCss).not.toMatch(/minmax\(0, 1fr\) 48px/);
     expect(app).toContain('rightToolRailState.mode !== "closed" ? <RightToolRailShell');
     expect(app).not.toContain("BottomStatusBar");
-    expect(workspaceCss).toContain("grid-template-rows: minmax(0, 1fr) auto;");
+    expect(sidebarCss).toContain("grid-template-rows: minmax(0, 1fr) auto;");
+    expect(workspaceCss).toContain(".sidebar-resizer {\n  right: -9px;");
+    expect(workspaceCss).toContain(".sidebar-resizer::after {\n  right: 8px;");
+    expect(workspaceCss).toContain(".right-rail-resizer {\n  left: -9px;");
+    expect(workspaceCss).toContain(".right-rail-resizer::after {\n  left: 8px;");
   });
 
   it("does not retain the retired collapsed rail or text sanitizer", async () => {

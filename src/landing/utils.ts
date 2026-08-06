@@ -1,15 +1,15 @@
 import { createHash } from "node:crypto";
 import { join, relative } from "node:path";
+import type { ProjectRunArtifactReferencePort } from "../project-runtime/execution-ports.js";
 import type { ProjectWorkbenchArtifactPathPort } from "../project-runtime/paths.js";
-import type { ResolvedMemory } from "../types/index.js";
 import type { LandingReadinessTarget } from "./types.js";
 
 export function landingRoot(memory: ProjectWorkbenchArtifactPathPort): string {
   return join(memory.workbenchRoot, "landing");
 }
 
-export function displayLandingArtifactPath(memory: ResolvedMemory, absolutePath: string): string {
-  return `${memory.artifactBase === "memory-root" ? "memory://" : "project://"}${relative(memory.artifactBase === "memory-root" ? memory.memoryRoot : memory.projectRoot, absolutePath).replace(/\\/g, "/")}`;
+export function displayLandingArtifactPath(memory: ProjectRunArtifactReferencePort, absolutePath: string): string {
+  return `runtime-sidecar://${relative(memory.runArtifactRoot, absolutePath).replace(/\\/g, "/")}`;
 }
 
 export function contentHash(content: string): string {

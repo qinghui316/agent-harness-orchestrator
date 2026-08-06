@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
+import { requireProjectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
 import { mergeRemoteLanding } from "../remote-landing/merge.js";
 import { prepareRemoteLandingReadiness } from "../remote-landing/readiness.js";
 import type {
@@ -18,8 +18,7 @@ export async function mergeNextLandingQueueCandidate(
   project: ManagedProject,
   selectedLandingPackageId?: string,
 ): Promise<{ before: LandingQueueSnapshot; decision: LandingQueueDecision; result: LandingQueueResult; after?: LandingQueueSnapshot }> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "landing queue merge");
+  const memory = await requireProjectExecutionRuntimePort(project);
   const before = await prepareLandingQueue(project);
   const selected = selectCandidate(before, selectedLandingPackageId);
   const now = new Date().toISOString();

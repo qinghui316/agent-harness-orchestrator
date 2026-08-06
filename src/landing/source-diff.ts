@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { gitTextWithEnv, isAhoOwnedMemoryPath } from "../project/git.js";
+import { gitTextWithEnv } from "../project/git.js";
 import type { LandingSourceDiff } from "./types.js";
 import { diffContentHash, unique } from "./utils.js";
 
@@ -16,7 +16,7 @@ export async function collectSourceDiff(cwd: string): Promise<LandingSourceDiff>
     const namesOutput = await gitTextWithEnv(cwd, ["diff", "--cached", "--name-only", "-z", "HEAD"], env);
     const changedFiles = unique(namesOutput.split("\0")
       .map((file) => file.trim().replace(/\\/g, "/"))
-      .filter((file) => file && !isAhoOwnedMemoryPath(file)))
+      .filter(Boolean))
       .sort();
     if (changedFiles.length === 0) return { diff: "", diffHash: diffContentHash(""), diffStat: "", changedFiles: [] };
     const [diff, diffStat] = await Promise.all([

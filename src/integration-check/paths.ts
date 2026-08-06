@@ -1,5 +1,4 @@
 import { join, relative } from "node:path";
-import type { ResolvedMemory } from "../types/index.js";
 import type { ProjectRunArtifactReferencePort } from "../project-runtime/execution-ports.js";
 
 export interface IntegrationCheckStorePort {
@@ -8,10 +7,6 @@ export interface IntegrationCheckStorePort {
 
 export function integrationCheckRoot(memory: IntegrationCheckStorePort): string {
   return join(memory.workbenchRoot, "integration-checks");
-}
-
-export function displayArtifactPath(memory: ResolvedMemory, absolutePath: string): string {
-  return memory.artifactBase === "memory-root" ? relative(memory.memoryRoot, absolutePath).replace(/\\/g, "/") : relative(memory.projectRoot, absolutePath).replace(/\\/g, "/");
 }
 
 export function displaySkillNativeArtifactPath(runtime: ProjectRunArtifactReferencePort, absolutePath: string): string {

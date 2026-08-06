@@ -17,7 +17,7 @@ describe("run metadata schema", () => {
       signal: null,
       startedAt: "2026-07-15T00:00:00.000Z",
       finishedAt: "2026-07-15T00:00:01.000Z",
-      artifacts: { directory: "runs/run-interrupted", context: "context.md", events: "events.jsonl", stdout: "stdout.log", stderr: "stderr.log" },
+      artifacts: { owner: "runtime-sidecar", directory: "runs/run-interrupted", context: "runs/run-interrupted/context.md", events: "runs/run-interrupted/events.jsonl", stdout: "runs/run-interrupted/stdout.log", stderr: "runs/run-interrupted/stderr.log" },
     });
     expect(run.status).toBe("interrupted");
     expect(classifyWorkflowResult({ stoppedAt: "code", code: { run } })).toEqual({ status: "interrupted" });
@@ -36,12 +36,14 @@ describe("run metadata schema", () => {
       startedAt: "2026-07-02T00:00:00.000Z",
       finishedAt: "2026-07-02T00:00:01.000Z",
       artifacts: {
-        base: "memory-root",
+        owner: "runtime-sidecar",
         directory: "runs/run-system-skill",
         context: "runs/run-system-skill/context.md",
         events: "runs/run-system-skill/events.jsonl",
         stdout: "runs/run-system-skill/stdout.log",
         stderr: "runs/run-system-skill/stderr.log",
+        providerStderr: "runs/run-system-skill/provider-stderr.log",
+        providerLastMessage: "runs/run-system-skill/provider-last-message.md",
       },
       enabledSkills: [{
         id: "aho-harness-engineering",
@@ -54,10 +56,12 @@ describe("run metadata schema", () => {
     });
 
     expect(parsed.enabledSkills?.[0]?.source).toBe("aho-system");
+    expect(parsed.artifacts.providerStderr).toBe("runs/run-system-skill/provider-stderr.log");
+    expect(parsed.artifacts.providerLastMessage).toBe("runs/run-system-skill/provider-last-message.md");
   });
 
-  it("keeps preserved v1 context packet references readable while new runs write v2", () => {
-    const parsed = runMetadataSchema.parse({
+  it("rejects retired Agent and context packet compatibility records", () => {
+    const current = {
       version: "1.0",
       id: "run-historical-context",
       changeId: "change-historical-context",
@@ -70,6 +74,7 @@ describe("run metadata schema", () => {
       startedAt: "2026-07-02T00:00:00.000Z",
       finishedAt: "2026-07-02T00:00:01.000Z",
       artifacts: {
+        owner: "runtime-sidecar",
         directory: "runs/run-historical-context",
         context: "runs/run-historical-context/context.md",
         contextPacket: "runs/run-historical-context/context-packet.json",
@@ -80,11 +85,56 @@ describe("run metadata schema", () => {
       contextPacket: {
         ref: "runs/run-historical-context/context-packet.json",
         hash: "a".repeat(64),
-        format: "role-context-packet@1.0",
+        format: "role-context-packet@2.0",
       },
-    });
+      agent: {
+        roleId: "coder-agent",
+        source: "bundled",
+        sourcePath: "templates/agent-profiles/coder-agent.md",
+        sourceHash: "b".repeat(64),
+        catalogVersion: "1.0",
+        catalogHash: "c".repeat(64),
+      },
+    } as const;
 
-    expect(parsed.contextPacket?.format).toBe("role-context-packet@1.0");
+    expect(runMetadataSchema.parse(current).contextPacket?.format).toBe("role-context-packet@2.0");
+    expect(() => runMetadataSchema.parse({
+      ...current,
+      contextPacket: { ...current.contextPacket, format: "role-context-packet@1.0" },
+    })).toThrow();
+    expect(() => runMetadataSchema.parse({
+      ...current,
+      agent: { ...current.agent, source: "memory" },
+    })).toThrow();
+  });
+
+  it("requires explicit current artifact ownership", () => {
+    const base = {
+      version: "1.0",
+      id: "run-owner-required",
+      changeId: "change-owner-required",
+      projectPath: "E:/repo",
+      runtime: "validator",
+      command: ["validator", "default"],
+      status: "completed",
+      exitCode: 0,
+      signal: null,
+      startedAt: "2026-07-02T00:00:00.000Z",
+      finishedAt: "2026-07-02T00:00:01.000Z",
+      artifacts: {
+        directory: "runs/run-owner-required",
+        context: "runs/run-owner-required/context.md",
+        events: "runs/run-owner-required/events.jsonl",
+        stdout: "runs/run-owner-required/stdout.log",
+        stderr: "runs/run-owner-required/stderr.log",
+      },
+    };
+
+    expect(() => runMetadataSchema.parse(base)).toThrow();
+    expect(() => runMetadataSchema.parse({
+      ...base,
+      artifacts: { ...base.artifacts, owner: "memory-root" },
+    })).toThrow();
   });
 
   it("accepts provider-backed integration repairs and rejects the retired Codex mode", () => {

@@ -241,7 +241,7 @@ describe("workbench Skill-native demand-to-execution golden flow", () => {
       { project: managedProject(), path: getTempDir() },
       { topicId: conversation.conversationId },
     );
-    expect(snapshot.memory).toMatchObject({ kind: "project-skill", projectId: managedProject().id });
+    expect(snapshot.harness).toMatchObject({ kind: "project-skill", projectId: managedProject().id });
     expect(snapshot.right.confirmationQueue.current.filter((item) => item.primary)).toHaveLength(1);
     const runAction = primaryWorkflowAction(snapshot, "workflow.run.start");
     expect(runAction).toMatchObject({

@@ -3,7 +3,8 @@ import {
   type WorkflowRuntimeDecision,
   type WorkflowRuntimeExecutionState,
 } from "./execution-contract.js";
-import { resolveProjectMemory } from "../memory/resolver.js";
+import { resolveProjectActiveExecutionScope } from "../project-runtime/active-execution-scope.js";
+import type { ProjectCodeExecutionRuntimePort } from "../project-runtime/execution-ports.js";
 import {
   type AuditLeafRun,
   type CodeLeafRun,
@@ -27,7 +28,7 @@ import {
   type WorkflowRuntimeEvidenceEvent,
   type WorkflowRuntimeEvidenceRun,
 } from "./evidence-journal.js";
-import type { ManagedProject, ResolvedMemory } from "../types/index.js";
+import type { ManagedProject } from "../types/index.js";
 import type { WorkflowRuntimeLiveSink } from "./kernel/live-events.js";
 import { compactArtifactRefs } from "./kernel/runtime-guards.js";
 
@@ -79,7 +80,7 @@ export interface ReworkValidationAuditSequenceResult {
 export async function runReworkValidationAuditSequence(
   input: ReworkValidationAuditSequenceInput,
 ): Promise<ReworkValidationAuditSequenceResult> {
-  const memory = await resolveProjectMemory(input.project);
+  const memory = (await resolveProjectActiveExecutionScope(input.project, input.changeId)).runtime;
   const { run: loopRun, created } = await ensureWorkflowRuntimeEvidenceRun(memory, {
     changeId: input.changeId,
     projectId: input.project.id,
@@ -293,7 +294,7 @@ export async function runReworkValidationAuditSequence(
 }
 
 async function recordDecision(
-  memory: ResolvedMemory,
+  memory: ProjectCodeExecutionRuntimePort,
   loopRun: WorkflowRuntimeEvidenceRun,
   stepIndex: number,
   orchestration: WorkflowRuntimeExecutionState,
@@ -340,7 +341,7 @@ async function recordDecision(
 }
 
 async function appendLeafStarted(
-  memory: ResolvedMemory,
+  memory: ProjectCodeExecutionRuntimePort,
   loopRun: WorkflowRuntimeEvidenceRun,
   stepIndex: number,
   decision: Extract<WorkflowRuntimeDecision, { kind: "delegate-role" }>,
@@ -359,7 +360,7 @@ async function appendLeafStarted(
 }
 
 async function appendLeafCompleted(
-  memory: ResolvedMemory,
+  memory: ProjectCodeExecutionRuntimePort,
   loopRun: WorkflowRuntimeEvidenceRun,
   stepIndex: number,
   decision: Extract<WorkflowRuntimeDecision, { kind: "delegate-role" }>,

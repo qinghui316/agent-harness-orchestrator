@@ -6,12 +6,19 @@ import { promisify } from "node:util";
 import { afterEach, beforeEach, expect } from "vitest";
 import { defaultProviderRegistry } from "../../../src/provider-runtime/default-registry.js";
 import { createConversationChangeFixture } from "../../helpers/conversation-change-fixture.js";
-import { initHarness } from "../../../src/harness/init.js";
+import { createReadyProjectHarnessFixture } from "../../helpers/project-harness-fixture.js";
+import { resolveProjectRuntimeState } from "../../../src/project-runtime/coordinator.js";
+import { projectExecutionRuntimePort } from "../../../src/project-runtime/execution-ports.js";
+import type { ProjectCodeExecutionRuntimePort } from "../../../src/project-runtime/execution-ports.js";
+import { publishProjectRuntimePlanningPackage } from "../../../src/project-runtime/planning-publication.js";
+import { projectHarnessPlanningStartManifestHash, readProjectHarnessPlanningGate } from "../../../src/project-harness/planning-gate-query.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../../src/provider-runtime/project-harness-discovery.js";
 import { executeWorkbenchAction } from "../../../src/server/workbench-server.js";
 import { getWorkbenchSnapshot } from "../../../src/workbench/projections/read-model/implementation.js";
 import type { WorkbenchDecisionAction } from "../../../src/workbench/read-model-types.js";
-import { resolveProjectMemory } from "../../../src/memory/resolver.js";
-import { compileWorkflowGraphPlan, hashArtifactRefs, writeWorkflowGraphPlan, type WorkflowAuthoringPlan } from "../../../src/workflow-artifacts/manager.js";
+import { compileWorkflowGraphPlan, hashWorkflowGraphPlan, type WorkflowAuthoringPlan } from "../../../src/workflow-artifacts/manager.js";
+import { issueLocalExecutionAuthorization } from "../../../src/workflow-runtime/execution-authorization.js";
+import { skillNativeSchedulerRunArtifactPaths, type SchedulerArtifactStore } from "../../../src/scheduler-runtime/artifact-store.js";
 import { runSchedulerReadySetInitialization } from "../../../src/workflow-runtime/scheduler.js";
 import { readLatestSchedulerCurrentTransitionView } from "../../../src/workflow-runtime/scheduler-current-transition-view.js";
 import {
@@ -79,14 +86,23 @@ import type {
 } from "../../../src/scheduler-runtime/types.js";
 
 let tempDir: string;
+let fixtureRuntime: ProjectCodeExecutionRuntimePort | null;
+let fixtureSkillRoot: string | null;
+let previousAhoHome: string | undefined;
 export const execFileAsync = promisify(execFile);
 
 beforeEach(async () => {
   tempDir = await mkdtemp(join(tmpdir(), "aho-workbench-"));
+  previousAhoHome = process.env.AHO_HOME;
+  process.env.AHO_HOME = join(tempDir, ".aho-home");
+  fixtureRuntime = null;
+  fixtureSkillRoot = null;
 });
 
 afterEach(async () => {
   await defaultProviderRegistry.shutdownAll("Workbench fixture cleanup.");
+  if (previousAhoHome === undefined) delete process.env.AHO_HOME;
+  else process.env.AHO_HOME = previousAhoHome;
   await rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
@@ -101,6 +117,55 @@ export function project(path = tempDir): ManagedProject {
     path,
     addedAt: new Date().toISOString(),
     lastSeenAt: new Date().toISOString(),
+  };
+}
+
+export async function ensureProjectHarnessFixture(): Promise<void> {
+  if (fixtureRuntime) return;
+  await initGitRepository(tempDir);
+  const head = (await execFileAsync("git", ["rev-parse", "--verify", "HEAD"], { cwd: tempDir }).catch(() => ({ stdout: "" }))).stdout.trim();
+  if (!head) await git(tempDir, ["commit", "--allow-empty", "-m", "fixture baseline"]);
+  const ahoHome = process.env.AHO_HOME;
+  if (!ahoHome) throw new Error("Workbench fixture requires an isolated AHO_HOME.");
+  const harness = await createReadyProjectHarnessFixture({
+    projectRoot: tempDir,
+    ahoHome,
+    projectId: project().id,
+    projectName: project().name,
+  });
+  fixtureSkillRoot = harness.skillRoot;
+  const state = await resolveProjectRuntimeState(project(), {
+    ahoHome,
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
+  if (state.state !== "ready") throw new Error(`Workbench fixture Project Harness is not ready: ${state.state}.`);
+  fixtureRuntime = projectExecutionRuntimePort(project(), state.resolution);
+}
+
+export async function resolveFixtureRuntime(): Promise<ProjectCodeExecutionRuntimePort> {
+  await ensureProjectHarnessFixture();
+  return fixtureRuntime!;
+}
+
+export async function resolveFixtureChangeEvidenceRoot(changeId: string): Promise<string> {
+  await ensureProjectHarnessFixture();
+  return join(fixtureSkillRoot!, "state", "changes", "active", changeId);
+}
+
+export async function resolveFixtureSchedulerArtifacts(
+  changeId: string,
+  schedulerRunId: string,
+): Promise<SchedulerArtifactStore> {
+  const runtime = await resolveFixtureRuntime();
+  const evidenceRoot = await resolveFixtureChangeEvidenceRoot(changeId);
+  const runtimeRoot = join(runtime.runsRoot, "scheduler-runs", changeId);
+  return {
+    changeId,
+    changeEvidenceRoot: evidenceRoot,
+    planningRoot: join(evidenceRoot, "planning"),
+    runtimeRoot,
+    artifactRoots: [fixtureSkillRoot!, runtime.runArtifactRoot],
+    runArtifacts: skillNativeSchedulerRunArtifactPaths(runtimeRoot, schedulerRunId),
   };
 }
 
@@ -267,12 +332,17 @@ process.exit(1);
   return { command: process.execPath, args: [script], stateFile };
 }
 
-export async function createFakeCodex(options: { mutateOnExec?: boolean; message?: string } = {}): Promise<{ binDir: string }> {
+export async function createFakeCodex(options: {
+  mutateOnExec?: boolean;
+  message?: string;
+  changes?: Array<{ path: string; content: string }>;
+} = {}): Promise<{ binDir: string }> {
   const binDir = join(tempDir, "fake-codex-bin");
   await mkdir(binDir, { recursive: true });
   const script = join(binDir, "fake-codex.cjs");
   const mutateOnExec = options.mutateOnExec ?? true;
   const message = options.message ?? "fake scheduler coder done";
+  const changes = options.changes ?? [];
   await writeFile(script, `#!/usr/bin/env node
 const fs = require("fs");
 const path = require("path");
@@ -280,6 +350,19 @@ const args = process.argv.slice(2);
 const appServerIndex = args.indexOf("app-server");
 const mutateOnExec = ${JSON.stringify(mutateOnExec)};
 const message = ${JSON.stringify(message)};
+const changes = ${JSON.stringify(changes)};
+const applyMutations = (cwd) => {
+  if (!mutateOnExec) return;
+  if (changes.length === 0) {
+    fs.appendFileSync(path.join(cwd, "README.md"), "\\nScheduler worker fake coder\\n", "utf8");
+    return;
+  }
+  for (const change of changes) {
+    const target = path.join(cwd, ...change.path.split("/"));
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, change.content, "utf8");
+  }
+};
 if (args[0] === "--version") {
   console.log("codex-cli fake");
   process.exit(0);
@@ -313,7 +396,10 @@ if (appServerIndex >= 0) {
     if (request.method === "initialize" || request.method === "skills/extraRoots/set") {
       reply(request.id, {});
     } else if (request.method === "skills/list") {
-      reply(request.id, { data: [{ skills: [] }] });
+      const requestedCwd = Array.isArray(request.params && request.params.cwds)
+        ? request.params.cwds[0]
+        : appCwd;
+      reply(request.id, { data: [{ cwd: requestedCwd, skills: [], errors: [] }] });
     } else if (request.method === "model/list") {
       reply(request.id, { data: [{ id: "fake-model", model: "fake-model", displayName: "Fake Model" }] });
     } else if (request.method === "thread/start" || request.method === "thread/resume") {
@@ -329,7 +415,7 @@ if (appServerIndex >= 0) {
       const responseText = isAudit
         ? "Status: approved\\n\\nFinding: Scheduler worker audit passed."
         : message;
-      if (mutateOnExec && !isAudit) fs.appendFileSync(path.join(appCwd, "README.md"), "\\nScheduler worker fake coder\\n", "utf8");
+      if (!isAudit) applyMutations(appCwd);
       reply(request.id, { turn: { id: turnId } });
       setImmediate(() => {
         console.log(JSON.stringify({ method: "turn/started", params: { threadId, turn: { id: turnId, status: "inProgress" } } }));
@@ -350,7 +436,7 @@ if (appServerIndex >= 0) {
     console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: message } }));
     process.exit(0);
   }
-  if (mutateOnExec) fs.appendFileSync(path.join(cwd, "README.md"), "\\nScheduler worker fake coder\\n", "utf8");
+  applyMutations(cwd);
   if (lastMessagePath) fs.writeFileSync(lastMessagePath, message, "utf8");
   console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: message } }));
   process.exit(0);
@@ -370,7 +456,7 @@ if (appServerIndex >= 0) {
 }
 
 export async function writeAcceptedSpecAndTasks(changeId: string): Promise<void> {
-  const changeDir = join(tempDir, "harness", "changes", "active", changeId);
+  const changeDir = await resolveFixtureChangeEvidenceRoot(changeId);
   await writeFile(join(changeDir, "spec.md"), [
     "# Spec",
     "",
@@ -672,26 +758,26 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
   };
   latestArtifactHash: string;
 }> {
-  await initHarness(project());
-  const topic = await createConversationChangeFixture(project(), {
-    title,
-    body: "Seed a completed two-worker scheduler integration handoff for discard/completion verification.",
-  });
-  await writeAcceptedSpecAndTasks(topic.changeId);
-  const changePath = join("harness", "changes", "active", topic.changeId);
-  const memory = await resolveProjectMemory(project());
   await initGitRepository(tempDir);
   await mkdir(join(tempDir, "src"), { recursive: true });
-  await writeFile(join(tempDir, ".gitignore"), "harness/\n.agent-harness/\nfake-codex-bin/\n", "utf8");
+  await writeFile(join(tempDir, ".gitignore"), ".aho-home/\n.agents/\n.claude/\nfake-codex-bin/\n", "utf8");
   await writeFile(join(tempDir, "package.json"), JSON.stringify({ scripts: { test: "node -e \"process.exit(0)\"" } }), "utf8");
   await writeFile(join(tempDir, "src", "module-a.ts"), "export const moduleA = 1;\n", "utf8");
   await writeFile(join(tempDir, "src", "module-b.ts"), "export const moduleB = 1;\n", "utf8");
   await git(tempDir, ["add", "."]);
   await git(tempDir, ["commit", "-m", "initial"]);
   const sourceHead = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: tempDir })).stdout.trim();
+  await ensureProjectHarnessFixture();
+  const topic = await createConversationChangeFixture(project(), {
+    title,
+    body: "Seed a completed two-worker scheduler integration handoff for discard/completion verification.",
+  });
+  const changePath = `state/changes/active/${topic.changeId}`;
+  const runtime = await resolveFixtureRuntime();
 
   const now = new Date().toISOString();
   const schedulerRunId = `scheduler-run-seeded-${Date.now()}`;
+  const schedulerArtifacts = await resolveFixtureSchedulerArtifacts(topic.changeId, schedulerRunId);
   const schedulerRuntimeStateId = `scheduler-runtime-state-${schedulerRunId}`;
   const reconcileSnapshotId = `scheduler-reconcile-snapshot-${schedulerRunId}`;
   const claimReservationId = `scheduler-claim-reservation-${schedulerRunId}`;
@@ -699,15 +785,7 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
   const integrationCheckId = `integration-check-${schedulerRunId}`;
   const schedulerIntegrationCheckHandoffId = `scheduler-integration-check-handoff-${schedulerRunId}`;
   const schedulerLaunchPreflightId = `scheduler-launch-preflight-${schedulerRunId}`;
-  const workflowGraphPlanId = `workflow-graph-${schedulerRunId}`;
-  const acceptedArtifactRefs = [
-    `${changePath}/spec.md`,
-    `${changePath}/plan.md`,
-    `${changePath}/tasks.md`,
-  ];
-  const sourceArtifactHashes = await hashArtifactRefs(memory, acceptedArtifactRefs);
-  const graphBase = `${changePath}/planning/workflow-graphs/${workflowGraphPlanId}`;
-  const graph = compileWorkflowGraphPlan({
+  const workflowPlan: WorkflowAuthoringPlan = {
     version: "1.0",
     mode: "ready-set-v1",
     nodes: [{
@@ -727,29 +805,76 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
       dependsOn: [],
       sourceScopes: ["src/module-b.ts"],
     }],
-  }, {
-    id: workflowGraphPlanId,
-    changeId: topic.changeId,
-    planArtifactRef: `${changePath}/plan.md`,
-    taskIds: ["T-001", "T-002"],
-    acIds: ["AC-001"],
-    sourceArtifactHashes,
-    artifactRefs: acceptedArtifactRefs,
-    artifact: `${graphBase}.json`,
-    markdownArtifact: `${graphBase}.md`,
-    createdAt: now,
+  };
+  const specMd = "# Spec\n\n## Acceptance Criteria\n\n- AC-001: Complete both ready-set Scheduler tasks.\n";
+  const tasksMd = [
+    "# Tasks",
+    "",
+    "- [ ] T-001: Update module A.",
+    "  - Covers: AC-001",
+    "- [ ] T-002: Update module B.",
+    "  - Covers: AC-001",
+    "",
+  ].join("\n");
+  const planMd = [
+    "# Plan",
+    "",
+    "Run two independent same-wave worker leaves, then stop at the IntegrationCheck apply/discard barrier.",
+    "",
+    "## Workflow",
+    "",
+    "```json",
+    JSON.stringify(workflowPlan, null, 2),
+    "```",
+    "",
+  ].join("\n");
+  const proposalHash = contentHash(`${specMd}\n${planMd}\n${tasksMd}`);
+  const planningState = await resolveProjectRuntimeState(project(), {
+    ahoHome: process.env.AHO_HOME,
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
   });
+  if (planningState.state !== "ready") throw new Error(`Scheduler fixture planning runtime is not ready: ${planningState.state}.`);
+  const planningCommits = new Set<string>();
+  const accepted = await publishProjectRuntimePlanningPackage(planningState.resolution, {
+    conversationId: topic.conversationId,
+    conversationTitle: topic.title,
+    boundChangeId: topic.changeId,
+    currentGraphScopeId: `graph:${topic.conversationId}`,
+    proposal: {
+      id: `proposal-${topic.changeId}`,
+      hash: proposalHash,
+      artifact: `planner-proposals/${topic.changeId}/plan.md`,
+      specMd,
+      planMd,
+      tasksMd,
+    },
+    acceptance: {
+      version: "1.0",
+      proposalHash,
+      graphScopeId: `graph:${topic.conversationId}`,
+      contractRequired: false,
+      contract: null,
+      validation: ["Fixture Main accepted the exact ready-set proposal."],
+    },
+  }, {
+    hasCommit: (transactionId) => planningCommits.has(transactionId),
+    commit: ({ transactionId }) => { planningCommits.add(transactionId); },
+    deleteCommit: (transactionId) => { planningCommits.delete(transactionId); },
+  }, () => `graph:${topic.conversationId}`);
+  const graph = accepted.workflowGraphPlan;
   if (graph.graphMode !== "ready-set-v1") throw new Error("Expected ready-set graph fixture.");
-  await writeWorkflowGraphPlan(memory, changePath, graph);
+  const workflowGraphPlanId = graph.id;
+  const acceptedArtifactRefs = graph.artifactRefs;
+  const sourceArtifactHashes = graph.sourceArtifactHashes;
   const schedulerContractId = graph.schedulerContractId;
   const schedulerDispatchDryRunId = graph.schedulerDispatchDryRunId;
   const schedulerWorkerPlanId = graph.schedulerWorkerPlanId;
   const schedulerClaimReconcilePlanId = graph.schedulerClaimReconcilePlanId;
-  const contractRefs = schedulerContractArtifactRefs(memory, changePath, schedulerContractId);
-  const dryRunRefs = schedulerDispatchDryRunArtifactRefs(memory, changePath, schedulerDispatchDryRunId);
-  const workerPlanRefs = schedulerWorkerSessionPlanArtifactRefs(memory, changePath, schedulerWorkerPlanId);
-  const claimPlanRefs = schedulerClaimReconcilePlanArtifactRefs(memory, changePath, schedulerClaimReconcilePlanId);
-  const preflightRefs = schedulerLaunchPreflightArtifactRefs(memory, changePath, schedulerLaunchPreflightId);
+  const contractRefs = schedulerContractArtifactRefs(schedulerArtifacts, changePath, schedulerContractId);
+  const dryRunRefs = schedulerDispatchDryRunArtifactRefs(schedulerArtifacts, changePath, schedulerDispatchDryRunId);
+  const workerPlanRefs = schedulerWorkerSessionPlanArtifactRefs(schedulerArtifacts, changePath, schedulerWorkerPlanId);
+  const claimPlanRefs = schedulerClaimReconcilePlanArtifactRefs(schedulerArtifacts, changePath, schedulerClaimReconcilePlanId);
+  const preflightRefs = schedulerLaunchPreflightArtifactRefs(schedulerArtifacts, changePath, schedulerLaunchPreflightId);
   const contractNodes = graph.nodes.map((node) => ({
     id: node.id,
     unitId: node.unitId,
@@ -777,7 +902,7 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
     createdAt: now,
     updatedAt: now,
   };
-  await writeSchedulerContract(memory, changePath, contract);
+  await writeSchedulerContract(schedulerArtifacts, changePath, contract);
   const dryRun: SchedulerDispatchDryRun = {
     version: "1.0",
     id: schedulerDispatchDryRunId,
@@ -819,7 +944,7 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
     createdAt: now,
     updatedAt: now,
   };
-  await writeSchedulerDispatchDryRun(memory, changePath, dryRun);
+  await writeSchedulerDispatchDryRun(schedulerArtifacts, changePath, dryRun);
   const plannedStages = contractNodes.map((node, index) => ({
     id: `stage-${index + 1}`,
     nodeId: node.id,
@@ -881,7 +1006,7 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
     createdAt: now,
     updatedAt: now,
   };
-  await writeSchedulerWorkerSessionPlan(memory, changePath, workerPlan);
+  await writeSchedulerWorkerSessionPlan(schedulerArtifacts, changePath, workerPlan);
   const schedulerPlanClaimIntents = graph.nodes.map((node, index) => ({
     claimIntentId: node.claimIntentId,
     plannedWorkerKey: node.plannedWorkerKey,
@@ -933,7 +1058,7 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
     createdAt: now,
     updatedAt: now,
   };
-  await writeSchedulerClaimReconcilePlan(memory, changePath, claimPlan);
+  await writeSchedulerClaimReconcilePlan(schedulerArtifacts, changePath, claimPlan);
   const preflight: SchedulerLaunchPreflight = {
     version: "1.0",
     id: schedulerLaunchPreflightId,
@@ -986,11 +1111,11 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
     createdAt: now,
     updatedAt: now,
   };
-  await writeSchedulerLaunchPreflight(memory, changePath, preflight);
-  const runRefs = schedulerRunArtifactRefs(memory, changePath, schedulerRunId);
-  const reconcileRefs = schedulerReconcileSnapshotArtifactRefs(memory, changePath, schedulerRunId, reconcileSnapshotId);
-  const candidateRefs = schedulerIntegrationCandidateArtifactRefs(memory, changePath, schedulerRunId, schedulerIntegrationCandidateId);
-  const handoffRefs = schedulerIntegrationCheckHandoffArtifactRefs(memory, changePath, schedulerRunId, schedulerIntegrationCheckHandoffId);
+  await writeSchedulerLaunchPreflight(schedulerArtifacts, changePath, preflight);
+  const runRefs = schedulerRunArtifactRefs(schedulerArtifacts, changePath, schedulerRunId);
+  const reconcileRefs = schedulerReconcileSnapshotArtifactRefs(schedulerArtifacts, changePath, schedulerRunId, reconcileSnapshotId);
+  const candidateRefs = schedulerIntegrationCandidateArtifactRefs(schedulerArtifacts, changePath, schedulerRunId, schedulerIntegrationCandidateId);
+  const handoffRefs = schedulerIntegrationCheckHandoffArtifactRefs(schedulerArtifacts, changePath, schedulerRunId, schedulerIntegrationCheckHandoffId);
   const schedulerRun: SchedulerRun = {
     version: "1.0",
     id: schedulerRunId,
@@ -1018,10 +1143,10 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
     createdAt: now,
     updatedAt: now,
   };
-  await writeSchedulerRun(memory, changePath, schedulerRun);
+  await writeSchedulerRun(schedulerArtifacts, changePath, schedulerRun);
 
   const worktreeIds = [`wt-seeded-a-${Date.now()}`, `wt-seeded-b-${Date.now()}`];
-  const checkoutRoot = getGlobalWorktreeCheckoutRoot(memory.projectId ?? project().id);
+  const checkoutRoot = getGlobalWorktreeCheckoutRoot(runtime.projectId);
   const readyTargets = worktreeIds.map((worktreeId, index) => ({
     worktreeId,
     node: graph.nodes[index],
@@ -1036,7 +1161,7 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
     const metadata: WorktreeMetadata = {
       version: "1.0",
       worktreeId,
-      projectId: memory.projectId ?? project().id,
+      projectId: runtime.projectId,
       changeId: topic.changeId,
       runId: `run-${worktreeId}`,
       branchName: `aho/${worktreeId}`,
@@ -1048,9 +1173,9 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
       checkoutPath: join(checkoutRoot, worktreeId),
       worktreeDiffHash: readyTargets[index].worktreeDiffHash,
     };
-    await writeWorktreeMetadata(memory, metadata);
+    await writeWorktreeMetadata(runtime, metadata);
   }
-  await writeWorktreeIndex(memory);
+  await writeWorktreeIndex(runtime);
 
   const claimIntents = readyTargets.map((target) => ({
     claimIntentId: target.node.claimIntentId,
@@ -1099,7 +1224,7 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
     markdownArtifact: reconcileRefs.markdownArtifact,
     createdAt: now,
   };
-  await writeSchedulerReconcileSnapshot(memory, changePath, reconcileSnapshot);
+  await writeSchedulerReconcileSnapshot(schedulerArtifacts, changePath, reconcileSnapshot);
 
   const runtimeState: SchedulerRuntimeState = {
     version: "1.0",
@@ -1129,7 +1254,7 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
     createdAt: now,
     updatedAt: now,
   };
-  await writeSchedulerRuntimeState(memory, changePath, runtimeState);
+  await writeSchedulerRuntimeState(schedulerArtifacts, changePath, runtimeState);
 
   const reservation: SchedulerRuntimeClaimReservation = {
     version: "1.0",
@@ -1174,9 +1299,9 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
     markdownArtifact: `${changePath}/planning/scheduler-runs/${schedulerRunId}/claim-reservations/${claimReservationId}.md`,
     createdAt: now,
   };
-  await writeSchedulerRuntimeClaimReservation(memory, changePath, reservation);
+  await writeSchedulerRuntimeClaimReservation(schedulerArtifacts, changePath, reservation);
   await writeSeededTerminalSchedulerWorkerPaths({
-    memory,
+    memory: schedulerArtifacts,
     changePath,
     changeId: topic.changeId,
     schedulerRunId,
@@ -1242,9 +1367,9 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
     createdAt: now,
     updatedAt: now,
   };
-  await writeSchedulerIntegrationCandidate(memory, changePath, candidate);
+  await writeSchedulerIntegrationCandidate(schedulerArtifacts, changePath, candidate);
 
-  const integrationCheckDir = join(integrationCheckRoot(memory), integrationCheckId);
+  const integrationCheckDir = join(integrationCheckRoot(runtime), integrationCheckId);
   const combinedPatch = [
     "diff --git a/src/module-a.ts b/src/module-a.ts",
     "--- a/src/module-a.ts",
@@ -1266,7 +1391,7 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
   const integrationCheck: IntegrationCheckRecord = {
     version: "1.0",
     id: integrationCheckId,
-    projectId: memory.projectId,
+    projectId: runtime.projectId,
     status: "passed",
     resultTargets: readyTargets.map((target) => ({
       changeId: topic.changeId,
@@ -1313,7 +1438,7 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
     blockingIssues: [],
     warnings: [],
   };
-  await writeCheckArtifacts(memory, integrationCheckDir, integrationCheck);
+  await writeCheckArtifacts(runtime, integrationCheckDir, integrationCheck);
 
   const handoff: SchedulerIntegrationCheckHandoff = {
     version: "1.0",
@@ -1343,7 +1468,69 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
     createdAt: now,
     updatedAt: now,
   };
-  await writeSchedulerIntegrationCheckHandoff(memory, changePath, handoff);
+  await writeSchedulerIntegrationCheckHandoff(schedulerArtifacts, changePath, handoff);
+
+  const authorizedState = await resolveProjectRuntimeState(project(), {
+    ahoHome: process.env.AHO_HOME,
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
+  if (authorizedState.state !== "ready") throw new Error(`Scheduler fixture authorization runtime is not ready: ${authorizedState.state}.`);
+  const graphScopeId = `graph:${topic.conversationId}`;
+  const planning = await readProjectHarnessPlanningGate({
+    projectId: authorizedState.resolution.harness.projectId,
+    projectRoot: tempDir,
+    skillRoot: authorizedState.resolution.harness.skillRoot,
+    conversationId: topic.conversationId,
+    graphScopeId,
+    changeId: topic.changeId,
+  });
+  const startManifestHash = projectHarnessPlanningStartManifestHash(
+    planning,
+    authorizedState.resolution.harness.contentFingerprint,
+  );
+  const sourceStatus = (await execFileAsync("git", ["status", "--short", "--untracked-files=all"], { cwd: tempDir })).stdout
+    .trim()
+    .split(/\r?\n/)
+    .filter(Boolean);
+  if (sourceStatus.length > 0) throw new Error(`Scheduler fixture source is not clean: ${sourceStatus.join(", ")}`);
+  const authorization = await issueLocalExecutionAuthorization(authorizedState.resolution.paths, {
+    projectId: authorizedState.resolution.harness.projectId,
+    changeId: topic.changeId,
+    conversationId: topic.conversationId,
+    providerThreadId: `fixture-thread-${topic.conversationId}`,
+    goalIdentityHash: contentHash(`fixture-goal:${topic.conversationId}`),
+    mode: "stepwise",
+    acceptedPlanId: accepted.proposalId,
+    acceptedPlanHash: accepted.proposalHash,
+    graphId: graph.id,
+    graphHash: hashWorkflowGraphPlan(graph),
+    artifactManifestHash: contentHash(JSON.stringify(graph.sourceArtifactHashes)),
+    sourceHead,
+    sourceStateHash: contentHash(JSON.stringify(sourceStatus)),
+    providerScopeHash: contentHash(JSON.stringify({ projectId: project().id, conversationId: topic.conversationId, providerId: "codex" })),
+    permissionProfileHash: contentHash(JSON.stringify({ approvalPolicy: "never", sandbox: "runtime-owned-scoped-write", network: false })),
+    policyHash: contentHash(JSON.stringify("local-execution-authorization-policy-v1")),
+    targets: [{ transition: "workflow.run.start", targetId: graph.id, manifestHash: startManifestHash }],
+    budget: { maxCompletedOperations: 32, maxReworks: 1, maxChangedFiles: 100, maxChangedBytes: 10 * 1024 * 1024 },
+    userDecision: { decisionId: `fixture-execute:${topic.conversationId}`, actorId: "workbench-user", decidedAt: now },
+    issuedAt: now,
+    expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+  });
+  const authorizationEvidenceRoot = await resolveFixtureChangeEvidenceRoot(topic.changeId);
+  await writeFile(join(authorizationEvidenceRoot, "planning", "execution-authorization-intent.json"), `${JSON.stringify({
+    version: "1.0",
+    status: "issued",
+    changeId: topic.changeId,
+    conversationId: topic.conversationId,
+    proposalId: accepted.proposalId,
+    proposalHash: accepted.proposalHash,
+    graphId: graph.id,
+    authorizationId: authorization.id,
+    projectHarnessContentFingerprint: authorizedState.resolution.harness.contentFingerprint,
+    startManifestHash,
+    reason: null,
+    updatedAt: now,
+  }, null, 2)}\n`, "utf8");
 
   return {
     topic,
@@ -1395,7 +1582,7 @@ export async function prepareSchedulerFirstWorkerThroughResult(options: {
   };
   workerResult: { id?: string; status?: string };
 }> {
-  await initHarness(project());
+  await ensureProjectHarnessFixture();
   const topic = await createConversationChangeFixture(project(), {
     title: options.title ?? "Parallel Scheduler Worker",
     body: "Split this into independent parallel work across multiple modules.",
@@ -1466,7 +1653,7 @@ export async function prepareSchedulerFirstWorkerThroughResult(options: {
   await git(tempDir, ["add", "."]);
   await git(tempDir, ["commit", "-m", "initial"]);
 
-  const memory = await resolveProjectMemory(project());
+  const memory = await resolveFixtureRuntime();
   const changePath = join("harness", "changes", "active", topic.changeId);
   const planRef = `${changePath.replaceAll("\\", "/")}/plan.md`;
   const acceptedRefs = ["spec.md", "plan.md", "tasks.md", "ac-map.json"].map((name) => `${changePath.replaceAll("\\", "/")}/${name}`);
@@ -1673,7 +1860,7 @@ export async function writeAuditResultWithHash(changeId: string, runId: string, 
 }
 
 export async function prepareAcceptedSequentialWorkflowGraph(changeId: string, taskIds: string[]): Promise<{ workflowGraphPlanId: string }> {
-  const memory = await resolveProjectMemory(project());
+  const memory = await resolveFixtureRuntime();
   const changePath = join("harness", "changes", "active", changeId);
   const now = new Date().toISOString();
   const artifactRefs = ["spec.md", "plan.md", "tasks.md", "ac-map.json"].map((name) => `${changePath.replaceAll("\\", "/")}/${name}`);

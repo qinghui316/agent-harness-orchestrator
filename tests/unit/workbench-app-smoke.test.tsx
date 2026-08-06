@@ -260,7 +260,14 @@ function installApiFixture(snapshot: Snapshot): void {
         pathExists: true,
         isGitRepo: true,
         managed: true,
-        memory: { registered: true, memoryAvailable: true, harnessReady: true },
+        harness: {
+          projectPath: snapshot.project?.path ?? "E:/repo",
+          managed: true,
+          readiness: "ready",
+          activeChanges: [],
+          pendingEvolution: false,
+          components: [],
+        },
       }] });
     }
     if (url.includes("/workbench/snapshot")) return json(snapshot);

@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { writeJsonFile } from "../fs/json.js";
 import { readLandingPackage } from "../landing/repository.js";
-import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
+import { requireProjectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
 import { gitText } from "../project/git.js";
 import type { ManagedProject, PrDraftRevision } from "../types/index.js";
 import { commandText, detectRemoteProviderCapability, githubCliArgs, githubCliCommand } from "./provider.js";
@@ -14,8 +14,7 @@ import type { PrDraftPackage } from "./types.js";
 import { contentHash, displayPrDraftArtifactPath, prDraftRoot } from "./utils.js";
 
 export async function preparePrDraftPackage(project: ManagedProject, landingPackageId: string): Promise<PrDraftPackage> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "PR draft package");
+  const memory = await requireProjectExecutionRuntimePort(project);
   const landing = await readLandingPackage(memory, landingPackageId);
   assertLandingReady(landing);
   const existing = await findPrDraftPackageForLanding(memory, landingPackageId);
@@ -52,8 +51,7 @@ export async function preparePrDraftPackage(project: ManagedProject, landingPack
 }
 
 export async function createDraftPr(project: ManagedProject, landingPackageId: string): Promise<PrDraftPackage> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "Draft PR creation");
+  const memory = await requireProjectExecutionRuntimePort(project);
   const landing = await readLandingPackage(memory, landingPackageId);
   assertLandingReady(landing);
   await assertSourceStillMatchesLanding(project, landing);
@@ -106,8 +104,7 @@ export async function createDraftPr(project: ManagedProject, landingPackageId: s
 }
 
 export async function refreshPrDraftStatus(project: ManagedProject, landingPackageId: string): Promise<PrDraftPackage> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "PR draft refresh");
+  const memory = await requireProjectExecutionRuntimePort(project);
   const pkg = await findPrDraftPackageForLanding(memory, landingPackageId);
   if (!pkg) return preparePrDraftPackage(project, landingPackageId);
   const capability = await detectRemoteProviderCapability(project);
@@ -121,8 +118,7 @@ export async function refreshPrDraftStatus(project: ManagedProject, landingPacka
 }
 
 export async function updateDraftPrFromLanding(project: ManagedProject, landingPackageId: string): Promise<{ package: PrDraftPackage; revision: PrDraftRevision }> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "Draft PR update");
+  const memory = await requireProjectExecutionRuntimePort(project);
   const landing = await readLandingPackage(memory, landingPackageId);
   assertLandingReady(landing);
   const exactExisting = await findPrDraftPackageForLanding(memory, landingPackageId);

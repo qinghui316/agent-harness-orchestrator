@@ -1,16 +1,9 @@
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { git, gitText } from "../project/git.js";
-import { withProjectWriteLease, withProjectWriteLeaseAtPath } from "../project/project-write-lease.js";
+import { withProjectWriteLeaseAtPath } from "../project/project-write-lease.js";
 import { renderUntrackedTextPatch } from "../project/untracked-patch.js";
 import type { ManagedProject } from "../types/index.js";
-
-export async function prepareIntegrationCheckout(project: ManagedProject, checkoutPath: string, patchPath: string): Promise<void> {
-  return withProjectWriteLease(project.path, {}, async (lease) => {
-    await lease.assertCurrent();
-    await prepareIntegrationCheckoutWithLease(project, checkoutPath, patchPath, false);
-  });
-}
 
 export async function prepareSkillNativeIntegrationCheckout(
   project: ManagedProject,
@@ -21,13 +14,6 @@ export async function prepareSkillNativeIntegrationCheckout(
   return withProjectWriteLeaseAtPath(runtime.projectWriteLeasePath, {}, async (lease) => {
     await lease.assertCurrent();
     await prepareIntegrationCheckoutWithLease(project, checkoutPath, patchPath, false);
-  });
-}
-
-export async function prepareIntegrationFixCheckout(project: ManagedProject, checkoutPath: string, patchPath: string): Promise<void> {
-  return withProjectWriteLease(project.path, {}, async (lease) => {
-    await lease.assertCurrent();
-    await prepareIntegrationCheckoutWithLease(project, checkoutPath, patchPath, true);
   });
 }
 

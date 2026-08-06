@@ -147,10 +147,10 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
   const diagnosticWorkpad = buildDiagnosticWorkpad(input.project?.name ?? "未选择项目", warnings, gaps);
   return {
     project: input.project,
-    memory: status,
+    harness: status,
     left: {
       project: input.project,
-      memory: status,
+      harness: status,
       topics: [],
       workpads: [],
       repo: buildRepoSummary(projectStatus),
@@ -229,7 +229,7 @@ export async function listWorkbenchTopics(input: WorkbenchProjectInput): Promise
 
 export async function hideWorkbenchTopic(input: WorkbenchProjectInput, topicId: string): Promise<{ hidden: true; topicId: string }> {
   if (!input.project) {
-    const error = new Error("Durable memory is unavailable; cannot hide this conversation.");
+    const error = new Error("Project Harness runtime is unavailable; cannot hide this conversation.");
     error.name = "Conflict";
     throw error;
   }
@@ -240,7 +240,7 @@ export async function hideWorkbenchTopic(input: WorkbenchProjectInput, topicId: 
 
 export async function deleteWorkbenchConversation(input: WorkbenchProjectInput, topicId: string): Promise<{ deleted: true; topicId: string }> {
   if (!input.project) {
-    const error = new Error("Durable memory is unavailable; cannot delete this conversation.");
+    const error = new Error("Project Harness runtime is unavailable; cannot delete this conversation.");
     error.name = "Conflict";
     throw error;
   }
@@ -258,7 +258,7 @@ export async function getWorkbenchTopic(input: WorkbenchProjectInput, topicId: s
 
 export async function getWorkbenchStream(input: WorkbenchProjectInput, runId: string): Promise<WorkbenchStreamPacket> {
   if (!input.project) {
-    throw new Error("Durable memory is unavailable; cannot replay run stream.");
+    throw new Error("Project Harness runtime is unavailable; cannot replay run stream.");
   }
   const runtime = await resolveProjectRuntimeState(input.project, {
     discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
@@ -296,7 +296,6 @@ function diagnosticProjectHarnessStatus(
       kind: "project-skill",
       registered: false,
       managed: false,
-      memoryAvailable: false,
       harnessReady: false,
       runtimeAvailable: false,
       state: "unregistered",
@@ -308,7 +307,6 @@ function diagnosticProjectHarnessStatus(
       kind: "project-skill",
       registered: true,
       managed: true,
-      memoryAvailable: false,
       harnessReady: false,
       runtimeAvailable: true,
       projectId: state.reservedProjectId,
@@ -320,7 +318,6 @@ function diagnosticProjectHarnessStatus(
     kind: "project-skill",
     registered: true,
     managed: true,
-    memoryAvailable: false,
     harnessReady: false,
     runtimeAvailable: true,
     projectId: state.resolution.harness.projectId,

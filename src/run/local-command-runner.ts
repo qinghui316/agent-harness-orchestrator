@@ -2,12 +2,14 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { resolveRunnableChangeTarget } from "../change/target.js";
 import { writeJsonFile } from "../fs/json.js";
-import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
+import {
+  projectRunArtifactReference,
+  requireProjectExecutionRuntimePort,
+} from "../project-runtime/execution-ports.js";
 import type { ManagedProject, RunMetadata, RunStatus, RunWorktreeInfo } from "../types/index.js";
-import { createWorktree, getWorktreeMetadataPath } from "../worktree/manager.js";
+import { createWorktreeWithRuntimePort, getWorktreeMetadataPath } from "../worktree/manager.js";
 import { buildContextProjection } from "./context-projection.js";
 import { appendRunEvent } from "./events.js";
-import { displayArtifactPath } from "./paths.js";
 import { executeProcessStreaming } from "./process.js";
 import { buildRunId } from "./run-id.js";
 import type { LocalCommandRunOptions, RunStartResult } from "./types.js";
@@ -17,8 +19,7 @@ export async function startLocalCommandRun(project: ManagedProject, command: str
     throw new Error("Run command is required after `--`, for example: aho run start <project> -- npm test");
   }
 
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "Local command run");
+  const memory = await requireProjectExecutionRuntimePort(project);
   const target = await resolveRunnableChangeTarget(project);
   const changeStatus = target.status;
   const changeId = target.changeId;
@@ -27,7 +28,7 @@ export async function startLocalCommandRun(project: ManagedProject, command: str
   let cwd = project.path;
   let worktree: RunWorktreeInfo | undefined;
   if (options.worktree) {
-    const created = await createWorktree(project, memory, changeId, { runId });
+    const created = await createWorktreeWithRuntimePort(project, memory, changeId, { runId });
     cwd = created.metadata.checkoutPath;
     worktree = {
       worktreeId: created.metadata.worktreeId,
@@ -39,9 +40,10 @@ export async function startLocalCommandRun(project: ManagedProject, command: str
     };
   }
   const directory = join(memory.runsRoot, runId);
-  const relativeDir = displayArtifactPath(memory.artifactBase === "memory-root" ? memory.memoryRoot : memory.projectRoot, directory);
+  const artifactReference = projectRunArtifactReference(memory, directory);
+  const relativeDir = artifactReference.directory;
   const artifacts = {
-    base: memory.artifactBase,
+    owner: artifactReference.owner,
     directory: relativeDir,
     context: `${relativeDir}/context.md`,
     events: `${relativeDir}/events.jsonl`,

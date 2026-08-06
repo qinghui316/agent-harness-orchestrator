@@ -4,15 +4,11 @@ import { postJson } from "../api.js";
 import type { FolderDialogResult, ProjectStatus, Snapshot } from "../types.js";
 
 export function ProjectDetailsPanel({ project, snapshot, selected, onOpen, onRefresh }: { project: ProjectStatus; snapshot: Snapshot | undefined; selected: boolean; onOpen: () => void; onRefresh: () => void }): ReactElement {
-  const memoryReady = snapshot?.memory.harnessReady ?? project.memory?.harnessReady ?? project.harness.readiness === "ready";
-  const memoryMode = snapshot?.memory.memoryMode ?? project.memory?.memoryMode;
-  const memoryIssue = project.managed && memoryMode === "external-local" && project.memory?.memoryAvailable === false
-    ? "项目历史不可用"
-    : null;
+  const harnessReady = snapshot?.harness.harnessReady ?? project.harness.readiness === "ready";
   return (
     <div className="project-details-panel">
       <InfoRow label="仓库" value={snapshot?.left.repo?.branch ?? (project.isGitRepo ? "已准备" : "未检测到 Git")} />
-      <InfoRow label="项目状态" value={memoryIssue ?? (memoryReady ? "已准备" : "首次需求时自动建立说明")} />
+      <InfoRow label="项目状态" value={harnessReady ? "已准备" : project.harness.readiness === "partial" ? "需要修复项目 Harness" : "首次需求时自动建立说明"} />
       {!selected ? <button className="project-detail-action" onClick={onOpen}>打开项目</button> : null}
       <button className="project-detail-action" onClick={onRefresh}>刷新项目</button>
     </div>

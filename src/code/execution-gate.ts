@@ -1,14 +1,12 @@
 import { readSchedulerRuntimeLineage } from "../scheduler-runtime/guards.js";
-import { join } from "node:path";
 import { findSchedulerRuntimeWorkerReworkStartForPlan, findSchedulerRuntimeWorkerStartForReservationIntent, readSchedulerRuntimeClaimReservation, readSchedulerRuntimeStateProjection, readSchedulerRuntimeWorkerReworkPlan } from "../scheduler-runtime/repository.js";
 import { listTaskQueueItems } from "../task-queue/manager.js";
 import { readTaskRun } from "../task-run/repository.js";
-import type { ChangeStatus, ResolvedMemory } from "../types/index.js";
+import type { ChangeStatus } from "../types/index.js";
 import type { WorkflowGraphPlan } from "../types/index.js";
 import type { ProjectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
 import type { ProjectRunsPathPort } from "../project-runtime/paths.js";
-import { createSchedulerArtifactStore, type SchedulerArtifactStore } from "../scheduler-runtime/artifact-store.js";
-import { readWorkflowGraphPlan } from "../workflow-artifacts/manager.js";
+import type { SchedulerArtifactStore } from "../scheduler-runtime/artifact-store.js";
 import type { CodeExecutionGateVerdict, CodeRunOptions } from "./types.js";
 
 export async function assertSkillNativeCodeExecutionGate(
@@ -262,78 +260,4 @@ async function assertSchedulerClaimReworkCodeExecutionGate(
     taskIds: options.taskIds,
     reason: "Scoped SchedulerRuntimeWorkerReworkPlan authorizes one same-worktree rework-coder start.",
   };
-}
-
-export async function assertCodeExecutionGate(
-  memory: ResolvedMemory,
-  changeStatus: ChangeStatus,
-  changeId: string,
-  options: CodeRunOptions,
-  roleId: string,
-): Promise<CodeExecutionGateVerdict> {
-  const mode = options.executionGate?.mode ?? (roleId === "rework-coder" ? "rework" : null);
-  if (!mode) throw new Error("Code execution requires an explicit Workflow Runtime execution gate.");
-  if (options.existingWorktreeId && mode !== "scheduler-claim-rework" && mode !== "workflow-graph") {
-    throw new Error("existingWorktreeId requires an authorized WorkflowGraph resume or scheduler rework execution.");
-  }
-  if (mode === "rework") {
-    return { allowed: true, mode, changeId, taskRunId: options.taskRunId, taskIds: options.taskIds, reason: "Rework code execution remains scoped to existing result review evidence." };
-  }
-  const changePath = changeStatus.activeChanges.find((item) => item.name === changeId)?.path;
-  if (!changePath) throw new Error(`Code execution gate cannot resolve active Change path for ${changeId}.`);
-  const schedulerArtifacts = createSchedulerArtifactStore({
-    changeId,
-    changeEvidenceRoot: join(memory.memoryRoot, changePath),
-    artifactRoots: [memory.memoryRoot, memory.projectRoot],
-  });
-
-  if (mode === "scheduler-claim-reservation") {
-    return assertSchedulerClaimReservationCodeExecutionGate(memory, schedulerArtifacts, changeId, options, roleId);
-  }
-  if (mode === "scheduler-claim-rework") {
-    return assertSchedulerClaimReworkCodeExecutionGate(memory, schedulerArtifacts, changeId, options, roleId);
-  }
-
-  if (mode === "workflow-graph") {
-    const workflowGraphPlanId = options.executionGate?.workflowGraphPlanId;
-    if (!workflowGraphPlanId) throw new Error("TaskQueue code execution requires workflowGraphPlanId.");
-    const graph = await readWorkflowGraphPlan(memory, changePath, workflowGraphPlanId);
-    if (graph.graphMode !== "sequential-v1") {
-      throw new Error("TaskQueue code execution requires a sequential WorkflowGraphPlan.");
-    }
-    if (graph.changeId !== changeId || graph.authoringContractVersion !== "1.0" || graph.status !== "compiled") {
-      throw new Error("TaskQueue code execution graph target is stale.");
-    }
-    const taskIds = options.taskIds ?? [];
-    const graphTasks = new Set(graph.nodes.map((node) => node.taskId.toUpperCase()));
-    for (const taskId of taskIds) {
-      if (!graphTasks.has(taskId.toUpperCase())) throw new Error(`TaskQueue code execution task is not in WorkflowGraphPlan: ${taskId}.`);
-    }
-    const queueItems = await listTaskQueueItems(memory, changeId);
-    if (options.taskRunId) {
-      const matchingItem = queueItems.find((item) => item.taskRunId === options.taskRunId);
-      if (!matchingItem || matchingItem.workflowGraphPlanId !== workflowGraphPlanId) {
-        throw new Error("TaskQueue code execution taskRun is not scoped to the WorkflowGraphPlan.");
-      }
-      if (options.existingWorktreeId) {
-        const taskRun = await readTaskRun(memory, changeId, options.taskRunId);
-        if (taskRun.status !== "running" || taskRun.worktreeId !== options.existingWorktreeId) {
-          throw new Error("TaskQueue code resume worktree does not match the reclaimed TaskRun.");
-        }
-      }
-    } else if (graph.nodes.length !== 1) {
-      throw new Error("Direct code execution requires a single-node authored WorkflowGraphPlan.");
-    }
-    return {
-      allowed: true,
-      mode,
-      changeId,
-      workflowGraphPlanId,
-      taskRunId: options.taskRunId,
-      taskIds: options.taskIds,
-      reason: "Compiled WorkflowGraphPlan authorizes task-scoped code execution.",
-    };
-  }
-
-  throw new Error(`Unsupported code execution gate mode: ${mode}.`);
 }

@@ -36,22 +36,16 @@ export async function buildProjectIdentityRecoveryDocuments(
   discoveryPolicy: ProjectHarnessDiscoveryPolicy,
 ): Promise<ProjectIdentityJsonDocument[]> {
   const registryDocuments = journal.documents.filter((document) => document.kind === "registry" && document.scope === "external");
-  const markerDocuments = journal.documents.filter((document) => document.kind === "local-state" && document.scope === "external");
   const sidecarDocuments = journal.documents.filter((document) => document.scope === "sidecar");
-  if (registryDocuments.length !== 1 || markerDocuments.length !== 1
-    || journal.documents.length !== registryDocuments.length + markerDocuments.length + sidecarDocuments.length) {
-    throw new Error("Identity recovery journal does not match the supported Registry, marker, and sidecar descriptor set.");
+  if (registryDocuments.length !== 1
+    || journal.documents.length !== registryDocuments.length + sidecarDocuments.length) {
+    throw new Error("Identity recovery journal does not match the supported Registry and sidecar descriptor set.");
   }
   const registryDocument = registryDocuments[0]!;
   if (normalizeForCompare(registryDocument.sourcePath) !== normalizeForCompare(store.registryPath)) {
     throw new Error("Identity recovery journal Registry path is not caller-owned.");
   }
   const { projectRoot, registryIndex } = await resolveRegistryProjectOwner(store.registryPath, journal);
-  const markerPath = join(projectRoot, ".agent-harness", "project.json");
-  const markerDocument = markerDocuments[0]!;
-  if (normalizeForCompare(markerDocument.sourcePath) !== normalizeForCompare(markerPath)) {
-    throw new Error("Identity recovery journal marker path is not owned by the Registry project.");
-  }
   const discovery = await discoverProjectHarness(projectRoot, discoveryPolicy);
   if (!discovery || discovery.handle.projectId !== journal.targetProjectId) {
     throw new Error("Identity recovery cannot bind the journal to the Registry project's canonical Harness.");
@@ -67,12 +61,6 @@ export async function buildProjectIdentityRecoveryDocuments(
       scope: "external",
       path: store.registryPath,
       allowedIdentityPaths: [`/projects/${registryIndex}/id`],
-    },
-    {
-      kind: "local-state",
-      scope: "external",
-      path: markerPath,
-      allowedIdentityPaths: ["/id"],
     },
   ];
   for (const document of sidecarDocuments) {
@@ -105,10 +93,6 @@ export async function buildProjectIdentityMigrationOptions(
   if (sourceIndexes.length !== 1 || sourceIndexes[0]!.project.path !== input.project.path) {
     throw new Error(`Registry does not contain one exact source project identity for ${input.project.id}.`);
   }
-  const markerPath = join(input.project.path, ".agent-harness", "project.json");
-  if (!existsSync(markerPath)) {
-    throw new Error("Controlled identity migration requires the legacy project marker as an exact external state document.");
-  }
   const sqliteDatabases: ProjectIdentitySqliteDatabase[] = [];
   if (existsSync(input.sourcePaths.workbenchDbPath)) {
     sqliteDatabases.push({
@@ -123,12 +107,6 @@ export async function buildProjectIdentityMigrationOptions(
       scope: "external",
       path: input.store.registryPath,
       allowedIdentityPaths: [`/projects/${sourceIndexes[0]!.index}/id`],
-    },
-    {
-      kind: "local-state",
-      scope: "external",
-      path: markerPath,
-      allowedIdentityPaths: ["/id"],
     },
     ...await knownSidecarIdentityDocuments(input.sourcePaths.sidecarRoot),
   ];

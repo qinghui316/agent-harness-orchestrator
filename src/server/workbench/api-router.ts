@@ -13,12 +13,12 @@ import { getProjectGitCommitDetail, getProjectGitCommitDiff, getProjectGitDiff, 
 import { addSkillRoot, listSkillRoots, listSkills, setSkillEnabled, type SkillCatalogResult } from "../../skill/catalog.js";
 import { getSystemSkillsRoot } from "../../template-source/paths.js";
 import type { ManagedProject } from "../../types/index.js";
-import { addExistingProject, createNewProject, initProjectHarness, listProjectStatuses, prepareRegisteredProjectRemoval, removeRegisteredProject } from "./project-admin.js";
+import { addExistingProject, createNewProject, listProjectStatuses, prepareRegisteredProjectRemoval, removeRegisteredProject } from "./project-admin.js";
 import { handleDirectWorkbenchApi } from "./direct-routes.js";
 import { handleProjectWorkbenchApi } from "./project-routes.js";
 import { handleTerminalApi } from "./terminal-routes.js";
 import { assertConfirmed, assertLocalWorkbenchRequest, assertRegisteredProject, readJsonBody, sendJson } from "./http.js";
-import type { AddExistingProjectRequest, CreateNewProjectRequest, InitProjectHarnessRequest, RemoveProjectRequest, WorkbenchServerContext } from "./types.js";
+import type { AddExistingProjectRequest, CreateNewProjectRequest, RemoveProjectRequest, WorkbenchServerContext } from "./types.js";
 
 export async function handleApi(context: WorkbenchServerContext, request: IncomingMessage, response: ServerResponse, url: URL): Promise<void> {
   const trackedProjectId = projectIdForTrackedRequest(url.pathname)
@@ -120,11 +120,6 @@ async function handleApiRequest(context: WorkbenchServerContext, request: Incomi
   }
   if (request.method === "POST" && url.pathname === "/api/dialog/open-folder") {
     sendJson(response, 200, await openNativeFolderDialog());
-    return;
-  }
-  const initMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/harness\/init$/);
-  if (request.method === "POST" && initMatch?.[1]) {
-    sendJson(response, 200, await initProjectHarness(context.store, decodeURIComponent(initMatch[1]), await readJsonBody<InitProjectHarnessRequest>(request)));
     return;
   }
   const runtimeDiagnosticsMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/runtime\/diagnostics$/);

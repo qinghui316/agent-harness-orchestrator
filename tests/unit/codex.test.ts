@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { evaluateCodexAppServerCapabilities, extractCodexAppServerPlanText, extractCodexAppServerThreadDisplayName, extractCodexAppServerThreadFinalText, extractCodexAppServerThreadInitialPrompt, extractCodexAppServerThreadInitialUserItem, shouldUseCodexAppServerForMemory, shouldUseCodexAppServerForReadOnlyTurn } from "../../src/codex/app-server.js";
+import { evaluateCodexAppServerCapabilities, extractCodexAppServerPlanText, extractCodexAppServerThreadDisplayName, extractCodexAppServerThreadFinalText, extractCodexAppServerThreadInitialPrompt, extractCodexAppServerThreadInitialUserItem } from "../../src/codex/app-server.js";
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, buildCodexWorkspaceWriteArgv, detectCodexCapabilities, evaluateCodexCapabilities } from "../../src/codex/capabilities.js";
 import { codexExecutableEnvironmentKey, resolveCodexExecutable } from "../../src/codex/executable.js";
 import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl, truncateReadablePreview, type CodexJsonlStreamEvent } from "../../src/codex/jsonl.js";
@@ -74,19 +74,6 @@ describe("codex capabilities", () => {
       "spawn failed",
       "Codex app-server does not advertise stdio transport.",
     ]));
-  });
-
-  it("skips app-server when project memory is external-local", () => {
-    expect(shouldUseCodexAppServerForMemory("repo-local")).toBe(true);
-    expect(shouldUseCodexAppServerForMemory("remote")).toBe(true);
-    expect(shouldUseCodexAppServerForMemory("external-local")).toBe(false);
-  });
-
-  it("allows app-server for read-only external-local main agent turns", () => {
-    expect(shouldUseCodexAppServerForReadOnlyTurn("repo-local")).toBe(true);
-    expect(shouldUseCodexAppServerForReadOnlyTurn("remote")).toBe(true);
-    expect(shouldUseCodexAppServerForReadOnlyTurn("external-local")).toBe(true);
-    expect(shouldUseCodexAppServerForMemory("external-local")).toBe(false);
   });
 
   it("uses plan item content as the native Plan transcript and ignores turn checklist updates", () => {

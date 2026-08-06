@@ -5,21 +5,22 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { applyWorktree } from "../../src/apply/apply-discard.js";
 import { projectExecutionRuntimePort } from "../../src/project-runtime/execution-ports.js";
 import {
-  claimProjectWriteLease,
-  heartbeatProjectWriteLease,
-  readProjectWriteLease,
-  releaseProjectWriteLease,
-  withProjectWriteLease,
+  claimProjectWriteLeaseAtPath,
+  heartbeatProjectWriteLeaseAtPath,
+  readProjectWriteLeaseAtPath,
+  releaseProjectWriteLeaseAtPath,
   withProjectWriteLeaseAtPath,
-} from "../../src/project/index.js";
+} from "../../src/project/project-write-lease.js";
 import { prepareSkillNativeApplyFixture } from "../helpers/skill-native-apply-fixture.js";
 import { git, initGitRepository } from "../helpers/skill-native-test-environment.js";
 
 describe("project write lease", () => {
   let projectPath: string;
+  let databasePath: string;
 
   beforeEach(async () => {
     projectPath = await mkdtemp(join(tmpdir(), "aho-project-write-lease-"));
+    databasePath = join(projectPath, "runtime-sidecar", "project-write-lease.sqlite");
   });
 
   afterEach(async () => {
@@ -28,30 +29,30 @@ describe("project write lease", () => {
 
   it("claims, heartbeats, and releases a project-scoped lease", async () => {
     const start = new Date("2026-07-11T00:00:00.000Z");
-    const lease = await claimProjectWriteLease(projectPath, { holderId: "run-1", ttlMs: 1_000 }, start);
+    const lease = await claimProjectWriteLeaseAtPath(databasePath, { holderId: "run-1", ttlMs: 1_000 }, start);
 
     expect(lease).toMatchObject({ holderId: "run-1", fencingToken: 1 });
-    const renewed = await heartbeatProjectWriteLease(
-      projectPath,
+    const renewed = await heartbeatProjectWriteLeaseAtPath(
+      databasePath,
       { holderId: "run-1", fencingToken: 1 },
       2_000,
       new Date(start.getTime() + 500),
     );
     expect(renewed.expiresAt).toBe("2026-07-11T00:00:02.500Z");
 
-    await releaseProjectWriteLease(
-      projectPath,
+    await releaseProjectWriteLeaseAtPath(
+      databasePath,
       { holderId: "run-1", fencingToken: 1 },
       new Date(start.getTime() + 600),
     );
-    await expect(readProjectWriteLease(projectPath)).resolves.toBeNull();
+    await expect(readProjectWriteLeaseAtPath(databasePath)).resolves.toBeNull();
   });
 
   it("uses monotonic fencing and rejects an old token after expiry", async () => {
     const start = new Date("2026-07-11T00:00:00.000Z");
-    const first = await claimProjectWriteLease(projectPath, { holderId: "run-1", ttlMs: 100 }, start);
-    const second = await claimProjectWriteLease(
-      projectPath,
+    const first = await claimProjectWriteLeaseAtPath(databasePath, { holderId: "run-1", ttlMs: 100 }, start);
+    const second = await claimProjectWriteLeaseAtPath(
+      databasePath,
       { holderId: "run-2", ttlMs: 1_000 },
       new Date(start.getTime() + 101),
     );
@@ -59,20 +60,20 @@ describe("project write lease", () => {
     expect(first?.fencingToken).toBe(1);
     expect(second?.fencingToken).toBe(2);
     await expect(
-      releaseProjectWriteLease(
-        projectPath,
+      releaseProjectWriteLeaseAtPath(
+        databasePath,
         { holderId: "run-1", fencingToken: 1 },
         new Date(start.getTime() + 102),
       ),
     ).rejects.toThrow(/not owned/);
-    expect((await readProjectWriteLease(projectPath))?.holderId).toBe("run-2");
+    expect((await readProjectWriteLeaseAtPath(databasePath))?.holderId).toBe("run-2");
   });
 
   it("allows exactly one concurrent claim for a project", async () => {
     const now = new Date("2026-07-11T00:00:00.000Z");
     const claims = await Promise.all(
       Array.from({ length: 20 }, (_, index) =>
-        claimProjectWriteLease(projectPath, { holderId: `run-${index}`, ttlMs: 1_000 }, now),
+        claimProjectWriteLeaseAtPath(databasePath, { holderId: `run-${index}`, ttlMs: 1_000 }, now),
       ),
     );
 
@@ -83,10 +84,10 @@ describe("project write lease", () => {
 
   it("does not allow an active lease to be claimed again", async () => {
     const now = new Date("2026-07-11T00:00:00.000Z");
-    await claimProjectWriteLease(projectPath, { holderId: "run-1", ttlMs: 1_000 }, now);
+    await claimProjectWriteLeaseAtPath(databasePath, { holderId: "run-1", ttlMs: 1_000 }, now);
 
     await expect(
-      claimProjectWriteLease(projectPath, { holderId: "run-2", ttlMs: 1_000 }, now),
+      claimProjectWriteLeaseAtPath(databasePath, { holderId: "run-2", ttlMs: 1_000 }, now),
     ).resolves.toBeNull();
   });
 
@@ -95,14 +96,14 @@ describe("project write lease", () => {
     let releaseFirst!: () => void;
     const entered = new Promise<void>((resolve) => { enterFirst = resolve; });
     const blocked = new Promise<void>((resolve) => { releaseFirst = resolve; });
-    const first = withProjectWriteLease(projectPath, { holderId: "first" }, async () => {
+    const first = withProjectWriteLeaseAtPath(databasePath, { holderId: "first" }, async () => {
       enterFirst();
       await blocked;
     });
     await entered;
 
     await expect(
-      withProjectWriteLease(projectPath, { holderId: "second" }, async () => undefined),
+      withProjectWriteLeaseAtPath(databasePath, { holderId: "second" }, async () => undefined),
     ).rejects.toThrow(/already held/);
 
     releaseFirst();
@@ -111,37 +112,37 @@ describe("project write lease", () => {
 
   it("preserves the action failure when an expired lease was taken over before cleanup", async () => {
     const actionFailure = new Error("source apply failed");
-    await expect(withProjectWriteLease(
-      projectPath,
+    await expect(withProjectWriteLeaseAtPath(
+      databasePath,
       { holderId: "first", ttlMs: 1_000 },
       async (scope) => {
-        await releaseProjectWriteLease(projectPath, scope.lease);
-        const takeover = await claimProjectWriteLease(projectPath, { holderId: "second", ttlMs: 10_000 });
+        await releaseProjectWriteLeaseAtPath(databasePath, scope.lease);
+        const takeover = await claimProjectWriteLeaseAtPath(databasePath, { holderId: "second", ttlMs: 10_000 });
         expect(takeover?.fencingToken).toBe(2);
         throw actionFailure;
       },
     )).rejects.toBe(actionFailure);
-    expect((await readProjectWriteLease(projectPath))?.holderId).toBe("second");
+    expect((await readProjectWriteLeaseAtPath(databasePath))?.holderId).toBe("second");
   });
 
   it("keeps a live scoped writer renewed and exposes ownership loss after a successful action", async () => {
-    let competing: Awaited<ReturnType<typeof claimProjectWriteLease>> | undefined;
-    await withProjectWriteLease(projectPath, { holderId: "renewed", ttlMs: 300 }, async () => {
+    let competing: Awaited<ReturnType<typeof claimProjectWriteLeaseAtPath>> | undefined;
+    await withProjectWriteLeaseAtPath(databasePath, { holderId: "renewed", ttlMs: 300 }, async () => {
       await new Promise((resolve) => setTimeout(resolve, 450));
-      competing = await claimProjectWriteLease(projectPath, { holderId: "competing", ttlMs: 1_000 });
+      competing = await claimProjectWriteLeaseAtPath(databasePath, { holderId: "competing", ttlMs: 1_000 });
     });
     expect(competing).toBeNull();
 
-    await expect(withProjectWriteLease(projectPath, { holderId: "expires", ttlMs: 1_000 }, async (scope) => {
-      await releaseProjectWriteLease(projectPath, scope.lease);
-      expect(await claimProjectWriteLease(projectPath, { holderId: "takeover", ttlMs: 10_000 })).not.toBeNull();
+    await expect(withProjectWriteLeaseAtPath(databasePath, { holderId: "expires", ttlMs: 1_000 }, async (scope) => {
+      await releaseProjectWriteLeaseAtPath(databasePath, scope.lease);
+      expect(await claimProjectWriteLeaseAtPath(databasePath, { holderId: "takeover", ttlMs: 10_000 })).not.toBeNull();
     })).rejects.toThrow(/not owned|expired/);
   });
 
   it("aborts the scoped source-write signal as soon as lease ownership is lost", async () => {
-    await expect(withProjectWriteLease(projectPath, { holderId: "first", ttlMs: 10_000 }, async (scope) => {
-      await releaseProjectWriteLease(projectPath, scope.lease);
-      expect(await claimProjectWriteLease(projectPath, { holderId: "second", ttlMs: 10_000 })).not.toBeNull();
+    await expect(withProjectWriteLeaseAtPath(databasePath, { holderId: "first", ttlMs: 10_000 }, async (scope) => {
+      await releaseProjectWriteLeaseAtPath(databasePath, scope.lease);
+      expect(await claimProjectWriteLeaseAtPath(databasePath, { holderId: "second", ttlMs: 10_000 })).not.toBeNull();
       await expect(scope.heartbeat()).rejects.toThrow(/not owned/);
       expect(scope.signal.aborted).toBe(true);
     })).rejects.toThrow(/not owned/);

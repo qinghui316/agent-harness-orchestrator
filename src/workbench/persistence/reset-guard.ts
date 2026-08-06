@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { ProviderRegistry } from "../../provider-runtime/registry.js";
-import type { ResolvedMemory } from "../../types/index.js";
+import type { ProjectRuntimePaths } from "../../project-runtime/paths.js";
 import type { SqliteRow } from "./sql-mappers.js";
 
 export interface WorkbenchResetGuard {
@@ -11,19 +11,18 @@ export interface WorkbenchResetGuard {
 
 export class RuntimeWorkbenchResetGuard implements WorkbenchResetGuard {
   constructor(
-    private readonly memory?: ResolvedMemory,
+    private readonly runtime: Pick<ProjectRuntimePaths, "projectId" | "workbenchDbPath" | "workbenchRoot" | "runsRoot">,
     private readonly providerRegistry?: ProviderRegistry,
   ) {}
 
   async assertSafe(db: Database.Database): Promise<void> {
     await assertProviderTurnsStoppedBeforeReset(db, this.providerRegistry);
-    if (!this.memory) return;
     const { listAgentTasks } = await import("../../agent-task/repository.js");
-    const activeTasks = (await listAgentTasks(this.memory)).filter((task) => task.status === "claimed" || task.status === "running");
+    const activeTasks = (await listAgentTasks(this.runtime)).filter((task) => task.status === "claimed" || task.status === "running");
     if (activeTasks.length > 0) {
       throw new Error("Workbench 会话数据库需要重建，但仍有后台 Agent 任务正在运行。请等待任务结束后重试。");
     }
-    await assertWorkflowModelAttemptsStopped(this.memory);
+    await assertWorkflowModelAttemptsStopped(this.runtime);
   }
 }
 
@@ -53,15 +52,15 @@ export async function assertProviderTurnsStoppedBeforeReset(db: Database.Databas
   }
 }
 
-export async function assertWorkflowModelAttemptsStopped(memory: ResolvedMemory): Promise<void> {
-  const activeRoot = join(memory.changesRoot, "active");
+export async function assertWorkflowModelAttemptsStopped(runtime: Pick<ProjectRuntimePaths, "runsRoot">): Promise<void> {
+  const activeRoot = join(runtime.runsRoot, "task-runs");
   const entries = await readdir(activeRoot, { withFileTypes: true }).catch(() => []);
   if (entries.length === 0) return;
   const { listTaskRuns } = await import("../../task-run/repository.js");
   const { isActiveTaskRunStatus } = await import("../../task-run/guards.js");
   for (const entry of entries) {
     if (!entry.isDirectory() || entry.name === ".gitkeep") continue;
-    const active = (await listTaskRuns(memory, entry.name)).filter((run) => isActiveTaskRunStatus(run.status));
+    const active = (await listTaskRuns(runtime, entry.name)).filter((run) => isActiveTaskRunStatus(run.status));
     if (active.length > 0) {
       throw new Error("Workbench 会话数据库需要重建，但仍有 Workflow 模型节点正在运行。请先暂停并完成对账。");
     }

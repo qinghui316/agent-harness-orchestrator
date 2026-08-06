@@ -2,12 +2,12 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export function getTemplateRoot(): string {
-  if (process.env.AHO_TEMPLATE_DIR) return process.env.AHO_TEMPLATE_DIR;
+export function getAgentProfilesRoot(): string {
+  if (process.env.AHO_AGENT_PROFILES_DIR) return process.env.AHO_AGENT_PROFILES_DIR;
   const here = dirname(fileURLToPath(import.meta.url));
-  const distCandidate = join(here, "..", "templates", "core-harness");
+  const distCandidate = join(here, "..", "templates", "agent-profiles");
   if (existsSync(distCandidate)) return distCandidate;
-  return join(here, "..", "..", "templates", "core-harness");
+  return join(here, "..", "..", "templates", "agent-profiles");
 }
 
 export function getSystemSkillsRoot(): string {

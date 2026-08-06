@@ -545,19 +545,19 @@ body.is-resizing-column {
 }
 
 .sidebar-resizer {
-  right: 8px;
+  right: -9px;
 }
 
 .sidebar-resizer::after {
-  right: -8px;
+  right: 8px;
 }
 
 .right-rail-resizer {
-  left: 8px;
+  left: -9px;
 }
 
 .right-rail-resizer::after {
-  left: -8px;
+  left: 8px;
 }
 
 .top-tool-button {

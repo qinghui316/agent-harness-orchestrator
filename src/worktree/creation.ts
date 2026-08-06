@@ -3,10 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { slugify } from "../fs/path.js";
 import { getGitBranch, getGitCommit, git, hasGitCommits, isGitDirty } from "../project/git.js";
-import {
-  projectWriteLeasePath,
-  withProjectWriteLeaseAtPath,
-} from "../project/project-write-lease.js";
+import { withProjectWriteLeaseAtPath } from "../project/project-write-lease.js";
 import { buildWorktreeId } from "./ids.js";
 import { getGlobalWorktreeCheckoutRoot, getWorktreeMetadataPath } from "./paths.js";
 import { writeWorktreeIndex } from "./index.js";
@@ -15,18 +12,6 @@ import { getWorktreeStatus } from "./status.js";
 import type { ManagedProject, WorktreeMetadata } from "../types/index.js";
 import type { WorktreeCreationPort, WorktreeIndexPort } from "./paths.js";
 import type { WorktreeCreateOptions, WorktreeCreateResult } from "./types.js";
-
-export async function createWorktree(
-  project: ManagedProject,
-  memory: WorktreeIndexPort,
-  changeId: string,
-  options: WorktreeCreateOptions = {},
-): Promise<WorktreeCreateResult> {
-  return createWorktreeWithRuntimePort(project, {
-    ...memory,
-    projectWriteLeasePath: projectWriteLeasePath(project.path),
-  }, changeId, options);
-}
 
 export async function createWorktreeWithRuntimePort(
   project: ManagedProject,

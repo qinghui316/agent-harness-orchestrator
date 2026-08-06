@@ -7,7 +7,9 @@ import { loadProjectHarnessChange, resolveProjectHarnessChangeEvidenceRoot } fro
 import { readLatestWorkflowGraphPlanAt } from "../workflow-artifacts/workflow-graph-plan.js";
 import type { AcMap, ChangeStatus, ManagedProject, RunMetadata } from "../types/index.js";
 import type { WorktreeCreationPort } from "../worktree/paths.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import type { ProjectRuntimeResolution } from "./context.js";
+import { resolveProjectRuntimeState } from "./coordinator.js";
 import type { ProjectRunsPathPort } from "./paths.js";
 
 const acMapSchema = z.object({
@@ -34,7 +36,7 @@ const acMapSchema = z.object({
 
 export interface ProjectRunArtifactReferencePort {
   runArtifactRoot: string;
-  runArtifactBase: RunMetadata["artifacts"]["base"];
+  runArtifactOwner: RunMetadata["artifacts"]["owner"];
 }
 
 export type ProjectExecutionRuntimePort = ProjectRunsPathPort
@@ -67,7 +69,7 @@ export function projectExecutionRuntimePort(
     projectRoot: resolution.projectRoot,
     runsRoot: resolution.paths.runsRoot,
     runArtifactRoot: resolution.paths.sidecarRoot,
-    runArtifactBase: "memory-root",
+    runArtifactOwner: "runtime-sidecar",
     workbenchRoot: resolution.paths.workbenchRoot,
     workbenchDbPath: resolution.paths.workbenchDbPath,
     worktreeMetadataRoot: resolution.paths.worktreeMetadataRoot,
@@ -76,10 +78,22 @@ export function projectExecutionRuntimePort(
   };
 }
 
+export async function requireProjectExecutionRuntimePort(
+  project: ManagedProject,
+): Promise<ProjectCodeExecutionRuntimePort> {
+  const state = await resolveProjectRuntimeState(project, {
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
+  if (state.state !== "ready") {
+    throw new Error(`Project Harness is not ready for execution: ${project.id}.`);
+  }
+  return projectExecutionRuntimePort(project, state.resolution);
+}
+
 export function projectRunArtifactReference(
   port: ProjectRunArtifactReferencePort,
   directory: string,
-): Pick<RunMetadata["artifacts"], "base" | "directory"> {
+): Pick<RunMetadata["artifacts"], "owner" | "directory"> {
   const root = resolve(port.runArtifactRoot);
   const target = resolve(directory);
   const path = relative(root, target);
@@ -87,7 +101,7 @@ export function projectRunArtifactReference(
     throw new Error("Run artifact directory escapes its declared artifact root.");
   }
   return {
-    base: port.runArtifactBase,
+    owner: port.runArtifactOwner,
     directory: path.replace(/\\/g, "/"),
   };
 }

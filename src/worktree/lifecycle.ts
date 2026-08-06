@@ -1,6 +1,6 @@
 import { rm } from "node:fs/promises";
 import { git } from "../project/git.js";
-import { withProjectWriteLease } from "../project/project-write-lease.js";
+import { withProjectWriteLeaseAtPath } from "../project/project-write-lease.js";
 import { getWorktreeMetadataPath } from "./paths.js";
 import { readWorktreeMetadata, writeWorktreeMetadata } from "./repository.js";
 import { getWorktreeStatus } from "./status.js";
@@ -8,11 +8,16 @@ import { writeWorktreeIndex } from "./index.js";
 import type { WorktreeMetadata } from "../types/index.js";
 import type { WorktreeAppliedUpdate, WorktreeRemoveResult } from "./types.js";
 import type { WorktreeIndexPort } from "./paths.js";
+import type { WorktreeCreationPort } from "./paths.js";
 
-export async function removeWorktree(memory: WorktreeIndexPort, worktreeId: string, force = false): Promise<WorktreeRemoveResult> {
-  return withProjectWriteLease(memory.projectRoot, {}, async (lease) => {
+export async function removeWorktreeWithRuntimePort(
+  runtime: WorktreeCreationPort,
+  worktreeId: string,
+  force = false,
+): Promise<WorktreeRemoveResult> {
+  return withProjectWriteLeaseAtPath(runtime.projectWriteLeasePath, {}, async (lease) => {
     await lease.assertCurrent();
-    return removeWorktreeUnderLease(memory, worktreeId, force);
+    return removeWorktreeUnderLease(runtime, worktreeId, force);
   });
 }
 

@@ -3,24 +3,24 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { getChangeStatus } from "../change/status.js";
-import { resolveRunnableChangeTarget } from "../change/target.js";
 import { buildRoleContextArtifact, buildRoleContextPacket, contextSourceRef } from "../context/packets.js";
 import { writeJsonFile } from "../fs/json.js";
 import { slugify } from "../fs/path.js";
-import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { resolveProjectHarnessAgentInput } from "../project-harness/agent-input.js";
 import {
   projectRunArtifactReference,
-  type ProjectExecutionRuntimePort,
+  requireProjectExecutionRuntimePort,
+  type ProjectCodeExecutionRuntimePort,
   type ProjectHarnessExecutionPort,
 } from "../project-runtime/execution-ports.js";
+import { resolveProjectActiveExecutionScope } from "../project-runtime/active-execution-scope.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import { workerPermissionProfileForRole } from "../agent-task/tool-policy.js";
 import { runtimeContinuityPaths, type RuntimeContinuityPaths } from "../runtime-continuity/paths.js";
 import { appendExternalExecutionCompleted, appendExternalExecutionFailed, appendExternalExecutionRequested, appendPermissionProfileAttached } from "../runtime-continuity/events.js";
 import { appendAgentEventEnvelope, createRuntimeContinuityArtifacts, markRuntimeContinuityStatus, type RuntimeContinuityWorkspaceDescriptor } from "../runtime-continuity/repository.js";
 import type { RuntimeContinuityArtifacts } from "../runtime-continuity/types.js";
-import { createWorktree } from "../worktree/creation.js";
+import { createWorktreeWithRuntimePort } from "../worktree/creation.js";
 import { prepareWorktreeDependencyBridge } from "../worktree/dependencies.js";
 import { getWorktreeMetadataPath } from "../worktree/paths.js";
 import { getWorktreeStatus } from "../worktree/status.js";
@@ -40,7 +40,7 @@ import { executeProcessStreaming } from "../run/process.js";
 import { collectWorktreeDiff } from "../audit/diff.js";
 import { gitRaw, gitText } from "../project/git.js";
 import { listValidationResults, readValidationResult, summarizeValidation } from "./repository.js";
-import { resolveSkillNativeValidationProfile, resolveValidationProfile, type ValidationProfile } from "./profiles.js";
+import { resolveSkillNativeValidationProfile, type ValidationProfile } from "./profiles.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -64,19 +64,16 @@ export interface ValidationStatusResult {
 export async function startValidationRun(project: ManagedProject, options: ValidationRunOptions = {}): Promise<ValidationRunResult> {
   const profileName = options.profile ?? "default";
   const projectHarnessInput = await resolveProjectHarnessAgentInput(project, DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY);
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "Validation run");
-  const target = await resolveRunnableChangeTarget(project, { changeId: options.changeId });
-  const changeStatus = target.status;
-  const changeId = target.changeId;
-  const profile = await resolveValidationProfile(memory, profileName);
-  const runtime = legacyValidationRuntimePort(project, memory);
-  return startPreparedValidationRun(project, runtime, changeStatus, changeId, profileName, profile, projectHarnessInput.identity, options);
+  const scope = await resolveProjectActiveExecutionScope(project, options.changeId);
+  const changeStatus = scope.harness.changeStatus;
+  const changeId = scope.harness.planning.change.change_id;
+  const profile = await resolveSkillNativeValidationProfile(project.path, profileName);
+  return startPreparedValidationRun(project, scope.runtime, changeStatus, changeId, profileName, profile, projectHarnessInput.identity, options);
 }
 
 export async function startSkillNativeValidationRun(
   project: ManagedProject,
-  runtime: ProjectExecutionRuntimePort,
+  runtime: ProjectCodeExecutionRuntimePort,
   harness: ProjectHarnessExecutionPort,
   options: ValidationRunOptions = {},
 ): Promise<ValidationRunResult> {
@@ -92,7 +89,7 @@ export async function startSkillNativeValidationRun(
 
 async function startPreparedValidationRun(
   project: ManagedProject,
-  memory: ProjectExecutionRuntimePort,
+  memory: ProjectCodeExecutionRuntimePort,
   changeStatus: Parameters<typeof buildRoleContextPacket>[0]["changeStatus"],
   changeId: string,
   profileName: string,
@@ -106,7 +103,7 @@ async function startPreparedValidationRun(
   let worktree: RunWorktreeInfo | undefined;
   let worktreeDiffHash: string | undefined;
   if (options.worktree === true) {
-    const created = await createWorktree(project, memory, changeId, { runId });
+    const created = await createWorktreeWithRuntimePort(project, memory, changeId, { runId });
     cwd = created.metadata.checkoutPath;
     worktree = {
       worktreeId: created.metadata.worktreeId,
@@ -140,7 +137,7 @@ async function startPreparedValidationRun(
   const relativeDir = artifactReference.directory;
   const commandsDir = join(directory, "commands");
   const artifacts = {
-    base: artifactReference.base,
+    owner: artifactReference.owner,
     directory: relativeDir,
     context: `${relativeDir}/context.md`,
     contextPacket: `${relativeDir}/context-packet.json`,
@@ -395,26 +392,8 @@ async function startPreparedValidationRun(
   return { run, validation };
 }
 
-function legacyValidationRuntimePort(
-  project: ManagedProject,
-  memory: Awaited<ReturnType<typeof resolveProjectMemory>>,
-): ProjectExecutionRuntimePort {
-  if (!memory.projectId) throw new Error("Validation run requires a canonical project id.");
-  return {
-    projectId: memory.projectId,
-    projectRoot: project.path,
-    runsRoot: memory.runsRoot,
-    runArtifactRoot: memory.artifactBase === "memory-root" ? memory.memoryRoot : memory.projectRoot,
-    runArtifactBase: memory.artifactBase,
-    workbenchRoot: memory.workbenchRoot,
-    workbenchDbPath: memory.workbenchDbPath,
-    worktreeMetadataRoot: memory.worktreeMetadataRoot,
-    worktreeIndexPath: memory.worktreeIndexPath,
-  };
-}
-
 export async function getValidationStatus(project: ManagedProject): Promise<ValidationStatusResult> {
-  const memory = await resolveProjectMemory(project);
+  const memory = await requireProjectExecutionRuntimePort(project);
   const changeStatus = await getChangeStatus(project);
   const changeId = changeStatus.change?.id ?? null;
   if (!changeId) return { activeChangeId: null, latest: null, validations: [] };
@@ -427,13 +406,13 @@ export async function getValidationStatus(project: ManagedProject): Promise<Vali
 }
 
 export async function listValidationSummaries(project: ManagedProject): Promise<ReturnType<typeof summarizeValidation>[]> {
-  const memory = await resolveProjectMemory(project);
+  const memory = await requireProjectExecutionRuntimePort(project);
   const validations = await listValidationResults(memory);
   return validations.map(summarizeValidation);
 }
 
 export async function showValidation(project: ManagedProject, validationId: string): Promise<ValidationResult> {
-  const memory = await resolveProjectMemory(project);
+  const memory = await requireProjectExecutionRuntimePort(project);
   return await readValidationResult(memory, validationId);
 }
 

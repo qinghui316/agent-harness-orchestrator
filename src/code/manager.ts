@@ -1,11 +1,12 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { resolveRunnableChangeTarget } from "../change/target.js";
-import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole, resolveBundledAgentRole, type AgentRole } from "../agent/catalog.js";
+import { buildAgentSystemPrompt, buildRunAgentRecord, resolveBundledAgentRole, type AgentRole } from "../agent/catalog.js";
 import { writeJsonFile } from "../fs/json.js";
-import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
-import { projectWriteLeasePath } from "../project/project-write-lease.js";
 import { resolveProjectHarnessAgentInput } from "../project-harness/agent-input.js";
-import type { ProjectCodeExecutionRuntimePort, ProjectHarnessExecutionPort } from "../project-runtime/execution-ports.js";
+import {
+  type ProjectCodeExecutionRuntimePort,
+  type ProjectHarnessExecutionPort,
+} from "../project-runtime/execution-ports.js";
+import { resolveProjectActiveExecutionScope } from "../project-runtime/active-execution-scope.js";
 import type { SchedulerArtifactStore } from "../scheduler-runtime/artifact-store.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import { appendRunEvent, buildRunId } from "../run/manager.js";
@@ -17,7 +18,7 @@ import { composeCoderPrompt } from "./prompt.js";
 import { getSortedSourceStatus, writeEmptyCodeArtifacts } from "./artifacts.js";
 import { runProviderCodeTurn } from "./provider-turn-runner.js";
 import { buildCodeRoleContextArtifact } from "./context.js";
-import { assertCodeExecutionGate, assertSkillNativeCodeExecutionGate } from "./execution-gate.js";
+import { assertSkillNativeCodeExecutionGate } from "./execution-gate.js";
 import { emitCodeLiveStatus } from "./live-events.js";
 import { createCodeRunSession } from "./run-session.js";
 import { normalizeAndValidateTasks } from "./runtime-guards.js";
@@ -37,17 +38,21 @@ export { getCodeStatus, listCodeRuns, showCodeRun };
 
 export async function startCodeRun(project: ManagedProject, options: CodeRunOptions = {}): Promise<CodeRunResult> {
   const projectHarnessInput = await resolveProjectHarnessAgentInput(project, DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY);
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "Code run");
-  const target = await resolveRunnableChangeTarget(project, { changeId: options.changeId });
-  const changeStatus = target.status;
-  const changeId = target.changeId;
+  const scope = await resolveProjectActiveExecutionScope(project, options.changeId);
+  const changeStatus = scope.harness.changeStatus;
+  const changeId = scope.harness.planning.change.change_id;
   const selectedTasks = normalizeAndValidateTasks(changeStatus, options.taskIds ?? []);
   const roleId = options.roleId ?? "coder-agent";
-  const executionGate = await assertCodeExecutionGate(memory, changeStatus, changeId, options, roleId);
-  const role = await resolveAgentRole(memory, roleId);
-  const runtime = legacyCodeRuntimePort(project, memory);
-  return startPreparedCodeRun(project, runtime, changeStatus, changeId, selectedTasks, roleId, role, executionGate, projectHarnessInput.identity, projectHarnessInput.providerSkillInput, false, options);
+  const executionGate = await assertSkillNativeCodeExecutionGate(
+    scope.runtime,
+    changeStatus,
+    scope.harness.planning.graph,
+    changeId,
+    options,
+    roleId,
+  );
+  const role = await resolveBundledAgentRole(roleId);
+  return startPreparedCodeRun(project, scope.runtime, changeStatus, changeId, selectedTasks, roleId, role, executionGate, projectHarnessInput.identity, projectHarnessInput.providerSkillInput, true, options);
 }
 
 export async function startSkillNativeCodeRun(
@@ -85,7 +90,7 @@ async function startPreparedCodeRun(
   selectedTasks: string[],
   roleId: string,
   role: AgentRole,
-  executionGate: Awaited<ReturnType<typeof assertCodeExecutionGate>>,
+  executionGate: import("./types.js").CodeExecutionGateVerdict,
   projectHarnessIdentity: Awaited<ReturnType<typeof resolveProjectHarnessAgentInput>>["identity"],
   projectHarnessSkillInput: Awaited<ReturnType<typeof resolveProjectHarnessAgentInput>>["providerSkillInput"],
   requireMainAgentLineage: boolean,
@@ -229,21 +234,6 @@ async function startPreparedCodeRun(
   });
 }
 
-function legacyCodeRuntimePort(project: ManagedProject, memory: Awaited<ReturnType<typeof resolveProjectMemory>>): ProjectCodeExecutionRuntimePort {
-  if (!memory.projectId) throw new Error("Code run requires a canonical project id.");
-  return {
-    projectId: memory.projectId,
-    projectRoot: project.path,
-    runsRoot: memory.runsRoot,
-    runArtifactRoot: memory.artifactBase === "memory-root" ? memory.memoryRoot : memory.projectRoot,
-    runArtifactBase: memory.artifactBase,
-    workbenchRoot: memory.workbenchRoot,
-    workbenchDbPath: memory.workbenchDbPath,
-    worktreeMetadataRoot: memory.worktreeMetadataRoot,
-    worktreeIndexPath: memory.worktreeIndexPath,
-    projectWriteLeasePath: projectWriteLeasePath(project.path),
-  };
-}
 
 async function readPromptInput(input: { prompt?: string; promptFile?: string }): Promise<string> {
   if (input.prompt?.trim()) return input.prompt.trim();

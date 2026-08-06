@@ -12,20 +12,17 @@ import {
   readAgentTaskResult,
   recoverExpiredAgentTasks,
 } from "../../src/agent-task/manager.js";
-import { initHarness } from "../../src/harness/init.js";
-import { resolveProjectMemory } from "../../src/memory/resolver.js";
-import { project } from "./workbench/fixtures.js";
+import { resolveFixtureRuntime } from "./workbench/fixtures.js";
 
 async function setup() {
-  await initHarness(project());
-  const memory = await resolveProjectMemory(project());
+  const memory = await resolveFixtureRuntime();
   const task = await createAgentTask(memory, {
     conversationId: "durable-lifecycle",
     changeId: "durable-lifecycle",
-    roleId: "maintenance-agent",
+    roleId: "harness-evolution-agent",
     kind: "background",
-    summary: "Run durable maintenance",
-    idempotencyKey: "closeout:42",
+    summary: "Run durable evolution analysis",
+    idempotencyKey: "evolution:42",
     maxAttempts: 2,
   });
   return { memory, task };
@@ -37,10 +34,10 @@ describe("durable AgentTask lifecycle", () => {
     const duplicate = await createAgentTask(memory, {
       conversationId: "other",
       changeId: "other",
-      roleId: "maintenance-agent",
+      roleId: "harness-evolution-agent",
       kind: "background",
       summary: "Duplicate",
-      idempotencyKey: "closeout:42",
+      idempotencyKey: "evolution:42",
     });
     expect(duplicate.id).toBe(task.id);
 

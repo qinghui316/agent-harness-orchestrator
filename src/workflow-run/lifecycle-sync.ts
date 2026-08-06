@@ -1,22 +1,19 @@
 import { shortHash } from "../fs/path.js";
 import type { ProjectRunsPathPort } from "../project-runtime/paths.js";
-import type { ManagedProject, ResolvedMemory, TaskQueueItem, TaskQueueRun, TaskQueueWorkflowRun, WorkflowGraphRecoveryKey, WorkflowRun, WorkflowRunEventType, WorkflowRunItem, WorkflowRunStatus } from "../types/index.js";
+import type {
+  TaskQueueItem,
+  TaskQueueRun,
+  TaskQueueWorkflowRun,
+  WorkflowGraphPlan,
+  WorkflowGraphRecoveryKey,
+  WorkflowRun,
+  WorkflowRunEventType,
+  WorkflowRunItem,
+  WorkflowRunStatus,
+} from "../types/index.js";
 import { appendWorkflowRunEvent } from "./events.js";
 import { assertWorkflowRunQueueScope } from "./guards.js";
-import { readWorkflowRun, updateWorkflowRun, writeWorkflowRun } from "./repository.js";
-import { recomputeWorkflowRecoveryKey, sameJson } from "./recovery-key.js";
-import { buildWorkflowGraphRecoveryKey } from "./recovery-key.js";
-import type { WorkflowGraphPlan } from "../types/index.js";
-
-export async function createWorkflowRunForGraph(memory: ResolvedMemory, project: ManagedProject, changePath: string, graph: WorkflowGraphPlan): Promise<WorkflowRun> {
-  if (graph.graphMode !== "sequential-v1") throw new Error("Queue-backed WorkflowRun requires a sequential-v1 graph.");
-  const run = buildWorkflowRunForGraph(
-    graph,
-    await buildWorkflowGraphRecoveryKey(memory, project, changePath, graph),
-  );
-  await persistWorkflowRunForGraph(memory, project.id, run);
-  return run;
-}
+import { updateWorkflowRun, writeWorkflowRun } from "./repository.js";
 
 export function buildWorkflowRunForGraph(
   graph: WorkflowGraphPlan,
@@ -54,27 +51,12 @@ export async function persistWorkflowRunForGraph(
   return run;
 }
 
-export async function assertWorkflowResumeAllowed(memory: ResolvedMemory, project: ManagedProject, workflowRunId: string, queue: TaskQueueRun): Promise<TaskQueueWorkflowRun> {
-  const run = await readWorkflowRun(memory, queue.changeId, workflowRunId);
-  assertWorkflowRunQueueScope(run, queue);
-  if (run.status !== "paused") throw new Error("TaskQueue resume requires a paused WorkflowRun.");
-  if (run.queueRunId !== queue.id) throw new Error("WorkflowRun is not bound to the requested queueRunId.");
-  const current = await recomputeWorkflowRecoveryKey(memory, project, run);
-  if (!sameJson(run.recoveryKey, current)) {
-    const blocked = await updateWorkflowRun(memory, {
-      ...run,
-      status: "blocked",
-      statusReason: "Workflow recovery key changed; refusing to continue.",
-      updatedAt: new Date().toISOString(),
-      finishedAt: null,
-    });
-    await appendWorkflowRunEvent(memory, blocked, "workflow.blocked", { queueRunId: queue.id, reason: blocked.statusReason });
-    throw new Error(blocked.statusReason);
-  }
-  return run;
-}
-
-export async function bindWorkflowRunToQueue(memory: ProjectRunsPathPort, run: WorkflowRun, queue: TaskQueueRun, items: TaskQueueItem[]): Promise<WorkflowRun> {
+export async function bindWorkflowRunToQueue(
+  memory: ProjectRunsPathPort,
+  run: WorkflowRun,
+  queue: TaskQueueRun,
+  items: TaskQueueItem[],
+): Promise<WorkflowRun> {
   assertWorkflowRunQueueScope(run, queue);
   const now = new Date().toISOString();
   const next = await updateWorkflowRun(memory, {
@@ -91,7 +73,14 @@ export async function bindWorkflowRunToQueue(memory: ProjectRunsPathPort, run: W
   return next;
 }
 
-export async function syncWorkflowRunFromQueue(memory: ProjectRunsPathPort, run: WorkflowRun, queue: TaskQueueRun, items: TaskQueueItem[], eventType: WorkflowRunEventType = "workflow.reconciled", reason?: string): Promise<WorkflowRun> {
+export async function syncWorkflowRunFromQueue(
+  memory: ProjectRunsPathPort,
+  run: WorkflowRun,
+  queue: TaskQueueRun,
+  items: TaskQueueItem[],
+  eventType: WorkflowRunEventType = "workflow.reconciled",
+  reason?: string,
+): Promise<WorkflowRun> {
   assertWorkflowRunQueueScope(run, queue);
   const status = workflowStatusFromQueue(queue.status);
   const now = new Date().toISOString();

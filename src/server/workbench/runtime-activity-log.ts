@@ -1,9 +1,10 @@
 ﻿import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, isAbsolute, relative, sep } from "node:path";
 import { listAuditResults, summarizeAudit } from "../../audit/repository.js";
 import { defaultProviderRegistry } from "../../provider-runtime/index.js";
 import type { ProviderDescriptor } from "../../provider-runtime/contracts.js";
+import { assertRunArtifactDirectory } from "../../run/artifact-paths.js";
 import { listRuns } from "../../run/repository.js";
 import { listValidationResults, summarizeValidation } from "../../validation/repository.js";
 import { collectAllConversationThreadEntries } from "../../workbench/conversation-thread-log.js";
@@ -12,6 +13,7 @@ import { getRuntimeDiagnostics } from "./runtime-diagnostics.js";
 import type { WorkbenchServerContext } from "./types.js";
 import type { ManagedProject, RunMetadata } from "../../types/index.js";
 import type { ProjectRuntimeResolution } from "../../project-runtime/context.js";
+import { resolveWithinPhysicalRoot } from "../../project-harness/path-safety.js";
 
 export type RuntimeActivitySeverity = "info" | "ok" | "warning" | "error";
 export type RuntimeActivityType =
@@ -258,7 +260,7 @@ async function appendMessageContextItems(items: RuntimeActivityItem[], runtime: 
 }
 
 async function readRunEventSummaries(runtime: ProjectRuntimeResolution, run: RunMetadata): Promise<RuntimeActivityItem[]> {
-  const path = artifactPath(runtime, run.artifacts.events, run.artifacts.base ?? "project-root");
+  const path = await artifactPath(runtime, run, run.artifacts.events);
   if (!path || !existsSync(path)) return [];
   const content = await readFile(path, "utf8").catch(() => "");
   if (!content.trim()) return [];
@@ -286,16 +288,23 @@ async function readRunEventSummaries(runtime: ProjectRuntimeResolution, run: Run
   return items;
 }
 
-function artifactPath(runtime: ProjectRuntimeResolution, relativePath: string | undefined, base: "project-root" | "memory-root"): string | null {
+async function artifactPath(runtime: ProjectRuntimeResolution, run: RunMetadata, relativePath: string | undefined): Promise<string | null> {
   if (!relativePath) return null;
-  if (base === "memory-root") return join(runtime.paths.sidecarRoot, relativePath);
-  return join(runtime.projectRoot, relativePath);
+  const ownerRoot = run.artifacts.owner === "runtime-sidecar" ? runtime.paths.sidecarRoot : runtime.projectRoot;
+  const runArtifactDirectory = assertRunArtifactDirectory(run);
+  const directory = await resolveWithinPhysicalRoot(ownerRoot, runArtifactDirectory, "Run artifact directory");
+  const target = await resolveWithinPhysicalRoot(ownerRoot, relativePath, "Run event artifact");
+  const fromDirectory = relative(directory, target);
+  if (fromDirectory === ".." || fromDirectory.startsWith(`..${sep}`) || isAbsolute(fromDirectory)) {
+    throw new Error(`Run event artifact path escapes its run directory: ${relativePath}`);
+  }
+  return target;
 }
 
 function artifactRefs(run: RunMetadata): RuntimeActivityRef[] {
   const hidden = new Set(["stdout", "stderr", "prompt", "lastMessage", "providerEvents"]);
   return Object.entries(run.artifacts)
-    .filter(([key, value]) => key !== "base" && !hidden.has(key) && typeof value === "string" && value.length > 0)
+    .filter(([key, value]) => key !== "owner" && key !== "directory" && !hidden.has(key) && typeof value === "string" && value.length > 0)
     .slice(0, 8)
     .map(([key, value]) => ({ kind: "artifact" as const, label: key, path: String(value) }));
 }

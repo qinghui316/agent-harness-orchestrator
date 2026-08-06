@@ -2,24 +2,22 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { createChange, createConcurrentChange } from "../../src/change/manager.js";
-import { initHarness } from "../../src/harness/init.js";
 import { runIntegrationFixAttempt, type IntegrationFixRepairRunner } from "../../src/integration-check/fix-attempts.js";
 import { integrationCheckRoot } from "../../src/integration-check/paths.js";
-import { resolveProjectMemory } from "../../src/memory/resolver.js";
+import { resolveProjectHarnessAgentInput } from "../../src/project-harness/agent-input.js";
 import type { ProviderTurnRequest } from "../../src/provider-runtime/index.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../src/provider-runtime/project-harness-discovery.js";
+import type { ProviderCapabilitySnapshot } from "../../src/provider-runtime/contracts.js";
+import { bindProviderAttemptThread, startProviderAttempt } from "../../src/workbench/provider-attempts.js";
+import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
+import {
+  prepareSkillNativeWorkbenchFixture,
+  writeSkillNativeAcceptedSpecAndTasks,
+  type SkillNativeWorkbenchFixture,
+} from "../helpers/skill-native-workbench-fixture.js";
 import { execFileAsync, getTempDir, git, initGitRepository, project } from "./workbench/fixtures.js";
 
 const providerRequire = vi.hoisted(() => vi.fn());
-const projectHarnessAgentInput = vi.hoisted(() => ({
-  identity: { projectId: "repo", skillName: "repo-harness", skillRevision: 27, contentFingerprint: "a".repeat(64) },
-  providerSkillInput: { id: "repo-harness", path: "C:/skills/repo-harness/SKILL.md", contentHash: "b".repeat(64), source: "project-harness" as const, required: true },
-}));
-
-vi.mock("../../src/project-harness/agent-input.js", async (importOriginal) => ({
-  ...await importOriginal<typeof import("../../src/project-harness/agent-input.js")>(),
-  resolveProjectHarnessAgentInput: vi.fn(async () => projectHarnessAgentInput),
-}));
 
 vi.mock("../../src/provider-runtime/index.js", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../src/provider-runtime/index.js")>(),
@@ -35,14 +33,17 @@ describe("integration fix attempts", () => {
     process.env.AHO_HOME = join(getTempDir(), ".aho-home");
     try {
       await initGitRepository(getTempDir());
-      await writeFile(join(getTempDir(), ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\n", "utf8");
+      await writeFile(join(getTempDir(), ".gitignore"), ".aho-home/\n", "utf8");
       await git(getTempDir(), ["add", "."]);
       await git(getTempDir(), ["commit", "-m", "initial"]);
-      await initHarness(project());
-      const change = await createChange(project(), { title: "Integration Fix Skill Input" });
-      await createConcurrentChange(project(), { title: "Unrelated Concurrent Change" });
-      const memory = await resolveProjectMemory(project());
-      const directory = join(integrationCheckRoot(memory), "check-provider-skill-input");
+      const fixture = await prepareSkillNativeWorkbenchFixture({ project: project(), ahoHome: process.env.AHO_HOME });
+      const changeId = await activateChange(fixture, "Integration Fix Skill Input");
+      await createConversationChangeFixture(project(), { title: "Unrelated Concurrent Change" });
+      const projectHarnessAgentInput = await resolveProjectHarnessAgentInput(
+        project(),
+        DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+      );
+      const directory = join(integrationCheckRoot(fixture.runtime), "check-provider-skill-input");
       await mkdir(directory, { recursive: true });
       const inputPatchPath = join(directory, "combined.patch");
       await writeFile(inputPatchPath, [
@@ -58,9 +59,9 @@ describe("integration fix attempts", () => {
       const runTurn = vi.fn(async (request: ProviderTurnRequest) => {
         await writeFile(join(request.cwd, "integration.txt"), "fixed\n", "utf8");
         return {
-          providerId: "test-provider",
+          providerId: "codex",
           status: "completed" as const,
-          session: { providerId: "test-provider", sessionId: "integration-fix-session" },
+          session: { providerId: "codex", sessionId: "integration-fix-session" },
           turnId: "integration-fix-turn",
           lastMessage: "Repair complete.",
           childThreads: [],
@@ -68,10 +69,10 @@ describe("integration fix attempts", () => {
         };
       });
       providerRequire.mockResolvedValueOnce({
-        id: "test-provider",
+        id: "codex",
         displayName: "Test Provider",
         capabilitySnapshot: vi.fn(async () => ({
-          providerId: "test-provider",
+          providerId: "codex",
           displayName: "Test Provider",
           productMode: "harness" as const,
           status: "ready" as const,
@@ -93,7 +94,7 @@ describe("integration fix attempts", () => {
         "check-provider-skill-input",
         inputPatchPath,
         "aggregate validation failed",
-        { changeId: change.change.id },
+        { changeId },
       );
 
       expect(result.attempt).toMatchObject({ status: "completed", repairMode: "provider", runId: expect.any(String) });
@@ -107,12 +108,12 @@ describe("integration fix attempts", () => {
         },
       }));
       const runId = result.attempt.runId!;
-      const run = JSON.parse(await readFile(join(memory.runsRoot, runId, "run.json"), "utf8")) as {
+      const run = JSON.parse(await readFile(join(fixture.runtime.runsRoot, runId, "run.json"), "utf8")) as {
         enabledSkills: Array<Record<string, unknown>>;
         contextPacket: { ref: string };
       };
-      expect(run.enabledSkills).toEqual([{ ...projectHarnessAgentInput.providerSkillInput, providerId: "test-provider" }]);
-      expect(JSON.parse(await readFile(join(memory.memoryRoot, run.contextPacket.ref), "utf8"))).toMatchObject({
+      expect(run.enabledSkills).toEqual([{ ...projectHarnessAgentInput.providerSkillInput, providerId: "codex" }]);
+      expect(JSON.parse(await readFile(join(fixture.runtime.runArtifactRoot, run.contextPacket.ref), "utf8"))).toMatchObject({
         version: "2.0",
         kind: "role-context-packet",
         roleId: "integration-fix-agent",
@@ -134,12 +135,12 @@ describe("integration fix attempts", () => {
     process.env.AHO_HOME = join(getTempDir(), ".aho-home");
     try {
       await initGitRepository(getTempDir());
-      await writeFile(join(getTempDir(), ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\n", "utf8");
+      await writeFile(join(getTempDir(), ".gitignore"), ".aho-home/\n", "utf8");
       await git(getTempDir(), ["add", "."]);
       await git(getTempDir(), ["commit", "-m", "initial"]);
-      await initHarness(project());
-      const memory = await resolveProjectMemory(project());
-      const directory = join(integrationCheckRoot(memory), "check-provider-repair");
+      const fixture = await prepareSkillNativeWorkbenchFixture({ project: project(), ahoHome: process.env.AHO_HOME });
+      const changeId = await activateChange(fixture, "Integration Fix Repair");
+      const directory = join(integrationCheckRoot(fixture.runtime), "check-provider-repair");
       await mkdir(directory, { recursive: true });
       const inputPatchPath = join(directory, "combined.patch");
       await writeFile(inputPatchPath, [
@@ -165,7 +166,7 @@ describe("integration fix attempts", () => {
 
       const beforeStatus = await execFileAsync("git", ["status", "--short"], { cwd: getTempDir() });
       const result = await runIntegrationFixAttempt(project(), directory, "check-provider-repair", inputPatchPath, "aggregate validation failed", {
-        changeId: "change-a",
+        changeId,
         repairRunner,
       });
       const afterStatus = await execFileAsync("git", ["status", "--short"], { cwd: getTempDir() });
@@ -193,9 +194,9 @@ describe("integration fix attempts", () => {
     try {
       await initGitRepository(getTempDir());
       await git(getTempDir(), ["commit", "--allow-empty", "-m", "initial"]);
-      await initHarness(project());
-      const memory = await resolveProjectMemory(project());
-      const directory = join(integrationCheckRoot(memory), "check-empty-repair");
+      const fixture = await prepareSkillNativeWorkbenchFixture({ project: project(), ahoHome: process.env.AHO_HOME });
+      const changeId = await activateChange(fixture, "Integration Fix Failure");
+      const directory = join(integrationCheckRoot(fixture.runtime), "check-empty-repair");
       await mkdir(directory, { recursive: true });
       const inputPatchPath = join(directory, "combined.patch");
       await writeFile(inputPatchPath, [
@@ -210,7 +211,7 @@ describe("integration fix attempts", () => {
       ].join("\n"), "utf8");
 
       const result = await runIntegrationFixAttempt(project(), directory, "check-empty-repair", inputPatchPath, "aggregate audit failed", {
-        changeId: "change-a",
+        changeId,
         repairRunner: async () => {
           throw new Error("Provider unavailable in test.");
         },
@@ -227,3 +228,29 @@ describe("integration fix attempts", () => {
     }
   });
 });
+
+async function activateChange(fixture: SkillNativeWorkbenchFixture, title: string): Promise<string> {
+  const change = await createConversationChangeFixture(project(), { title });
+  await writeSkillNativeAcceptedSpecAndTasks(fixture, change.changeId);
+  await startProviderAttempt(fixture.runtime, {
+    attemptId: `attempt-main-${change.conversationId}`,
+    providerId: "codex",
+    capabilitySnapshot: {
+      providerId: "codex",
+      effectiveModel: null,
+    } as unknown as ProviderCapabilitySnapshot,
+    operationProfile: "main",
+    roleId: "main-agent",
+    handoffHash: "a".repeat(64),
+    conversationId: change.conversationId,
+    changeId: change.changeId,
+    graphScopeId: `graph:${change.conversationId}`,
+  });
+  await bindProviderAttemptThread(fixture.runtime, {
+    attemptId: `attempt-main-${change.conversationId}`,
+    threadId: `thread-main-${change.conversationId}`,
+    parentThreadId: null,
+    parentAgentSurfaceId: null,
+  });
+  return change.changeId;
+}

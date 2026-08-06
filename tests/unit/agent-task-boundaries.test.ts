@@ -2,8 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { initHarness } from "../../src/harness/init.js";
-import { resolveProjectMemory } from "../../src/memory/resolver.js";
+import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import { completeAgentTask, createAgentTask, readAgentTaskResult, startAgentTask } from "../../src/agent-task/manager.js";
 
@@ -25,7 +24,6 @@ describe("agent task durable boundaries", () => {
   async function setup() {
     tempDir = await mkdtemp(join(tmpdir(), "aho-agent-task-"));
     const project: ManagedProject = { id: "agent-task-test", name: "AgentTask Test", path: tempDir, addedAt: "2026-06-09T00:00:00.000Z", lastSeenAt: "2026-06-09T00:00:00.000Z" };
-    await initHarness(project);
-    return resolveProjectMemory(project);
+    return resolveProjectRuntimePaths(project.id, join(tempDir, "aho-home"));
   }
 });

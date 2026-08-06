@@ -1,5 +1,5 @@
 ﻿import type { Command } from "commander";
-import { listAgentRoles, showAgentRole, syncAgentCatalog } from "../../agent/catalog.js";
+import { listAgentRoles, showAgentRole } from "../../agent/catalog.js";
 import { defaultProviderRegistry } from "../../provider-runtime/index.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../provider-runtime/project-harness-discovery.js";
 import { ProjectRuntimeCoordinator } from "../../project-runtime/coordinator.js";
@@ -51,20 +51,6 @@ export function installSkillAgentProviderCommands(program: Command, context: Cli
           capability: role.writeCapability,
           compatibility: role.compatibility.requiredCapabilities.join(", "),
         }]);
-      }
-    });
-
-  agent
-    .command("sync")
-    .argument("<project>", "registered project id/name/path")
-    .option("--json", "print JSON")
-    .action(async (query: string, options: { json?: boolean }) => {
-      const project = await resolveManagedProject(store, query);
-      const result = await syncAgentCatalog(project);
-      if (options.json) printJson(result);
-      else {
-        console.log(`Synced agent catalog at ${result.catalogPath}`);
-        console.log(`Written: ${result.written.length}`);
       }
     });
 

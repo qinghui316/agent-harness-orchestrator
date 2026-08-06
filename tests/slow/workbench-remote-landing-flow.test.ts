@@ -1,25 +1,32 @@
 ﻿import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
-import { initHarness } from "../../src/harness/init.js";
+import {
+  authorizeSkillNativeWorkflowStartFixture,
+  prepareSkillNativeWorkbenchFixture,
+  writeSkillNativeAcceptedSpecAndTasks,
+} from "../helpers/skill-native-workbench-fixture.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
-import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { collectWorktreeDiff } from "../../src/audit/diff.js";
-import { createWorktree } from "../../src/worktree/manager.js";
+import { getCodexProviderCapabilitySnapshot } from "../../src/provider-runtime/codex.js";
+import { listRuns } from "../../src/run/repository.js";
+import { readWorktreeMetadata } from "../../src/worktree/repository.js";
 import { cleanupRemoteBranchAfterMerge, preparePostMergeHandoff, syncLocalAfterMerge } from "../../src/post-merge/manager.js";
 import { mergeNextLandingQueueCandidate, prepareLandingQueue } from "../../src/landing-queue/manager.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
+import { bindProviderAttemptThread, startProviderAttempt } from "../../src/workbench/provider-attempts.js";
 import {
+  createFakeCodex,
   createFakeGh,
   execFileAsync,
   getTempDir,
   git,
   initGitRepository,
   project,
-  writeAcceptedSpecAndTasks,
-  writeAuditResultWithHash,
-  writeValidationResultWithHash,
+  ensureProjectHarnessFixture,
+  resolveFixtureRuntime,
+  unwrapWorkflowActionResult,
 } from "../unit/workbench/fixtures.js";
 
 describe("workbench remote landing slow flow", () => {
@@ -28,26 +35,29 @@ describe("workbench remote landing slow flow", () => {
       process.env.AHO_HOME = join(getTempDir(), ".aho-home");
       try {
         await initGitRepository(getTempDir());
-        await writeFile(join(getTempDir(), ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
+        await writeFile(join(getTempDir(), ".gitignore"), ".aho-home/\n.agents/\n.claude/\nfake-codex-bin/\n", "utf8");
         await writeFile(join(getTempDir(), "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
         await git(getTempDir(), ["add", "."]);
         await git(getTempDir(), ["commit", "-m", "initial"]);
-        await initHarness(project());
-        await createConversationChangeFixture(project(), { title: "Landing Demand" });
-        await writeAcceptedSpecAndTasks("landing-demand");
-        const memory = await resolveProjectMemory(project());
-        const worktree = await createWorktree(project(), memory, "landing-demand");
-        await writeFile(join(worktree.metadata.checkoutPath, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"console.log('landing')\\\"\"}}\n", "utf8");
-        await writeFile(join(worktree.metadata.checkoutPath, "acceptance-note.txt"), "real acceptance\n", "utf8");
-        const diff = await collectWorktreeDiff(memory, worktree.metadata.worktreeId, "landing-demand");
-        await writeValidationResultWithHash("landing-demand", "run-validation-landing", worktree.metadata.worktreeId, diff.diffHash, "passed");
-        await writeAuditResultWithHash("landing-demand", "run-audit-landing", worktree.metadata.worktreeId, diff.diffHash, "approved-with-notes");
+        const { worktree } = await prepareRemoteLandingApplyCandidate({
+          title: "Landing Demand",
+          changedContent: "{\"scripts\":{\"test\":\"node -e \\\"console.log('landing')\\\"\"}}\n",
+          additionalChanges: [{ path: "acceptance-note.txt", content: "real acceptance\n" }],
+        });
 
         const applyAction = await applyActionAfterAuditAcceptance("landing-demand");
         await executeWorkbenchAction({ project: project(), path: getTempDir() }, { action: applyAction, confirm: true });
         const statusBeforeLanding = (await execFileAsync("git", ["status", "--short"], { cwd: getTempDir() })).stdout;
 
         const afterApply = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "landing-demand" });
+        if (!afterApply.right.confirmationQueue.primary) {
+          throw new Error(`Missing landing readiness after apply: ${JSON.stringify({
+            warnings: afterApply.warnings,
+            workpad: afterApply.center.workpad,
+            queue: afterApply.right.confirmationQueue,
+            inspector: afterApply.right.decisionInspector,
+          })}`);
+        }
         expect(afterApply.right.confirmationQueue.primary).toMatchObject({
           kind: "landing-readiness",
           whyNeedsConfirmation: "本地结果已应用，可以做提交/PR 前检查。",
@@ -103,34 +113,29 @@ describe("workbench remote landing slow flow", () => {
         if (oldAhoHome === undefined) delete process.env.AHO_HOME;
         else process.env.AHO_HOME = oldAhoHome;
       }
-    }, 120_000);
+    }, 180_000);
 
   it("prepares landing evidence from a committed worktree apply", async () => {
       const oldAhoHome = process.env.AHO_HOME;
       process.env.AHO_HOME = join(getTempDir(), ".aho-home");
       try {
         await initGitRepository(getTempDir());
-        await writeFile(join(getTempDir(), ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
+        await writeFile(join(getTempDir(), ".gitignore"), ".aho-home/\n.agents/\n.claude/\nfake-codex-bin/\n", "utf8");
         await writeFile(join(getTempDir(), "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
         await git(getTempDir(), ["add", "."]);
         await git(getTempDir(), ["commit", "-m", "initial"]);
-        await initHarness(project());
-        await createConversationChangeFixture(project(), { title: "Committed Landing Demand" });
-        await writeAcceptedSpecAndTasks("committed-landing-demand");
-        const memory = await resolveProjectMemory(project());
-        const worktree = await createWorktree(project(), memory, "committed-landing-demand");
-        await writeFile(join(worktree.metadata.checkoutPath, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"console.log('committed landing')\\\"\"}}\n", "utf8");
-        await writeFile(join(worktree.metadata.checkoutPath, "committed-acceptance-note.txt"), "real acceptance\n", "utf8");
-        const diff = await collectWorktreeDiff(memory, worktree.metadata.worktreeId, "committed-landing-demand");
-        await writeValidationResultWithHash("committed-landing-demand", "run-validation-committed-landing", worktree.metadata.worktreeId, diff.diffHash, "passed");
-        await writeAuditResultWithHash("committed-landing-demand", "run-audit-committed-landing", worktree.metadata.worktreeId, diff.diffHash, "approved-with-notes");
+        const { diff, providerBinDir } = await prepareRemoteLandingApplyCandidate({
+          title: "Committed Landing Demand",
+          changedContent: "{\"scripts\":{\"test\":\"node -e \\\"console.log('committed landing')\\\"\"}}\n",
+          additionalChanges: [{ path: "committed-acceptance-note.txt", content: "real acceptance\n" }],
+        });
 
         const applyAction = await applyActionAfterAuditAcceptance("committed-landing-demand");
-        await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
+        await withProviderBin(providerBinDir, () => executeWorkbenchAction({ project: project(), path: getTempDir() }, {
           action: applyAction,
           confirm: true,
           options: { commit: true, message: "Apply AHO result: committed-landing-demand" },
-        });
+        }));
         const statusBeforeLanding = (await execFileAsync("git", ["status", "--short"], { cwd: getTempDir() })).stdout;
         expect(statusBeforeLanding).toBe("");
         const latestCommit = (await execFileAsync("git", ["log", "-1", "--pretty=%s"], { cwd: getTempDir() })).stdout.trim();
@@ -153,7 +158,7 @@ describe("workbench remote landing slow flow", () => {
         if (oldAhoHome === undefined) delete process.env.AHO_HOME;
         else process.env.AHO_HOME = oldAhoHome;
       }
-    }, 120_000);
+    }, 180_000);
 
   it("prepares and submits a Draft PR for human review without merging or archiving", async () => {
       const oldAhoHome = process.env.AHO_HOME;
@@ -166,19 +171,14 @@ describe("workbench remote landing slow flow", () => {
       try {
         await initGitRepository(getTempDir());
         await git(getTempDir(), ["remote", "add", "origin", "https://github.com/qinghui316/private-acceptance.git"]);
-        await writeFile(join(getTempDir(), ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
+        await writeFile(join(getTempDir(), ".gitignore"), ".aho-home/\n.agents/\n.claude/\nfake-codex-bin/\n", "utf8");
         await writeFile(join(getTempDir(), "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
         await git(getTempDir(), ["add", "."]);
         await git(getTempDir(), ["commit", "-m", "initial"]);
-        await initHarness(project());
-        await createConversationChangeFixture(project(), { title: "PR Review Demand" });
-        await writeAcceptedSpecAndTasks("pr-review-demand");
-        const memory = await resolveProjectMemory(project());
-        const worktree = await createWorktree(project(), memory, "pr-review-demand");
-        await writeFile(join(worktree.metadata.checkoutPath, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"console.log('review')\\\"\"}}\n", "utf8");
-        const diff = await collectWorktreeDiff(memory, worktree.metadata.worktreeId, "pr-review-demand");
-        await writeValidationResultWithHash("pr-review-demand", "run-validation-pr-review", worktree.metadata.worktreeId, diff.diffHash, "passed");
-        await writeAuditResultWithHash("pr-review-demand", "run-audit-pr-review", worktree.metadata.worktreeId, diff.diffHash, "approved-with-notes");
+        const { memory } = await prepareRemoteLandingApplyCandidate({
+          title: "PR Review Demand",
+          changedContent: "{\"scripts\":{\"test\":\"node -e \\\"console.log('review')\\\"\"}}\n",
+        });
 
         const applyAction = await applyActionAfterAuditAcceptance("pr-review-demand");
         await executeWorkbenchAction({ project: project(), path: getTempDir() }, { action: applyAction, confirm: true });
@@ -253,7 +253,7 @@ describe("workbench remote landing slow flow", () => {
         if (oldGhCommandArgs === undefined) delete process.env.AHO_GH_COMMAND_ARGS;
         else process.env.AHO_GH_COMMAND_ARGS = oldGhCommandArgs;
       }
-    }, 120_000);
+    }, 180_000);
 
   it("prepares and performs a user-confirmed remote PR merge with merged closeout", async () => {
       const oldAhoHome = process.env.AHO_HOME;
@@ -266,19 +266,14 @@ describe("workbench remote landing slow flow", () => {
       try {
         await initGitRepository(getTempDir());
         await git(getTempDir(), ["remote", "add", "origin", "https://github.com/qinghui316/private-acceptance.git"]);
-        await writeFile(join(getTempDir(), ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
+        await writeFile(join(getTempDir(), ".gitignore"), ".aho-home/\n.agents/\n.claude/\nfake-codex-bin/\n", "utf8");
         await writeFile(join(getTempDir(), "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
         await git(getTempDir(), ["add", "."]);
         await git(getTempDir(), ["commit", "-m", "initial"]);
-        await initHarness(project());
-        await createConversationChangeFixture(project(), { title: "Remote Landing Demand" });
-        await writeAcceptedSpecAndTasks("remote-landing-demand");
-        const memory = await resolveProjectMemory(project());
-        const worktree = await createWorktree(project(), memory, "remote-landing-demand");
-        await writeFile(join(worktree.metadata.checkoutPath, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"console.log('landing')\\\"\"}}\n", "utf8");
-        const diff = await collectWorktreeDiff(memory, worktree.metadata.worktreeId, "remote-landing-demand");
-        await writeValidationResultWithHash("remote-landing-demand", "run-validation-remote-landing", worktree.metadata.worktreeId, diff.diffHash, "passed");
-        await writeAuditResultWithHash("remote-landing-demand", "run-audit-remote-landing", worktree.metadata.worktreeId, diff.diffHash, "approved-with-notes");
+        const { memory } = await prepareRemoteLandingApplyCandidate({
+          title: "Remote Landing Demand",
+          changedContent: "{\"scripts\":{\"test\":\"node -e \\\"console.log('landing')\\\"\"}}\n",
+        });
 
         const applyAction = await applyActionAfterAuditAcceptance("remote-landing-demand");
         await executeWorkbenchAction({ project: project(), path: getTempDir() }, { action: applyAction, confirm: true });
@@ -372,7 +367,7 @@ describe("workbench remote landing slow flow", () => {
         if (oldGhCommandArgs === undefined) delete process.env.AHO_GH_COMMAND_ARGS;
         else process.env.AHO_GH_COMMAND_ARGS = oldGhCommandArgs;
       }
-    }, 90_000);
+    }, 180_000);
 
   it("builds a landing queue from explicit PR targets and merges only one refreshed PR", async () => {
       const oldAhoHome = process.env.AHO_HOME;
@@ -388,8 +383,8 @@ describe("workbench remote landing slow flow", () => {
         await writeFile(join(getTempDir(), "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
         await git(getTempDir(), ["add", "."]);
         await git(getTempDir(), ["commit", "-m", "initial"]);
-        await initHarness(project());
-        const memory = await resolveProjectMemory(project());
+        await ensureProjectHarnessFixture();
+        const memory = await resolveFixtureRuntime();
         await mkdir(join(memory.workbenchRoot, "landing", "landing-a"), { recursive: true });
         await mkdir(join(memory.workbenchRoot, "landing", "landing-b"), { recursive: true });
         const landingBase = {
@@ -404,7 +399,7 @@ describe("workbench remote landing slow flow", () => {
           unattributedFiles: [],
           summary: "Landing package ready.",
           riskSummary: "Reviewed local landing evidence.",
-          artifactRefs: ["project://.agent-harness/workbench/landing/landing-summary.md"],
+          artifactRefs: ["runtime-sidecar://workbench/landing/landing-summary.md"],
           createdAt: "2026-05-30T00:00:00.000Z",
           reviewedAt: "2026-05-30T00:00:00.000Z",
           review: {
@@ -441,8 +436,8 @@ describe("workbench remote landing slow flow", () => {
           provider: "github-cli",
           status: "created",
           title: "AHO test",
-          bodyArtifact: "project://.agent-harness/workbench/pr-drafts/body.md",
-          packageArtifact: "project://.agent-harness/workbench/pr-drafts/package.json",
+          bodyArtifact: "runtime-sidecar://workbench/pr-drafts/body.md",
+          packageArtifact: "runtime-sidecar://workbench/pr-drafts/package.json",
           remoteName: "origin",
           remoteUrl: "https://github.com/qinghui316/private-acceptance.git",
           baseBranch: "main",
@@ -503,7 +498,7 @@ describe("workbench remote landing slow flow", () => {
       try {
         await initGitRepository(getTempDir());
         await git(getTempDir(), ["branch", "-M", "main"]);
-        await writeFile(join(getTempDir(), ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n.tmp-origin.git/\n.tmp-updater/\n", "utf8");
+        await writeFile(join(getTempDir(), ".gitignore"), ".aho-home/\n.agents/\n.claude/\n.tmp-origin.git/\n.tmp-updater/\n", "utf8");
         await writeFile(join(getTempDir(), "README.md"), "initial\n", "utf8");
         await git(getTempDir(), ["add", "."]);
         await git(getTempDir(), ["commit", "-m", "initial"]);
@@ -522,8 +517,8 @@ describe("workbench remote landing slow flow", () => {
         await git(updaterDir, ["add", "README.md"]);
         await git(updaterDir, ["commit", "-m", "simulate remote merge"]);
         await git(updaterDir, ["push", "origin", "main"]);
-        await initHarness(project());
-        const memory = await resolveProjectMemory(project());
+        await ensureProjectHarnessFixture();
+        const memory = await resolveFixtureRuntime();
         const now = new Date().toISOString();
         const landingId = "landing-post-merge-test";
         const prDraftId = "pr-draft-post-merge-test";
@@ -633,19 +628,14 @@ describe("workbench remote landing slow flow", () => {
       try {
         await initGitRepository(getTempDir());
         await git(getTempDir(), ["remote", "add", "origin", "https://github.com/qinghui316/private-acceptance.git"]);
-        await writeFile(join(getTempDir(), ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
+        await writeFile(join(getTempDir(), ".gitignore"), ".aho-home/\n.agents/\n.claude/\nfake-codex-bin/\n", "utf8");
         await writeFile(join(getTempDir(), "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
         await git(getTempDir(), ["add", "."]);
         await git(getTempDir(), ["commit", "-m", "initial"]);
-        await initHarness(project());
-        await createConversationChangeFixture(project(), { title: "PR Feedback Demand" });
-        await writeAcceptedSpecAndTasks("pr-feedback-demand");
-        const memory = await resolveProjectMemory(project());
-        const worktree = await createWorktree(project(), memory, "pr-feedback-demand");
-        await writeFile(join(worktree.metadata.checkoutPath, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"console.log('feedback')\\\"\"}}\n", "utf8");
-        const diff = await collectWorktreeDiff(memory, worktree.metadata.worktreeId, "pr-feedback-demand");
-        await writeValidationResultWithHash("pr-feedback-demand", "run-validation-pr-feedback", worktree.metadata.worktreeId, diff.diffHash, "passed");
-        await writeAuditResultWithHash("pr-feedback-demand", "run-audit-pr-feedback", worktree.metadata.worktreeId, diff.diffHash, "approved-with-notes");
+        const { memory } = await prepareRemoteLandingApplyCandidate({
+          title: "PR Feedback Demand",
+          changedContent: "{\"scripts\":{\"test\":\"node -e \\\"console.log('feedback')\\\"\"}}\n",
+        });
 
         const applyAction = await applyActionAfterAuditAcceptance("pr-feedback-demand");
         await executeWorkbenchAction({ project: project(), path: getTempDir() }, { action: applyAction, confirm: true });
@@ -733,19 +723,127 @@ describe("workbench remote landing slow flow", () => {
         if (oldGhCommandArgs === undefined) delete process.env.AHO_GH_COMMAND_ARGS;
         else process.env.AHO_GH_COMMAND_ARGS = oldGhCommandArgs;
       }
-    }, 120_000);
-});
+    }, 180_000);
+  });
+
+async function prepareRemoteLandingApplyCandidate(input: {
+  title: string;
+  changedContent: string;
+  additionalChanges?: Array<{ path: string; content: string }>;
+}) {
+  const managedProject = project();
+  const fixture = await prepareSkillNativeWorkbenchFixture({
+    project: managedProject,
+    ahoHome: join(getTempDir(), ".aho-home"),
+  });
+  const topic = await createConversationChangeFixture(managedProject, { title: input.title });
+  const changes = [
+    { path: "package.json", content: input.changedContent },
+    ...(input.additionalChanges ?? []),
+  ];
+  await writeSkillNativeAcceptedSpecAndTasks(fixture, topic.changeId, {
+    sourceScopes: changes.map((change) => change.path),
+  });
+  await authorizeSkillNativeWorkflowStartFixture(fixture, topic.changeId);
+  const fakeCodex = await createFakeCodex({ changes });
+  const oldPath = process.env.PATH;
+  process.env.PATH = `${fakeCodex.binDir}${delimiter}${oldPath ?? ""}`;
+  try {
+    await execFileAsync(process.execPath, ["--check", join(fakeCodex.binDir, "fake-codex.cjs")]);
+    const mainAttemptId = `attempt-main-${topic.conversationId}`;
+    await startProviderAttempt(fixture.resolution.paths, {
+      attemptId: mainAttemptId,
+      providerId: "codex",
+      capabilitySnapshot: await getCodexProviderCapabilitySnapshot(managedProject, getTempDir()),
+      operationProfile: "main",
+      roleId: "main-agent",
+      handoffHash: "a".repeat(64),
+      conversationId: topic.conversationId,
+      changeId: topic.changeId,
+      graphScopeId: `graph:${topic.conversationId}`,
+    });
+    await bindProviderAttemptThread(fixture.resolution.paths, {
+      attemptId: mainAttemptId,
+      threadId: `fixture-main-thread-${topic.conversationId}`,
+      parentThreadId: null,
+      parentAgentSurfaceId: null,
+    });
+
+    const snapshot = await getWorkbenchSnapshot(
+      { project: managedProject, path: getTempDir() },
+      { topicId: topic.conversationId },
+    );
+    const runAction = snapshot.right.confirmationQueue.current
+      .flatMap((item) => item.actions)
+      .find((action) => action.actionType === "workflow.run.start");
+    if (!runAction) throw new Error(`Missing workflow.run.start action for ${topic.changeId}.`);
+
+    const started = await executeWorkbenchAction(
+      { project: managedProject, path: getTempDir() },
+      { ...runAction, confirm: true },
+    );
+    const result = unwrapWorkflowActionResult(started.result) as { status?: string };
+    if (result.status !== "completed") {
+      const runs = await listRuns(fixture.runtime);
+      const latestRun = runs.at(0);
+      const [stderr, providerStderr, events] = await Promise.all([
+        latestRun?.artifacts.stderr
+          ? readFile(join(fixture.resolution.paths.sidecarRoot, latestRun.artifacts.stderr), "utf8").catch(() => "")
+          : "",
+        latestRun?.artifacts.providerStderr
+          ? readFile(join(fixture.resolution.paths.sidecarRoot, latestRun.artifacts.providerStderr), "utf8").catch(() => "")
+          : "",
+        latestRun?.artifacts.events
+          ? readFile(join(fixture.resolution.paths.sidecarRoot, latestRun.artifacts.events), "utf8").catch(() => "")
+          : "",
+      ]);
+      throw new Error(`Remote landing fixture workflow did not complete: stderr=${stderr}; providerStderr=${providerStderr}; events=${events}; runs=${JSON.stringify(runs)}; result=${JSON.stringify(result)}`);
+    }
+  } finally {
+    if (oldPath === undefined) delete process.env.PATH;
+    else process.env.PATH = oldPath;
+  }
+
+  const snapshot = await getWorkbenchSnapshot(
+    { project: managedProject, path: getTempDir() },
+    { topicId: topic.conversationId },
+  );
+  const worktreeId = snapshot.center.workpad.resultReview?.worktreeId;
+  if (!worktreeId) throw new Error(`Remote landing fixture is missing result review for ${topic.changeId}.`);
+  const metadata = await readWorktreeMetadata(fixture.runtime, worktreeId);
+  const diff = await collectWorktreeDiff(fixture.runtime, worktreeId, topic.changeId);
+  return { memory: fixture.runtime, worktree: { metadata }, diff, providerBinDir: fakeCodex.binDir };
+}
+
+async function withProviderBin<T>(binDir: string, action: () => Promise<T>): Promise<T> {
+  const oldPath = process.env.PATH;
+  try {
+    process.env.PATH = `${binDir}${delimiter}${oldPath ?? ""}`;
+    return await action();
+  } finally {
+    if (oldPath === undefined) delete process.env.PATH;
+    else process.env.PATH = oldPath;
+  }
+}
 
 async function applyActionAfterAuditAcceptance(topicId: string) {
   let snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId });
-  const auditAccept = snapshot.right.confirmationQueue.primary?.actions.find((action) => action.action?.actionId === "audit.accept")?.action;
+  const auditAccept = snapshot.right.decisionInspector.primary?.actions.find((action) => action.action?.actionId === "audit.accept")?.action
+    ?? snapshot.right.confirmationQueue.primary?.actions.find((action) => action.action?.actionId === "audit.accept")?.action;
   if (auditAccept) {
     await executeWorkbenchAction({ project: project(), path: getTempDir() }, { action: auditAccept, confirm: true });
     snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId });
   }
   const applyAction = snapshot.right.decisionInspector.primary?.actions.find((action) => action.action?.actionId === "result.apply")?.action
     ?? snapshot.right.confirmationQueue.primary?.actions.find((action) => action.action?.actionId === "result.apply")?.action;
-  if (!applyAction) throw new Error("Missing result.apply action.");
+  if (!applyAction) {
+    throw new Error(`Missing result.apply action: ${JSON.stringify({
+      warnings: snapshot.warnings,
+      resultReview: snapshot.center.workpad.resultReview,
+      confirmationActions: snapshot.right.confirmationQueue.current.flatMap((item) => item.actions),
+      inspector: snapshot.right.decisionInspector.primary,
+    })}`);
+  }
   return applyAction;
 }
 

@@ -1,8 +1,8 @@
 import { getChangeStatus, getChangeStatusForChange } from "./manager.js";
-import type { ChangeStatus, ManagedProject, ResolvedMemory } from "../types/index.js";
+import type { ChangeStatus, ManagedProject } from "../types/index.js";
 
 export type ChangeTargetCapability = "runnable" | "closeable";
-export type ChangeTargetSource = "explicit-change-id" | "legacy-active-change";
+export type ChangeTargetSource = "explicit-change-id" | "unique-active-change";
 
 export interface ChangeTarget {
   changeId: string;
@@ -13,10 +13,9 @@ export interface ChangeTarget {
 
 export interface ResolveChangeTargetOptions {
   changeId?: string | null;
-  allowLegacyActiveFallback?: boolean;
 }
 
-type ChangeTargetProject = ManagedProject | string | ResolvedMemory;
+type ChangeTargetProject = ManagedProject;
 
 export async function resolveRunnableChangeTarget(project: ChangeTargetProject, options: ResolveChangeTargetOptions = {}): Promise<ChangeTarget> {
   return resolveChangeTarget(project, "runnable", options);
@@ -34,15 +33,11 @@ async function resolveChangeTarget(project: ChangeTargetProject, capability: Cha
     return { changeId: explicitChangeId, status, source: "explicit-change-id", capability };
   }
 
-  if (options.allowLegacyActiveFallback === false) {
-    throw new Error(`Cannot resolve ${capability} Change target: explicit changeId required.`);
-  }
-
   const status = await getChangeStatus(project);
-  assertLegacyActiveStatus(status, capability);
+  assertUniqueActiveStatus(status, capability);
   const changeId = status.change?.id ?? status.activeChanges[0]?.name;
   if (!changeId) throw new Error(`Cannot resolve ${capability} Change target without an active change id.`);
-  return { changeId, status, source: "legacy-active-change", capability };
+  return { changeId, status, source: "unique-active-change", capability };
 }
 
 function assertExplicitChangeStatus(status: ChangeStatus, changeId: string, capability: ChangeTargetCapability): void {
@@ -52,7 +47,7 @@ function assertExplicitChangeStatus(status: ChangeStatus, changeId: string, capa
   }
 }
 
-function assertLegacyActiveStatus(status: ChangeStatus, capability: ChangeTargetCapability): void {
+function assertUniqueActiveStatus(status: ChangeStatus, capability: ChangeTargetCapability): void {
   if (status.activeChanges.length === 0) {
     throw new Error(`Cannot resolve ${capability} Change target: no active change found.`);
   }

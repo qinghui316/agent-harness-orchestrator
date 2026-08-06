@@ -61,10 +61,10 @@ export interface WorkbenchIntakeScan {
     branch: string | null;
     dirty: boolean | null;
   };
-  memory: {
-    mode: string;
+  harness: {
+    kind: "project-skill";
     harnessReady: boolean;
-    artifactBase: string;
+    artifactOwner: "runtime-sidecar";
   };
   scripts: Array<{ name: string; command: string }>;
   candidateFiles: string[];
@@ -108,7 +108,7 @@ export async function runIntakeScan(project: ManagedProject, changeId: string, p
   const artifactReference = projectRunArtifactReference(runtime, directory);
   const relativeDir = artifactReference.directory;
   const artifacts = {
-    base: artifactReference.base,
+    owner: artifactReference.owner,
     directory: relativeDir,
     context: `${relativeDir}/context.md`,
     events: `${relativeDir}/events.jsonl`,
@@ -287,10 +287,10 @@ async function buildIntakeScan(project: ManagedProject, resolution: ProjectRunti
       branch: projectStatus?.branch ?? null,
       dirty: projectStatus?.dirty ?? null,
     },
-    memory: {
-      mode: "skill-native",
+    harness: {
+      kind: "project-skill",
       harnessReady: true,
-      artifactBase: runtime.runArtifactBase ?? "memory-root",
+      artifactOwner: "runtime-sidecar",
     },
     scripts: await readPackageScripts(project.path),
     candidateFiles: await discoverCandidateFiles(project.path),

@@ -105,7 +105,7 @@ export function SettingsSurface({
                 <div className="settings-info-grid">
                   <Info label="名称" value={projectDisplayName(project.project)} />
                   <Info label="路径" value={project.path} />
-                  <Info label="项目状态" value={project.memory?.memoryAvailable === false ? "项目历史不可用" : project.harness.readiness === "ready" ? "已准备" : "首次需求时自动建立说明"} />
+                  <Info label="项目状态" value={project.harness.readiness === "ready" ? "已准备" : project.harness.readiness === "partial" ? "需要修复项目 Harness" : "首次需求时自动建立说明"} />
                   <Info label="Git" value={project.isGitRepo ? "Git 仓库" : "非 Git 仓库"} />
                 </div>
               </>

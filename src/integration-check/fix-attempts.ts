@@ -2,33 +2,32 @@
 import { Buffer } from "node:buffer";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { getChangeStatusForChange } from "../change/status.js";
 import { getSortedSourceStatus, renderImplementationSummary, writeEmptyCodeArtifacts } from "../code/artifacts.js";
 import { createCodeRunSession, finishRun } from "../code/run-session.js";
 import { buildRoleContextArtifact, buildRoleContextPacket, contextSourceRef } from "../context/packets.js";
 import { writeJsonFile } from "../fs/json.js";
-import { resolveProjectMemory } from "../memory/resolver.js";
 import { resolveProjectHarnessAgentInput } from "../project-harness/agent-input.js";
 import { git, gitText } from "../project/git.js";
-import { withProjectWriteLease, withProjectWriteLeaseAtPath } from "../project/project-write-lease.js";
+import { withProjectWriteLeaseAtPath } from "../project/project-write-lease.js";
+import { resolveProjectActiveExecutionScope } from "../project-runtime/active-execution-scope.js";
 import type { ProjectCodeExecutionRuntimePort } from "../project-runtime/execution-ports.js";
 import { defaultProviderRegistry } from "../provider-runtime/index.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import { appendRunEvent } from "../run/manager.js";
 import { getGlobalWorktreeCheckoutRoot } from "../worktree/manager.js";
 import { prepareWorktreeDependencyBridge } from "../worktree/dependencies.js";
-import type { ManagedProject, ResolvedMemory, RunMetadata } from "../types/index.js";
-import { integrationArtifact, skillNativeIntegrationArtifact } from "./artifacts.js";
+import type { ManagedProject, RunMetadata } from "../types/index.js";
+import { skillNativeIntegrationArtifact } from "./artifacts.js";
 import { appendIntegrationEvent } from "./repository.js";
-import { collectCheckoutPatch, prepareIntegrationFixCheckout, prepareSkillNativeIntegrationFixCheckout } from "./patch-workspace.js";
+import { collectCheckoutPatch, prepareSkillNativeIntegrationFixCheckout } from "./patch-workspace.js";
 import type { IntegrationArtifact, IntegrationFixAttempt, IntegrationFixAttemptStatus } from "./types.js";
-import { openWorkbenchDatabase } from "../workbench/persistence/open-workbench-database.js";
+import { openProjectRuntimeWorkbenchDatabase } from "../workbench/persistence/open-workbench-database.js";
 import { finishProviderAttempt, startProviderAttempt } from "../workbench/provider-attempts.js";
 import { defaultProjectRuntimeActivityRegistry } from "../project-runtime/activity.js";
 
 export interface IntegrationFixRepairRunnerInput {
   project: ManagedProject;
-  memory: ResolvedMemory;
+  runtime: ProjectCodeExecutionRuntimePort;
   directory: string;
   checkId: string;
   changeId: string;
@@ -47,17 +46,7 @@ export interface IntegrationFixRepairRunnerResult {
 
 export type IntegrationFixRepairRunner = (input: IntegrationFixRepairRunnerInput) => Promise<IntegrationFixRepairRunnerResult | void>;
 
-export interface SkillNativeIntegrationFixRepairRunnerInput {
-  project: ManagedProject;
-  runtime: ProjectCodeExecutionRuntimePort;
-  directory: string;
-  checkId: string;
-  changeId: string;
-  attemptId: string;
-  checkoutPath: string;
-  inputPatchPath: string;
-  reason: string;
-}
+export type SkillNativeIntegrationFixRepairRunnerInput = IntegrationFixRepairRunnerInput;
 
 export type SkillNativeIntegrationFixRepairRunner = (
   input: SkillNativeIntegrationFixRepairRunnerInput,
@@ -76,14 +65,21 @@ export function runIntegrationFixAttempt(
   reason: string,
   options: IntegrationFixAttemptOptions = {},
 ): Promise<{ attempt: IntegrationFixAttempt; artifact?: IntegrationArtifact }> {
-  return defaultProjectRuntimeActivityRegistry.run(project.id, () => runIntegrationFixAttemptActivity(
-    project,
-    directory,
-    checkId,
-    inputPatchPath,
-    reason,
-    options,
-  ));
+  return defaultProjectRuntimeActivityRegistry.run(project.id, async () => {
+    const scope = await resolveProjectActiveExecutionScope(project, options.changeId);
+    return runSkillNativeIntegrationFixAttemptActivity(
+      project,
+      scope.runtime,
+      directory,
+      checkId,
+      inputPatchPath,
+      reason,
+      {
+        repairRunner: options.repairRunner,
+        changeId: scope.harness.planning.change.change_id,
+      },
+    );
+  });
 }
 
 export function runSkillNativeIntegrationFixAttempt(
@@ -93,9 +89,28 @@ export function runSkillNativeIntegrationFixAttempt(
   checkId: string,
   inputPatchPath: string,
   reason: string,
-  options: { repairRunner: SkillNativeIntegrationFixRepairRunner; changeId: string },
+  options: { repairRunner?: SkillNativeIntegrationFixRepairRunner; changeId: string },
 ): Promise<{ attempt: IntegrationFixAttempt; artifact?: IntegrationArtifact }> {
-  return defaultProjectRuntimeActivityRegistry.run(project.id, async () => {
+  return defaultProjectRuntimeActivityRegistry.run(project.id, () => runSkillNativeIntegrationFixAttemptActivity(
+    project,
+    runtime,
+    directory,
+    checkId,
+    inputPatchPath,
+    reason,
+    options,
+  ));
+}
+
+async function runSkillNativeIntegrationFixAttemptActivity(
+  project: ManagedProject,
+  runtime: ProjectCodeExecutionRuntimePort,
+  directory: string,
+  checkId: string,
+  inputPatchPath: string,
+  reason: string,
+  options: { repairRunner?: SkillNativeIntegrationFixRepairRunner; changeId: string },
+): Promise<{ attempt: IntegrationFixAttempt; artifact?: IntegrationArtifact }> {
     const startedAt = new Date().toISOString();
     const attemptId = `fix-${checkId}-${Math.max(1, Date.now()).toString(36)}`;
     const checkoutPath = join(getGlobalWorktreeCheckoutRoot(runtime.projectId), "integration", shortFixCheckoutName(checkId, attemptId));
@@ -107,7 +122,7 @@ export function runSkillNativeIntegrationFixAttempt(
     let runArtifactRefs: string[] | undefined;
     try {
       await prepareSkillNativeIntegrationFixCheckout(project, runtime, checkoutPath, inputPatchPath);
-      const repair = await options.repairRunner({
+      const repair = await (options.repairRunner ?? runProviderIntegrationRepair)({
         project,
         runtime,
         directory,
@@ -156,90 +171,18 @@ export function runSkillNativeIntegrationFixAttempt(
     };
     await appendIntegrationEvent(directory, checkId, "integration-fix.completed", { attemptId, status, artifact: artifact?.path });
     return { attempt, artifact };
-  });
-}
-
-async function runIntegrationFixAttemptActivity(
-  project: ManagedProject,
-  directory: string,
-  checkId: string,
-  inputPatchPath: string,
-  reason: string,
-  options: IntegrationFixAttemptOptions,
-): Promise<{ attempt: IntegrationFixAttempt; artifact?: IntegrationArtifact }> {
-  const memory = await resolveProjectMemory(project);
-  const startedAt = new Date().toISOString();
-  const attemptId = `fix-${checkId}-${Math.max(1, Date.now()).toString(36)}`;
-  const checkoutPath = join(getGlobalWorktreeCheckoutRoot(memory.projectId ?? project.id), "integration", shortFixCheckoutName(checkId, attemptId));
-  let artifact: IntegrationArtifact | undefined;
-  let status: IntegrationFixAttemptStatus = "failed";
-  let summary = "自动修复未能生成可验证的组合补丁。";
-  let repairMode: IntegrationFixAttempt["repairMode"] | undefined;
-  let runId: string | undefined;
-  let runArtifactRefs: string[] | undefined;
-
-  try {
-    await prepareIntegrationFixCheckout(project, checkoutPath, inputPatchPath);
-    repairMode = options.repairRunner ? undefined : "provider";
-    const repair = await (options.repairRunner ?? runProviderIntegrationRepair)({
-      project,
-      memory,
-      directory,
-      checkId,
-      changeId: options.changeId ?? checkId,
-      attemptId,
-      checkoutPath,
-      inputPatchPath,
-      reason,
-    });
-    repairMode = repair?.repairMode ?? repairMode ?? "provider";
-    runId = repair?.runId;
-    runArtifactRefs = repair?.runArtifactRefs;
-    const repairedPatch = await collectCheckoutPatch(checkoutPath);
-    if (!repairedPatch.trim()) {
-      throw new Error("IntegrationFix did not produce a repaired diff.");
-    }
-    const repairedPatchPath = join(directory, "repaired.patch");
-    await writeFile(repairedPatchPath, repairedPatch, "utf8");
-    artifact = integrationArtifact(memory, repairedPatchPath, repairedPatch, "repaired", "integration-fix-agent");
-    status = "completed";
-    summary = repair?.summary ?? "integration-fix-agent 已生成修复后的组合补丁。";
-  } catch (cause) {
-    summary = cause instanceof Error ? cause.message : String(cause);
-    await mkdir(directory, { recursive: true });
-    await writeFile(join(directory, "integration-fix-stderr.log"), `${summary}\n`, { encoding: "utf8", flag: "a" });
-  } finally {
-    await withProjectWriteLease(project.path, {}, async () => {
-      await git(project.path, ["worktree", "remove", "--force", checkoutPath]).catch(() => "");
-      await rm(checkoutPath, { recursive: true, force: true }).catch(() => undefined);
-      await git(project.path, ["worktree", "prune"]).catch(() => "");
-    }).catch(() => undefined);
-  }
-
-  const attempt: IntegrationFixAttempt = {
-    id: attemptId,
-    roleId: "integration-fix-agent",
-    status,
-    repairMode,
-    reason,
-    inputArtifactRef: basename(inputPatchPath),
-    runId,
-    runArtifactRefs,
-    outputArtifactRef: artifact?.path,
-    outputArtifactHash: artifact?.hash,
-    summary,
-    startedAt,
-    finishedAt: new Date().toISOString(),
-  };
-  await appendIntegrationEvent(directory, checkId, "integration-fix.completed", { attemptId, status, artifact: artifact?.path });
-  return { attempt, artifact };
 }
 
 async function runProviderIntegrationRepair(input: IntegrationFixRepairRunnerInput): Promise<IntegrationFixRepairRunnerResult> {
   const runId = `${input.attemptId}-provider`;
-  const session = await createCodeRunSession(input.memory, runId);
+  const session = await createCodeRunSession(input.runtime, runId);
   const projectHarnessInput = await resolveProjectHarnessAgentInput(input.project, DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY);
-  const changeStatus = await getChangeStatusForChange(input.project, input.changeId);
+  const scope = await resolveProjectActiveExecutionScope(input.project, input.changeId);
+  if (scope.runtime.projectId !== input.runtime.projectId
+    || scope.runtime.runArtifactRoot !== input.runtime.runArtifactRoot) {
+    throw new Error("IntegrationFix runtime scope is stale.");
+  }
+  const changeStatus = scope.harness.changeStatus;
   if (changeStatus.change?.id !== input.changeId) {
     throw new Error(`IntegrationFix expected active Change ${input.changeId}, found ${changeStatus.change?.id ?? "none"}.`);
   }
@@ -317,7 +260,7 @@ async function runProviderIntegrationRepair(input: IntegrationFixRepairRunnerInp
     throw new Error(message);
   }
 
-  const providerId = await selectedProviderForIntegrationFix(input.memory, input.project, input.changeId);
+  const providerId = await selectedProviderForIntegrationFix(input.runtime, input.project, input.changeId);
   const provider = await defaultProviderRegistry.require(providerId, "coder", input.project, input.checkoutPath);
   const capabilities = await provider.capabilitySnapshot(input.project, input.checkoutPath);
   let running: RunMetadata = {
@@ -329,12 +272,13 @@ async function runProviderIntegrationRepair(input: IntegrationFixRepairRunnerInp
   await writeJsonFile(session.paths.run, running);
   await appendRunEvent(session.paths.events, { timestamp: new Date().toISOString(), type: "coder.started", runId, data: { cwd: input.checkoutPath, command: running.command } });
   await appendRunEvent(session.paths.events, { timestamp: new Date().toISOString(), type: "provider.started", runId, data: { cwd: input.checkoutPath, providerId, capabilities } });
-  await startProviderAttempt(input.memory, {
+  await startProviderAttempt(input.runtime, {
     attemptId: runId,
     providerId,
     capabilitySnapshot: capabilities,
     operationProfile: "coder",
     roleId: "integration-fix-agent",
+    parentAgentSurfaceId: "main-agent",
     handoffHash: createHash("sha256").update(prompt).digest("hex"),
     changeId: input.changeId,
     model: capabilities.effectiveModel ? { providerId, modelId: capabilities.effectiveModel } : null,
@@ -355,7 +299,7 @@ async function runProviderIntegrationRepair(input: IntegrationFixRepairRunnerInp
     skillInputs: [projectHarnessInput.providerSkillInput],
     sandboxPolicy: "workspace-write",
     paths: { events: session.paths.providerEvents, stderr: session.paths.stderr, lastMessage: session.paths.lastMessage, session: session.paths.providerSession },
-    runtimeWorkspaceRoots: [input.checkoutPath, input.memory.memoryRoot],
+    runtimeWorkspaceRoots: [input.checkoutPath, input.runtime.runArtifactRoot],
     writableRoots: [input.checkoutPath],
     model: capabilities.effectiveModel ? { providerId, modelId: capabilities.effectiveModel } : null,
     additionalContext: {
@@ -363,10 +307,10 @@ async function runProviderIntegrationRepair(input: IntegrationFixRepairRunnerInp
     },
     });
   } catch (error) {
-    await finishProviderAttempt(input.memory, runId, "failed", null);
+    await finishProviderAttempt(input.runtime, runId, "failed", null);
     throw error;
   }
-  await finishProviderAttempt(input.memory, runId, result.status === "completed" ? "completed" : result.status === "interrupted" ? "interrupted" : "failed", result.session?.sessionId ?? null);
+  await finishProviderAttempt(input.runtime, runId, result.status === "completed" ? "completed" : result.status === "interrupted" ? "interrupted" : "failed", result.session?.sessionId ?? null);
   await appendRunEvent(session.paths.events, { timestamp: new Date().toISOString(), type: "provider.exited", runId, data: { providerId, status: result.status, sessionId: result.session?.sessionId, turnId: result.turnId, error: result.error } });
   const lastMessage = result.lastMessage || result.error || "Provider did not return a final message.";
   await writeFile(session.paths.lastMessage, lastMessage, "utf8");
@@ -417,9 +361,8 @@ async function runProviderIntegrationRepair(input: IntegrationFixRepairRunnerInp
   };
 }
 
-async function selectedProviderForIntegrationFix(memory: ResolvedMemory, project: ManagedProject, changeId: string): Promise<string> {
-  if (!memory.projectId) throw new Error("Project id is required to resolve the integration-fix provider.");
-  const store = await openWorkbenchDatabase(memory);
+async function selectedProviderForIntegrationFix(memory: ProjectCodeExecutionRuntimePort, project: ManagedProject, changeId: string): Promise<string> {
+  const store = await openProjectRuntimeWorkbenchDatabase(memory);
   try {
     return store.conversations.findConversationForChange(memory.projectId, changeId)?.selectedProviderId
       ?? (project.defaultProviderId ? defaultProviderRegistry.get(project.defaultProviderId).id : undefined)

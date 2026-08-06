@@ -25,7 +25,6 @@ import { MainConversationView,
 import {
   ProjectConversationSidebar,
   TopicComposer,
-  UnmanagedProjectView,
   currentWorkpadSummary,
 } from "./shell/WorkbenchShellParts.js";
 import {
@@ -506,7 +505,6 @@ export function App(): ReactElement {
   const isPendingTopic = Boolean(activePendingConversation && !activePendingConversation.canonical);
   const activeWorkpad = activePendingConversation ? emptyWorkpad(activePendingConversation.title) : snapshot.center.workpad ?? emptyWorkpad(activeTopic?.title ?? projectDisplayName(snapshot.project));
   const selectedProjectStatus = useMemo(() => projects.find((item) => item.project?.id === selectedProjectId) ?? null, [projects, selectedProjectId]);
-  const selectedProjectHistoryUnavailable = Boolean(selectedProjectStatus?.managed && selectedProjectStatus.memory?.memoryAvailable === false);
   const composer = useConversationComposerController({
     projectId: selectedProjectId,
     conversation: activeTopic ? {
@@ -854,8 +852,6 @@ export function App(): ReactElement {
             onOpenProject={openProject}
             onRefresh={loadApp}
           />
-        ) : !activeTopic && selectedProjectHistoryUnavailable ? (
-          <UnmanagedProjectView project={selectedProjectStatus} />
         ) : !activeTopic ? (
           <ProjectReadinessHome
             project={selectedProjectStatus}
@@ -1090,7 +1086,7 @@ export function App(): ReactElement {
             onRefreshRuntimeLog={() => void loadRuntimeActivityLog()}
             workspace={{
               projectPath: snapshot.left.repo?.path ?? selectedProjectStatus?.path ?? "-",
-              ready: Boolean(snapshot.memory.harnessReady ?? selectedProjectStatus?.memory?.harnessReady),
+              ready: Boolean(snapshot.harness.harnessReady ?? selectedProjectStatus?.harness.readiness === "ready"),
               currentTitle: activeTopic?.title ?? "无",
               currentKind: activeTopic?.kind === "conversation" ? "当前对话" : "当前需求",
               issueCount: snapshot.warnings.length + (activeTopic?.closeGate?.blockingIssues.length ?? 0),

@@ -1,12 +1,12 @@
 import { existsSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
-import { getTemplateRoot } from "../../../template-source/paths.js";
+import { getAgentProfilesRoot } from "../../../template-source/paths.js";
 import type { WorkbenchRoleSummary } from "../../read-model-types.js";
 import { humanConfirmationForRole } from "./support.js";
 
 export async function listWorkbenchRoles(): Promise<WorkbenchRoleSummary[]> {
-  const profileRoot = join(dirname(getTemplateRoot()), "agent-profiles");
+  const profileRoot = getAgentProfilesRoot();
   if (!existsSync(profileRoot)) return [];
   const entries = await readdir(profileRoot, { withFileTypes: true });
   const roles = await Promise.all(entries
@@ -27,7 +27,7 @@ export async function summarizeRoleProfile(profileRoot: string, fileName: string
   return {
     id,
     name: title,
-    profilePath: relative(dirname(getTemplateRoot()), profilePath).replace(/\\/g, "/"),
+    profilePath: relative(dirname(getAgentProfilesRoot()), profilePath).replace(/\\/g, "/"),
     writeCapability,
     preferredRuntime,
     delegatable: id !== "validator",

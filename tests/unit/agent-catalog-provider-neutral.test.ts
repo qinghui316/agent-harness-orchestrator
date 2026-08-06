@@ -1,9 +1,8 @@
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { listAgentRoles } from "../../src/agent/catalog.js";
-import { writeProjectMarker } from "../../src/project/marker.js";
 import type { ManagedProject } from "../../src/types/index.js";
 
 let root: string;
@@ -23,8 +22,6 @@ afterEach(async () => {
 describe("provider-neutral Agent role catalog", () => {
   it("publishes compatibility and content identity without selecting a runtime", async () => {
     const repo = project();
-    await mkdir(repo.path, { recursive: true });
-    await writeProjectMarker(repo, "external-local");
 
     const roles = await listAgentRoles(repo);
     const coder = roles.find((role) => role.roleId === "coder-agent");

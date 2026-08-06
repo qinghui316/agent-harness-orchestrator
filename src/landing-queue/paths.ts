@@ -1,14 +1,14 @@
 import { createHash } from "node:crypto";
 import { join, relative } from "node:path";
+import type { ProjectRunArtifactReferencePort } from "../project-runtime/execution-ports.js";
 import type { ProjectWorkbenchArtifactPathPort } from "../project-runtime/paths.js";
-import type { ResolvedMemory } from "../types/index.js";
 
 export function landingQueueRoot(memory: ProjectWorkbenchArtifactPathPort): string {
   return join(memory.workbenchRoot, "landing-queue");
 }
 
-export function displayLandingQueueArtifactPath(memory: ResolvedMemory, file: string): string {
-  return `project://${relative(memory.memoryRoot, file).replace(/\\/g, "/")}`;
+export function displayLandingQueueArtifactPath(memory: ProjectRunArtifactReferencePort, file: string): string {
+  return `runtime-sidecar://${relative(memory.runArtifactRoot, file).replace(/\\/g, "/")}`;
 }
 
 export function contentHash(value: string): string {

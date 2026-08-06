@@ -178,7 +178,7 @@ describe("Workbench provider planning flow", () => {
       { project: project(), path: root },
       { topicId: conversation.conversationId },
     );
-    expect(snapshot.memory).toMatchObject({ kind: "project-skill", projectId: project().id });
+    expect(snapshot.harness).toMatchObject({ kind: "project-skill", projectId: project().id });
     expect(snapshot.right.confirmationQueue.current).toEqual([]);
     expect(snapshot.warnings.length).toBeGreaterThan(0);
   });
@@ -1510,7 +1510,7 @@ describe("Workbench provider planning flow", () => {
       { project: project(), path: root },
       { topicId: conversation.conversationId },
     );
-    expect(snapshot.memory).toMatchObject({ kind: "project-skill", projectId: project().id });
+    expect(snapshot.harness).toMatchObject({ kind: "project-skill", projectId: project().id });
     expect(snapshot.right.confirmationQueue.current).toHaveLength(1);
     expect(snapshot.right.confirmationQueue.primary).toMatchObject({
       conversationId: conversation.conversationId,

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { getTemplateRoot } from "../template-source/paths.js";
+import { getAgentProfilesRoot } from "../template-source/paths.js";
 import type { ChangeStatus, WorktreeMetadata } from "../types/index.js";
 
 export interface CoderPromptInput {
@@ -58,5 +58,5 @@ export async function composeCoderPrompt(input: CoderPromptInput): Promise<strin
 }
 
 async function readBundledCoderProfile(): Promise<string> {
-  return await readFile(join(getTemplateRoot(), "..", "agent-profiles", "coder-agent.md"), "utf8");
+  return await readFile(join(getAgentProfilesRoot(), "coder-agent.md"), "utf8");
 }

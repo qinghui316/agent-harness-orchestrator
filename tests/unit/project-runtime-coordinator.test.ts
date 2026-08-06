@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -13,7 +13,6 @@ import {
 } from "../../src/project-harness/writer-lock.js";
 import { ProjectRegistryStore } from "../../src/registry/store.js";
 import { git } from "../../src/project/git.js";
-import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { getWorktreeStatus } from "../../src/worktree/manager.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../src/provider-runtime/project-harness-discovery.js";
 
@@ -24,7 +23,7 @@ afterEach(async () => {
 });
 
 describe("project runtime coordinator", () => {
-  it("atomically reconciles a registered legacy id to the Harness manifest project_id", async () => {
+  it("atomically reconciles a registered id to the Harness manifest project_id", async () => {
     const fixture = await createLegacyFixture();
     const result = await fixture.coordinator.reconcileStartup();
 
@@ -37,7 +36,6 @@ describe("project runtime coordinator", () => {
     expect(await fixture.store.resolveProject("canonical-a1")).toMatchObject({ path: fixture.projectRoot });
     expect(existsSync(fixture.sourceSidecar)).toBe(false);
     expect(existsSync(fixture.targetSidecar)).toBe(true);
-    expect(JSON.parse(await readFile(fixture.markerPath, "utf8"))).toMatchObject({ id: "canonical-a1" });
     const database = new Database(join(fixture.targetSidecar, "workbench", "workbench.sqlite"), { readonly: true });
     try {
       expect(database.pragma("user_version", { simple: true })).toBe(11);
@@ -53,7 +51,7 @@ describe("project runtime coordinator", () => {
     const projectRoot = join(root, "project");
     await mkdir(projectRoot);
     const store = new ProjectRegistryStore(join(root, "aho-home"));
-    const project = await store.addProject(projectRoot, "New Project");
+    const { project } = await store.registerProject({ path: projectRoot, name: "New Project" });
     const coordinator = new ProjectRuntimeCoordinator({
       store,
       discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
@@ -123,8 +121,11 @@ describe("project runtime coordinator", () => {
       await fixture.coordinator.reconcileStartup();
       const migratedProject = await fixture.store.resolveProject("canonical-a1");
       expect(migratedProject).not.toBeNull();
-      const memory = await resolveProjectMemory(migratedProject!);
-      await expect(getWorktreeStatus(memory, "worktree-1")).resolves.toMatchObject({
+      await expect(getWorktreeStatus({
+        projectId: migratedProject!.id,
+        projectRoot: migratedProject!.path,
+        worktreeMetadataRoot: join(fixture.targetSidecar, "worktrees", "metadata"),
+      }, "worktree-1")).resolves.toMatchObject({
         projectId: "canonical-a1",
         checkoutPath,
         exists: true,
@@ -150,7 +151,7 @@ describe("project runtime coordinator", () => {
     }
   });
 
-  it("rejects recovery documents outside the caller-owned Registry, marker, and sidecar schemas", async () => {
+  it("rejects recovery documents outside the caller-owned Registry and sidecar schemas", async () => {
     const fixture = await createLegacyFixture();
     const journal = recoveryJournal(fixture);
     journal.documents.push({
@@ -160,7 +161,7 @@ describe("project runtime coordinator", () => {
     });
 
     await expect(buildProjectIdentityRecoveryDocuments(journal, fixture.store, DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY))
-      .rejects.toThrow(/supported Registry, marker, and sidecar descriptor set/);
+      .rejects.toThrow(/supported Registry and sidecar descriptor set/);
   });
 
   it("rejects a recovery sidecar document that escapes the journal source sidecar", async () => {
@@ -181,16 +182,8 @@ describe("project runtime coordinator", () => {
       .rejects.toThrow(/outside the source sidecar/);
   });
 
-  it("derives recovery marker and manifest paths from the caller-owned Registry project", async () => {
+  it("derives the recovery manifest path from the caller-owned Registry project", async () => {
     const fixture = await createLegacyFixture();
-    const markerJournal = recoveryJournal(fixture);
-    markerJournal.documents[1]!.sourcePath = join(fixture.root, "other", ".agent-harness", "project.json");
-    markerJournal.documents[1]!.stagedPath = `${markerJournal.documents[1]!.sourcePath}.${markerJournal.transactionId}.next`;
-    markerJournal.documents[1]!.backupPath = `${markerJournal.documents[1]!.sourcePath}.${markerJournal.transactionId}.previous`;
-
-    await expect(buildProjectIdentityRecoveryDocuments(markerJournal, fixture.store, DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY))
-      .rejects.toThrow(/marker path is not owned by the Registry project/);
-
     const manifestJournal = recoveryJournal(fixture);
     manifestJournal.manifestPath = join(
       fixture.projectRoot,
@@ -212,17 +205,7 @@ async function createLegacyFixture() {
   const ahoHome = join(root, "aho-home");
   const sourceSidecar = join(ahoHome, "projects", "legacy-a1");
   const targetSidecar = join(ahoHome, "projects", "canonical-a1");
-  const markerPath = join(projectRoot, ".agent-harness", "project.json");
   await mkdir(join(sourceSidecar, "workbench"), { recursive: true });
-  await mkdir(join(projectRoot, ".agent-harness"), { recursive: true });
-  await writeFile(markerPath, `${JSON.stringify({
-    version: "1.0",
-    id: "legacy-a1",
-    name: "legacy",
-    managedBy: "agent-harness-orchestrator",
-    memoryMode: "external-local",
-    createdAt: "2026-08-03T00:00:00.000Z",
-  }, null, 2)}\n`, "utf8");
   const database = new Database(join(sourceSidecar, "workbench", "workbench.sqlite"));
   database.exec("CREATE TABLE skills (project_id TEXT NOT NULL, skill_id TEXT NOT NULL, PRIMARY KEY(project_id, skill_id))");
   database.prepare("INSERT INTO skills(project_id, skill_id) VALUES (?, ?)").run("legacy-a1", "skill-1");
@@ -230,7 +213,11 @@ async function createLegacyFixture() {
   database.close();
   await createHarness(projectRoot);
   const store = new ProjectRegistryStore(ahoHome);
-  const project = await store.addProject(projectRoot, "Legacy");
+  const { project } = await store.registerProject({
+    path: projectRoot,
+    name: "Legacy",
+    projectId: "legacy-a1",
+  });
   expect(project.id).toBe("legacy-a1");
   const coordinator = new ProjectRuntimeCoordinator({
     store,
@@ -238,14 +225,14 @@ async function createLegacyFixture() {
     ahoHome,
     createTransactionId: () => "identity-test-1",
   });
-  return { root, projectRoot, ahoHome, sourceSidecar, targetSidecar, markerPath, store, coordinator };
+  return { root, projectRoot, ahoHome, sourceSidecar, targetSidecar, store, coordinator };
 }
 
 function recoveryJournal(fixture: Awaited<ReturnType<typeof createLegacyFixture>>): ProjectIdentityMigrationJournal {
   const transactionId = "identity-recovery-test";
   const transactionRoot = join(fixture.ahoHome, "projects", ".identity-transactions", transactionId);
-  const document = (kind: "registry" | "local-state", path: string, pointers: string[]) => ({
-    kind,
+  const document = (path: string, pointers: string[]) => ({
+    kind: "registry" as const,
     scope: "external" as const,
     sourcePath: path,
     stagedPath: `${path}.${transactionId}.next`,
@@ -276,8 +263,7 @@ function recoveryJournal(fixture: Awaited<ReturnType<typeof createLegacyFixture>
     stage: "prepared",
     sqliteProofs: [],
     documents: [
-      document("registry", fixture.store.registryPath, ["/projects/0/id"]),
-      document("local-state", fixture.markerPath, ["/id"]),
+      document(fixture.store.registryPath, ["/projects/0/id"]),
     ],
     error: null,
     createdAt: "2026-08-03T00:00:00.000Z",

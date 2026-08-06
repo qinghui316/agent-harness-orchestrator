@@ -6,7 +6,8 @@ import { join, relative } from "node:path";
 import { promisify } from "node:util";
 import { readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
 import { readLandingPackage } from "../landing/manager.js";
-import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
+import { requireProjectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
+import type { ProjectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
 import {
   detectRemoteProviderCapability,
   findLatestCreatedPrDraftPackageForChanges,
@@ -22,7 +23,6 @@ import type {
   RemoteLandingReadinessStatus,
   RemoteLandingResult,
   RemoteLandingStateSnapshot,
-  ResolvedMemory,
 } from "../types/index.js";
 import type { ProjectWorkbenchArtifactPathPort } from "../project-runtime/paths.js";
 
@@ -31,8 +31,7 @@ import { stateSnapshotSchema, readinessSchema, attemptSchema, resultSchema } fro
 const execFileAsync = promisify(execFile);
 
 export async function prepareRemoteLandingReadiness(project: ManagedProject, landingPackageId: string): Promise<RemoteLandingReadiness> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "remote landing readiness");
+  const memory = await requireProjectExecutionRuntimePort(project);
   const landing = await readLandingPackage(memory, landingPackageId);
   const pkg = await findPrDraftPackageForLanding(memory, landingPackageId)
     ?? await findLatestCreatedPrDraftPackageForChanges(memory, landing.target.changeIds);
@@ -117,8 +116,7 @@ export async function refreshRemoteLanding(project: ManagedProject, landingPacka
 }
 
 export async function mergeRemoteLanding(project: ManagedProject, landingPackageId: string): Promise<{ readiness: RemoteLandingReadiness; attempt: RemoteLandingAttempt; result: RemoteLandingResult }> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "remote landing merge");
+  const memory = await requireProjectExecutionRuntimePort(project);
   const landing = await readLandingPackage(memory, landingPackageId);
   const readiness = await prepareRemoteLandingReadiness(project, landingPackageId);
   if (!readiness.canMerge || !readiness.prUrl) {
@@ -286,7 +284,7 @@ function readinessText(status: RemoteLandingReadinessStatus, commentsCount: numb
 }
 
 async function writeReadiness(
-  memory: ResolvedMemory,
+  memory: ProjectExecutionRuntimePort,
   input: {
     now: string;
     landingPackageId: string;
@@ -351,7 +349,7 @@ async function writeReadiness(
 }
 
 async function writeResultArtifacts(
-  memory: ResolvedMemory,
+  memory: ProjectExecutionRuntimePort,
   directory: string,
   attempt: RemoteLandingAttempt,
   result: RemoteLandingResult,
@@ -419,8 +417,8 @@ function remoteLandingRoot(memory: ProjectWorkbenchArtifactPathPort): string {
   return join(memory.workbenchRoot, "remote-landing");
 }
 
-function displayArtifactPath(memory: ResolvedMemory, absolutePath: string): string {
-  return `${memory.artifactBase === "memory-root" ? "memory://" : "project://"}${relative(memory.artifactBase === "memory-root" ? memory.memoryRoot : memory.projectRoot, absolutePath).replace(/\\/g, "/")}`;
+function displayArtifactPath(memory: ProjectExecutionRuntimePort, absolutePath: string): string {
+  return `runtime-sidecar://${relative(memory.runArtifactRoot, absolutePath).replace(/\\/g, "/")}`;
 }
 
 function contentHash(content: string): string {

@@ -3,9 +3,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
 import { assertPortableProjectId } from "../project-harness/project-id.js";
-import type { ReadySetWorkflowGraphPlan, ResolvedMemory, SequentialWorkflowGraphPlan, WorkflowGraphPlan } from "../types/index.js";
-import { assertWorkflowArtifactScope } from "./guards.js";
-import { latestWorkflowGraphPlanPath, workflowGraphPlanPath } from "./paths.js";
+import type { ReadySetWorkflowGraphPlan, SequentialWorkflowGraphPlan, WorkflowGraphPlan } from "../types/index.js";
 import { renderWorkflowGraphPlanMarkdown } from "./rendering.js";
 import { workflowAuthoringPlanSchema, workflowGraphPlanSchema } from "./schemas.js";
 import type { AuthoredWorkflowGraphCompileOptions, WorkflowAuthoringPlan } from "./types.js";
@@ -153,11 +151,6 @@ export function isReadySetWorkflowGraphPlan(graph: WorkflowGraphPlan): graph is 
   return graph.graphMode === "ready-set-v1";
 }
 
-export async function writeWorkflowGraphPlan(memory: ResolvedMemory, changePath: string, graph: WorkflowGraphPlan): Promise<void> {
-  await assertWorkflowArtifactScope(memory, changePath, graph, "WorkflowGraphPlan");
-  await writeWorkflowGraphPlanAt(join(memory.memoryRoot, changePath), graph.changeId, graph);
-}
-
 export async function writeWorkflowGraphPlanAt(
   changeRoot: string,
   expectedChangeId: string,
@@ -193,18 +186,6 @@ export async function readWorkflowGraphPlanAt(
     workflowGraphPlanSchema,
   );
   assertWorkflowGraphChangeId(expectedChangeId, graph, "WorkflowGraphPlan");
-  return graph;
-}
-
-export async function readLatestWorkflowGraphPlan(memory: ResolvedMemory, changePath: string): Promise<WorkflowGraphPlan> {
-  const graph = await readRequiredJsonFile(latestWorkflowGraphPlanPath(memory, changePath), workflowGraphPlanSchema);
-  await assertWorkflowArtifactScope(memory, changePath, graph, "WorkflowGraphPlan");
-  return graph;
-}
-
-export async function readWorkflowGraphPlan(memory: ResolvedMemory, changePath: string, workflowGraphPlanId: string): Promise<WorkflowGraphPlan> {
-  const graph = await readRequiredJsonFile(workflowGraphPlanPath(memory, changePath, workflowGraphPlanId), workflowGraphPlanSchema);
-  await assertWorkflowArtifactScope(memory, changePath, graph, "WorkflowGraphPlan");
   return graph;
 }
 

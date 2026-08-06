@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { repoLocalMemory } from "../../src/memory/resolver.js";
+import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import type { ProviderDescriptor, ProviderTurnResult } from "../../src/provider-runtime/contracts.js";
 import { ProviderRegistry } from "../../src/provider-runtime/registry.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../src/provider-runtime/project-harness-discovery.js";
@@ -12,7 +12,6 @@ import { PROVIDER_OPERATION_CAPABILITIES, type ProviderCapabilityKey, type Provi
 import type { ManagedProject } from "../../src/types/index.js";
 import { requiredProfilesForResume, switchConversationProviderAtSafePoint, workflowResumeRequestFromHandoff } from "../../src/workbench/provider-switch.js";
 import { assembleSharedConversationContext } from "../../src/workbench/shared-conversation-context.js";
-import { openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { claimAgentTask, createAgentTask } from "../../src/agent-task/manager.js";
 import { acquireWorkbenchRuntimeMutationLock } from "../../src/workbench/schema-rebuild-gate.js";
@@ -371,19 +370,19 @@ describe("provider-neutral runtime contract", () => {
 
   it("refuses a schema rebuild while a model attempt is active", async () => {
     const project = managedProject(root);
-    const memory = repoLocalMemory(root, project.id);
+    const memory = resolveProjectRuntimePaths(project.id, root);
     await mkdir(memory.workbenchRoot, { recursive: true });
     const db = new Database(memory.workbenchDbPath);
     db.exec("CREATE TABLE provider_attempts (attempt_id TEXT, status TEXT); INSERT INTO provider_attempts VALUES ('attempt-1', 'running');");
     db.pragma("user_version = 2");
     db.close();
 
-    await expect(openWorkbenchDatabase(memory)).rejects.toThrow("模型执行尚未结束");
+    await expect(openProjectRuntimeWorkbenchDatabase(memory)).rejects.toThrow("模型执行尚未结束");
   });
 
   it("refuses a schema rebuild while any registered provider turn is active", async () => {
     const project = managedProject(root);
-    const memory = repoLocalMemory(root, project.id);
+    const memory = resolveProjectRuntimePaths(project.id, root);
     const registry = new ProviderRegistry();
     const provider = fakeProvider("alpha");
     provider.conversation.listActiveTurns = () => [{
@@ -406,12 +405,12 @@ describe("provider-neutral runtime contract", () => {
     db.pragma("user_version = 2");
     db.close();
 
-    await expect(openWorkbenchDatabase(memory, { providerRegistry: registry })).rejects.toThrow("provider turn 正在运行");
+    await expect(openProjectRuntimeWorkbenchDatabase(memory, { providerRegistry: registry })).rejects.toThrow("provider turn 正在运行");
   });
 
   it("refuses a schema rebuild while a background AgentTask is running", async () => {
     const project = managedProject(root);
-    const memory = repoLocalMemory(root, project.id);
+    const memory = resolveProjectRuntimePaths(project.id, root);
     await createAgentTask(memory, {
       conversationId: "conversation-background",
       changeId: "change-background",
@@ -426,12 +425,12 @@ describe("provider-neutral runtime contract", () => {
     db.pragma("user_version = 2");
     db.close();
 
-    await expect(openWorkbenchDatabase(memory)).rejects.toThrow("后台 Agent 任务正在运行");
+    await expect(openProjectRuntimeWorkbenchDatabase(memory)).rejects.toThrow("后台 Agent 任务正在运行");
   });
 
   it("refuses a schema rebuild while another Workbench writer owns the database", async () => {
     const project = managedProject(root);
-    const memory = repoLocalMemory(root, project.id);
+    const memory = resolveProjectRuntimePaths(project.id, root);
     await mkdir(memory.workbenchRoot, { recursive: true });
     const db = new Database(memory.workbenchDbPath);
     db.pragma("journal_mode = WAL");
@@ -439,7 +438,7 @@ describe("provider-neutral runtime contract", () => {
     db.pragma("user_version = 2");
     db.exec("BEGIN IMMEDIATE");
     try {
-      await expect(openWorkbenchDatabase(memory)).rejects.toThrow("另一个 Workbench 实例正在使用");
+      await expect(openProjectRuntimeWorkbenchDatabase(memory)).rejects.toThrow("另一个 Workbench 实例正在使用");
     } finally {
       db.exec("ROLLBACK");
       db.close();
@@ -448,9 +447,9 @@ describe("provider-neutral runtime contract", () => {
 
   it("rebuilds conversation state without deleting Skill settings", async () => {
     const project = managedProject(root);
-    const memory = repoLocalMemory(root, project.id);
+    const memory = resolveProjectRuntimePaths(project.id, root);
     const now = new Date().toISOString();
-    const store = await openWorkbenchDatabase(memory);
+    const store = await openProjectRuntimeWorkbenchDatabase(memory);
     try {
       store.conversations.createConversation({
         projectId: project.id,
@@ -474,7 +473,7 @@ describe("provider-neutral runtime contract", () => {
     old.pragma("user_version = 2");
     old.close();
 
-    const rebuilt = await openWorkbenchDatabase(memory);
+    const rebuilt = await openProjectRuntimeWorkbenchDatabase(memory);
     try {
       expect(rebuilt.conversations.readConversation(project.id, "old-conversation")).toBeNull();
       expect(rebuilt.skills.listSkillRoots(project.id)).toEqual([expect.objectContaining({ rootPath: join(root, "skills") })]);
@@ -486,9 +485,9 @@ describe("provider-neutral runtime contract", () => {
 
   it("retires schema-9 bridge state without rebuilding Conversation data", async () => {
     const project = managedProject(root);
-    const memory = repoLocalMemory(root, project.id);
+    const memory = resolveProjectRuntimePaths(project.id, root);
     const now = new Date().toISOString();
-    const store = await openWorkbenchDatabase(memory);
+    const store = await openProjectRuntimeWorkbenchDatabase(memory);
     store.conversations.createConversation({
       projectId: project.id,
       conversationId: "preserved-conversation",
@@ -520,7 +519,7 @@ describe("provider-neutral runtime contract", () => {
     schema9.pragma("user_version = 9");
     schema9.close();
 
-    const migrated = await openWorkbenchDatabase(memory);
+    const migrated = await openProjectRuntimeWorkbenchDatabase(memory);
     expect(migrated.conversations.readConversation(project.id, "preserved-conversation")).toMatchObject({
       title: "Preserved history",
     });
@@ -533,7 +532,7 @@ describe("provider-neutral runtime contract", () => {
 
   it("prevents a file-backed AgentTask claim from racing a schema rebuild", async () => {
     const project = managedProject(root);
-    const memory = repoLocalMemory(root, project.id);
+    const memory = resolveProjectRuntimePaths(project.id, root);
     const task = await createAgentTask(memory, {
       conversationId: "conversation-race",
       changeId: "change-race",
@@ -552,7 +551,7 @@ describe("provider-neutral runtime contract", () => {
 
   it("recovers a runtime mutation lock whose owning process no longer exists", async () => {
     const project = managedProject(root);
-    const memory = repoLocalMemory(root, project.id);
+    const memory = resolveProjectRuntimePaths(project.id, root);
     await mkdir(memory.workbenchRoot, { recursive: true });
     await writeFile(join(memory.workbenchRoot, "runtime-mutation.lock"), `${JSON.stringify({
       action: "已崩溃的数据库重建",

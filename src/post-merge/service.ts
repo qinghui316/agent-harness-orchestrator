@@ -6,7 +6,8 @@ import { join, relative } from "node:path";
 import { promisify } from "node:util";
 import { readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
 import { readLandingPackage } from "../landing/manager.js";
-import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
+import { requireProjectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
+import type { ProjectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
 import { detectRemoteProviderCapability, findPrDraftPackageForLanding, githubCliArgs, githubCliCommand } from "../pr-draft/manager.js";
 import { getGitBranch, getGitCommit, getGitStatusShort, gitText } from "../project/git.js";
 import { readRemoteLandingResult } from "../remote-landing/manager.js";
@@ -21,7 +22,6 @@ import type {
   RemoteBranchCleanupReadinessStatus,
   RemoteBranchCleanupResult,
   RemoteLandingResult,
-  ResolvedMemory,
 } from "../types/index.js";
 import type { ProjectWorkbenchArtifactPathPort } from "../project-runtime/paths.js";
 
@@ -30,8 +30,7 @@ import { localSyncReadinessSchema, cleanupReadinessSchema, handoffSchema, stateS
 const execFileAsync = promisify(execFile);
 
 export async function preparePostMergeHandoff(project: ManagedProject, landingPackageId: string, remoteLandingResultId: string): Promise<PostMergeHandoff> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "post-merge handoff");
+  const memory = await requireProjectExecutionRuntimePort(project);
   const landing = await readLandingPackage(memory, landingPackageId);
   const remoteResult = await readRemoteLandingResult(memory, remoteLandingResultId);
   if (remoteResult.landingPackageId !== landingPackageId) {
@@ -120,8 +119,7 @@ export async function prepareLocalSync(project: ManagedProject, landingPackageId
 }
 
 export async function syncLocalAfterMerge(project: ManagedProject, landingPackageId: string, remoteLandingResultId: string): Promise<{ readiness: LocalSyncReadiness; result: LocalSyncResult }> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "post-merge local sync");
+  const memory = await requireProjectExecutionRuntimePort(project);
   const handoff = await preparePostMergeHandoff(project, landingPackageId, remoteLandingResultId);
   const readiness = handoff.localSyncReadiness;
   const now = new Date().toISOString();
@@ -157,8 +155,7 @@ export async function prepareRemoteBranchCleanup(project: ManagedProject, landin
 }
 
 export async function cleanupRemoteBranchAfterMerge(project: ManagedProject, landingPackageId: string, remoteLandingResultId: string): Promise<{ readiness: RemoteBranchCleanupReadiness; result: RemoteBranchCleanupResult }> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "post-merge remote branch cleanup");
+  const memory = await requireProjectExecutionRuntimePort(project);
   const handoff = await preparePostMergeHandoff(project, landingPackageId, remoteLandingResultId);
   const readiness = handoff.remoteBranchCleanupReadiness;
   const now = new Date().toISOString();
@@ -197,7 +194,7 @@ export async function listPostMergeHandoffs(memory: ProjectWorkbenchArtifactPath
 }
 
 function buildLocalSyncReadiness(
-  memory: ResolvedMemory,
+  memory: ProjectExecutionRuntimePort,
   handoffId: string,
   result: RemoteLandingResult,
   snapshot: PostMergeStateSnapshot,
@@ -238,7 +235,7 @@ function classifyLocalSync(result: RemoteLandingResult, snapshot: PostMergeState
 }
 
 function buildCleanupReadiness(
-  memory: ResolvedMemory,
+  memory: ProjectExecutionRuntimePort,
   handoffId: string,
   result: RemoteLandingResult,
   snapshot: PostMergeStateSnapshot,
@@ -314,7 +311,7 @@ function cleanupText(status: RemoteBranchCleanupReadinessStatus, snapshot: PostM
 }
 
 async function writeLocalSyncResult(
-  memory: ResolvedMemory,
+  memory: ProjectExecutionRuntimePort,
   directory: string,
   readiness: LocalSyncReadiness,
   handoff: PostMergeHandoff,
@@ -346,7 +343,7 @@ async function writeLocalSyncResult(
 }
 
 async function writeCleanupResult(
-  memory: ResolvedMemory,
+  memory: ProjectExecutionRuntimePort,
   directory: string,
   readiness: RemoteBranchCleanupReadiness,
   handoff: PostMergeHandoff,
@@ -455,8 +452,8 @@ function postMergeRoot(memory: ProjectWorkbenchArtifactPathPort): string {
   return join(memory.workbenchRoot, "post-merge");
 }
 
-function displayArtifactPath(memory: ResolvedMemory, absolutePath: string): string {
-  return `${memory.artifactBase === "memory-root" ? "memory://" : "project://"}${relative(memory.artifactBase === "memory-root" ? memory.memoryRoot : memory.projectRoot, absolutePath).replace(/\\/g, "/")}`;
+function displayArtifactPath(memory: ProjectExecutionRuntimePort, absolutePath: string): string {
+  return `runtime-sidecar://${relative(memory.runArtifactRoot, absolutePath).replace(/\\/g, "/")}`;
 }
 
 function contentHash(content: string): string {

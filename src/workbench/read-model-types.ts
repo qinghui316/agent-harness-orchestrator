@@ -65,7 +65,6 @@ export interface WorkbenchProjectHarnessStatus {
   kind: "project-skill";
   registered: true;
   managed: true;
-  memoryAvailable: true;
   harnessReady: true;
   projectId: string;
   skillName: string;
@@ -78,7 +77,6 @@ export interface WorkbenchProjectHarnessDiagnosticStatus {
   kind: "project-skill";
   registered: boolean;
   managed: boolean;
-  memoryAvailable: false;
   harnessReady: false;
   runtimeAvailable: boolean;
   projectId?: string;
@@ -937,10 +935,10 @@ export interface WorkbenchTopicDetail extends WorkbenchTopicSummary {
 
 export interface WorkbenchSnapshot {
   project: unknown;
-  memory: WorkbenchRuntimeStatus;
+  harness: WorkbenchRuntimeStatus;
   left: {
     project: unknown;
-    memory: WorkbenchRuntimeStatus;
+    harness: WorkbenchRuntimeStatus;
     topics: WorkbenchTopicSummary[];
     workpads: WorkbenchWorkpadSummary[];
     repo: {

@@ -1,4 +1,5 @@
 import type { ProviderCapabilitySnapshot, ProviderModelRef, ProviderOperationProfile } from "../provider-runtime/index.js";
+import type { ProjectWorkbenchPathPort } from "../project-runtime/paths.js";
 import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import { type StoredProviderAttempt, type StoredProviderThreadLink } from "./persistence/contracts.js";
 import { publishAgentSurfacesInvalidated } from "./project-live-events.js";
@@ -28,14 +29,11 @@ export interface BindProviderAttemptThreadInput {
   runId?: string | null;
 }
 
-interface ProviderAttemptStorePort {
-  projectId: string | null;
-  workbenchDbPath: string;
-}
+type ProviderAttemptStorePort = ProjectWorkbenchPathPort;
 
 export async function bindProviderAttemptThread(memory: ProviderAttemptStorePort, input: BindProviderAttemptThreadInput): Promise<StoredProviderThreadLink | null> {
   const projectId = requireProjectId(memory);
-  const store = await openProjectRuntimeWorkbenchDatabase({ projectId, workbenchDbPath: memory.workbenchDbPath });
+  const store = await openProjectRuntimeWorkbenchDatabase(memory);
   try {
     const attempt = store.providerAttempts.readProviderAttempt(projectId, input.attemptId);
     if (!attempt) throw new Error(`Provider attempt not found: ${input.attemptId}`);
@@ -57,7 +55,7 @@ export async function bindProviderAttemptThread(memory: ProviderAttemptStorePort
 
 export async function startProviderAttempt(memory: ProviderAttemptStorePort, input: StartProviderAttemptInput): Promise<StoredProviderAttempt> {
   const projectId = requireProjectId(memory);
-  const store = await openProjectRuntimeWorkbenchDatabase({ projectId, workbenchDbPath: memory.workbenchDbPath });
+  const store = await openProjectRuntimeWorkbenchDatabase(memory);
   try {
     const conversation = input.conversationId
       ? store.conversations.readConversation(projectId, input.conversationId)
@@ -104,7 +102,7 @@ export async function resolveCurrentMainAgentProviderThread(
   providerId: string,
 ): Promise<StoredProviderThreadLink> {
   const projectId = requireProjectId(memory);
-  const store = await openProjectRuntimeWorkbenchDatabase({ projectId, workbenchDbPath: memory.workbenchDbPath });
+  const store = await openProjectRuntimeWorkbenchDatabase(memory);
   try {
     const conversation = store.conversations.findConversationForChange(projectId, changeId);
     if (!conversation?.currentGraphScopeId) {
@@ -132,7 +130,7 @@ export async function finishProviderAttempt(
   thread?: { parentThreadId?: string | null; parentAgentSurfaceId?: string | null; displayName?: string | null },
 ): Promise<void> {
   const projectId = requireProjectId(memory);
-  const store = await openProjectRuntimeWorkbenchDatabase({ projectId, workbenchDbPath: memory.workbenchDbPath });
+  const store = await openProjectRuntimeWorkbenchDatabase(memory);
   try {
     const now = new Date().toISOString();
     const attempt = store.providerAttempts.readProviderAttempt(projectId, attemptId);
@@ -181,7 +179,7 @@ export async function rollbackProviderAttempt(
   expectedRoleId: string,
 ): Promise<void> {
   const projectId = requireProjectId(memory);
-  const store = await openProjectRuntimeWorkbenchDatabase({ projectId, workbenchDbPath: memory.workbenchDbPath });
+  const store = await openProjectRuntimeWorkbenchDatabase(memory);
   try {
     store.providerAttempts.deleteProviderAttempt(projectId, attemptId, expectedRoleId);
   } finally {
@@ -190,6 +188,5 @@ export async function rollbackProviderAttempt(
 }
 
 function requireProjectId(memory: ProviderAttemptStorePort): string {
-  if (!memory.projectId) throw new Error("Project id is required to persist provider attempt evidence.");
   return memory.projectId;
 }

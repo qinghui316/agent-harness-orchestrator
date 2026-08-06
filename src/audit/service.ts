@@ -1,17 +1,17 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { getChangeStatus } from "../change/status.js";
-import { resolveRunnableChangeTarget } from "../change/target.js";
 import { buildRoleContextArtifact, buildRoleContextPacket, contextSourceRef } from "../context/packets.js";
-import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole, resolveBundledAgentRole, type AgentRole } from "../agent/catalog.js";
+import { buildAgentSystemPrompt, buildRunAgentRecord, resolveBundledAgentRole, type AgentRole } from "../agent/catalog.js";
 import { writeJsonFile } from "../fs/json.js";
-import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { resolveProjectHarnessAgentInput } from "../project-harness/agent-input.js";
 import {
   projectRunArtifactReference,
+  requireProjectExecutionRuntimePort,
   type ProjectExecutionRuntimePort,
   type ProjectHarnessExecutionPort,
 } from "../project-runtime/execution-ports.js";
+import { resolveProjectActiveExecutionScope } from "../project-runtime/active-execution-scope.js";
 import { defaultProviderRegistry, type ProviderRealtimeEvent, type ProviderTurnResult } from "../provider-runtime/index.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import { getWorktreeMetadataPath } from "../worktree/paths.js";
@@ -61,14 +61,11 @@ export function startAuditRun(project: ManagedProject, options: AuditRunOptions 
 
 async function startAuditRunActivity(project: ManagedProject, options: AuditRunOptions): Promise<AuditRunResult> {
   const projectHarnessInput = await resolveProjectHarnessAgentInput(project, DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY);
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "Audit run");
-  const target = await resolveRunnableChangeTarget(project, { changeId: options.changeId });
-  const changeStatus = target.status;
-  const changeId = target.changeId;
-  const role = await resolveAgentRole(memory, "auditor-agent");
-  const runtime = legacyAuditRuntimePort(project, memory);
-  return startPreparedAuditRun(project, runtime, changeStatus, changeId, role, projectHarnessInput, false, options);
+  const scope = await resolveProjectActiveExecutionScope(project, options.changeId);
+  const changeStatus = scope.harness.changeStatus;
+  const changeId = scope.harness.planning.change.change_id;
+  const role = await resolveBundledAgentRole("auditor-agent");
+  return startPreparedAuditRun(project, scope.runtime, changeStatus, changeId, role, projectHarnessInput, true, options);
 }
 
 export function startSkillNativeAuditRun(
@@ -104,7 +101,7 @@ async function startPreparedAuditRun(
   const artifactReference = projectRunArtifactReference(memory, directory);
   const relativeDir = artifactReference.directory;
   const artifacts = {
-    base: artifactReference.base,
+    owner: artifactReference.owner,
     directory: relativeDir,
     context: `${relativeDir}/context.md`,
     contextPacket: `${relativeDir}/context-packet.json`,
@@ -466,7 +463,7 @@ async function startPreparedAuditRun(
 }
 
 export async function getAuditStatus(project: ManagedProject): Promise<AuditStatusResult> {
-  const memory = await resolveProjectMemory(project);
+  const memory = await requireProjectExecutionRuntimePort(project);
   const changeStatus = await getChangeStatus(project);
   const changeId = changeStatus.change?.id ?? null;
   const audits = (await listAuditResults(memory, changeId ?? undefined)).map(summarizeAudit);
@@ -474,12 +471,12 @@ export async function getAuditStatus(project: ManagedProject): Promise<AuditStat
 }
 
 export async function listAuditSummaries(project: ManagedProject): Promise<AuditSummary[]> {
-  const memory = await resolveProjectMemory(project);
+  const memory = await requireProjectExecutionRuntimePort(project);
   return (await listAuditResults(memory)).map(summarizeAudit);
 }
 
 export async function showAudit(project: ManagedProject, auditId: string): Promise<AuditResult> {
-  const memory = await resolveProjectMemory(project);
+  const memory = await requireProjectExecutionRuntimePort(project);
   return await readAuditResult(memory, auditId);
 }
 
@@ -628,22 +625,4 @@ async function selectedProviderForAudit(memory: ProjectExecutionRuntimePort, pro
     store.close();
   }
   return project.defaultProviderId ? defaultProviderRegistry.get(project.defaultProviderId).id : defaultProviderRegistry.requireOnly().id;
-}
-
-function legacyAuditRuntimePort(
-  project: ManagedProject,
-  memory: Awaited<ReturnType<typeof resolveProjectMemory>>,
-): ProjectExecutionRuntimePort {
-  if (!memory.projectId) throw new Error("Audit run requires a canonical project id.");
-  return {
-    projectId: memory.projectId,
-    projectRoot: project.path,
-    runsRoot: memory.runsRoot,
-    runArtifactRoot: memory.artifactBase === "memory-root" ? memory.memoryRoot : memory.projectRoot,
-    runArtifactBase: memory.artifactBase,
-    workbenchRoot: memory.workbenchRoot,
-    workbenchDbPath: memory.workbenchDbPath,
-    worktreeMetadataRoot: memory.worktreeMetadataRoot,
-    worktreeIndexPath: memory.worktreeIndexPath,
-  };
 }

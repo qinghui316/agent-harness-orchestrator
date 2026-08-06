@@ -1,5 +1,5 @@
-import { getActiveChanges } from "../../ecl/index.js";
-import type { ResolvedMemory, ChangeIndexItem } from "../../types/index.js";
+import type { ProjectHarnessExecutionPort } from "../../project-runtime/execution-ports.js";
+import type { ChangeIndexItem } from "../../types/index.js";
 
 interface WorkbenchActionTargetWithId {
   id: string;
@@ -11,12 +11,12 @@ interface PreparedWorkbenchActionTarget extends WorkbenchActionTargetWithId {
 }
 
 export async function requireActiveChangeTarget(
-  memory: ResolvedMemory,
+  harness: ProjectHarnessExecutionPort,
   changeId: string,
   label: string,
   options: { includeChangeId?: boolean } = {},
 ): Promise<ChangeIndexItem> {
-  const active = await getActiveChanges(memory);
+  const active = harness.changeStatus.activeChanges;
   const target = active.find((item) => item.name === changeId);
   if (target) return target;
   const suffix = options.includeChangeId === false ? "." : `: ${changeId}.`;

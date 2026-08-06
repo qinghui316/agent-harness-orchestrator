@@ -81,6 +81,22 @@ describe("ApplyTransaction restart authorization", () => {
       expect(existsSync(join(getTempDir(), "restart-proof.txt"))).toBe(false);
     });
   }, 120_000);
+
+  it("rejects a forged Run artifact directory before recovery writes source", async () => {
+    await withAhoHome(async () => {
+      const fixture = await createPreparedRecoveryFixture();
+      const runPath = join(fixture.runDirectory, "run.json");
+      const run = JSON.parse(await readFile(runPath, "utf8")) as RunMetadata;
+      run.artifacts.directory = "runs/forged-cross-run";
+      await writeFile(runPath, `${JSON.stringify(run, null, 2)}\n`, "utf8");
+      const headBefore = await getGitCommit(getTempDir());
+
+      await expect(recoverPendingApplyTransactions(project())).rejects.toThrow(/artifact directory mismatch/i);
+      expect(await getGitCommit(getTempDir())).toBe(headBefore);
+      expect(await getGitStatusShort(getTempDir())).toEqual([]);
+      expect(existsSync(join(getTempDir(), "restart-proof.txt"))).toBe(false);
+    });
+  }, 120_000);
 });
 
 async function createPreparedRecoveryFixture(options: { claimExpired?: boolean } = {}) {
@@ -140,7 +156,7 @@ async function createPreparedRecoveryFixture(options: { claimExpired?: boolean }
     startedAt: new Date().toISOString(),
     finishedAt: null,
     artifacts: {
-      base: memory.runArtifactBase,
+      owner: memory.runArtifactOwner,
       directory: relativeDir,
       context: `${relativeDir}/context.md`,
       events: `${relativeDir}/events.jsonl`,
@@ -197,6 +213,7 @@ async function createPreparedRecoveryFixture(options: { claimExpired?: boolean }
     authorizationEpoch: authorization.epoch,
     snapshot,
     operationId: claim.operationId,
+    runDirectory: directory,
     transactionPath,
   };
 }

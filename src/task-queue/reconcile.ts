@@ -1,5 +1,5 @@
 import { listAuditResults } from "../audit/artifacts.js";
-import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
+import { requireProjectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
 import { listRuns } from "../run/manager.js";
 import { isActiveTaskRunStatus, listTaskRuns, listWorkerLeases } from "../task-run/manager.js";
 import { listValidationResults } from "../validation/artifacts.js";
@@ -11,8 +11,7 @@ import { finishTaskQueueItem, pauseTaskQueue, requeueTaskQueueItemAfterInterrupt
 import { listTaskQueueItems, listTaskQueues, readTaskQueueRun } from "./repository.js";
 
 export async function reconcileTaskQueues(project: ManagedProject, options: TaskQueueReconcileOptions): Promise<{ queues: TaskQueueRun[]; items: TaskQueueItem[] }> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "TaskQueue reconcile");
+  const memory = await requireProjectExecutionRuntimePort(project);
   return reconcileTaskQueuesFromRuntime(memory, options);
 }
 

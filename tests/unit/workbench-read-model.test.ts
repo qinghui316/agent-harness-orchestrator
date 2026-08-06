@@ -219,11 +219,12 @@ describe("workbench read-model projections", () => {
   it("returns a ready empty snapshot before the first Conversation", async () => {
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() });
 
-    expect(snapshot.memory).toMatchObject({
+    expect(snapshot.harness).toMatchObject({
       kind: "project-skill",
       harnessReady: true,
       projectId: project().id,
     });
+    expect(snapshot).not.toHaveProperty("memory");
     expect(snapshot.center.selectedTopic).toBeNull();
     expect(snapshot.center.workpad).toMatchObject({
       state: "empty",
@@ -251,7 +252,7 @@ describe("workbench read-model projections", () => {
     expect(existsSync(skillNativeChangeRoot(skillNativeFixture, conversation.conversationId))).toBe(false);
   });
 
-  it("keeps Skill-native apply and blocking evidence in the approvals API", async () => {
+  it("keeps Skill-native apply evidence and projects the applied result into landing readiness", async () => {
     const applyRoot = join(getTempDir(), "approval-api-project");
     await mkdir(applyRoot, { recursive: true });
     await initGitRepository(applyRoot);
@@ -315,6 +316,31 @@ describe("workbench read-model projections", () => {
         action: expect.objectContaining({ actionId: "result.apply", scope: expect.any(Object) }),
       }),
     ]));
+    const applyAction = readySnapshot.right.confirmationQueue.primary?.actions
+      .find((action) => action.action?.actionId === "result.apply")?.action;
+    expect(applyAction).toMatchObject({ actionId: "result.apply" });
+    if (!applyAction) throw new Error("Missing Skill-native result.apply action.");
+
+    await executeWorkbenchAction({ project: ready.project, path: ready.project.path }, {
+      action: applyAction,
+      confirm: true,
+    });
+
+    const appliedSnapshot = await getWorkbenchSnapshot(
+      { project: ready.project, path: ready.project.path },
+      { topicId: ready.conversationId },
+    );
+    expect(appliedSnapshot.center.workpad.nextAction).toMatchObject({ id: "result-terminal" });
+    expect(JSON.stringify(appliedSnapshot.right.confirmationQueue)).not.toContain('"actionId":"result.apply"');
+    expect(appliedSnapshot.right.confirmationQueue.primary).toMatchObject({
+      kind: "landing-readiness",
+      changeId: ready.changeId,
+      worktreeId: ready.worktreeId,
+      primary: true,
+    });
+    expect(appliedSnapshot.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionType: "landing.prepare", worktreeId: ready.worktreeId }),
+    ]));
 
     const blocked = await createConversationChangeFixture(project(), { title: "Approval API Blocked" });
     await writeSkillNativeAcceptedSpecAndTasks(skillNativeFixture, blocked.changeId);
@@ -330,7 +356,7 @@ describe("workbench read-model projections", () => {
         severity: "blocking",
       }),
     ]));
-  });
+  }, 120_000);
 
   it("builds a snapshot without synthesizing a close approval", async () => {
     const topic = await createConversationChangeFixture(project(), { title: "Workbench Smoke" });
@@ -809,16 +835,16 @@ describe("workbench read-model projections", () => {
   it("returns an explicit Skill-native diagnostic snapshot when no project is registered", async () => {
     const snapshot = await getWorkbenchSnapshot({ project: null, path: getTempDir() });
 
-    expect(snapshot.memory).toEqual({
+    expect(snapshot.harness).toEqual({
       kind: "project-skill",
       registered: false,
       managed: false,
-      memoryAvailable: false,
       harnessReady: false,
       runtimeAvailable: false,
       state: "unregistered",
       reason: "Project is not registered; Workbench will not infer project history.",
     });
+    expect(snapshot).not.toHaveProperty("memory");
     expect(snapshot.left.topics).toHaveLength(0);
     expect(snapshot.center.selectedTopic).toBeNull();
     expect(snapshot.center.workpad).toMatchObject({
@@ -951,20 +977,16 @@ describe("workbench read-model projections", () => {
     expect(topic).toMatchObject({ id: created.conversationId, boundChangeId: created.changeId, state: "active" });
   });
 
-  it("does not expose forged active Change metadata in topic summaries or details", async () => {
+  it("hides forged active Change metadata from topics and fails closed on snapshot details", async () => {
     const created = await createConversationChangeFixture(project(), { title: "Scoped Metadata Topic" });
     await writeSkillNativeAcceptedSpecAndTasks(skillNativeFixture, created.changeId);
     await rewriteActiveChangeMetadata(created.changeId, { change_id: "forged-topic", scope: "Forged Topic Title" });
 
-    const topics = await listWorkbenchTopics({ project: project(), path: getTempDir() });
-    expect(topics).toEqual([]);
-    const diagnostic = await getWorkbenchSnapshot(
+    await expect(listWorkbenchTopics({ project: project(), path: getTempDir() })).resolves.toEqual([]);
+    await expect(getWorkbenchSnapshot(
       { project: project(), path: getTempDir() },
       { topicId: created.changeId },
-    );
-    expect(diagnostic.center.selectedTopic).toBeNull();
-    expect(diagnostic.center.workpad.state).toBe("diagnostic");
-    expect(JSON.stringify(diagnostic)).not.toContain("Forged Topic Title");
+    )).rejects.toThrow("changes record id does not match its filename");
   });
 
   it("keeps valid archived topic lookup scoped by archived metadata", async () => {

@@ -3,12 +3,12 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { resolveExistingDirectory } from "../fs/path.js";
 import { ProjectRegistryStore } from "../registry/store.js";
-import { auditHarness } from "../harness/audit.js";
-import { assertWritableMemory, resolveMemory } from "../memory/resolver.js";
-import { readProjectMarker } from "../project/marker.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
+import { ProjectRuntimeCoordinator } from "../project-runtime/coordinator.js";
+import { projectExecutionRuntimePort, type ProjectCodeExecutionRuntimePort } from "../project-runtime/execution-ports.js";
 import { getSpecTestStatus } from "../spec-test/manager.js";
 import { printTable } from "./output.js";
-import type { ManagedProject, MemoryMode, ResolvedMemory, SpecTestDriftReport } from "../types/index.js";
+import type { ManagedProject, SpecTestDriftReport } from "../types/index.js";
 
 export interface CliContext {
   store: ProjectRegistryStore;
@@ -31,41 +31,23 @@ export async function resolveManagedProject(store: ProjectRegistryStore, query: 
   if (!project) {
     throw new Error("Project must be registered with `aho project add` before using managed project commands.");
   }
-  const audit = await auditHarness(project.path);
-  if (!audit.managed) {
-    throw new Error("Project must be initialized with `aho harness init` before using change commands.");
-  }
-  if (audit.readiness !== "ready") {
-    throw new Error(`Project Harness is not ready (${audit.readiness}); run \`aho harness audit ${project.id}\`.`);
-  }
+  await runtimeCoordinator(store).requireReady(project);
   return project;
 }
 
-export async function resolveManagedMemoryProject(store: ProjectRegistryStore, query: string, action: string): Promise<{ project: ManagedProject; memory: ResolvedMemory }> {
-  const project = await store.resolveProject(query);
-  if (!project) {
-    throw new Error("Project must be registered with `aho project add` before using worktree commands.");
-  }
-  const marker = await readProjectMarker(project.path);
-  if (!marker) {
-    throw new Error("Project must be initialized with `aho harness init` before using worktree commands.");
-  }
-  const memory = resolveMemory({ ...project, marker });
-  assertWritableMemory(memory, action);
-  return { project, memory };
+export async function resolveManagedRuntimeProject(
+  store: ProjectRegistryStore,
+  query: string,
+): Promise<{ project: ManagedProject; runtime: ProjectCodeExecutionRuntimePort }> {
+  const project = await resolveManagedProject(store, query);
+  const resolution = await runtimeCoordinator(store).requireReady(project);
+  return { project, runtime: projectExecutionRuntimePort(project, resolution) };
 }
-
 export function openUrl(url: string): void {
   const command = process.platform === "win32" ? "cmd" : process.platform === "darwin" ? "open" : "xdg-open";
   const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
   const child = spawn(command, args, { detached: true, stdio: "ignore" });
   child.unref();
-}
-
-export function parseHarnessInitMemoryMode(input: string | undefined): Exclude<MemoryMode, "remote"> {
-  if (!input || input === "repo-local") return "repo-local";
-  if (input === "external-local") return "external-local";
-  throw new Error("Unsupported harness memory mode. Use `repo-local` or `external-local`.");
 }
 
 export function collectOption(value: string, previous: string[]): string[] {
@@ -112,4 +94,8 @@ export function printSpecTestDrift(report: SpecTestDriftReport): void {
   } else {
     console.log("STRICT: passed");
   }
+}
+
+function runtimeCoordinator(store: ProjectRegistryStore): ProjectRuntimeCoordinator {
+  return new ProjectRuntimeCoordinator({ store, discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY });
 }

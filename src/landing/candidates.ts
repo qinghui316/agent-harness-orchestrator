@@ -1,4 +1,4 @@
-import { resolveProjectMemory } from "../memory/resolver.js";
+import { requireProjectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
 import { listIntegrationChecks } from "../integration-check/repository.js";
 import { listWorktreeStatuses } from "../worktree/manager.js";
 import type { ManagedProject } from "../types/index.js";
@@ -7,8 +7,7 @@ import type { LandingCandidate } from "./types.js";
 import { targetKey } from "./utils.js";
 
 export async function findLandingCandidate(project: ManagedProject): Promise<LandingCandidate | null> {
-  const memory = await resolveProjectMemory(project);
-  if (!memory.supported || !memory.writable) return null;
+  const memory = await requireProjectExecutionRuntimePort(project);
   const packages = await listLandingPackages(memory).catch(() => []);
   const packagedKeys = new Set(packages.map((item) => targetKey(item.target)));
   const checks = await listIntegrationChecks(memory).catch(() => []);

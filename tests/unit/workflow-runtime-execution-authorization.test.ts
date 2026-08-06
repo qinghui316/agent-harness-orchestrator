@@ -2,7 +2,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { ExecutionAuthorizationSnapshot, ResolvedMemory } from "../../src/types/index.js";
+import type { ProjectRunsPathPort } from "../../src/project-runtime/paths.js";
+import type { ExecutionAuthorizationSnapshot } from "../../src/types/index.js";
 import {
   SCOPED_AUTO_EXECUTION_ENABLED,
   appendLocalExecutionAuthorizationTargets,
@@ -27,7 +28,7 @@ const H = "a".repeat(64);
 const H2 = "b".repeat(64);
 const NOW = new Date("2026-07-11T00:00:00.000Z");
 let root = "";
-let memory: ResolvedMemory;
+let memory: ProjectRunsPathPort & { projectId: string };
 
 const snapshot: ExecutionAuthorizationSnapshot = {
   acceptedPlanHash: H,
@@ -42,32 +43,7 @@ const snapshot: ExecutionAuthorizationSnapshot = {
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "aho-execution-authorization-"));
-  memory = {
-    mode: "external-local",
-    supported: true,
-    writable: true,
-    artifactBase: "memory-root",
-    projectId: "project-1",
-    projectRoot: root,
-    markerPath: join(root, "project.json"),
-    agentGuidePath: join(root, "AGENTS.md"),
-    memoryRoot: root,
-    docsRoot: join(root, "docs"),
-    harnessRoot: join(root, "harness"),
-    changesRoot: join(root, "harness", "changes"),
-    evolutionRoot: join(root, "harness", "evolution"),
-    templatesRoot: join(root, "templates"),
-    scriptsRoot: join(root, "scripts"),
-    runsRoot: join(root, "runs"),
-    workbenchRoot: join(root, "workbench"),
-    workbenchDbPath: join(root, "workbench", "workbench.sqlite"),
-    agentsRoot: join(root, "agents"),
-    commandsRoot: join(root, "commands"),
-    agentCatalogPath: join(root, "agents", "catalog.json"),
-    skillsRoot: join(root, "skills"),
-    worktreeMetadataRoot: join(root, "worktrees"),
-    worktreeIndexPath: join(root, "worktrees", "index.json"),
-  };
+  memory = { projectId: "project-1", runsRoot: join(root, "runs") };
 });
 
 afterEach(async () => {

@@ -4,4 +4,3 @@ export * from "./repository.js";
 export * from "./status.js";
 export * from "./item-transitions.js";
 export * from "./reconcile.js";
-export * from "./service.js";

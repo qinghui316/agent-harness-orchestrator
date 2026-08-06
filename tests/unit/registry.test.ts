@@ -31,7 +31,7 @@ describe("ProjectRegistryStore", () => {
   it("creates and reads registered projects", async () => {
     const store = new ProjectRegistryStore(join(tempDir, "home"));
     const projectPath = join(tempDir, "my-project");
-    const project = await store.addProject(projectPath, "My Project");
+    const { project } = await store.registerProject({ path: projectPath, name: "My Project" });
 
     expect(project.id).toBe("my-project");
     expect(project.name).toBe("My Project");
@@ -43,8 +43,8 @@ describe("ProjectRegistryStore", () => {
     const store = new ProjectRegistryStore(join(tempDir, "home"));
     const projectPath = join(tempDir, "repo");
 
-    const first = await store.addProject(projectPath, "Repo");
-    const second = await store.addProject(projectPath, "Repo Again");
+    const first = (await store.registerProject({ path: projectPath, name: "Repo" })).project;
+    const second = (await store.registerProject({ path: projectPath, name: "Repo Again" })).project;
 
     expect(second.id).toBe(first.id);
     expect(await store.listProjects()).toHaveLength(1);
@@ -53,8 +53,8 @@ describe("ProjectRegistryStore", () => {
   it("adds a short hash when ids conflict", async () => {
     const store = new ProjectRegistryStore(join(tempDir, "home"));
 
-    const first = await store.addProject(join(tempDir, "one"), "Repo");
-    const second = await store.addProject(join(tempDir, "two"), "Repo");
+    const first = (await store.registerProject({ path: join(tempDir, "one"), name: "Repo" })).project;
+    const second = (await store.registerProject({ path: join(tempDir, "two"), name: "Repo" })).project;
 
     expect(first.id).toBe("repo");
     expect(second.id).toMatch(/^repo-[a-f0-9]{8}$/);
@@ -65,7 +65,7 @@ describe("ProjectRegistryStore", () => {
     const projectPath = join(tempDir, "repo");
     await mkdir(projectPath, { recursive: true });
     await writeFile(join(projectPath, "keep.txt"), "source stays", "utf8");
-    const project = await store.addProject(projectPath, "Repo");
+    const { project } = await store.registerProject({ path: projectPath, name: "Repo" });
 
     const removed = await store.removeProject(project.id);
 
@@ -92,8 +92,8 @@ describe("ProjectRegistryStore", () => {
   it("keeps same-name projects registered as separate paths", async () => {
     const store = new ProjectRegistryStore(join(tempDir, "home"));
 
-    const first = await store.addProject(join(tempDir, "workspace-a", "src"), "src");
-    const second = await store.addProject(join(tempDir, "workspace-b", "src"), "src");
+    const first = (await store.registerProject({ path: join(tempDir, "workspace-a", "src"), name: "src" })).project;
+    const second = (await store.registerProject({ path: join(tempDir, "workspace-b", "src"), name: "src" })).project;
 
     expect(first.name).toBe("src");
     expect(second.name).toBe("src");
@@ -101,38 +101,28 @@ describe("ProjectRegistryStore", () => {
     expect(await store.listProjects()).toHaveLength(2);
   });
 
-  it("inherits an existing project marker id when registering a managed project", async () => {
+  it("registers an explicitly discovered canonical project id", async () => {
     const store = new ProjectRegistryStore(join(tempDir, "home"));
     const projectPath = join(tempDir, "repo");
-    await writeMarker(projectPath, "ahoacc1", "ahoacc1");
 
-    const project = await store.addProject(projectPath);
+    const { project } = await store.registerProject({
+      path: projectPath,
+      name: "repo",
+      projectId: "ahoacc1",
+    });
 
     expect(project.id).toBe("ahoacc1");
     expect(project.name).toBe("repo");
     expect(await store.resolveProject("ahoacc1")).toMatchObject({ path: projectPath });
   });
 
-  it("fails closed when a managed project marker id is already registered to another path", async () => {
+  it("fails closed when a canonical project id is already registered to another path", async () => {
     const store = new ProjectRegistryStore(join(tempDir, "home"));
     const firstPath = join(tempDir, "one");
     const secondPath = join(tempDir, "two");
-    await writeMarker(firstPath, "ahoacc1", "ahoacc1");
-    await writeMarker(secondPath, "ahoacc1", "ahoacc1");
-    await store.addProject(firstPath);
+    await store.registerProject({ path: firstPath, name: "one", projectId: "ahoacc1" });
 
-    await expect(store.addProject(secondPath)).rejects.toThrow("Project marker id is already registered");
+    await expect(store.registerProject({ path: secondPath, name: "two", projectId: "ahoacc1" }))
+      .rejects.toThrow("Project id is already registered");
   });
 });
-
-async function writeMarker(projectPath: string, id: string, name: string): Promise<void> {
-  await mkdir(join(projectPath, ".agent-harness"), { recursive: true });
-  await writeFile(join(projectPath, ".agent-harness", "project.json"), JSON.stringify({
-    version: "1.0",
-    id,
-    name,
-    managedBy: "agent-harness-orchestrator",
-    memoryMode: "external-local",
-    createdAt: "2026-06-22T00:00:00.000Z",
-  }, null, 2), "utf8");
-}

@@ -435,10 +435,10 @@ export async function tryBuildSkillNativePlanningSnapshot(input: {
   }
   return {
     project: input.project,
-    memory: status,
+    harness: status,
     left: {
       project: input.project,
-      memory: status,
+      harness: status,
       topics,
       workpads,
       repo: buildRepoSummary(projectStatus),
@@ -682,8 +682,8 @@ async function buildSkillNativeExecutionSnapshot(input: {
   );
   return {
     project: input.project,
-    memory: input.status,
-    left: { project: input.project, memory: input.status, topics, workpads, repo: buildRepoSummary(projectStatus) },
+    harness: input.status,
+    left: { project: input.project, harness: input.status, topics, workpads, repo: buildRepoSummary(projectStatus) },
     center: {
       selectedTopic: topic,
       workpad,
@@ -1371,10 +1371,10 @@ async function buildEmptySkillNativeSnapshot(
   ]);
   return {
     project,
-    memory: status,
+    harness: status,
     left: {
       project,
-      memory: status,
+      harness: status,
       topics: [],
       workpads: [],
       repo: buildRepoSummary(projectStatus),
@@ -1404,7 +1404,6 @@ function projectHarnessStatus(resolution: ProjectRuntimeResolution): WorkbenchPr
     kind: "project-skill",
     registered: true,
     managed: true,
-    memoryAvailable: true,
     harnessReady: true,
     projectId: resolution.harness.projectId,
     skillName: resolution.harness.skillName,

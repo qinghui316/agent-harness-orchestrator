@@ -1,7 +1,7 @@
 ﻿import type { Command } from "commander";
 import { acceptAudit, getAuditStatus, listAuditSummaries, showAudit, startAuditRun } from "../../audit/manager.js";
 import { getCodeStatus, listCodeRuns, showCodeRun, startCodeRun } from "../../code/manager.js";
-import { resolveProjectMemory } from "../../memory/resolver.js";
+import { requireProjectExecutionRuntimePort } from "../../project-runtime/execution-ports.js";
 import { listRuns, readRun, startLocalCommandRun } from "../../run/manager.js";
 import { getSpecTestDriftReport } from "../../spec-test/drift.js";
 import { startSpecTestGenerationRun } from "../../spec-test/generate.js";
@@ -530,7 +530,7 @@ export function installExecutionCommands(program: Command, context: CliContext):
     .option("--json", "print JSON")
     .action(async (query: string, options: { json?: boolean }) => {
       const project = await resolveManagedProject(store, query);
-      const runs = await listRuns(await resolveProjectMemory(project));
+      const runs = await listRuns(await requireProjectExecutionRuntimePort(project));
       if (options.json) printJson(runs);
       else {
         printTable(runs.map((item) => ({
@@ -552,7 +552,7 @@ export function installExecutionCommands(program: Command, context: CliContext):
     .option("--json", "print JSON")
     .action(async (query: string, runId: string, options: { json?: boolean }) => {
       const project = await resolveManagedProject(store, query);
-      const item = await readRun(await resolveProjectMemory(project), runId);
+      const item = await readRun(await requireProjectExecutionRuntimePort(project), runId);
       if (options.json) printJson(item);
       else {
         printTable([

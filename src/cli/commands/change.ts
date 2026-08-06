@@ -1,5 +1,10 @@
 import type { Command } from "commander";
-import { closeChange, createChange, getChangeStatus } from "../../change/manager.js";
+import { getChangeStatus } from "../../change/manager.js";
+import { slugify } from "../../fs/path.js";
+import { createProjectHarnessChange } from "../../project-harness/change.js";
+import { resolveProjectHarnessRegistryContext } from "../../project-harness/registry.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../provider-runtime/project-harness-discovery.js";
+import { resolveProjectRuntimeState } from "../../project-runtime/coordinator.js";
 import { printJson, printTable } from "../output.js";
 import { resolveManagedProject, type CliContext } from "../context.js";
 
@@ -15,11 +20,21 @@ export function installChangeCommands(program: Command, context: CliContext): vo
     .option("--json", "print JSON")
     .action(async (query: string, options: { title: string; body?: string; json?: boolean }) => {
       const project = await resolveManagedProject(store, query);
-      const result = await createChange(project, { title: options.title, body: options.body });
+      const state = await resolveProjectRuntimeState(project, { discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY });
+      if (state.state !== "ready") throw new Error(`Project Harness is not ready for Change creation: ${state.state}.`);
+      const context = await resolveProjectHarnessRegistryContext({
+        projectId: state.resolution.harness.projectId,
+        projectRoot: state.resolution.projectRoot,
+        skillRoot: state.resolution.harness.skillRoot,
+      });
+      const result = await createProjectHarnessChange(context, {
+        changeId: slugify(options.title),
+        scope: options.body?.trim() || options.title,
+      });
       if (options.json) printJson(result);
       else {
-        console.log(`Created change ${result.change.id} at ${result.path}`);
-        console.log(`ACs: ${result.acMap.acceptanceCriteria.length}; tasks: ${result.acMap.tasks.length}`);
+        console.log(`Created Change ${result.change_id} in the project Harness.`);
+        console.log("Main must still author and accept planning evidence before execution.");
       }
     });
 
@@ -47,17 +62,5 @@ export function installChangeCommands(program: Command, context: CliContext): vo
         for (const warning of status.closeGate.warnings) console.log(`WARNING: ${warning}`);
       }
     });
-
-  change
-    .command("close")
-    .argument("<project>", "registered project id/name/path")
-    .option("--json", "print JSON")
-    .action(async (query: string, options: { json?: boolean }) => {
-      const project = await resolveManagedProject(store, query);
-      const result = await closeChange(project);
-      if (options.json) printJson(result);
-      else console.log(`Archived change ${result.change.id} at ${result.archivePath}`);
-    });
-
 
 }

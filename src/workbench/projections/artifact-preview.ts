@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs";
 import { open, readFile, stat } from "node:fs/promises";
-import { relative, resolve } from "node:path";
+import { relative } from "node:path";
+import { resolveWithinPhysicalRoot } from "../../project-harness/path-safety.js";
+import { assertRunArtifactDirectory } from "../../run/artifact-paths.js";
 import type { RunMetadata } from "../../types/index.js";
 import type { WorkbenchArtifactPreview } from "../artifact-types.js";
 export type { WorkbenchArtifactPreview } from "../artifact-types.js";
@@ -12,10 +14,11 @@ export async function summarizeRunArtifacts(
   const diagnostics: string[] = [];
   const warnings: string[] = [];
   const artifacts: WorkbenchArtifactPreview[] = [];
-  const baseRoot = run.artifacts.base === "memory-root" ? roots.runArtifactRoot : roots.projectRoot;
-  const runDirectory = resolve(baseRoot, run.artifacts.directory);
+  const baseRoot = run.artifacts.owner === "project-source" ? roots.projectRoot : roots.runArtifactRoot;
+  const runArtifactDirectory = assertRunArtifactDirectory(run);
+  const runDirectory = await resolveWithinPhysicalRoot(baseRoot, runArtifactDirectory, "Run artifact directory");
   const known = Object.entries(run.artifacts)
-    .filter(([key, value]) => key !== "base" && key !== "directory" && typeof value === "string") as Array<[string, string]>;
+    .filter(([key, value]) => key !== "owner" && key !== "directory" && typeof value === "string") as Array<[string, string]>;
   const extraKnown = ["provider-events.jsonl", "last-message.md", "diff.patch", "diff-stat.txt", "validation.json", "audit.json", "audit.md", "implementation.md"];
 
   for (const [key, artifactPath] of known) {
@@ -35,17 +38,15 @@ export async function summarizeRunArtifacts(
 }
 
 async function summarizeArtifact(key: string, artifactPath: string, baseRoot: string, runDirectory: string, diagnostics: string[], includeMissing = true): Promise<WorkbenchArtifactPreview> {
-  const absolutePath = resolve(baseRoot, artifactPath);
   const base: WorkbenchArtifactPreview = {
     key,
     path: artifactPath,
     kind: artifactKind(key, artifactPath),
     exists: false,
   };
+  const absolutePath = await resolveWithinPhysicalRoot(baseRoot, artifactPath, `Run artifact ${key}`);
   if (!isWithinDirectory(absolutePath, runDirectory)) {
-    const diagnostic = `Artifact ${key} is outside the run directory and was not read.`;
-    diagnostics.push(diagnostic);
-    return { ...base, diagnostic };
+    throw new Error(`Artifact ${key} is outside the run directory: ${artifactPath}`);
   }
   if (!existsSync(absolutePath)) {
     if (includeMissing) diagnostics.push(`Artifact ${key} is missing: ${artifactPath}`);

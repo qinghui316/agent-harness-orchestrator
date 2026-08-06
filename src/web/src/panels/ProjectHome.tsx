@@ -86,8 +86,7 @@ export function ProjectReadinessHome({
   const [submitting, setSubmitting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const lastResetToken = useRef(resetToken);
-  const historyUnavailable = project.managed && project.memory?.memoryAvailable === false;
-  const canStartDemand = project.pathExists && !historyUnavailable;
+  const canStartDemand = project.pathExists;
   const canAttach = canStartDemand;
   const contextSummary = useMemo(() => buildComposerContextSummary({
     skills,

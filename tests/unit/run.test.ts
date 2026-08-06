@@ -1,24 +1,35 @@
-import { mkdir, readFile, rm } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { CodexCompletionTracker } from "../../src/codex/completion.js";
 import { createCodexJsonlStreamParser } from "../../src/codex/jsonl.js";
-import { createChange } from "../../src/change/manager.js";
-import { initHarness } from "../../src/harness/init.js";
-import { resolveProjectMemory } from "../../src/memory/resolver.js";
+import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import { listRuns, readRun, startLocalCommandRun } from "../../src/run/manager.js";
 import { executeProcessStreaming } from "../../src/run/process.js";
 import type { ManagedProject } from "../../src/types/index.js";
+import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
+import { summarizeRunArtifacts } from "../../src/workbench/projections/artifact-preview.js";
+import {
+  prepareSkillNativeWorkbenchFixture,
+  writeSkillNativeAcceptedSpecAndTasks,
+  type SkillNativeWorkbenchFixture,
+} from "../helpers/skill-native-workbench-fixture.js";
 
 let tempDir: string;
+let harnessFixture: SkillNativeWorkbenchFixture;
 
 beforeEach(async () => {
   tempDir = await mkdtemp(join(tmpdir(), "aho-run-"));
+  harnessFixture = await prepareSkillNativeWorkbenchFixture({
+    project: project(tempDir),
+    ahoHome: join(tempDir, "aho-home"),
+  });
 });
 
 afterEach(async () => {
+  harnessFixture.restoreEnvironment();
   await removeTempDir(tempDir);
 });
 
@@ -48,11 +59,10 @@ function project(path: string): ManagedProject {
 
 describe("run manager", () => {
   it("records a completed local command run", async () => {
-    await initHarness(project(tempDir));
-    await createChange(project(tempDir), { title: "Run Evidence" });
+    await activateChange("Run Evidence");
 
     const result = await startLocalCommandRun(project(tempDir), [process.execPath, "-e", "console.log('ok')"]);
-    const runDir = join(tempDir, result.run.artifacts.directory);
+    const runDir = join(resolveProjectRuntimePaths("repo", process.env.AHO_HOME).sidecarRoot, result.run.artifacts.directory);
     const events = (await readFile(join(runDir, "events.jsonl"), "utf8")).trim().split("\n").map((line) => JSON.parse(line));
 
     expect(result.run.status).toBe("completed");
@@ -69,11 +79,10 @@ describe("run manager", () => {
   });
 
   it("records a failed local command run", async () => {
-    await initHarness(project(tempDir));
-    await createChange(project(tempDir), { title: "Failed Run" });
+    await activateChange("Failed Run");
 
     const result = await startLocalCommandRun(project(tempDir), [process.execPath, "-e", "console.error('bad'); process.exit(2)"]);
-    const runDir = join(tempDir, result.run.artifacts.directory);
+    const runDir = join(resolveProjectRuntimePaths("repo", process.env.AHO_HOME).sidecarRoot, result.run.artifacts.directory);
 
     expect(result.run.status).toBe("failed");
     expect(result.run.exitCode).toBe(2);
@@ -81,12 +90,10 @@ describe("run manager", () => {
   });
 
   it("lists and reads recorded runs", async () => {
-    await initHarness(project(tempDir));
-    await createChange(project(tempDir), { title: "List Runs" });
+    await activateChange("List Runs");
     const result = await startLocalCommandRun(project(tempDir), [process.execPath, "-e", ""]);
 
-    const memory = await resolveProjectMemory(project(tempDir));
-    const runPaths = { runsRoot: memory.runsRoot };
+    const runPaths = resolveProjectRuntimePaths("repo", process.env.AHO_HOME);
     const runs = await listRuns(runPaths);
     const read = await readRun(runPaths, result.run.id);
 
@@ -94,12 +101,60 @@ describe("run manager", () => {
     expect(read.id).toBe(result.run.id);
   });
 
+  it("rejects non-portable and mismatched persisted Run identities", async () => {
+    await activateChange("Bound Run Identity");
+    const result = await startLocalCommandRun(project(tempDir), [process.execPath, "-e", ""]);
+    const runPaths = resolveProjectRuntimePaths("repo", process.env.AHO_HOME);
+
+    await expect(readRun(runPaths, "../outside")).rejects.toThrow(/not portable/);
+
+    const metadataPath = join(runPaths.runsRoot, result.run.id, "run.json");
+    const forged = JSON.parse(await readFile(metadataPath, "utf8")) as Record<string, unknown>;
+    forged.id = "run-forged-identity";
+    await writeFile(metadataPath, `${JSON.stringify(forged, null, 2)}\n`, "utf8");
+    await expect(readRun(runPaths, result.run.id)).rejects.toThrow(/identity mismatch/);
+  });
+
+  it("rejects a persisted Run that points at another Run's artifact directory", async () => {
+    await activateChange("Bound Artifact Identity");
+    const first = await startLocalCommandRun(project(tempDir), [process.execPath, "-e", ""]);
+    const second = await startLocalCommandRun(project(tempDir), [process.execPath, "-e", ""]);
+    const runPaths = resolveProjectRuntimePaths("repo", process.env.AHO_HOME);
+    const metadataPath = join(runPaths.runsRoot, first.run.id, "run.json");
+    const forged = JSON.parse(await readFile(metadataPath, "utf8")) as { artifacts: { directory: string } };
+    forged.artifacts.directory = second.run.artifacts.directory;
+    await writeFile(metadataPath, `${JSON.stringify(forged, null, 2)}\n`, "utf8");
+
+    await expect(readRun(runPaths, first.run.id)).rejects.toThrow(/artifact directory mismatch/);
+  });
+
+  it("rejects artifact paths outside their explicit Owner and Run directory", async () => {
+    await activateChange("Bound Run Artifacts");
+    const result = await startLocalCommandRun(project(tempDir), [process.execPath, "-e", ""]);
+    const roots = {
+      projectRoot: tempDir,
+      runArtifactRoot: resolveProjectRuntimePaths("repo", process.env.AHO_HOME).sidecarRoot,
+    };
+
+    await expect(summarizeRunArtifacts(roots, {
+      ...result.run,
+      artifacts: { ...result.run.artifacts, directory: "../outside" },
+    })).rejects.toThrow(/artifact directory mismatch/);
+    await expect(summarizeRunArtifacts(roots, {
+      ...result.run,
+      artifacts: { ...result.run.artifacts, events: join(roots.runArtifactRoot, "events.jsonl") },
+    })).rejects.toThrow(/must be relative/);
+    await expect(summarizeRunArtifacts(roots, {
+      ...result.run,
+      artifacts: { ...result.run.artifacts, events: "runs/another-run/events.jsonl" },
+    })).rejects.toThrow(/outside the run directory/);
+  });
+
   it("blocks run start without exactly one active change", async () => {
-    await initHarness(project(tempDir));
     await expect(startLocalCommandRun(project(tempDir), [process.execPath, "-e", ""])).rejects.toThrow("no active change");
 
-    await mkdir(join(tempDir, "harness", "changes", "active", "one"), { recursive: true });
-    await mkdir(join(tempDir, "harness", "changes", "active", "two"), { recursive: true });
+    await activateChange("One");
+    await activateChange("Two");
     await expect(startLocalCommandRun(project(tempDir), [process.execPath, "-e", ""])).rejects.toThrow("expected exactly one active change");
   });
 
@@ -184,3 +239,9 @@ describe("run manager", () => {
     expect(result.terminationReason).toBe("timeout");
   });
 });
+
+async function activateChange(title: string): Promise<string> {
+  const change = await createConversationChangeFixture(project(tempDir), { title });
+  await writeSkillNativeAcceptedSpecAndTasks(harnessFixture, change.changeId);
+  return change.changeId;
+}

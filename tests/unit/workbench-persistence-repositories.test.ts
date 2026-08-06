@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ProviderCapabilitySnapshot } from "../../src/provider-runtime/index.js";
-import { repoLocalMemory } from "../../src/memory/resolver.js";
-import { openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
+import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
+import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { WorkbenchDatabase } from "../../src/workbench/persistence/database.js";
 import type { StoredTopicMessageWrite } from "../../src/workbench/persistence/contracts.js";
 
@@ -23,7 +23,7 @@ afterEach(async () => {
 
 describe("Workbench persistence owners", () => {
   it("updates a Conversation title only inside the exact project scope", async () => {
-    const database = await openWorkbenchDatabase(repoLocalMemory(root, projectId));
+    const database = await openProjectRuntimeWorkbenchDatabase(runtimePaths());
     try {
       database.conversations.createConversation(conversation("conversation-1"));
       const updated = database.conversations.updateConversationTitle(projectId, "conversation-1", "Renamed", "2026-07-28T00:00:00.000Z");
@@ -39,7 +39,7 @@ describe("Workbench persistence owners", () => {
   });
 
   it("rolls back Conversation creation when the initial canonical item fails", async () => {
-    const database = await openWorkbenchDatabase(repoLocalMemory(root, projectId));
+    const database = await openProjectRuntimeWorkbenchDatabase(runtimePaths());
     try {
       database.unitOfWork.createConversationWithInitialMessage(conversation("conversation-1"), message("shared-message", "conversation-1"));
 
@@ -56,7 +56,7 @@ describe("Workbench persistence owners", () => {
   });
 
   it("rolls back interaction, attempt, and binding terminal state when the turn CAS fails", async () => {
-    const database = await openWorkbenchDatabase(repoLocalMemory(root, projectId));
+    const database = await openProjectRuntimeWorkbenchDatabase(runtimePaths());
     try {
       database.conversations.createConversation(conversation("conversation-1"));
       database.providerAttempts.createProviderAttempt({
@@ -123,7 +123,7 @@ describe("Workbench persistence owners", () => {
   });
 
   it("rolls back provider selection, resume point, and binding when resume attempt creation fails", async () => {
-    const database = await openWorkbenchDatabase(repoLocalMemory(root, projectId));
+    const database = await openProjectRuntimeWorkbenchDatabase(runtimePaths());
     try {
       database.conversations.createConversation({ ...conversation("conversation-1"), selectedProviderId: "alpha" });
       const duplicateAttempt = providerAttempt("resume-attempt", "beta");
@@ -160,7 +160,7 @@ describe("Workbench persistence owners", () => {
   });
 
   it("returns revisioned rows when a graph scope supersedes an interaction and moves its run", async () => {
-    const database = await openWorkbenchDatabase(repoLocalMemory(root, projectId));
+    const database = await openProjectRuntimeWorkbenchDatabase(runtimePaths());
     try {
       database.conversations.createConversation(conversation("conversation-1"));
       database.timeline.appendMessage({
@@ -219,7 +219,7 @@ describe("Workbench persistence owners", () => {
   });
 
   it("rejects a terminal callback after the Conversation advances to another graph", async () => {
-    const database = await openWorkbenchDatabase(repoLocalMemory(root, projectId));
+    const database = await openProjectRuntimeWorkbenchDatabase(runtimePaths());
     try {
       database.conversations.createConversation(conversation("conversation-1"));
       database.providerAttempts.createProviderAttempt({
@@ -294,7 +294,7 @@ describe("Workbench persistence owners", () => {
   });
 
   it("rejects a Planning commit whose expected graph scope is stale", async () => {
-    const database = await openWorkbenchDatabase(repoLocalMemory(root, projectId));
+    const database = await openProjectRuntimeWorkbenchDatabase(runtimePaths());
     try {
       database.conversations.createConversation(conversation("conversation-1"));
       database.unitOfWork.startConversationGraphScope(
@@ -326,7 +326,7 @@ describe("Workbench persistence owners", () => {
   });
 
   it("rejects a Planning commit after its expected Main attempt becomes terminal", async () => {
-    const database = await openWorkbenchDatabase(repoLocalMemory(root, projectId));
+    const database = await openProjectRuntimeWorkbenchDatabase(runtimePaths());
     try {
       database.conversations.createConversation(conversation("conversation-1"));
       database.providerAttempts.createProviderAttempt({
@@ -370,15 +370,15 @@ describe("Workbench persistence owners", () => {
   });
 
   it("runs external reset guards outside the exclusive SQLite transaction", async () => {
-    const memory = repoLocalMemory(root, projectId);
-    const initial = await openWorkbenchDatabase(memory);
+    const paths = runtimePaths();
+    const initial = await openProjectRuntimeWorkbenchDatabase(paths);
     initial.close();
-    const old = new Database(memory.workbenchDbPath);
+    const old = new Database(paths.workbenchDbPath);
     old.pragma("user_version = 2");
     old.close();
 
     let guardObservedTransaction: boolean | null = null;
-    const rebuilt = await WorkbenchDatabase.open(memory, {
+    const rebuilt = await WorkbenchDatabase.open(paths, {
       assertSafe: async (connection) => {
         guardObservedTransaction = connection.inTransaction;
       },
@@ -409,6 +409,10 @@ describe("Workbench persistence owners", () => {
     ]);
   });
 });
+
+function runtimePaths() {
+  return resolveProjectRuntimePaths(projectId, root);
+}
 
 function providerAttempt(attemptId: string, providerId: string) {
   return {

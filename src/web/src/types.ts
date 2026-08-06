@@ -88,16 +88,20 @@ export type ProjectStatus = {
   branch?: string | null;
   dirty?: boolean | null;
   managed: boolean;
-  memory?: {
-    memoryMode: string;
-    memoryAvailable: boolean;
-    harnessReady: boolean;
-    artifactBase: string;
-    registered?: boolean;
-    roots: { memoryRoot: string };
-    unsupportedReason?: string;
+  harness: {
+    projectPath: string;
+    managed: boolean;
+    readiness: "missing" | "partial" | "ready";
+    activeChanges: Array<{ name: string; path: string }>;
+    pendingEvolution: boolean;
+    components: Array<{
+      name: string;
+      path: string;
+      location: "project";
+      exists: boolean;
+      required: boolean;
+    }>;
   };
-  harness: { readiness: string };
 };
 
 export type SkillSourceKind = "custom" | "system-aho" | "provider-native" | "project-harness";
@@ -320,7 +324,7 @@ export type RuntimeActivityLogSnapshot = {
 };
 export type Snapshot = {
   project: { id: string; name: string; path: string } | null;
-  memory: { memoryMode?: string; harnessReady?: boolean; artifactBase?: string };
+  harness: { harnessReady?: boolean };
   left: {
     topics: Topic[];
     workpads?: WorkpadSummary[];

@@ -85,7 +85,7 @@ export async function readLatestSchedulerCurrentTransitionView(
   actionType: string,
   existingEvidence: SchedulerCurrentTransitionExistingEvidence = {},
 ): Promise<SchedulerCurrentTransitionView> {
-  const { run } = await readSchedulerRuntimeLineage(memory, changePath, schedulerRunId);
+  const { run } = await readSchedulerRuntimeLineage(memory, changePath, schedulerRunId, { allowCompleted: true });
   const runtimeState = await readSchedulerRuntimeState(memory, changePath, run.id);
   if (!runtimeState.lastReconcileSnapshotId || !runtimeState.lastClaimReservationId) {
     throw new Error(`${actionType} requires latest reconcile snapshot and claim reservation.`);

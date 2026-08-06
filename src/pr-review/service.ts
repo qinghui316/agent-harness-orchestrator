@@ -5,7 +5,8 @@ import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { promisify } from "node:util";
 import { readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
-import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
+import { requireProjectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
+import type { ProjectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
 import {
   detectRemoteProviderCapability,
   findLatestCreatedPrDraftPackageForChanges,
@@ -27,7 +28,6 @@ import type {
   PrReviewStateSnapshot,
   PrReviewThreadFinding,
   PrReviewThreadResolution,
-  ResolvedMemory,
 } from "../types/index.js";
 import type { ProjectWorkbenchArtifactPathPort } from "../project-runtime/paths.js";
 
@@ -36,8 +36,7 @@ import { stateSnapshotSchema, readinessSchema, handoffSchema, replyDraftSchema, 
 const execFileAsync = promisify(execFile);
 
 export async function preparePrReviewReadiness(project: ManagedProject, landingPackageId: string): Promise<PrReviewReadiness> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "PR review readiness");
+  const memory = await requireProjectExecutionRuntimePort(project);
   const landing = await readLandingPackage(memory, landingPackageId);
   const pkg = await findPrDraftPackageForLanding(memory, landingPackageId)
     ?? await findLatestCreatedPrDraftPackageForChanges(memory, landing.target.changeIds);
@@ -111,8 +110,7 @@ export async function preparePrReviewReadiness(project: ManagedProject, landingP
 }
 
 export async function submitPrForHumanReview(project: ManagedProject, landingPackageId: string): Promise<{ readiness: PrReviewReadiness; handoff: PrReviewHandoff }> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "PR review handoff");
+  const memory = await requireProjectExecutionRuntimePort(project);
   const submitReadiness = await preparePrReviewReadiness(project, landingPackageId);
   if (!submitReadiness.canSubmit || !submitReadiness.prUrl) {
     throw new Error(`Cannot submit PR for review: ${submitReadiness.reason}`);
@@ -156,8 +154,7 @@ export async function preparePrReviewReplyDraft(
   landingPackageId: string,
   input: { changeId?: string; message?: string } = {},
 ): Promise<PrReviewReplyDraft> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "PR review reply draft");
+  const memory = await requireProjectExecutionRuntimePort(project);
   const landing = await readLandingPackage(memory, landingPackageId);
   const pkg = await findPrDraftPackageForLanding(memory, landingPackageId)
     ?? await findLatestCreatedPrDraftPackageForChanges(memory, landing.target.changeIds);
@@ -212,8 +209,7 @@ export async function submitPrReviewReply(
   project: ManagedProject,
   landingPackageId: string,
 ): Promise<{ draft: PrReviewReplyDraft; handoff: PrReviewReplyHandoff }> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "PR review reply submit");
+  const memory = await requireProjectExecutionRuntimePort(project);
   const draft = await latestPrReviewReplyDraftForLanding(memory, landingPackageId);
   if (!draft) throw new Error("No PR review reply draft is available.");
   if (draft.status !== "draft") throw new Error(`PR review reply draft is already ${draft.status}.`);
@@ -257,8 +253,7 @@ export async function resolvePrReviewThread(
   project: ManagedProject,
   landingPackageId: string,
 ): Promise<{ draft: PrReviewReplyDraft; resolution: PrReviewThreadResolution }> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "PR review thread resolve");
+  const memory = await requireProjectExecutionRuntimePort(project);
   const draft = await latestPrReviewReplyDraftForLanding(memory, landingPackageId);
   if (!draft) throw new Error("No PR review reply draft is available.");
   if (!draft.threadId || !draft.canResolveThread) throw new Error("Selected PR review feedback does not expose a resolvable thread.");
@@ -397,7 +392,7 @@ function readinessText(status: PrReviewReadinessStatus, commentsCount: number): 
 }
 
 async function writeReadiness(
-  memory: ResolvedMemory,
+  memory: ProjectExecutionRuntimePort,
   input: {
     now: string;
     landingPackageId: string;
@@ -544,7 +539,7 @@ function inferReplyIntent(message: string): "rework" | "reply" | "pushback" | "c
   return "clarify";
 }
 
-async function updateReplyDraft(memory: ResolvedMemory, draft: PrReviewReplyDraft): Promise<PrReviewReplyDraft> {
+async function updateReplyDraft(memory: ProjectExecutionRuntimePort, draft: PrReviewReplyDraft): Promise<PrReviewReplyDraft> {
   replyDraftSchema.parse(draft);
   const file = join(prReviewRoot(memory), "reply-drafts", draft.id, "pr-review-reply-draft.json");
   await writeJsonFile(file, draft);
@@ -604,8 +599,8 @@ function prReviewRoot(memory: ProjectWorkbenchArtifactPathPort): string {
   return join(memory.workbenchRoot, "pr-review");
 }
 
-function displayArtifactPath(memory: ResolvedMemory, absolutePath: string): string {
-  return `${memory.artifactBase === "memory-root" ? "memory://" : "project://"}${relative(memory.artifactBase === "memory-root" ? memory.memoryRoot : memory.projectRoot, absolutePath).replace(/\\/g, "/")}`;
+function displayArtifactPath(memory: ProjectExecutionRuntimePort, absolutePath: string): string {
+  return `runtime-sidecar://${relative(memory.runArtifactRoot, absolutePath).replace(/\\/g, "/")}`;
 }
 
 function contentHash(content: string): string {

@@ -3,7 +3,6 @@ import { ProjectRegistryStore } from "../registry/store.js";
 import { recoverApplyApprovalReceipts, recoverDiscardApprovalReceipts } from "../apply/manager.js";
 import { recoverIntegrationCheckApprovalReceipts } from "../integration-check/manager.js";
 import { recoverSpecTestApprovalReceipts } from "../spec-test/proposal.js";
-import { recoverChangeCloseTransactions } from "../change/manager.js";
 import type { WorkbenchProjectInput } from "../workbench/read-model-types.js";
 import { TerminalRuntime } from "./terminal/terminal-runtime.js";
 import { handleApi } from "./workbench/api-router.js";
@@ -93,7 +92,6 @@ export async function recoverWorkbenchProjects(
     await recoverIntegrationCheckApprovalReceipts(project, true, reconcileReceipt);
     await recoverDiscardApprovalReceipts(project, true, reconcileReceipt);
     await recoverSpecTestApprovalReceipts(project, reconcileReceipt);
-    await recoverChangeCloseTransactions(project);
   }
 }
 

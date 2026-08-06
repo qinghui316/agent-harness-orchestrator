@@ -5,4 +5,3 @@ export * from "./events.js";
 export * from "./lifecycle-sync.js";
 export * from "./stage-resume.js";
 export * from "./summary.js";
-export * from "./recovery-key.js";

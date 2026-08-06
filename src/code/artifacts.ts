@@ -1,16 +1,9 @@
 ﻿
 import { writeFile } from "node:fs/promises";
-import { relative } from "node:path";
-import { getGitStatusShortIgnoringAhoMemory } from "../project/git.js";
-import type { ResolvedMemory } from "../types/index.js";
-
-export function displayArtifactPath(memory: ResolvedMemory, absolutePath: string): string {
-  const base = memory.artifactBase === "memory-root" ? memory.memoryRoot : memory.projectRoot;
-  return relative(base, absolutePath).replace(/\\/g, "/");
-}
+import { getGitStatusShort } from "../project/git.js";
 
 export async function getSortedSourceStatus(projectPath: string): Promise<string[]> {
-  return (await getGitStatusShortIgnoringAhoMemory(projectPath)).slice().sort();
+  return (await getGitStatusShort(projectPath)).slice().sort();
 }
 
 export async function writeEmptyCodeArtifacts(

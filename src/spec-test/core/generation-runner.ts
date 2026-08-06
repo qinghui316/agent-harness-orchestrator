@@ -7,7 +7,7 @@ import { buildRoleContextArtifact, buildRoleContextPacket, contextSourceRef } fr
 import { writeJsonFile } from "../../fs/json.js";
 import type { ProviderTurnResult } from "../../provider-runtime/index.js";
 import { projectRunArtifactReference } from "../../project-runtime/execution-ports.js";
-import { getGitStatusShortIgnoringAhoMemory } from "../../project/git.js";
+import { getGitStatusShort } from "../../project/git.js";
 import { withProjectWriteLeaseAtPath } from "../../project/project-write-lease.js";
 import { appendRunEvent, buildRunId } from "../../run/manager.js";
 import {
@@ -16,7 +16,7 @@ import {
   rollbackProviderAttempt,
   startProviderAttempt,
 } from "../../workbench/provider-attempts.js";
-import { getTemplateRoot } from "../../template-source/paths.js";
+import { getAgentProfilesRoot } from "../../template-source/paths.js";
 import { getLatestValidationSummary } from "../../validation/repository.js";
 import { createWorktreeWithRuntimePort } from "../../worktree/creation.js";
 import { removeWorktreeUnderLease } from "../../worktree/lifecycle.js";
@@ -99,7 +99,7 @@ async function startSpecTestGenerationRunActivity(project: ManagedProject, optio
   const artifactRoot = projectRunArtifactReference(contextScope.runtime, directory);
   const relativeDir = artifactRoot.directory;
   const artifacts = {
-    base: artifactRoot.base,
+    owner: artifactRoot.owner,
     directory: relativeDir,
     context: `${relativeDir}/context.md`,
     contextPacket: `${relativeDir}/context-packet.json`,
@@ -422,7 +422,7 @@ function selectAcs(items: SpecTestAcStatus[], options: SpecTestGenerateOptions):
 }
 
 async function readBundledGeneratorProfile(): Promise<string> {
-  return await readFile(join(getTemplateRoot(), "..", "agent-profiles", "spec-test-generator.md"), "utf8");
+  return await readFile(join(getAgentProfilesRoot(), "spec-test-generator.md"), "utf8");
 }
 
 function isAllowedSpecTestPath(path: string): boolean {
@@ -555,7 +555,7 @@ function extractModifiedFilesFromDiff(diff: string): string[] {
 }
 
 async function getSortedSourceStatus(projectPath: string): Promise<string[]> {
-  return (await getGitStatusShortIgnoringAhoMemory(projectPath)).slice().sort();
+  return (await getGitStatusShort(projectPath)).slice().sort();
 }
 
 function failedProviderTurn(providerId: string, error: unknown): ProviderTurnResult {

@@ -1,12 +1,12 @@
 import { shortHash } from "../fs/path.js";
-import { resolveProjectMemory } from "../memory/resolver.js";
+import { resolveProjectActiveExecutionScope } from "../project-runtime/active-execution-scope.js";
+import type { ProjectCodeExecutionRuntimePort } from "../project-runtime/execution-ports.js";
 import type { CodeExecutionGateOptions } from "../code/manager.js";
 import type {
   DefaultCodeChangeWorkflowNodeId,
   DefaultCodeChangeWorkflowNodeState,
   DefaultCodeChangeWorkflowRun,
   ManagedProject,
-  ResolvedMemory,
 } from "../types/index.js";
 import type { WorkflowRuntimeDecision, WorkflowRuntimeExecutionState } from "./execution-contract.js";
 import {
@@ -58,11 +58,11 @@ export interface DefaultCodeChangeWorkflowResult {
 }
 
 export interface HarnessWorkflowRunEngineServices {
-  resolveMemory(project: ManagedProject): Promise<ResolvedMemory>;
-  writeRun(memory: ResolvedMemory, run: DefaultCodeChangeWorkflowRun): Promise<DefaultCodeChangeWorkflowRun>;
-  updateRun(memory: ResolvedMemory, run: DefaultCodeChangeWorkflowRun): Promise<DefaultCodeChangeWorkflowRun>;
+  resolveRuntime(project: ManagedProject, changeId: string): Promise<ProjectCodeExecutionRuntimePort>;
+  writeRun(memory: ProjectCodeExecutionRuntimePort, run: DefaultCodeChangeWorkflowRun): Promise<DefaultCodeChangeWorkflowRun>;
+  updateRun(memory: ProjectCodeExecutionRuntimePort, run: DefaultCodeChangeWorkflowRun): Promise<DefaultCodeChangeWorkflowRun>;
   appendEvent(
-    memory: ResolvedMemory,
+    memory: ProjectCodeExecutionRuntimePort,
     run: DefaultCodeChangeWorkflowRun,
     type: "workflow.created" | "workflow.started" | "node.started" | "node.completed" | "node.failed" | "node.blocked" | "workflow.completed" | "workflow.failed" | "workflow.blocked",
     input?: { status?: string; reason?: string; data?: Record<string, unknown> },
@@ -78,7 +78,7 @@ type DelegateDecision<RoleId extends "coder-agent" | "validator" | "auditor-agen
 
 interface LeafInput {
   project: ManagedProject;
-  memory: ResolvedMemory;
+  memory: ProjectCodeExecutionRuntimePort;
   changeId: string;
   prompt?: string;
   live?: WorkflowRuntimeLiveSink;
@@ -91,7 +91,7 @@ const DEFAULT_TEMPLATE_ID = "default-code-change-workflow" as const;
 const MAX_REWORK_ATTEMPTS = 1;
 
 export const defaultHarnessWorkflowRunEngineServices: HarnessWorkflowRunEngineServices = {
-  resolveMemory: resolveProjectMemory,
+  resolveRuntime: async (project, changeId) => (await resolveProjectActiveExecutionScope(project, changeId)).runtime,
   writeRun: async (memory, run) => writeWorkflowRun(memory, run) as Promise<DefaultCodeChangeWorkflowRun>,
   updateRun: async (memory, run) => updateWorkflowRun(memory, run) as Promise<DefaultCodeChangeWorkflowRun>,
   appendEvent: appendWorkflowRunEvent,
@@ -105,7 +105,7 @@ export class HarnessWorkflowRunEngine {
   constructor(private readonly services: HarnessWorkflowRunEngineServices = defaultHarnessWorkflowRunEngineServices) {}
 
   async runDefaultCodeChangeWorkflow(input: DefaultCodeChangeWorkflowInput): Promise<DefaultCodeChangeWorkflowResult> {
-    const memory = await this.services.resolveMemory(input.project);
+    const memory = await this.services.resolveRuntime(input.project, input.changeId);
     let workflowRun = await this.createRun(memory, input);
     await this.services.appendEvent(memory, workflowRun, "workflow.started", { data: { templateId: DEFAULT_TEMPLATE_ID } });
     workflowRun = await this.markWorkflowRunning(memory, workflowRun);
@@ -158,7 +158,7 @@ export class HarnessWorkflowRunEngine {
   }
 
   private async runAttempt(
-    memory: ResolvedMemory,
+    memory: ProjectCodeExecutionRuntimePort,
     workflowRun: DefaultCodeChangeWorkflowRun,
     input: DefaultCodeChangeWorkflowInput,
     orchestration: WorkflowRuntimeExecutionState,
@@ -278,7 +278,7 @@ export class HarnessWorkflowRunEngine {
     return { workflowRun, orchestration, attempt };
   }
 
-  private async createRun(memory: ResolvedMemory, input: DefaultCodeChangeWorkflowInput): Promise<DefaultCodeChangeWorkflowRun> {
+  private async createRun(memory: ProjectCodeExecutionRuntimePort, input: DefaultCodeChangeWorkflowInput): Promise<DefaultCodeChangeWorkflowRun> {
     const now = new Date().toISOString();
     const workflowRun: DefaultCodeChangeWorkflowRun = {
       version: "1.0",
@@ -317,12 +317,12 @@ export class HarnessWorkflowRunEngine {
     return saved;
   }
 
-  private async markWorkflowRunning(memory: ResolvedMemory, run: DefaultCodeChangeWorkflowRun): Promise<DefaultCodeChangeWorkflowRun> {
+  private async markWorkflowRunning(memory: ProjectCodeExecutionRuntimePort, run: DefaultCodeChangeWorkflowRun): Promise<DefaultCodeChangeWorkflowRun> {
     const now = new Date().toISOString();
     return this.services.updateRun(memory, { ...run, status: "running", startedAt: run.startedAt ?? now, updatedAt: now });
   }
 
-  private async markRework(memory: ResolvedMemory, run: DefaultCodeChangeWorkflowRun, reason: ReworkReason): Promise<DefaultCodeChangeWorkflowRun> {
+  private async markRework(memory: ProjectCodeExecutionRuntimePort, run: DefaultCodeChangeWorkflowRun, reason: ReworkReason): Promise<DefaultCodeChangeWorkflowRun> {
     const now = new Date().toISOString();
     return this.services.updateRun(memory, {
       ...run,
@@ -335,7 +335,7 @@ export class HarnessWorkflowRunEngine {
   }
 
   private async markNode(
-    memory: ResolvedMemory,
+    memory: ProjectCodeExecutionRuntimePort,
     run: DefaultCodeChangeWorkflowRun,
     nodeId: DefaultCodeChangeWorkflowNodeId,
     status: DefaultCodeChangeWorkflowNodeState["status"],
@@ -358,7 +358,7 @@ export class HarnessWorkflowRunEngine {
     return saved;
   }
 
-  private async markNodeFromCoder(memory: ResolvedMemory, run: DefaultCodeChangeWorkflowRun, nodeId: DefaultCodeChangeWorkflowNodeId, result: WorkflowRuntimeCoderLeafResult): Promise<DefaultCodeChangeWorkflowRun> {
+  private async markNodeFromCoder(memory: ProjectCodeExecutionRuntimePort, run: DefaultCodeChangeWorkflowRun, nodeId: DefaultCodeChangeWorkflowNodeId, result: WorkflowRuntimeCoderLeafResult): Promise<DefaultCodeChangeWorkflowRun> {
     return this.markNode(memory, run, nodeId, result.status === "completed" ? "completed" : "failed", {
       runId: result.code?.run.id,
       worktreeId: result.code?.run.worktree?.worktreeId,
@@ -369,7 +369,7 @@ export class HarnessWorkflowRunEngine {
     });
   }
 
-  private async markNodeFromValidation(memory: ResolvedMemory, run: DefaultCodeChangeWorkflowRun, result: WorkflowRuntimeValidatorLeafResult): Promise<DefaultCodeChangeWorkflowRun> {
+  private async markNodeFromValidation(memory: ProjectCodeExecutionRuntimePort, run: DefaultCodeChangeWorkflowRun, result: WorkflowRuntimeValidatorLeafResult): Promise<DefaultCodeChangeWorkflowRun> {
     return this.markNode(memory, run, "validation", result.status === "completed" ? "completed" : "failed", {
       runId: result.validation?.run.id,
       validationId: result.validation?.validation.id,
@@ -380,7 +380,7 @@ export class HarnessWorkflowRunEngine {
     });
   }
 
-  private async markNodeFromAudit(memory: ResolvedMemory, run: DefaultCodeChangeWorkflowRun, result: WorkflowRuntimeAuditorLeafResult): Promise<DefaultCodeChangeWorkflowRun> {
+  private async markNodeFromAudit(memory: ProjectCodeExecutionRuntimePort, run: DefaultCodeChangeWorkflowRun, result: WorkflowRuntimeAuditorLeafResult): Promise<DefaultCodeChangeWorkflowRun> {
     return this.markNode(memory, run, "audit", result.status === "completed" ? "completed" : "failed", {
       runId: result.audit?.run.id,
       auditId: result.audit?.audit.id,
@@ -392,7 +392,7 @@ export class HarnessWorkflowRunEngine {
   }
 
   private async finish(
-    memory: ResolvedMemory,
+    memory: ProjectCodeExecutionRuntimePort,
     run: DefaultCodeChangeWorkflowRun,
     terminal: TerminalResult,
     attempts: DefaultCodeChangeWorkflowAttempt[],

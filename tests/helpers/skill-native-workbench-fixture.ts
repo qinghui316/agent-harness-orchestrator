@@ -460,7 +460,7 @@ export async function writeSkillNativeCoderRun(
     startedAt: now,
     finishedAt: status === "running" || status === "created" ? null : now,
     artifacts: {
-      base: "memory-root",
+      owner: "runtime-sidecar",
       directory: `runs/${runId}`,
       context: `runs/${runId}/context.md`,
       events: `runs/${runId}/events.jsonl`,

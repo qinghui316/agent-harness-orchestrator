@@ -3,12 +3,15 @@ import { evaluateToolPolicy, highImpactActions } from "../../agent-task/tool-pol
 import { readProjectHarnessPlanningGate } from "../../project-harness/planning-gate-query.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../provider-runtime/project-harness-discovery.js";
 import { resolveProjectRuntimeState } from "../../project-runtime/coordinator.js";
-import { getChangeStatusForChange } from "../../change/manager.js";
-import { resolveProjectMemory } from "../../memory/resolver.js";
+import { resolveProjectActiveExecutionScope } from "../../project-runtime/active-execution-scope.js";
+import type {
+  ProjectExecutionRuntimePort,
+  ProjectHarnessExecutionPort,
+} from "../../project-runtime/execution-ports.js";
 import { latestLandingQueueSnapshot } from "../../landing-queue/manager.js";
 import { listTaskQueues } from "../../task-queue/manager.js";
 import { listTaskRuns } from "../../task-run/manager.js";
-import type { ManagedProject, ResolvedMemory } from "../../types/index.js";
+import type { ManagedProject } from "../../types/index.js";
 import { assertKnownTaskIds, requireSingleTaskId, requireTaskRunId } from "../../workflow-runtime/code-workflow.js";
 import {
   assertWorkflowActionRequiredTargets,
@@ -102,9 +105,12 @@ export async function auditHighImpactWorkflowAction(project: ManagedProject, con
     await recordHighImpactToolAudit(state.resolution.paths, conversationId, changeId, request, live);
     return;
   }
-  const memory = await resolveProjectMemory(project);
-  await assertCurrentHighImpactWorkflowTarget(memory, changeId, request);
-  await recordHighImpactToolAudit(memory, conversationId, changeId, request, live);
+  const scope = await resolveProjectActiveExecutionScope(project, changeId);
+  if (scope.conversationId !== conversationId) {
+    throw new Error(`${request.actionType} Conversation identity is stale.`);
+  }
+  await assertCurrentHighImpactWorkflowTarget(scope.runtime, scope.harness, changeId, request);
+  await recordHighImpactToolAudit(scope.runtime, conversationId, changeId, request, live);
 }
 
 async function recordHighImpactToolAudit(
@@ -146,15 +152,20 @@ async function recordHighImpactToolAudit(
   }
 }
 
-async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, changeId: string, request: WorkbenchWorkflowActionRequest): Promise<void> {
+async function assertCurrentHighImpactWorkflowTarget(
+  memory: ProjectExecutionRuntimePort,
+  harness: ProjectHarnessExecutionPort,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+): Promise<void> {
   if (request.actionType === "code.run") {
-    await requireActiveChangeTarget(memory, changeId, "code.run");
+    await requireActiveChangeTarget(harness, changeId, "code.run");
     if (request.taskIds?.length) {
-      assertKnownTaskIds(await getChangeStatusForChange(memory, changeId), request.taskIds, "code.run");
+      assertKnownTaskIds(harness.changeStatus, request.taskIds, "code.run");
     }
   }
   if (request.actionType === "task.run.start") {
-    assertKnownTaskIds(await getChangeStatusForChange(memory, changeId), [requireSingleTaskId(request.taskIds)], "task.run.start");
+    assertKnownTaskIds(harness.changeStatus, [requireSingleTaskId(request.taskIds)], "task.run.start");
   }
   if (request.actionType === "task.run.retry") {
     const taskRunId = requireTaskRunId(request.taskRunId);

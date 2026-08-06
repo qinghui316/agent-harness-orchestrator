@@ -5,7 +5,6 @@ import { finished } from "node:stream/promises";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
-import type { MemoryMode } from "../types/index.js";
 import { normalizeCodexAppServerNotification, type CodexAppServerRealtimeEvent } from "./app-server-realtime.js";
 import { readCodexNativeCollabConfigStatus, type CodexNativeCollabConfigStatus } from "./trust.js";
 import { agentRoleDisplayName, composeAgentDisplayLabel } from "../agent-display-label.js";
@@ -259,14 +258,6 @@ export function evaluateCodexAppServerCapabilities(help: string | null, spawnErr
     help,
     errors,
   };
-}
-
-export function shouldUseCodexAppServerForMemory(memoryMode: MemoryMode): boolean {
-  return memoryMode !== "external-local";
-}
-
-export function shouldUseCodexAppServerForReadOnlyTurn(_memoryMode: MemoryMode): boolean {
-  return true;
 }
 
 export function extractCodexAppServerPlanText(method: string, params: Record<string, unknown>): string {

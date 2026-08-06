@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { readRequiredJsonFile } from "../fs/json.js";
 import type { ProjectRunsPathPort } from "../project-runtime/paths.js";
 import type { RunMetadata } from "../types/index.js";
+import { assertPortableRunId, assertRunArtifactDirectory } from "./artifact-paths.js";
 import { runMetadataSchema } from "./schemas.js";
 
 export async function listRuns(paths: ProjectRunsPathPort): Promise<RunMetadata[]> {
@@ -20,6 +21,12 @@ export async function listRuns(paths: ProjectRunsPathPort): Promise<RunMetadata[
 }
 
 export async function readRun(paths: ProjectRunsPathPort, runId: string): Promise<RunMetadata> {
+  assertPortableRunId(runId);
   const path = join(paths.runsRoot, runId, "run.json");
-  return await readRequiredJsonFile(path, runMetadataSchema) as RunMetadata;
+  const run = await readRequiredJsonFile(path, runMetadataSchema) as RunMetadata;
+  if (run.id !== runId) {
+    throw new Error(`Run identity mismatch: requested ${runId}, found ${run.id}.`);
+  }
+  assertRunArtifactDirectory(run);
+  return run;
 }

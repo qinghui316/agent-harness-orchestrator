@@ -1,16 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
-import type { ResolvedMemory, WorkflowGraphPlan } from "../types/index.js";
-import { resolveArtifactRef } from "./artifact-refs.js";
-
-export async function hashArtifactRefs(memory: ResolvedMemory, refs: string[]): Promise<Record<string, string>> {
-  const result: Record<string, string> = {};
-  for (const ref of refs) {
-    result[ref] = await hashFile(resolveArtifactRef(memory, ref));
-  }
-  return result;
-}
+import type { WorkflowGraphPlan } from "../types/index.js";
 
 export async function hashFile(path: string): Promise<string> {
   const bytes = await readFile(path);

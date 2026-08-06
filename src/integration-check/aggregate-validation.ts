@@ -4,25 +4,11 @@ import { join } from "node:path";
 import { writeJsonFile } from "../fs/json.js";
 import { gitText } from "../project/git.js";
 import { executeProcessStreaming } from "../run/process.js";
-import type { ResolvedMemory } from "../types/index.js";
 import type { ProjectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
-import { resolveSkillNativeValidationProfile, resolveValidationProfile, type ValidationProfile } from "../validation/profiles.js";
+import { resolveSkillNativeValidationProfile, type ValidationProfile } from "../validation/profiles.js";
 import { prepareWorktreeDependencyBridge } from "../worktree/dependencies.js";
-import { displayArtifactPath, displaySkillNativeArtifactPath } from "./paths.js";
+import { displaySkillNativeArtifactPath } from "./paths.js";
 import type { AggregateValidationResult, AggregateValidationStatus } from "./types.js";
-
-export async function runAggregateValidation(
-  memory: ResolvedMemory,
-  directory: string,
-  checkId: string,
-  checkoutPath: string,
-  shouldRun: boolean,
-): Promise<AggregateValidationResult> {
-  return runAggregateValidationCore(memory, directory, checkId, checkoutPath, shouldRun, {
-    artifactRef: (path) => displayArtifactPath(memory, path),
-    resolveProfile: () => resolveOptionalAggregateProfile(memory),
-  });
-}
 
 export async function runSkillNativeAggregateValidation(
   runtime: ProjectExecutionRuntimePort,
@@ -110,25 +96,10 @@ async function resolveOptionalSkillNativeAggregateProfile(projectRoot: string): 
   }
 }
 
-async function resolveOptionalAggregateProfile(memory: ResolvedMemory): Promise<Awaited<ReturnType<typeof resolveValidationProfile>> | null> {
-  try {
-    return await resolveValidationProfile(memory);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (
-      message.includes("package.json was not found for fallback detection")
-      || message.includes("package.json has none of")
-    ) {
-      return null;
-    }
-    throw error;
-  }
-}
-
 async function runAggregateValidationProfile(
   directory: string,
   checkoutPath: string,
-  commands: Awaited<ReturnType<typeof resolveValidationProfile>>["commands"],
+  commands: ValidationProfile["commands"],
 ): Promise<{ status: AggregateValidationStatus; command: string[]; exitCode: number | null; stdout: string; stderr: string }> {
   const commandsDir = join(directory, "aggregate-validation-commands");
   await mkdir(commandsDir, { recursive: true });

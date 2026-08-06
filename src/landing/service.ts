@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
+import { requireProjectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
 import { getGitCommit } from "../project/git.js";
 import type { ManagedProject } from "../types/index.js";
 import { readLandingPackage, writeLandingArtifacts } from "./repository.js";
@@ -17,8 +17,7 @@ interface ApplyEvidence {
 }
 
 export async function prepareLandingPackage(project: ManagedProject, input: { worktreeId?: string; applyCheckId?: string }): Promise<LandingReadinessPackage> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "Landing readiness");
+  const memory = await requireProjectExecutionRuntimePort(project);
   const source = await collectSourceDiff(project.path);
   const now = new Date().toISOString();
   const target = input.applyCheckId
@@ -73,8 +72,7 @@ export async function prepareLandingPackage(project: ManagedProject, input: { wo
 }
 
 export async function reviewLandingPackage(project: ManagedProject, packageId: string): Promise<LandingReadinessPackage> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "Landing review");
+  const memory = await requireProjectExecutionRuntimePort(project);
   const directory = join(landingRoot(memory), packageId);
   const pkg = await readLandingPackage(memory, packageId);
   const missingChecks = missingChecksForPackage(pkg);

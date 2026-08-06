@@ -6,23 +6,21 @@ import { parseAuditMessage } from "../../src/audit/parser.js";
 import { composeAuditPrompt } from "../../src/audit/prompt.js";
 import { acceptAudit, startAuditRun } from "../../src/audit/manager.js";
 import { listAuditResults, readAuditResult } from "../../src/audit/artifacts.js";
-import { createChange, getChangeStatus } from "../../src/change/manager.js";
+import { getChangeStatus } from "../../src/change/manager.js";
 import { writeJsonFile } from "../../src/fs/json.js";
-import { initHarness } from "../../src/harness/init.js";
-import { repoLocalMemory } from "../../src/memory/resolver.js";
 import type { AuditResult, ManagedProject } from "../../src/types/index.js";
 import type { ValidationResult } from "../../src/types/index.js";
+import type { ProviderCapabilitySnapshot } from "../../src/provider-runtime/contracts.js";
+import { bindProviderAttemptThread, startProviderAttempt } from "../../src/workbench/provider-attempts.js";
+import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
+import {
+  prepareSkillNativeWorkbenchFixture,
+  skillNativeChangeRoot,
+  writeSkillNativeAcceptedSpecAndTasks,
+  type SkillNativeWorkbenchFixture,
+} from "../helpers/skill-native-workbench-fixture.js";
 
 const providerRequire = vi.hoisted(() => vi.fn());
-const projectHarnessAgentInput = vi.hoisted(() => ({
-  identity: { projectId: "repo", skillName: "repo-harness", skillRevision: 27, contentFingerprint: "a".repeat(64) },
-  providerSkillInput: { id: "repo-harness", path: "C:/skills/repo-harness/SKILL.md", contentHash: "b".repeat(64), source: "project-harness" as const, required: true },
-}));
-
-vi.mock("../../src/project-harness/agent-input.js", async (importOriginal) => ({
-  ...await importOriginal<typeof import("../../src/project-harness/agent-input.js")>(),
-  resolveProjectHarnessAgentInput: vi.fn(async () => projectHarnessAgentInput),
-}));
 
 vi.mock("../../src/provider-runtime/index.js", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../src/provider-runtime/index.js")>(),
@@ -34,14 +32,20 @@ vi.mock("../../src/provider-runtime/index.js", async (importOriginal) => ({
 }));
 
 let tempDir: string;
+let fixture: SkillNativeWorkbenchFixture;
 
 beforeEach(async () => {
   tempDir = await mkdtemp(join(tmpdir(), "aho-audit-"));
+  fixture = await prepareSkillNativeWorkbenchFixture({
+    project: project(tempDir),
+    ahoHome: join(tempDir, ".aho-home"),
+  });
   providerRequire.mockReset();
   providerRequire.mockRejectedValue(new Error("The selected provider does not satisfy the auditor capability profile."));
 });
 
 afterEach(async () => {
+  fixture.restoreEnvironment();
   await rm(tempDir, { recursive: true, force: true });
 });
 
@@ -98,7 +102,7 @@ describe("audit parser and prompt", () => {
     expect(prompt).toContain("Use `approved` only when no risk");
     expect(prompt).toContain("Passing validation and other positive evidence belong in the");
     expect(prompt).toContain("Authoritative Audit Packet");
-    expect(prompt).toContain("Do not block only because external-local durable memory is outside the provider working directory.");
+    expect(prompt).toContain("Do not block only because the project Harness or runtime sidecar is outside the provider working directory.");
     expect(prompt).toContain("AC-001");
     expect(prompt).toContain("README.md | 1 +");
     expect(prompt).toContain("Focus on spec drift.");
@@ -107,40 +111,38 @@ describe("audit parser and prompt", () => {
 
 describe("audit close gate", () => {
   it("warns on no or failed audit and blocks explicit blocked audit", async () => {
-    await initHarness(project(tempDir));
-    await createChange(project(tempDir), { title: "Audit Gate" });
-    const changeDir = join(tempDir, "harness", "changes", "active", "audit-gate");
+    const changeId = await activateChange("Audit Gate");
+    const changeDir = skillNativeChangeRoot(fixture, changeId);
     await writeFile(join(changeDir, "reviews", "review.md"), "Status: approved\n", "utf8");
 
     const noAudit = await getChangeStatus(project(tempDir));
     expect(noAudit.closeGate.warnings).toContain("No audit run recorded for this change.");
 
-    await mkdir(join(tempDir, ".agent-harness", "runs", "audit-failed"), { recursive: true });
-    await writeAudit("audit-failed", "audit-gate", "failed");
+    await mkdir(join(fixture.runtime.runsRoot, "audit-failed"), { recursive: true });
+    await writeAudit("audit-failed", changeId, "failed");
     const failed = await getChangeStatus(project(tempDir));
     expect(failed.closeGate.warnings).toContain("Latest audit failed or could not be parsed: audit-failed.");
 
-    await mkdir(join(tempDir, ".agent-harness", "runs", "audit-blocked"), { recursive: true });
-    await writeAudit("audit-blocked", "audit-gate", "blocked", "2099-01-01T00:00:00.000Z");
+    await mkdir(join(fixture.runtime.runsRoot, "audit-blocked"), { recursive: true });
+    await writeAudit("audit-blocked", changeId, "blocked", "2099-01-01T00:00:00.000Z");
     const blocked = await getChangeStatus(project(tempDir));
     expect(blocked.closeGate.blockingIssues).toContain("Latest audit blocked close: audit-blocked.");
   });
 
   it("rejects forged audit evidence on direct read and skips it in list paths", async () => {
-    await initHarness(project(tempDir));
-    await createChange(project(tempDir), { title: "Audit Scope" });
-    const memory = repoLocalMemory(tempDir, "repo");
+    const changeId = await activateChange("Audit Scope");
+    const runtime = fixture.runtime;
 
-    await mkdir(join(tempDir, ".agent-harness", "runs", "audit-good"), { recursive: true });
-    await writeAudit("audit-good", "audit-scope", "approved");
-    await mkdir(join(tempDir, ".agent-harness", "runs", "audit-forged"), { recursive: true });
-    await writeAuditAt("audit-forged", "audit-other-id", "audit-scope", "blocked");
-    await mkdir(join(tempDir, ".agent-harness", "runs", "audit-malformed"), { recursive: true });
-    await writeFile(join(tempDir, ".agent-harness", "runs", "audit-malformed", "audit.json"), "{", "utf8");
+    await mkdir(join(runtime.runsRoot, "audit-good"), { recursive: true });
+    await writeAudit("audit-good", changeId, "approved");
+    await mkdir(join(runtime.runsRoot, "audit-forged"), { recursive: true });
+    await writeAuditAt("audit-forged", "audit-other-id", changeId, "blocked");
+    await mkdir(join(runtime.runsRoot, "audit-malformed"), { recursive: true });
+    await writeFile(join(runtime.runsRoot, "audit-malformed", "audit.json"), "{", "utf8");
 
-    await expect(readAuditResult(memory, "audit-forged")).rejects.toThrow("does not match run directory");
-    await expect(readAuditResult(memory, "audit-good", { changeId: "other-change" })).rejects.toThrow("does not match requested change");
-    const listed = await listAuditResults(memory, "audit-scope");
+    await expect(readAuditResult(runtime, "audit-forged")).rejects.toThrow("does not match run directory");
+    await expect(readAuditResult(runtime, "audit-good", { changeId: "other-change" })).rejects.toThrow("does not match requested change");
+    const listed = await listAuditResults(runtime, changeId);
     expect(listed.map((item) => item.id)).toEqual(["audit-good"]);
 
     const status = await getChangeStatus(project(tempDir));
@@ -148,27 +150,25 @@ describe("audit close gate", () => {
   });
 
   it("rejects audit acceptance when referenced validation evidence is missing or cross-change", async () => {
-    await initHarness(project(tempDir));
-    await createChange(project(tempDir), { title: "Audit Accept Scope" });
-    const changeDir = join(tempDir, "harness", "changes", "active", "audit-accept-scope");
+    const changeId = await activateChange("Audit Accept Scope");
+    const changeDir = skillNativeChangeRoot(fixture, changeId);
     await writeFile(join(changeDir, "reviews", "review.md"), "Status: approved\n", "utf8");
-    await mkdir(join(tempDir, ".agent-harness", "runs", "audit-with-missing-validation"), { recursive: true });
-    await writeAudit("audit-with-missing-validation", "audit-accept-scope", "approved", "2026-01-01T00:00:00.000Z", "missing-validation");
+    await mkdir(join(fixture.runtime.runsRoot, "audit-with-missing-validation"), { recursive: true });
+    await writeAudit("audit-with-missing-validation", changeId, "approved", "2026-01-01T00:00:00.000Z", "missing-validation");
     await expect(acceptAudit(project(tempDir), "audit-with-missing-validation")).rejects.toThrow();
 
-    await mkdir(join(tempDir, ".agent-harness", "runs", "cross-validation"), { recursive: true });
+    await mkdir(join(fixture.runtime.runsRoot, "cross-validation"), { recursive: true });
     await writeValidation("cross-validation", "other-change", "passed");
-    await mkdir(join(tempDir, ".agent-harness", "runs", "audit-with-cross-validation"), { recursive: true });
-    await writeAudit("audit-with-cross-validation", "audit-accept-scope", "approved", "2026-01-02T00:00:00.000Z", "cross-validation");
+    await mkdir(join(fixture.runtime.runsRoot, "audit-with-cross-validation"), { recursive: true });
+    await writeAudit("audit-with-cross-validation", changeId, "approved", "2026-01-02T00:00:00.000Z", "cross-validation");
     await expect(acceptAudit(project(tempDir), "audit-with-cross-validation")).rejects.toThrow("does not match requested change");
   });
 
   it("records runtime continuity sidecars for direct audit capability failures", async () => {
-    await initHarness(project(tempDir));
-    await createChange(project(tempDir), { title: "Audit Runtime Continuity" });
+    const changeId = await activateChange("Audit Runtime Continuity");
 
     const result = await startAuditRun(project(tempDir));
-    const runDir = join(tempDir, result.run.artifacts.directory);
+    const runDir = join(fixture.runtime.runArtifactRoot, result.run.artifacts.directory);
     const workerSession = JSON.parse(await readFile(join(runDir, "worker-session.json"), "utf8"));
     const runtimeWorkspace = JSON.parse(await readFile(join(runDir, "runtime-workspace.json"), "utf8"));
     const eventSource = JSON.parse(await readFile(join(runDir, "event-source.json"), "utf8"));
@@ -176,7 +176,7 @@ describe("audit close gate", () => {
 
     expect(result.run.status).toBe("failed");
     expect(result.audit.status).toBe("failed");
-    expect(workerSession).toMatchObject({ adapter: "provider-readonly", changeId: "audit-runtime-continuity", runId: result.run.id, roleId: "auditor-agent", status: "failed" });
+    expect(workerSession).toMatchObject({ adapter: "provider-readonly", changeId, runId: result.run.id, roleId: "auditor-agent", status: "failed" });
     expect(runtimeWorkspace).toMatchObject({ workspaceKind: "source-root", cwd: tempDir, roleId: "auditor-agent" });
     expect(runtimeWorkspace.worktreeId).toBeUndefined();
     expect(eventSource).toMatchObject({ adapter: "provider-readonly", status: "failed", workerSessionId: workerSession.id });
@@ -185,7 +185,7 @@ describe("audit close gate", () => {
       "provider.exited",
       "external-execution.failed",
     ]));
-    expect(agentEvents[0]).toMatchObject({ changeId: "audit-runtime-continuity", runId: result.run.id, roleId: "auditor-agent" });
+    expect(agentEvents[0]).toMatchObject({ changeId, runId: result.run.id, roleId: "auditor-agent" });
     expect(agentEvents[0].raw.changeId).toBeUndefined();
   });
 
@@ -200,10 +200,10 @@ describe("audit close gate", () => {
       changedFiles: [],
     }));
     providerRequire.mockResolvedValue({
-      id: "test-provider",
+      id: "codex",
       displayName: "Test Provider",
       capabilitySnapshot: vi.fn(async () => ({
-        providerId: "test-provider",
+        providerId: "codex",
         displayName: "Test Provider",
         productMode: "harness" as const,
         status: "ready" as const,
@@ -218,14 +218,13 @@ describe("audit close gate", () => {
       })),
       leafExecution: { runTurn },
     });
-    await initHarness(project(tempDir));
-    await createChange(project(tempDir), { title: "Provider Auditor" });
+    await activateChange("Provider Auditor");
 
     const result = await startAuditRun(project(tempDir));
 
-    expect(providerRequire).toHaveBeenCalledWith("test-provider", "auditor", expect.objectContaining({ id: "repo" }), tempDir);
+    expect(providerRequire).toHaveBeenCalledWith("codex", "auditor", expect.objectContaining({ id: "repo" }), tempDir);
     expect(runTurn).toHaveBeenCalledWith(expect.objectContaining({
-      providerId: "test-provider",
+      providerId: "codex",
       operationProfile: "auditor",
       roleId: "auditor-agent",
       cwd: tempDir,
@@ -238,14 +237,13 @@ describe("audit close gate", () => {
   });
 
   it("binds scheduler audit to the explicitly requested validation evidence", async () => {
-    await initHarness(project(tempDir));
-    await createChange(project(tempDir), { title: "Audit Exact Validation" });
-    await writeValidation("validation-old", "audit-exact-validation", "passed", "2026-01-01T00:00:00.000Z");
-    await writeValidation("validation-selected", "audit-exact-validation", "passed", "2026-01-02T00:00:00.000Z");
+    const changeId = await activateChange("Audit Exact Validation");
+    await writeValidation("validation-old", changeId, "passed", "2026-01-01T00:00:00.000Z");
+    await writeValidation("validation-selected", changeId, "passed", "2026-01-02T00:00:00.000Z");
 
     const result = await startAuditRun(project(tempDir), { validationId: "validation-old" });
     expect(result.audit).toMatchObject({
-      changeId: "audit-exact-validation",
+      changeId,
       validationId: "validation-old",
       status: "failed",
     });
@@ -284,12 +282,12 @@ async function writeAuditAt(
     finishedAt: startedAt,
     findings: [],
     artifacts: {
-      audit: `.agent-harness/runs/${id}/audit.json`,
-      auditMarkdown: `.agent-harness/runs/${id}/audit.md`,
-      lastMessage: `.agent-harness/runs/${id}/last-message.md`,
+      audit: `runs/${id}/audit.json`,
+      auditMarkdown: `runs/${id}/audit.md`,
+      lastMessage: `runs/${id}/last-message.md`,
     },
   };
-  await writeJsonFile(join(tempDir, ".agent-harness", "runs", directoryId, "audit.json"), audit);
+  await writeJsonFile(join(fixture.runtime.runsRoot, directoryId, "audit.json"), audit);
 }
 
 async function writeValidation(id: string, changeId: string, status: ValidationResult["status"], startedAt = "2026-01-01T00:00:00.000Z"): Promise<void> {
@@ -305,5 +303,31 @@ async function writeValidation(id: string, changeId: string, status: ValidationR
     finishedAt: startedAt,
     commands: [],
   };
-  await writeJsonFile(join(tempDir, ".agent-harness", "runs", id, "validation.json"), validation);
+  await writeJsonFile(join(fixture.runtime.runsRoot, id, "validation.json"), validation);
+}
+
+async function activateChange(title: string): Promise<string> {
+  const change = await createConversationChangeFixture(project(tempDir), { title });
+  await writeSkillNativeAcceptedSpecAndTasks(fixture, change.changeId);
+  await startProviderAttempt(fixture.runtime, {
+    attemptId: `attempt-main-${change.conversationId}`,
+    providerId: "codex",
+    capabilitySnapshot: {
+      providerId: "codex",
+      effectiveModel: null,
+    } as unknown as ProviderCapabilitySnapshot,
+    operationProfile: "main",
+    roleId: "main-agent",
+    handoffHash: "a".repeat(64),
+    conversationId: change.conversationId,
+    changeId: change.changeId,
+    graphScopeId: `graph:${change.conversationId}`,
+  });
+  await bindProviderAttemptThread(fixture.runtime, {
+    attemptId: `attempt-main-${change.conversationId}`,
+    threadId: `thread-main-${change.conversationId}`,
+    parentThreadId: null,
+    parentAgentSurfaceId: null,
+  });
+  return change.changeId;
 }

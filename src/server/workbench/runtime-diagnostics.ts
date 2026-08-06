@@ -51,20 +51,20 @@ export async function getRuntimeDiagnostics(context: WorkbenchServerContext, pro
           summary: "项目路径不存在或当前无法访问。",
           detail: status.path,
         });
-      } else if (status.memory?.unsupportedReason) {
+      } else if (status.harness.readiness !== "ready") {
         items.push({
-          id: "project:memory-warning",
+          id: "project:harness-warning",
           title: "项目准备状态需要检查",
           status: "warning",
-          summary: "项目工作区准备信息不完整。",
-          detail: status.memory.unsupportedReason,
+          summary: "项目 Harness 尚未完成准备。",
+          detail: `readiness: ${status.harness.readiness}`,
         });
       } else {
         items.push({
           id: "project:ready",
           title: "项目工作区",
           status: "ok",
-          summary: status.memory?.harnessReady ? "项目已准备好。" : "项目可打开，首次需求会根据项目情况建立必要工作说明。",
+          summary: "项目已准备好。",
         });
       }
     } catch (cause) {

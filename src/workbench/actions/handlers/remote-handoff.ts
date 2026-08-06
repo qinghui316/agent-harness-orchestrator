@@ -1,5 +1,5 @@
 ﻿import { completeAgentTask } from "../../../agent-task/manager.js";
-import { resolveProjectMemory } from "../../../memory/resolver.js";
+import { requireProjectExecutionRuntimePort } from "../../../project-runtime/execution-ports.js";
 import { prepareLandingPackage, reviewLandingPackage } from "../../../landing/manager.js";
 import { mergeNextLandingQueueCandidate, prepareLandingQueue, refreshLandingQueue } from "../../../landing-queue/manager.js";
 import { createDraftPr, preparePrDraftPackage, refreshPrDraftStatus } from "../../../pr-draft/manager.js";
@@ -200,7 +200,7 @@ export async function reworkPrFeedbackForAction(
   live: WorkbenchLiveSink | undefined,
 ): Promise<unknown> {
   if (!request.landingPackageId) throw new Error("pr-feedback.rework requires landingPackageId.");
-  const memory = await resolveProjectMemory(project);
+  const memory = await requireProjectExecutionRuntimePort(project);
   const started = await startPrFeedbackReworkAttempt(project, request.landingPackageId, request.prompt, { expectedChangeId: changeId });
   await appendCanonicalTimelineEntry(project, changeId, {
     type: "assistant.message",

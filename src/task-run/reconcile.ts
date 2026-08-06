@@ -1,4 +1,4 @@
-import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
+import { requireProjectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
 import { listRuns } from "../run/manager.js";
 import { listAuditResults } from "../audit/artifacts.js";
 import { listValidationResults } from "../validation/artifacts.js";
@@ -10,8 +10,7 @@ import { listTaskRuns, listWorkerLeases, writeTaskRun } from "./repository.js";
 import type { TaskRunReconcileOptions } from "./types.js";
 
 export async function reconcileTaskRuns(project: ManagedProject, options: TaskRunReconcileOptions): Promise<{ taskRuns: TaskRun[]; workerLeases: WorkerLease[] }> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "TaskRun reconcile");
+  const memory = await requireProjectExecutionRuntimePort(project);
   return reconcileTaskRunsFromRuntime(memory, options);
 }
 

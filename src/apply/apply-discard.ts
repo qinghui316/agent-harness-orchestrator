@@ -24,6 +24,7 @@ import {
   reserveTransitionExecutionCommitPoint,
 } from "../workflow-runtime/execution-authorization.js";
 import { appendRunEvent, buildRunId } from "../run/manager.js";
+import { readRun } from "../run/repository.js";
 import { markWorktreeApplied, removeWorktreeUnderLease, writeWorktreeIndex } from "../worktree/manager.js";
 import { getWorktreeMetadataPath } from "../worktree/paths.js";
 import { readWorktreeMetadata } from "../worktree/repository.js";
@@ -290,7 +291,7 @@ async function applyWorktreeWithLease(
   const relativeDir = displayArtifactPath(runtime, directory);
   const paths = buildApplyPaths(directory);
   const artifacts = {
-    base: runtime.runArtifactBase,
+    owner: runtime.runArtifactOwner,
     directory: relativeDir,
     context: `${relativeDir}/context.md`,
     events: `${relativeDir}/events.jsonl`,
@@ -444,10 +445,13 @@ async function recoverApplyTransaction(
     throw new Error("Existing ApplyTransaction commit mode does not match this retry.");
   }
   const paths = buildApplyPaths(dirname(found.path));
+  await readStrictRunAtPath(paths.run);
   if (transaction.stage === "completed") {
     await reconcileApplyTransitionReceipt(runtime, paths, transaction);
     await advanceAuthorizationSourceAfterApply(project, runtime, transaction);
-    return readCompletedApplyResult(paths);
+    const result = await readCompletedApplyResult(paths);
+    assertCompletedApplyResult(transaction, result);
+    return result;
   }
   await lease.assertCurrent();
   const head = await getGitCommit(project.path);
@@ -504,7 +508,7 @@ async function recoverApplyTransaction(
       appliedCommit: transaction.commitHash ?? undefined,
     });
     await writeJsonFile(paths.apply, apply);
-    const run = await finishRun(paths.run, JSON.parse(await readFile(paths.run, "utf8")) as RunMetadata, "completed", 0);
+    const run = await finishRun(paths.run, await readStrictRunAtPath(paths.run), "completed", 0);
     transaction = await advanceApplyTransaction(paths.transaction, transaction, "evidence-written");
     await reconcileApplyTransitionReceipt(runtime, paths, transaction);
     await advanceAuthorizationSourceAfterApply(project, runtime, transaction);
@@ -722,7 +726,7 @@ async function verifyWorkingTreeMatchesTransaction(projectPath: string, transact
 
 async function readCompletedApplyResult(paths: ReturnType<typeof buildApplyPaths>): Promise<WorktreeApplyResult> {
   return {
-    run: JSON.parse(await readFile(paths.run, "utf8")) as RunMetadata,
+    run: await readStrictRunAtPath(paths.run),
     apply: JSON.parse(await readFile(paths.apply, "utf8")) as WorktreeApplyResult["apply"],
   };
 }
@@ -804,7 +808,7 @@ async function readCompletedDiscardResult(
   paths: ReturnType<typeof buildDiscardPaths>,
 ): Promise<WorktreeDiscardResult> {
   return {
-    run: JSON.parse(await readFile(paths.run, "utf8")) as RunMetadata,
+    run: await readStrictRunAtPath(paths.run),
     discard: JSON.parse(await readFile(paths.discard, "utf8")) as WorktreeDiscardResult["discard"],
   };
 }
@@ -883,7 +887,7 @@ export async function discardWorktree(
     const relativeDir = displayArtifactPath(runtime, directory);
     const paths = buildDiscardPaths(directory);
     const artifacts = {
-      base: runtime.runArtifactBase,
+      owner: runtime.runArtifactOwner,
       directory: relativeDir,
       context: `${relativeDir}/context.md`,
       events: `${relativeDir}/events.jsonl`,
@@ -1030,6 +1034,7 @@ async function recoverDiscardAfterCommit(
   initial: WorktreeDiscardTransaction,
 ): Promise<WorktreeDiscardResult> {
   let transaction = initial;
+  await readStrictRunAtPath(paths.run);
   const binding = transaction.authorization;
   const execution = await readTransitionExecution(runtime, binding.operationId);
   if (!execution.commitPointReservedAt
@@ -1064,7 +1069,7 @@ async function recoverDiscardAfterCommit(
     await writeJsonFile(paths.discard, discard);
     const run = await finishRun(
       paths.run,
-      JSON.parse(await readFile(paths.run, "utf8")) as RunMetadata,
+      await readStrictRunAtPath(paths.run),
       "completed",
       0,
     );
@@ -1091,6 +1096,11 @@ async function recoverDiscardAfterCommit(
     return result;
   }
   throw new Error(`Discard transaction cannot recover from ${transaction.stage}: ${transaction.worktreeId}.`);
+}
+
+async function readStrictRunAtPath(runPath: string): Promise<RunMetadata> {
+  const runDirectory = dirname(runPath);
+  return readRun({ runsRoot: dirname(runDirectory) }, basename(runDirectory));
 }
 
 async function advanceDiscardTransaction(

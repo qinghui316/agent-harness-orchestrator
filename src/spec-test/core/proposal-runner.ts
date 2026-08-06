@@ -16,7 +16,7 @@ import {
   rollbackProviderAttempt,
   startProviderAttempt,
 } from "../../workbench/provider-attempts.js";
-import { getTemplateRoot } from "../../template-source/paths.js";
+import { getAgentProfilesRoot } from "../../template-source/paths.js";
 import { getLatestValidationSummary } from "../../validation/repository.js";
 import { getActiveSpecTestContext, getSpecTestContextForChange, getSpecTestEvidenceFingerprint, getSpecTestStatus, linkSpecTestEvidenceBatch } from "./status.js";
 import { resolveSpecTestProvider } from "./provider.js";
@@ -151,7 +151,7 @@ async function startSpecTestProposalRunActivity(project: ManagedProject, options
   const artifactRoot = projectRunArtifactReference(contextScope.runtime, directory);
   const relativeDir = artifactRoot.directory;
   const artifacts = {
-    base: artifactRoot.base,
+    owner: artifactRoot.owner,
     directory: relativeDir,
     context: `${relativeDir}/context.md`,
     contextPacket: `${relativeDir}/context-packet.json`,
@@ -572,7 +572,7 @@ async function composeSpecTestProposalPrompt(input: {
 }
 
 async function readBundledProposerProfile(): Promise<string> {
-  return await readFile(join(getTemplateRoot(), "..", "agent-profiles", "spec-test-proposer.md"), "utf8");
+  return await readFile(join(getAgentProfilesRoot(), "spec-test-proposer.md"), "utf8");
 }
 
 async function collectTestFileSummary(root: string): Promise<string> {

@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { collectWorktreeDiff } from "../audit/diff.js";
 import { listAuditResults } from "../audit/artifacts.js";
-import { getGitCommit, isGitDirtyIgnoringAhoMemory } from "../project/git.js";
+import { getGitCommit, isGitDirty } from "../project/git.js";
 import { listValidationResults } from "../validation/artifacts.js";
 import { getWorktreeStatus } from "../worktree/manager.js";
 import type { AuditResult, ChangeStatus, ManagedProject, ValidationResult } from "../types/index.js";
@@ -113,7 +113,7 @@ async function evaluateCandidateGateForStatus(
   const blockingIssues: string[] = [];
   if (diff.worktree.status === "applied") blockingIssues.push(`Worktree is already applied: ${worktreeId}.`);
   if (!diff.diff.trim()) blockingIssues.push("Worktree has no diff to apply.");
-  if ((await isGitDirtyIgnoringAhoMemory(project.path)) === true) blockingIssues.push("Source repo has uncommitted changes; apply requires a clean source repo.");
+  if ((await isGitDirty(project.path)) === true) blockingIssues.push("Source repo has uncommitted changes; apply requires a clean source repo.");
   if (sourceHead !== diff.worktree.baseCommit) {
     blockingIssues.push(`Source HEAD drifted from worktree base commit. Expected ${diff.worktree.baseCommit}; found ${sourceHead ?? "unknown"}.`);
   }

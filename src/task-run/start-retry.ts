@@ -1,7 +1,9 @@
 import { resolveRunnableChangeTarget } from "../change/target.js";
-import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import type { ChangeStatus, ManagedProject } from "../types/index.js";
-import type { ProjectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
+import {
+  requireProjectExecutionRuntimePort,
+  type ProjectExecutionRuntimePort,
+} from "../project-runtime/execution-ports.js";
 import { assertNoActiveTaskRun, nextAttempt, normalizeKnownTaskId } from "./guards.js";
 import { createTaskRunWithLease, reclaimTaskRunWithLease } from "./lease-service.js";
 import { listTaskRuns } from "./repository.js";
@@ -9,11 +11,10 @@ import type { TaskRunRetryOptions, TaskRunStartOptions, TaskRunStartResult } fro
 import { acquireWorkbenchRuntimeMutationLock } from "../workbench/schema-rebuild-gate.js";
 
 export async function startTaskRun(project: ManagedProject, options: TaskRunStartOptions): Promise<TaskRunStartResult> {
-  const memory = await resolveProjectMemory(project);
+  const memory = await requireProjectExecutionRuntimePort(project);
   const runtimeLock = await acquireWorkbenchRuntimeMutationLock(memory, "启动 Workflow 模型任务");
   try {
-  assertWritableMemory(memory, "TaskRun start");
-  const target = await resolveRunnableChangeTarget(project, { changeId: options.changeId, allowLegacyActiveFallback: false });
+  const target = await resolveRunnableChangeTarget(project, { changeId: options.changeId });
   const changeStatus = target.status;
   const taskId = normalizeKnownTaskId(changeStatus.acMap?.tasks ?? [], options.taskId);
   const existing = await listTaskRuns(memory, options.changeId);
@@ -54,11 +55,10 @@ export async function startTaskRunFromRuntime(
 }
 
 export async function retryTaskRun(project: ManagedProject, options: TaskRunRetryOptions): Promise<TaskRunStartResult> {
-  const memory = await resolveProjectMemory(project);
+  const memory = await requireProjectExecutionRuntimePort(project);
   const runtimeLock = await acquireWorkbenchRuntimeMutationLock(memory, "重试 Workflow 模型任务");
   try {
-  assertWritableMemory(memory, "TaskRun retry");
-  const target = await resolveRunnableChangeTarget(project, { changeId: options.changeId, allowLegacyActiveFallback: false });
+  const target = await resolveRunnableChangeTarget(project, { changeId: options.changeId });
   const changeStatus = target.status;
   const runs = await listTaskRuns(memory, options.changeId);
   const previous = runs.find((run) => run.id === options.taskRunId);
@@ -105,11 +105,10 @@ export async function retryTaskRunFromRuntime(
 }
 
 export async function resumeInterruptedTaskRun(project: ManagedProject, options: { changeId: string; taskRunId: string }): Promise<TaskRunStartResult> {
-  const memory = await resolveProjectMemory(project);
+  const memory = await requireProjectExecutionRuntimePort(project);
   const runtimeLock = await acquireWorkbenchRuntimeMutationLock(memory, "恢复 Workflow 模型任务");
   try {
-  assertWritableMemory(memory, "TaskRun resume");
-  await resolveRunnableChangeTarget(project, { changeId: options.changeId, allowLegacyActiveFallback: false });
+  await resolveRunnableChangeTarget(project, { changeId: options.changeId });
   const runs = await listTaskRuns(memory, options.changeId);
   const taskRun = runs.find((run) => run.id === options.taskRunId);
   if (!taskRun) throw new Error(`TaskRun not found: ${options.taskRunId}.`);

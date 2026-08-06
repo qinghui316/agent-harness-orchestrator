@@ -3,24 +3,37 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { getWorkbenchSchedulerRunCompletionProjection, getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
-import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { listAgentTasks } from "../../src/agent-task/manager.js";
 import { markWorktreeApplied } from "../../src/worktree/manager.js";
+import { resolveProjectApplyExecutionScope } from "../../src/apply/execution-scope.js";
 import { listTaskQueues } from "../../src/task-queue/manager.js";
 import { listWorkflowRuns } from "../../src/workflow-run/manager.js";
-import { readLatestWorkflowGraphPlan } from "../../src/workflow-artifacts/manager.js";
+import { readLatestWorkflowGraphPlanAt } from "../../src/workflow-artifacts/manager.js";
 import { readSchedulerRuntimeClaimReservation } from "../../src/scheduler-runtime/repository.js";
 import { readSchedulerWorkerPathReadModelsForReservation } from "../../src/scheduler-runtime/worker-path-read-model.js";
 import { readLatestSchedulerCurrentTransitionView } from "../../src/workflow-runtime/scheduler-current-transition-view.js";
-import { execFileAsync, findSchedulerGateAction, getTempDir, prepareSeededSchedulerIntegrationHandoff, project, unwrapWorkflowActionResult } from "../unit/workbench/fixtures.js";
+import {
+  execFileAsync,
+  findSchedulerGateAction,
+  getTempDir,
+  prepareSeededSchedulerIntegrationHandoff,
+  project,
+  resolveFixtureChangeEvidenceRoot,
+  resolveFixtureRuntime,
+  resolveFixtureSchedulerArtifacts,
+  unwrapWorkflowActionResult,
+} from "../unit/workbench/fixtures.js";
 
 describe("workbench scheduler discard completion slow flow", () => {
   it("records discarded SchedulerRun completion after existing IntegrationCheck discard without mutating source", async () => {
     const prepared = await prepareSeededSchedulerIntegrationHandoff("Scheduler Discard Completion Acceptance");
-    const memory = await resolveProjectMemory(project());
-    const changePath = join("harness", "changes", "active", prepared.topic.changeId);
-    const reservation = await readSchedulerRuntimeClaimReservation(memory, changePath, prepared.schedulerRun.id, prepared.claimReservation.id);
-    const workerPaths = await readSchedulerWorkerPathReadModelsForReservation(memory, changePath, prepared.schedulerRun.id, reservation);
+    const runtime = await resolveFixtureRuntime();
+    const changePath = `state/changes/active/${prepared.topic.changeId}`;
+    const changeEvidenceRoot = await resolveFixtureChangeEvidenceRoot(prepared.topic.changeId);
+    const schedulerArtifacts = await resolveFixtureSchedulerArtifacts(prepared.topic.changeId, prepared.schedulerRun.id);
+    await resolveProjectApplyExecutionScope(project(), prepared.refreshedCandidate.readyWorktreeIds[0]!);
+    const reservation = await readSchedulerRuntimeClaimReservation(schedulerArtifacts, changePath, prepared.schedulerRun.id, prepared.claimReservation.id);
+    const workerPaths = await readSchedulerWorkerPathReadModelsForReservation(schedulerArtifacts, changePath, prepared.schedulerRun.id, reservation);
     expect(workerPaths.map((path) => path.status)).toEqual(["audit-approved", "audit-approved"]);
     const moduleABeforeDiscard = await readFile(join(getTempDir(), "src", "module-a.ts"), "utf8");
     const moduleBBeforeDiscard = await readFile(join(getTempDir(), "src", "module-b.ts"), "utf8");
@@ -28,6 +41,14 @@ describe("workbench scheduler discard completion slow flow", () => {
     expect(sourceStatusBeforeDiscard.stdout.trim()).toBe("");
 
     let snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: prepared.topic.changeId });
+    if (!snapshot.right.confirmationQueue.primary) {
+      throw new Error(`Missing IntegrationCheck confirmation: ${JSON.stringify({
+        warnings: snapshot.warnings,
+        selectedTopic: snapshot.center.selectedTopic,
+        nextAction: snapshot.center.workpad.nextAction,
+        confirmations: snapshot.right.confirmationQueue.current,
+      })}`);
+    }
     expect(snapshot.right.confirmationQueue.primary).toMatchObject({
       kind: "integration-apply",
       applyCheckId: prepared.handoff.handoff?.integrationCheckId,
@@ -43,9 +64,17 @@ describe("workbench scheduler discard completion slow flow", () => {
     const sourceStatusAfterDiscard = await execFileAsync("git", ["status", "--short", "--untracked-files=all"], { cwd: getTempDir() });
     expect(sourceStatusAfterDiscard.stdout.trim()).toBe("");
 
-    const afterDiscardMemory = await resolveProjectMemory(project());
-    await expect(readLatestWorkflowGraphPlan(afterDiscardMemory, join("harness", "changes", "active", prepared.topic.changeId))).resolves.toMatchObject({ graphMode: "ready-set-v1" });
-    const transitionView = await readLatestSchedulerCurrentTransitionView(afterDiscardMemory, join("harness", "changes", "active", prepared.topic.changeId), prepared.schedulerRun.id, "slow acceptance");
+    const graph = await readLatestWorkflowGraphPlanAt(changeEvidenceRoot, prepared.topic.changeId);
+    expect(graph).toMatchObject({ graphMode: "ready-set-v1" });
+    if (graph.graphMode !== "ready-set-v1") throw new Error("Expected ready-set graph after discard.");
+    const transitionView = await readLatestSchedulerCurrentTransitionView(
+      schedulerArtifacts,
+      runtime,
+      graph,
+      changePath,
+      prepared.schedulerRun.id,
+      "slow acceptance",
+    );
     if (transitionView.transition.kind !== "integration-outcome") {
       throw new Error(`Unexpected post-discard transition: ${JSON.stringify(transitionView.transition)}`);
     }
@@ -147,6 +176,13 @@ describe("workbench scheduler discard completion slow flow", () => {
       schedulerIntegrationOutcomeId: outcomePayload.outcome?.id,
     });
     snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: prepared.topic.changeId });
+    if (!snapshot.center.workpad.schedulerRunCompletion) {
+      throw new Error(`Snapshot lost Scheduler completion: ${JSON.stringify({
+        warnings: snapshot.warnings,
+        nextAction: snapshot.center.workpad.nextAction,
+        workpad: snapshot.center.workpad,
+      })}`);
+    }
     expect(snapshot.center.workpad.schedulerRunCompletion).toMatchObject({
       id: typedCompletionPayload.completion?.id,
       status: "completed-discarded",
@@ -157,15 +193,13 @@ describe("workbench scheduler discard completion slow flow", () => {
       enabled: false,
       schedulerRunCompletionId: typedCompletionPayload.completion?.id,
     });
-    const terminalMemory = await resolveProjectMemory(project());
     for (const worktreeId of prepared.refreshedCandidate.readyWorktreeIds ?? []) {
-      const applied = await markWorktreeApplied(terminalMemory, worktreeId, {
+      const applied = await markWorktreeApplied(runtime, worktreeId, {
         applyRunId: `test-close-ready-${worktreeId}`,
       });
       expect(applied).toMatchObject({ worktreeId, status: "applied" });
     }
-    const terminalChangePath = join("harness", "changes", "active", prepared.topic.changeId);
-    const terminalChangeDir = join(terminalMemory.memoryRoot, terminalChangePath);
+    const terminalChangeDir = changeEvidenceRoot;
     await writeFile(join(terminalChangeDir, "summary.md"), [
       "# Scheduler Discard Completion Acceptance",
       "",
@@ -190,7 +224,7 @@ describe("workbench scheduler discard completion slow flow", () => {
       mappings: [],
     }, null, 2), "utf8");
     const sourceValidationId = `run-validation-source-close-ready-${Date.now()}`;
-    const sourceValidationDir = join(terminalMemory.runsRoot, sourceValidationId);
+    const sourceValidationDir = join(runtime.runsRoot, sourceValidationId);
     const sourceValidationTime = new Date(Date.now() + 60_000).toISOString();
     await mkdir(sourceValidationDir, { recursive: true });
     await writeFile(join(sourceValidationDir, "validation.json"), JSON.stringify({
@@ -216,9 +250,9 @@ describe("workbench scheduler discard completion slow flow", () => {
     expect(snapshot.right.confirmationQueue.current
       .flatMap((item) => item.actions)
       .filter((action) => action.actionType === "change.close")).toHaveLength(0);
-    expect(await listWorkflowRuns(terminalMemory, prepared.topic.changeId)).toHaveLength(0);
-    expect(await listTaskQueues(terminalMemory, prepared.topic.changeId)).toHaveLength(0);
-    expect(await listAgentTasks(terminalMemory, prepared.topic.changeId)).toHaveLength(0);
+    expect(await listWorkflowRuns(runtime, prepared.topic.changeId)).toHaveLength(0);
+    expect(await listTaskQueues(runtime, prepared.topic.changeId)).toHaveLength(0);
+    expect(await listAgentTasks(runtime, prepared.topic.changeId)).toHaveLength(0);
     const forbiddenSchedulerFollowUpsAfterDiscardCompletion = new Set([
       "planning.scheduler.worker.start-first",
       "planning.scheduler.worker.start-next",

@@ -3,7 +3,6 @@ import type { ProjectRegistryStore } from "../../registry/store.js";
 import type { TerminalRuntime } from "../terminal/terminal-runtime.js";
 import type { WorkbenchApprovalAction, WorkbenchProjectInput } from "../../workbench/read-model-types.js";
 import type { TopicMessageInput, WorkbenchWorkflowActionRequest } from "../../workbench/types.js";
-import type { MemoryMode } from "../../types/index.js";
 import type { ProjectRuntimeCoordinatorPort } from "../../project-runtime/coordinator.js";
 import type { ProviderRegistry } from "../../provider-runtime/registry.js";
 import type { WorkbenchProjectRemovalPort } from "./project-removal.js";
@@ -132,11 +131,6 @@ export interface CreateNewProjectRequest {
   git?: boolean;
   readme?: boolean;
   initialCommit?: boolean;
-  confirm?: boolean;
-}
-
-export interface InitProjectHarnessRequest {
-  memoryMode?: MemoryMode;
   confirm?: boolean;
 }
 

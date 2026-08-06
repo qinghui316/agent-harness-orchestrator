@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { repoLocalMemory } from "../../src/memory/resolver.js";
+import { resolveProjectRuntimePaths, type ProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../src/provider-runtime/project-harness-discovery.js";
 import { resolveProjectRuntime } from "../../src/project-runtime/resolution.js";
 import { agentThreadSurfaceId } from "../../src/provider-runtime/agent-surface-id.js";
@@ -18,7 +18,7 @@ import type {
   CanonicalTimelineEnvelope as WebTimelineEnvelope,
   CanonicalTimelinePage as WebTimelinePage,
 } from "../../src/web/src/types.js";
-import { openProjectRuntimeWorkbenchDatabase, openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
+import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import type { WorkbenchDatabase } from "../../src/workbench/persistence/database.js";
 import { type StoredTopicMessageWrite } from "../../src/workbench/persistence/contracts.js";
 import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
@@ -50,8 +50,8 @@ afterEach(async () => {
 
 describe("canonical Timeline server contract", () => {
   it("allocates immutable positions and mutation revisions transactionally", async () => {
-    const memory = repoLocalMemory(root, projectId);
-    const store = await openWorkbenchDatabase(memory);
+    const memory = runtimePaths();
+    const store = await openProjectRuntimeWorkbenchDatabase(memory);
     try {
       seedConversation(store);
       const main = store.timeline.appendMessage(message("main", "main-agent"));
@@ -100,8 +100,8 @@ describe("canonical Timeline server contract", () => {
   });
 
   it("builds patches from persisted rows and rejects cross-scope cursors", async () => {
-    const memory = repoLocalMemory(root, projectId);
-    const store = await openWorkbenchDatabase(memory);
+    const memory = runtimePaths();
+    const store = await openProjectRuntimeWorkbenchDatabase(memory);
     let persisted;
     try {
       seedConversation(store);
@@ -170,8 +170,8 @@ describe("canonical Timeline server contract", () => {
   });
 
   it("reads page rows, pinned input, and watermark from one store snapshot", async () => {
-    const memory = repoLocalMemory(root, projectId);
-    const store = await openWorkbenchDatabase(memory);
+    const memory = runtimePaths();
+    const store = await openProjectRuntimeWorkbenchDatabase(memory);
     try {
       seedConversation(store);
       store.timeline.appendMessage(message("child-input", "planning-agent", "thread-child", true));
@@ -192,8 +192,8 @@ describe("canonical Timeline server contract", () => {
   });
 
   it("publishes only after persistence and keeps a committed row when publication fails", async () => {
-    const memory = repoLocalMemory(root, projectId);
-    const store = await openWorkbenchDatabase(memory);
+    const memory = runtimePaths();
+    const store = await openProjectRuntimeWorkbenchDatabase(memory);
     try {
       seedConversation(store);
       const published: string[] = [];
@@ -213,8 +213,8 @@ describe("canonical Timeline server contract", () => {
   });
 
   it("upserts one canonical message through repeated revisions without a local identity set", async () => {
-    const memory = repoLocalMemory(root, projectId);
-    const store = await openWorkbenchDatabase(memory);
+    const memory = runtimePaths();
+    const store = await openProjectRuntimeWorkbenchDatabase(memory);
     try {
       seedConversation(store);
       const revisions: number[] = [];
@@ -232,6 +232,10 @@ describe("canonical Timeline server contract", () => {
     }
   });
 });
+
+function runtimePaths(): ProjectRuntimePaths {
+  return resolveProjectRuntimePaths(projectId, root);
+}
 
 function seedConversation(store: WorkbenchDatabase): void {
   store.conversations.createConversation({

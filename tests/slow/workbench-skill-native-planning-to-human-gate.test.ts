@@ -327,7 +327,7 @@ describe("workbench Skill-native planning-to-human-gate flow", () => {
       { project: project(), path: root },
       { topicId: conversation.conversationId },
     );
-    expect(snapshot.memory).toMatchObject({ kind: "project-skill", projectId: project().id });
+    expect(snapshot.harness).toMatchObject({ kind: "project-skill", projectId: project().id });
     expect(snapshot.right.confirmationQueue.current).toHaveLength(1);
     expect(snapshot.right.confirmationQueue.primary).toMatchObject({
       primary: true,

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { git } from "../../src/project/git.js";
+import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import { writeWorktreeIndex } from "../../src/worktree/index.js";
 import {
   getGlobalWorktreeCheckoutRoot,
@@ -10,14 +11,14 @@ import {
   getWorktreeStatus,
   listWorktreeStatuses,
   markWorktreeApplied,
-  removeWorktree,
+  removeWorktreeWithRuntimePort,
 } from "../../src/worktree/manager.js";
 import { prepareWorktreeDependencyBridge } from "../../src/worktree/dependencies.js";
-import { repoLocalMemory } from "../../src/memory/resolver.js";
-import type { ResolvedMemory, WorktreeMetadata } from "../../src/types/index.js";
+import type { WorktreeCreationPort } from "../../src/worktree/paths.js";
+import type { WorktreeMetadata } from "../../src/types/index.js";
 
 let tempDir: string;
-let memory: ResolvedMemory;
+let memory: WorktreeCreationPort;
 let previousAhoHome: string | undefined;
 
 beforeEach(async () => {
@@ -26,7 +27,14 @@ beforeEach(async () => {
   process.env.AHO_HOME = join(tempDir, "aho-home");
   const projectRoot = join(tempDir, "project");
   await mkdir(projectRoot, { recursive: true });
-  memory = repoLocalMemory(projectRoot, "repo");
+  const paths = resolveProjectRuntimePaths("repo", process.env.AHO_HOME);
+  memory = {
+    projectId: "repo",
+    projectRoot,
+    worktreeMetadataRoot: paths.worktreeMetadataRoot,
+    worktreeIndexPath: paths.worktreeIndexPath,
+    projectWriteLeasePath: join(paths.sidecarRoot, "project-write-lease.sqlite"),
+  };
   await mkdir(memory.worktreeMetadataRoot, { recursive: true });
 });
 
@@ -43,7 +51,7 @@ describe("worktree metadata scope", () => {
     await expect(getWorktreeStatus(memory, "wt-file")).rejects.toThrow("Worktree metadata id mismatch");
     await expect(markWorktreeApplied(memory, "wt-file", { applyRunId: "apply-1", worktreeDiffHash: "diff" }))
       .rejects.toThrow("Worktree metadata id mismatch");
-    await expect(removeWorktree(memory, "wt-file", true)).rejects.toThrow("Worktree metadata id mismatch");
+    await expect(removeWorktreeWithRuntimePort(memory, "wt-file", true)).rejects.toThrow("Worktree metadata id mismatch");
     await expect(listWorktreeStatuses(memory)).resolves.toEqual([]);
   });
 

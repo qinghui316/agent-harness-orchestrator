@@ -1,33 +1,28 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { join, relative } from "node:path";
-import { getChangeStatusForChange } from "../change/status.js";
-import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
-import type { AuditResult, ManagedProject, ResolvedMemory } from "../types/index.js";
+import { join } from "node:path";
+import { resolveProjectActiveExecutionScope } from "../project-runtime/active-execution-scope.js";
+import type { AuditResult, ManagedProject } from "../types/index.js";
 import { readValidationResult } from "../validation/repository.js";
 import { readAuditResult } from "./repository.js";
-import type { ProjectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
-import { withProjectHarnessWriterLock } from "../project-harness/writer-lock.js";
+import {
+  requireProjectExecutionRuntimePort,
+  type ProjectExecutionRuntimePort,
+} from "../project-runtime/execution-ports.js";
+import { projectHarnessSharedWriterRoot, withProjectHarnessWriterLock } from "../project-harness/writer-lock.js";
 
 export async function acceptAudit(project: ManagedProject, auditId: string): Promise<{ audit: AuditResult; reviewPath: string }> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "Audit accept");
-  const audit = await readAuditResult(memory, auditId);
-  if (audit.validationId) {
-    await readValidationResult(memory, audit.validationId, { changeId: audit.changeId });
-  }
-  const status = await getChangeStatusForChange(project, audit.changeId);
-  if (!status.change || status.activeChanges.length !== 1) throw new Error(`Cannot accept audit for change ${audit.changeId}: active demand conversation not found.`);
-  if (audit.status !== "approved" && audit.status !== "approved-with-notes") {
-    throw new Error(`Cannot accept audit with status ${audit.status}. Only approved and approved-with-notes can be accepted.`);
-  }
-  const reviewPath = join(memory.memoryRoot, status.activeChanges[0].path, "reviews", "review.md");
-  const auditMarkdownPath = join(memory.runsRoot, audit.runId, "audit.md");
-  const auditMarkdown = existsSync(auditMarkdownPath) ? await readFile(auditMarkdownPath, "utf8") : "";
-  await writeFile(reviewPath, renderAcceptedReview(audit, auditMarkdown), "utf8");
-  return { audit, reviewPath: displayArtifactPath(memory, reviewPath) };
+  const initialRuntime = await requireProjectExecutionRuntimePort(project);
+  const audit = await readAuditResult(initialRuntime, auditId);
+  const scope = await resolveProjectActiveExecutionScope(project, audit.changeId);
+  return acceptSkillNativeAudit({
+    project,
+    runtime: scope.runtime,
+    evidenceRoot: scope.harness.evidenceRoot,
+    writerRoot: projectHarnessSharedWriterRoot(scope.runtime.runArtifactRoot),
+    auditId,
+  });
 }
-
 export async function acceptSkillNativeAudit(input: {
   project: ManagedProject;
   runtime: ProjectExecutionRuntimePort;
@@ -85,9 +80,4 @@ function renderAcceptedReview(audit: AuditResult, auditMarkdown: string): string
     auditMarkdown.trim() || "No audit markdown captured.",
     "",
   ].join("\n");
-}
-
-function displayArtifactPath(memory: ResolvedMemory, absolutePath: string): string {
-  const base = memory.artifactBase === "memory-root" ? memory.memoryRoot : memory.projectRoot;
-  return relative(base, absolutePath).replace(/\\/g, "/");
 }

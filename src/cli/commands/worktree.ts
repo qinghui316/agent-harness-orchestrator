@@ -2,10 +2,9 @@
 import { applyWorktree, discardWorktree, previewWorktreeApply, resolveWorktreeApprovalScope } from "../../apply/manager.js";
 import { auditHighImpactApproval } from "../../workflow-actions/high-impact-approval.js";
 import { getChangeStatus } from "../../change/manager.js";
-import { resolveProjectMemory } from "../../memory/resolver.js";
-import { createWorktree, getWorktreeStatus, listWorktreeStatuses, removeWorktree } from "../../worktree/manager.js";
+import { createWorktreeWithRuntimePort, getWorktreeStatus, listWorktreeStatuses, removeWorktreeWithRuntimePort } from "../../worktree/manager.js";
 import { printJson, printTable } from "../output.js";
-import { resolveManagedMemoryProject, resolveManagedProject, type CliContext } from "../context.js";
+import { resolveManagedRuntimeProject, resolveManagedProject, type CliContext } from "../context.js";
 
 export function installWorktreeCommands(program: Command, context: CliContext): void {
   const { store } = context;
@@ -18,12 +17,12 @@ export function installWorktreeCommands(program: Command, context: CliContext): 
     .option("--json", "print JSON")
     .action(async (query: string, options: { base?: string; json?: boolean }) => {
       const project = await resolveManagedProject(store, query);
-      const memory = await resolveProjectMemory(project);
+      const { runtime } = await resolveManagedRuntimeProject(store, query);
       const status = await getChangeStatus(project);
       if (status.activeChanges.length !== 1 || !status.change) {
         throw new Error("Cannot create worktree: expected exactly one active change.");
       }
-      const result = await createWorktree(project, memory, status.change.id, { baseRef: options.base });
+      const result = await createWorktreeWithRuntimePort(project, runtime, status.change.id, { baseRef: options.base });
       if (options.json) printJson(result);
       else {
         console.log(`Created worktree ${result.metadata.worktreeId}`);
@@ -38,8 +37,8 @@ export function installWorktreeCommands(program: Command, context: CliContext): 
     .argument("<project>", "registered project id/name/path")
     .option("--json", "print JSON")
     .action(async (query: string, options: { json?: boolean }) => {
-      const { memory } = await resolveManagedMemoryProject(store, query, "Worktree list");
-      const items = await listWorktreeStatuses(memory);
+      const { runtime } = await resolveManagedRuntimeProject(store, query);
+      const items = await listWorktreeStatuses(runtime);
       if (options.json) printJson(items);
       else printTable(items.map((item) => ({
         id: item.worktreeId,
@@ -57,8 +56,8 @@ export function installWorktreeCommands(program: Command, context: CliContext): 
     .argument("<worktree-id>", "worktree id")
     .option("--json", "print JSON")
     .action(async (query: string, worktreeId: string, options: { json?: boolean }) => {
-      const { memory } = await resolveManagedMemoryProject(store, query, "Worktree show");
-      const item = await getWorktreeStatus(memory, worktreeId);
+      const { runtime } = await resolveManagedRuntimeProject(store, query);
+      const item = await getWorktreeStatus(runtime, worktreeId);
       if (options.json) printJson(item);
       else printTable([{
         id: item.worktreeId,
@@ -77,8 +76,8 @@ export function installWorktreeCommands(program: Command, context: CliContext): 
     .option("--force", "remove even if the worktree is dirty")
     .option("--json", "print JSON")
     .action(async (query: string, worktreeId: string, options: { force?: boolean; json?: boolean }) => {
-      const { memory } = await resolveManagedMemoryProject(store, query, "Worktree remove");
-      const result = await removeWorktree(memory, worktreeId, options.force === true);
+      const { runtime } = await resolveManagedRuntimeProject(store, query);
+      const result = await removeWorktreeWithRuntimePort(runtime, worktreeId, options.force === true);
       if (options.json) printJson(result);
       else console.log(`Removed worktree ${result.removed.worktreeId}`);
     });

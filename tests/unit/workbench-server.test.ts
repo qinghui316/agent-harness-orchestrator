@@ -1,12 +1,10 @@
 import { existsSync } from "node:fs";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { closeChangeForChange, createChange } from "../../src/change/manager.js";
-import { initHarness } from "../../src/harness/init.js";
 import { ProjectRegistryStore } from "../../src/registry/store.js";
 import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import type { ProjectRuntimeCoordinatorPort } from "../../src/project-runtime/coordinator.js";
@@ -786,7 +784,7 @@ describe("workbench server", () => {
         projectId: string;
         limit: number;
         truncated: boolean;
-        items: Array<{ type: string; title: string; summary: string; details?: string[]; refs: unknown[] }>;
+        items: Array<{ type: string; title: string; summary: string; details?: string[]; refs: Array<{ label: string }> }>;
       }>(
         `${appHandle.url}/api/projects/${addedBody.project.id}/runtime/activity?limit=20`,
       );
@@ -796,6 +794,8 @@ describe("workbench server", () => {
       expect(typeof runtimeActivity.truncated).toBe("boolean");
       expect(runtimeActivity.items.length).toBeGreaterThan(0);
       expect(runtimeActivity.items.some((item) => item.type === "provider" && item.title.includes("Codex"))).toBe(true);
+      const runActivity = runtimeActivity.items.find((item) => item.type === "run");
+      expect(runActivity?.refs.map((ref) => ref.label)).not.toEqual(expect.arrayContaining(["owner", "directory"]));
       expect(JSON.stringify(runtimeActivity)).not.toContain("config.toml");
       expect(JSON.stringify(runtimeActivity)).not.toContain("stdout");
       expect(defaultRuntimeActivityText).not.toContain(tempDir);
@@ -806,9 +806,9 @@ describe("workbench server", () => {
       const init = await fetch(`${appHandle.url}/api/projects/${addedBody.project.id}/harness/init`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ memoryMode: "external-local" }),
+        body: JSON.stringify({}),
       });
-      expect(init.status).toBe(409);
+      expect(init.status).toBe(404);
 
       const created = await fetch(`${appHandle.url}/api/projects/new`, {
         method: "POST",
@@ -854,11 +854,11 @@ describe("workbench server", () => {
       const status = await getJson<{ mode: string; directProjectId: string | null }>(`${directHandle.url}/api/app/status`);
       expect(status).toMatchObject({ mode: "project", directProjectId: "external-repo" });
 
-      const projects = await getJson<{ projects: Array<{ project: { id: string; name: string } | null; memory: { registered: boolean; memoryMode: string; memoryAvailable: boolean; harnessReady: boolean } }> }>(`${directHandle.url}/api/projects`);
+      const projects = await getJson<{ projects: Array<{ project: { id: string; name: string } | null; harness: { managed: boolean; readiness: string } }> }>(`${directHandle.url}/api/projects`);
       expect(projects.projects).toHaveLength(1);
       expect(projects.projects[0]).toMatchObject({
         project: { id: "external-repo", name: "External Repo" },
-        memory: { registered: false },
+        harness: { managed: true, readiness: "ready" },
       });
       expect(await store.listProjects()).toHaveLength(0);
 
@@ -895,11 +895,10 @@ describe("workbench server", () => {
     const directHandle = await startWorkbenchServer({ project: directProject, path: sourceRoot }, { port: 0, staticRoot, store });
     try {
       const snapshot = await getJson<SnapshotResponse & {
-        memory: {
+        harness: {
           kind: string;
           registered: boolean;
           managed: boolean;
-          memoryAvailable: boolean;
           harnessReady: boolean;
           runtimeAvailable: boolean;
           projectId?: string;
@@ -907,11 +906,10 @@ describe("workbench server", () => {
           reason: string;
         };
       }>(`${directHandle.url}/api/projects/missing-skill-repo/workbench/snapshot`);
-      expect(snapshot.memory).toMatchObject({
+      expect(snapshot.harness).toMatchObject({
         kind: "project-skill",
         registered: true,
         managed: true,
-        memoryAvailable: false,
         harnessReady: false,
         runtimeAvailable: true,
         projectId: "missing-skill-repo",
@@ -928,19 +926,33 @@ describe("workbench server", () => {
     }
   });
 
-  it("fails closed when direct marker id is registered to another path", async () => {
+  it("fails closed when a canonical Harness id is registered to another path", async () => {
     const sourceRoot = await mkdtemp(join(tmpdir(), "aho-external-src-"));
     const otherRoot = await mkdtemp(join(tmpdir(), "aho-external-other-"));
-    const store = new ProjectRegistryStore(join(registryRoot, "restore-conflict-home"));
-    await writeMarker(sourceRoot, "external-repo", "External Repo");
-    await writeMarker(otherRoot, "external-repo", "External Repo");
-    await store.addProject(otherRoot);
-
-    await expect(startWorkbenchServer({ project: null, path: sourceRoot }, { port: 0, staticRoot, store }))
-      .rejects.toThrow("Project marker id is already registered for a different path");
-
-    await rm(sourceRoot, { recursive: true, force: true });
-    await rm(otherRoot, { recursive: true, force: true });
+    const conflictHome = join(registryRoot, "restore-conflict-home");
+    const store = new ProjectRegistryStore(conflictHome);
+    process.env.AHO_HOME = conflictHome;
+    await createReadyProjectHarnessFixture({
+      projectRoot: sourceRoot,
+      ahoHome: conflictHome,
+      projectId: "external-repo",
+      projectName: "External Repo",
+    });
+    await store.registerProject({ path: otherRoot, name: "Other Repo", projectId: "external-repo" });
+    const appHandle = await startWorkbenchServer(null, { port: 0, staticRoot, store });
+    try {
+      const response = await fetch(`${appHandle.url}/api/projects`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: sourceRoot, name: "External Repo", confirm: true }),
+      });
+      expect(response.status).toBe(409);
+      expect(await response.text()).toContain("Project id is already registered for a different path");
+    } finally {
+      await appHandle.close();
+      await rm(sourceRoot, { recursive: true, force: true });
+      await rm(otherRoot, { recursive: true, force: true });
+    }
   });
 
   it("builds native folder dialog commands with fixed argv", () => {
@@ -958,27 +970,26 @@ describe("workbench server", () => {
     expect(buildNativeFolderDialogCommand("freebsd")).toBeNull();
   });
 
-  it("recovers close transactions for every registered project at startup", async () => {
+  it("runs Skill-native approval recovery for every ready registered project", async () => {
     const secondRoot = await mkdtemp(join(tmpdir(), "aho-server-recovery-"));
-    const store = new ProjectRegistryStore(join(registryRoot, "multi-project-recovery"));
-    const registered = await store.addProject(secondRoot, "Recovery project");
-    await initHarness(registered);
-    await createChange(registered, { title: "Recover Registered" });
-    const reviewPath = join(secondRoot, "harness", "changes", "active", "recover-registered", "reviews", "review.md");
-    await writeFile(reviewPath, "Status: approved\n", "utf8");
-    const closed = await closeChangeForChange(registered, "recover-registered");
-    const markerPath = join(secondRoot, "harness", "changes", ".close-transactions", "recover-registered.json");
-    const marker = JSON.parse(await readFile(markerPath, "utf8")) as Record<string, unknown>;
-    await rm(join(secondRoot, closed.receiptPath as string), { force: true });
-    await writeFile(markerPath, `${JSON.stringify({ ...marker, stage: "renamed" }, null, 2)}\n`, "utf8");
-
-    await recoverWorkbenchProjects(store, null, {
-      resolve: async (project) => ({ state: "ready", project, resolution: {} as never }),
+    const recoveryHome = join(registryRoot, "multi-project-recovery");
+    const store = new ProjectRegistryStore(recoveryHome);
+    process.env.AHO_HOME = recoveryHome;
+    await createReadyProjectHarnessFixture({
+      projectRoot: secondRoot,
+      ahoHome: recoveryHome,
+      projectId: "recovery-project",
+      projectName: "Recovery Project",
     });
+    await store.registerProject({ path: secondRoot, name: "Recovery Project", projectId: "recovery-project" });
+    const runtime = resolveProjectRuntimePaths("recovery-project", recoveryHome);
+    const malformed = join(runtime.workbenchRoot, "integration-checks", "malformed");
+    await mkdir(malformed, { recursive: true });
+    await writeFile(join(malformed, "apply-transaction.json"), "{}\n", "utf8");
 
-    expect(JSON.parse(await readFile(markerPath, "utf8"))).toMatchObject({ stage: "completed" });
-    expect(existsSync(join(secondRoot, closed.receiptPath as string))).toBe(true);
-    expect(marker).not.toHaveProperty("outboxPath");
+    await expect(recoverWorkbenchProjects(store, null)).rejects.toThrow(/Invalid IntegrationCheck apply transaction/i);
+    await rm(malformed, { recursive: true, force: true });
+    await expect(recoverWorkbenchProjects(store, null)).resolves.toBeUndefined();
     await rm(secondRoot, { recursive: true, force: true });
   });
 });
@@ -988,7 +999,6 @@ async function getJson<T>(url: string): Promise<T> {
   if (!response.ok) throw new Error(`GET ${url} failed (${response.status}): ${await response.text()}`);
   return response.json() as Promise<T>;
 }
-
 async function writeRuntimeSidecarRun(changeId: string): Promise<string> {
   const runtime = resolveProjectRuntimePaths(project().id, registryRoot);
   const runId = "run-server-stream";
@@ -1009,7 +1019,7 @@ async function writeRuntimeSidecarRun(changeId: string): Promise<string> {
     startedAt: now,
     finishedAt: now,
     artifacts: {
-      base: "memory-root",
+      owner: "runtime-sidecar",
       directory: `runs/${runId}`,
       context: `runs/${runId}/context.md`,
       events: `runs/${runId}/events.jsonl`,
@@ -1062,16 +1072,4 @@ class FakePty {
 
 async function runGit(...args: string[]): Promise<void> {
   await execFileAsync("git", args, { cwd: tempDir });
-}
-
-async function writeMarker(projectPath: string, id: string, name: string): Promise<void> {
-  await mkdir(join(projectPath, ".agent-harness"), { recursive: true });
-  await writeFile(join(projectPath, ".agent-harness", "project.json"), JSON.stringify({
-    version: "1.0",
-    id,
-    name,
-    managedBy: "agent-harness-orchestrator",
-    memoryMode: "external-local",
-    createdAt: "2026-06-25T00:00:00.000Z",
-  }, null, 2), "utf8");
 }

@@ -1,5 +1,5 @@
 import type { AuditSummary, ValidationSummary } from "./run-worktree.js";
-import type { ChangeIndexItem } from "./project-memory.js";
+import type { ChangeIndexItem } from "./project.js";
 import type { SpecTestStatus } from "./spec-test.js";
 
 export type ChangeState = "active" | "archived";

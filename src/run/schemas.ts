@@ -15,7 +15,7 @@ export const runMetadataSchema = z.object({
   startedAt: z.string(),
   finishedAt: z.string().nullable(),
   artifacts: z.object({
-    base: z.enum(["project-root", "memory-root"]).default("project-root"),
+    owner: z.enum(["project-source", "runtime-sidecar"]),
     directory: z.string(),
     context: z.string(),
     contextPacket: z.string().optional(),
@@ -24,6 +24,9 @@ export const runMetadataSchema = z.object({
     stderr: z.string(),
     prompt: z.string().optional(),
     providerEvents: z.string().optional(),
+    providerStderr: z.string().optional(),
+    providerLastMessage: z.string().optional(),
+    providerSession: z.string().optional(),
     lastMessage: z.string().optional(),
     implementation: z.string().optional(),
     worktree: z.string().optional(),
@@ -45,7 +48,7 @@ export const runMetadataSchema = z.object({
     orchestrationPlanMarkdown: z.string().optional(),
     intakeScan: z.string().optional(),
     intakeScanMarkdown: z.string().optional(),
-  }),
+  }).strict(),
   worktree: z.object({
     worktreeId: z.string(),
     branchName: z.string(),
@@ -80,7 +83,7 @@ export const runMetadataSchema = z.object({
   }).optional(),
   agent: z.object({
     roleId: z.string(),
-    source: z.enum(["bundled", "memory"]),
+    source: z.literal("bundled"),
     sourcePath: z.string(),
     sourceHash: z.string(),
     catalogVersion: z.string(),
@@ -89,7 +92,7 @@ export const runMetadataSchema = z.object({
   contextPacket: z.object({
     ref: z.string(),
     hash: z.string(),
-    format: z.enum(["role-context-packet@1.0", "role-context-packet@2.0"]),
+    format: z.literal("role-context-packet@2.0"),
   }).optional(),
   executionGate: z.object({
     allowed: z.boolean(),

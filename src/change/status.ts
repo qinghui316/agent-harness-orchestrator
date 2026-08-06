@@ -1,83 +1,36 @@
-import { join } from "node:path";
-import { buildAcMap, parseReviewStatus } from "../ecl/anchors.js";
-import { buildChangeIndex, getActiveChanges } from "../ecl/index.js";
-import { isGitDirtyIgnoringAhoMemory } from "../project/git.js";
+import { listProjectHarnessChanges } from "../project-harness/change.js";
+import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
+import { projectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
+import { isGitDirty } from "../project/git.js";
+import { getSpecTestContextForChange, getSpecTestStatus } from "../spec-test/manager.js";
 import { getLatestAuditSummary } from "../audit/artifacts.js";
 import { getLatestValidationSummary } from "../validation/artifacts.js";
 import { listWorktreesForChange } from "../worktree/manager.js";
-import { listProjectHarnessChanges } from "../project-harness/change.js";
-import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
-import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
-import { getSpecTestContextForChange, getSpecTestStatus } from "../spec-test/manager.js";
-import type { ChangeIndexItem, ChangeStatus, CloseGateResult, ManagedProject, ResolvedMemory, ReviewStatus } from "../types/index.js";
-import { resolveChangeMemory } from "./utils.js";
+import type { ChangeStatus, ManagedProject } from "../types/index.js";
 import { evaluateActiveCount, uniqueSorted } from "./close-gate.js";
-import { buildPlaceholderFiles, getMissingRequiredFiles, readChangeContents } from "./repository.js";
-import { readScopedChangeMetadata } from "./metadata.js";
 
-export async function getChangeStatus(project: ManagedProject | string | ResolvedMemory): Promise<ChangeStatus> {
-  if (isManagedProject(project)) {
-    const skillNative = await getSkillNativeChangeStatus(project);
-    if (skillNative) return skillNative;
-  }
-  const memory = await resolveChangeMemory(project);
-  const activeChanges = await getActiveChanges(memory);
-  const baseGate = evaluateActiveCount(activeChanges);
-  if (activeChanges.length !== 1) {
-    return {
-      projectPath: memory.projectRoot,
-      activeChanges,
-      change: null,
-      reviewStatus: "missing",
-      acMap: null,
-      specTest: null,
-      latestValidation: null,
-      latestAudit: null,
-      closeGate: baseGate,
-    };
-  }
-
-  const active = activeChanges[0];
-  return getChangeStatusForActive(memory, active, activeChanges, baseGate);
+export async function getChangeStatus(project: ManagedProject): Promise<ChangeStatus> {
+  return getSkillNativeChangeStatus(project);
 }
 
-export async function getChangeStatusForChange(project: ManagedProject | string | ResolvedMemory, changeId: string): Promise<ChangeStatus> {
-  if (isManagedProject(project)) {
-    const skillNative = await getSkillNativeChangeStatus(project, changeId);
-    if (skillNative) return skillNative;
-  }
-  const memory = await resolveChangeMemory(project);
-  const activeChanges = await getActiveChanges(memory);
-  const index = await buildChangeIndex(memory);
-  const active = index.active.find((item) => item.name === changeId);
-  if (!active) {
-    return {
-      projectPath: memory.projectRoot,
-      activeChanges,
-      change: null,
-      reviewStatus: "missing",
-      acMap: null,
-      specTest: null,
-      latestValidation: null,
-      latestAudit: null,
-      closeGate: {
-        ready: false,
-        warnings: [],
-        blockingIssues: [`Active demand conversation not found for scoped run: ${changeId}.`],
-      },
-    };
-  }
-  return getChangeStatusForActive(memory, active, [active], evaluateActiveCount([active]));
+export async function getChangeStatusForChange(
+  project: ManagedProject,
+  changeId: string,
+): Promise<ChangeStatus> {
+  return getSkillNativeChangeStatus(project, changeId);
 }
 
 async function getSkillNativeChangeStatus(
   project: ManagedProject,
   explicitChangeId?: string,
-): Promise<ChangeStatus | null> {
+): Promise<ChangeStatus> {
   const state = await resolveProjectRuntimeState(project, {
     discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
   });
-  if (state.state !== "ready") return null;
+  if (state.state !== "ready") {
+    return unavailableStatus(project, `Project Harness is not ready: ${state.state}.`);
+  }
   const active = (await listProjectHarnessChanges(state.resolution.harness.skillRoot))
     .filter((change) => change.status === "active");
   const activeChanges = active.map((change) => ({
@@ -88,7 +41,7 @@ async function getSkillNativeChangeStatus(
     ? active.find((change) => change.change_id === explicitChangeId)
     : active.length === 1 ? active[0] : undefined;
   if (!selected) {
-    const baseGate = explicitChangeId
+    const closeGate = explicitChangeId
       ? {
         ready: false,
         warnings: [],
@@ -104,122 +57,40 @@ async function getSkillNativeChangeStatus(
       specTest: null,
       latestValidation: null,
       latestAudit: null,
-      closeGate: baseGate,
+      closeGate,
     };
   }
   const context = await getSpecTestContextForChange(project, selected.change_id);
   const specTest = await getSpecTestStatus(project, { changeId: selected.change_id });
+  const runtime = projectExecutionRuntimePort(project, state.resolution);
+  const [latestValidation, latestAudit, worktrees] = await Promise.all([
+    getLatestValidationSummary(runtime, selected.change_id),
+    getLatestAuditSummary(runtime, selected.change_id),
+    listWorktreesForChange(runtime, selected.change_id),
+  ]);
+  const warnings = [...context.changeStatus.closeGate.warnings, ...specTest.warnings];
+  const blockingIssues = [...context.changeStatus.closeGate.blockingIssues, ...specTest.blockingIssues];
+  if (!latestValidation) warnings.push("No validation run recorded for this change.");
+  else if (latestValidation.status === "failed") blockingIssues.push(`Latest validation failed: ${latestValidation.id}.`);
+  if (!latestAudit) warnings.push("No audit run recorded for this change.");
+  else if (latestAudit.status === "blocked") blockingIssues.push(`Latest audit blocked close: ${latestAudit.id}.`);
+  else if (latestAudit.status === "failed") warnings.push(`Latest audit failed or could not be parsed: ${latestAudit.id}.`);
+  const hasAppliedWorktree = worktrees.some((worktree) => worktree.status === "applied");
+  if (hasAppliedWorktree && (await isGitDirty(project.path)) === true) {
+    blockingIssues.push("Source repo has uncommitted changes after apply; commit or clean the source repo before closing the change.");
+  }
+  for (const worktree of worktrees) {
+    if (worktree.status === "applied") warnings.push(`Applied worktree remains available for cleanup: ${worktree.worktreeId}.`);
+    else if (worktree.dirty && hasAppliedWorktree) warnings.push(`Superseded dirty worktree remains available for cleanup: ${worktree.worktreeId} (${worktree.checkoutPath}).`);
+    else if (worktree.dirty) blockingIssues.push(`Dirty worktree blocks close: ${worktree.worktreeId} (${worktree.checkoutPath}).`);
+    else warnings.push(`Active change has AHO-managed worktree: ${worktree.worktreeId}.`);
+  }
   return {
     ...context.changeStatus,
     activeChanges,
     specTest,
-    closeGate: {
-      ready: context.changeStatus.closeGate.ready && specTest.blockingIssues.length === 0,
-      warnings: uniqueSorted([...context.changeStatus.closeGate.warnings, ...specTest.warnings]),
-      blockingIssues: uniqueSorted([...context.changeStatus.closeGate.blockingIssues, ...specTest.blockingIssues]),
-    },
-  };
-}
-
-function isManagedProject(value: ManagedProject | string | ResolvedMemory): value is ManagedProject {
-  return Boolean(value && typeof value === "object" && "id" in value && "path" in value);
-}
-
-async function getChangeStatusForActive(
-  memory: ResolvedMemory,
-  active: ChangeIndexItem,
-  activeChanges: ChangeIndexItem[],
-  baseGate: CloseGateResult,
-): Promise<ChangeStatus> {
-  const changePath = join(memory.memoryRoot, active.path);
-  const missingFiles = getMissingRequiredFiles(changePath);
-  const warnings: string[] = [];
-  const blockingIssues = [...baseGate.blockingIssues];
-
-  for (const file of missingFiles) {
-    blockingIssues.push(`Missing required change file: ${file}.`);
-  }
-
-  const scoped = await readScopedChangeMetadata(memory, active, "active");
-  blockingIssues.push(...scoped.blockingIssues);
-  const change = scoped.metadata;
-
-  const contents = await readChangeContents(changePath);
-  const reviewStatus = parseReviewStatus(contents["reviews/review.md"]);
-  const acMap = contents["spec.md"] !== null && contents["tasks.md"] !== null
-    ? buildAcMap({
-      changeId: active.name,
-      specContent: contents["spec.md"],
-      tasksContent: contents["tasks.md"],
-      placeholderFiles: buildPlaceholderFiles(contents),
-    })
-    : null;
-
-  if (acMap) {
-    warnings.push(...acMap.warnings);
-    blockingIssues.push(...acMap.blockingIssues);
-  }
-
-  const specTest = null;
-
-  blockingIssues.push(...reviewBlockingIssues(reviewStatus));
-  if (change) {
-    const latestValidation = await getLatestValidationSummary(memory, change.id);
-    if (!latestValidation) {
-      warnings.push("No validation run recorded for this change.");
-    } else if (latestValidation.status === "failed") {
-      blockingIssues.push(`Latest validation failed: ${latestValidation.id}.`);
-    }
-    const latestAudit = await getLatestAuditSummary(memory, change.id);
-    if (!latestAudit) {
-      warnings.push("No audit run recorded for this change.");
-    } else if (latestAudit.status === "blocked") {
-      blockingIssues.push(`Latest audit blocked close: ${latestAudit.id}.`);
-    } else if (latestAudit.status === "failed") {
-      warnings.push(`Latest audit failed or could not be parsed: ${latestAudit.id}.`);
-    }
-    const worktrees = await listWorktreesForChange(memory, change.id);
-    const hasAppliedWorktree = worktrees.some((worktree) => worktree.status === "applied");
-    if (hasAppliedWorktree && (await isGitDirtyIgnoringAhoMemory(memory.projectRoot)) === true) {
-      blockingIssues.push("Source repo has uncommitted changes after apply; commit or clean the source repo before closing the change.");
-    }
-    for (const worktree of worktrees) {
-      if (worktree.status === "applied") {
-        warnings.push(`Applied worktree remains available for cleanup: ${worktree.worktreeId}.`);
-      } else if (worktree.dirty && hasAppliedWorktree) {
-        warnings.push(`Superseded dirty worktree remains available for cleanup: ${worktree.worktreeId} (${worktree.checkoutPath}).`);
-      } else if (worktree.dirty) {
-        blockingIssues.push(`Dirty worktree blocks close: ${worktree.worktreeId} (${worktree.checkoutPath}).`);
-      } else {
-        warnings.push(`Active change has AHO-managed worktree: ${worktree.worktreeId}.`);
-      }
-    }
-    return {
-      projectPath: memory.projectRoot,
-      activeChanges,
-      change,
-      reviewStatus,
-      acMap,
-      specTest,
-      latestValidation,
-      latestAudit,
-      closeGate: {
-        ready: blockingIssues.length === 0,
-        warnings: uniqueSorted(warnings),
-        blockingIssues: uniqueSorted(blockingIssues),
-      },
-    };
-  }
-
-  return {
-    projectPath: memory.projectRoot,
-    activeChanges,
-    change,
-    reviewStatus,
-    acMap,
-    specTest,
-    latestValidation: null,
-    latestAudit: null,
+    latestValidation,
+    latestAudit,
     closeGate: {
       ready: blockingIssues.length === 0,
       warnings: uniqueSorted(warnings),
@@ -228,13 +99,18 @@ async function getChangeStatusForActive(
   };
 }
 
+function unavailableStatus(project: ManagedProject, reason: string): ChangeStatus {
+  return {
+    projectPath: project.path,
+    activeChanges: [],
+    change: null,
+    reviewStatus: "missing",
+    acMap: null,
+    specTest: null,
+    latestValidation: null,
+    latestAudit: null,
+    closeGate: { ready: false, warnings: [], blockingIssues: [reason] },
+  };
+}
 
 export { evaluateActiveCount };
-
-function reviewBlockingIssues(status: ReviewStatus): string[] {
-  if (status === "approved" || status === "approved-with-notes") return [];
-  if (status === "pending") return ["Review status is pending."];
-  if (status === "blocked") return ["Review status is blocked."];
-  if (status === "missing") return ["Review status is missing."];
-  return ["Review status is unknown."];
-}

@@ -1,10 +1,9 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { initHarness } from "../../src/harness/init.js";
-import { runAggregateValidation } from "../../src/integration-check/aggregate-validation.js";
+import { runSkillNativeAggregateValidation } from "../../src/integration-check/aggregate-validation.js";
 import { integrationCheckRoot } from "../../src/integration-check/paths.js";
-import { resolveProjectMemory } from "../../src/memory/resolver.js";
+import { prepareSkillNativeWorkbenchFixture } from "../helpers/skill-native-workbench-fixture.js";
 import { execFileAsync, getTempDir, git, initGitRepository, project } from "./workbench/fixtures.js";
 
 describe("integration aggregate validation", () => {
@@ -13,7 +12,7 @@ describe("integration aggregate validation", () => {
     process.env.AHO_HOME = join(getTempDir(), ".aho-home");
     try {
       await initGitRepository(getTempDir());
-      await writeFile(join(getTempDir(), ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\n", "utf8");
+      await writeFile(join(getTempDir(), ".gitignore"), ".aho-home/\n", "utf8");
       await writeFile(join(getTempDir(), "package.json"), JSON.stringify({
         scripts: {
           test: "node scripts/aggregate-check.mjs",
@@ -35,22 +34,31 @@ describe("integration aggregate validation", () => {
       await writeFile(join(getTempDir(), "src", "beta.ts"), "export const beta = 'legacy';\n", "utf8");
       await git(getTempDir(), ["add", "."]);
       await git(getTempDir(), ["commit", "-m", "initial"]);
-      await initHarness(project());
+      const fixture = await prepareSkillNativeWorkbenchFixture({
+        project: project(),
+        ahoHome: process.env.AHO_HOME,
+      });
+      await writeFile(join(getTempDir(), "package.json"), JSON.stringify({
+        scripts: {
+          test: "node scripts/aggregate-check.mjs",
+        },
+      }, null, 2), "utf8");
+      await git(getTempDir(), ["add", "package.json"]);
+      await git(getTempDir(), ["commit", "-m", "validation fixture"]);
 
-      const memory = await resolveProjectMemory(project());
-      const directory = join(integrationCheckRoot(memory), "check-real-validation");
+      const directory = join(integrationCheckRoot(fixture.runtime), "check-real-validation");
       const checkoutPath = join(getTempDir(), "integration-checkout");
       await execFileAsync("git", ["worktree", "add", "--detach", checkoutPath, "HEAD"], { cwd: getTempDir() });
       await writeFile(join(checkoutPath, "src", "alpha.ts"), "export const alpha = 'modern';\n", "utf8");
       await writeFile(join(checkoutPath, "src", "beta.ts"), "export const beta = 'modern';\n", "utf8");
 
-      const failed = await runAggregateValidation(memory, directory, "check-real-validation", checkoutPath, true);
+      const failed = await runSkillNativeAggregateValidation(fixture.runtime, directory, "check-real-validation", checkoutPath, true);
       expect(failed.status).toBe("failed");
       expect(failed.command).toEqual(["npm", "run", "test"]);
       expect(failed.stderr).toContain("Combined modern alpha/beta changes require src/integration-note.ts.");
 
       await writeFile(join(checkoutPath, "src", "integration-note.ts"), "export const integrationReady = true;\n", "utf8");
-      const passed = await runAggregateValidation(memory, directory, "check-real-validation", checkoutPath, true);
+      const passed = await runSkillNativeAggregateValidation(fixture.runtime, directory, "check-real-validation", checkoutPath, true);
       expect(passed.status).toBe("passed");
       expect(passed.command).toEqual(["aggregate-validation-profile", "default", "test"]);
     } finally {

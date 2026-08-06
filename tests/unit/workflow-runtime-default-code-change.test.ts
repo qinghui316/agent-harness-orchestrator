@@ -3,8 +3,8 @@ import { HarnessWorkflowRunEngine, type HarnessWorkflowRunEngineServices } from 
 import type {
   DefaultCodeChangeWorkflowRun,
   ManagedProject,
-  ResolvedMemory,
 } from "../../src/types/index.js";
+import type { ProjectCodeExecutionRuntimePort } from "../../src/project-runtime/execution-ports.js";
 import type { WorkflowRuntimeExecutionState } from "../../src/workflow-runtime/execution-contract.js";
 import type {
   AuditLeafRun,
@@ -114,7 +114,7 @@ function fakeServices(input: {
   let validationIndex = 0;
   let auditIndex = 0;
   return {
-    resolveMemory: async () => memory(),
+    resolveRuntime: async () => runtimePort(),
     writeRun: async (_memory, next) => {
       run = next;
       return next;
@@ -265,31 +265,17 @@ function project(): ManagedProject {
   };
 }
 
-function memory(): ResolvedMemory {
+function runtimePort(): ProjectCodeExecutionRuntimePort {
   return {
-    mode: "repo-local",
-    supported: true,
-    writable: true,
-    artifactBase: "memory-root",
     projectId: "project",
     projectRoot: "E:/tmp/project",
-    markerPath: "E:/tmp/project/.agent-harness/project.json",
-    agentGuidePath: "E:/tmp/project/AGENTS.md",
-    memoryRoot: "E:/tmp/project/.agent-harness",
-    docsRoot: "E:/tmp/project/.agent-harness/docs",
-    harnessRoot: "E:/tmp/project/.agent-harness/harness",
-    changesRoot: "E:/tmp/project/.agent-harness/harness/changes",
-    evolutionRoot: "E:/tmp/project/.agent-harness/harness/evolution",
-    templatesRoot: "E:/tmp/project/.agent-harness/templates",
-    scriptsRoot: "E:/tmp/project/.agent-harness/scripts",
-    runsRoot: "E:/tmp/project/.agent-harness/runs",
-    workbenchRoot: "E:/tmp/project/.agent-harness/workbench",
-    workbenchDbPath: "E:/tmp/project/.agent-harness/workbench/workbench.sqlite",
-    agentsRoot: "E:/tmp/project/.agent-harness/agents",
-    commandsRoot: "E:/tmp/project/.agent-harness/commands",
-    agentCatalogPath: "E:/tmp/project/.agent-harness/agents/catalog.json",
-    skillsRoot: "E:/tmp/project/.agent-harness/skills",
-    worktreeMetadataRoot: "E:/tmp/project/.agent-harness/worktrees",
-    worktreeIndexPath: "E:/tmp/project/.agent-harness/worktrees/index.json",
+    runsRoot: "E:/tmp/aho-runtime/project/runs",
+    runArtifactRoot: "E:/tmp/aho-runtime/project",
+    runArtifactOwner: "runtime-sidecar",
+    workbenchRoot: "E:/tmp/aho-runtime/project/workbench",
+    workbenchDbPath: "E:/tmp/aho-runtime/project/workbench/workbench.sqlite",
+    worktreeMetadataRoot: "E:/tmp/aho-runtime/project/worktrees/metadata",
+    worktreeIndexPath: "E:/tmp/aho-runtime/project/worktrees/index.json",
+    projectWriteLeasePath: "E:/tmp/aho-runtime/project/project-write-lease.sqlite",
   };
 }

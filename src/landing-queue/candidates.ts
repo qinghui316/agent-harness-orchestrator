@@ -3,15 +3,15 @@ import type { LandingReadinessPackage } from "../landing/types.js";
 import { findPrDraftPackageForLanding } from "../pr-draft/repository.js";
 import { latestMergedRemoteLandingResultForLanding } from "../remote-landing/repository.js";
 import { prepareRemoteLandingReadiness } from "../remote-landing/readiness.js";
+import type { ProjectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
 import type {
   LandingQueueCandidate,
   ManagedProject,
   RemoteLandingReadiness,
-  ResolvedMemory,
 } from "../types/index.js";
 import { contentHash } from "./paths.js";
 
-export async function collectLandingQueueCandidates(project: ManagedProject, memory: ResolvedMemory): Promise<LandingQueueCandidate[]> {
+export async function collectLandingQueueCandidates(project: ManagedProject, memory: ProjectExecutionRuntimePort): Promise<LandingQueueCandidate[]> {
   const packages = await listLandingPackages(memory);
   const candidates: LandingQueueCandidate[] = [];
   for (const pkg of packages.filter((item) => item.review?.verdict === "ready")) {
@@ -21,7 +21,7 @@ export async function collectLandingQueueCandidates(project: ManagedProject, mem
   return candidates.sort(compareCandidates);
 }
 
-export async function buildCandidate(project: ManagedProject, memory: ResolvedMemory, pkg: LandingReadinessPackage): Promise<LandingQueueCandidate | null> {
+export async function buildCandidate(project: ManagedProject, memory: ProjectExecutionRuntimePort, pkg: LandingReadinessPackage): Promise<LandingQueueCandidate | null> {
   const draft = await findPrDraftPackageForLanding(memory, pkg.id);
   if (!draft || draft.status !== "created" || !draft.prUrl) return null;
   const merged = await latestMergedRemoteLandingResultForLanding(memory, pkg.id).catch(() => null);
@@ -51,7 +51,7 @@ export async function buildCandidate(project: ManagedProject, memory: ResolvedMe
   return candidateFromReadiness(memory, pkg, readiness);
 }
 
-export function candidateFromReadiness(memory: ResolvedMemory, pkg: LandingReadinessPackage, readiness: RemoteLandingReadiness): LandingQueueCandidate {
+export function candidateFromReadiness(memory: ProjectExecutionRuntimePort, pkg: LandingReadinessPackage, readiness: RemoteLandingReadiness): LandingQueueCandidate {
   const status = readiness.canMerge
     ? readiness.status === "ready-with-comments" ? "ready-with-comments" : "ready"
     : "needs-attention";

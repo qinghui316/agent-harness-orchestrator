@@ -7,7 +7,16 @@ import {
   type WorkflowRuntimeDecision,
   type WorkflowRuntimeExecutionState,
 } from "../../src/workflow-runtime/execution-contract.js";
-import type { ManagedProject, ResolvedMemory, TaskRun, WorkerLease } from "../../src/types/index.js";
+import type { ManagedProject, TaskRun, WorkerLease } from "../../src/types/index.js";
+import type { ProjectExecutionRuntimePort } from "../../src/project-runtime/execution-ports.js";
+import type { SkillNativeTaskRunStageContext } from "../../src/workflow-runtime/taskrun-stage.js";
+import type { WorkflowLeafExecutionServices } from "../../src/workflow-runtime/leaf-execution.js";
+import {
+  prepareSkillNativeWorkbenchFixture,
+  writeSkillNativeAcceptedSpecAndTasks,
+  type SkillNativeWorkbenchFixture,
+} from "../helpers/skill-native-workbench-fixture.js";
+import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
 
 type MockLeafInput = {
   orchestration: WorkflowRuntimeExecutionState;
@@ -18,37 +27,7 @@ const controls = vi.hoisted(() => ({
   reworkOutcome: "completed" as "completed" | "failed",
   validatorOutcomes: [] as Array<"completed" | "failed">,
   auditorOutcomes: [] as Array<"completed" | "failed">,
-  memoryRoot: "",
   taskRuns: new Map<string, TaskRun>(),
-}));
-
-vi.mock("../../src/memory/resolver.js", () => ({
-  resolveProjectMemory: vi.fn(async () => ({
-    mode: "external-local",
-    supported: true,
-    writable: true,
-    artifactBase: "memory-root",
-    projectId: "project",
-    projectRoot: "E:/tmp/project",
-    markerPath: "E:/tmp/project/.agent-harness/project.json",
-    agentGuidePath: "E:/tmp/project/AGENTS.md",
-    memoryRoot: controls.memoryRoot,
-    docsRoot: `${controls.memoryRoot}/docs`,
-    harnessRoot: `${controls.memoryRoot}/harness`,
-    changesRoot: `${controls.memoryRoot}/harness/changes`,
-    evolutionRoot: `${controls.memoryRoot}/harness/evolution`,
-    templatesRoot: `${controls.memoryRoot}/templates`,
-    scriptsRoot: `${controls.memoryRoot}/scripts`,
-    runsRoot: `${controls.memoryRoot}/runs`,
-    workbenchRoot: `${controls.memoryRoot}/workbench`,
-    workbenchDbPath: `${controls.memoryRoot}/workbench/workbench.sqlite`,
-    agentsRoot: `${controls.memoryRoot}/agents`,
-    commandsRoot: `${controls.memoryRoot}/commands`,
-    agentCatalogPath: `${controls.memoryRoot}/agents/catalog.json`,
-    skillsRoot: `${controls.memoryRoot}/skills`,
-    worktreeMetadataRoot: `${controls.memoryRoot}/worktrees`,
-    worktreeIndexPath: `${controls.memoryRoot}/worktrees/index.json`,
-  })),
 }));
 
 vi.mock("../../src/workflow-runtime/leaf-execution.js", () => {
@@ -191,7 +170,10 @@ vi.mock("../../src/workflow-runtime/leaf-execution.js", () => {
   };
 });
 
-vi.mock("../../src/task-run/manager.js", () => ({
+vi.mock("../../src/task-run/manager.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/task-run/manager.js")>();
+  return {
+  ...actual,
   markTaskRunStarted: vi.fn(async (_memory: unknown, taskRunId: string) => {
     const taskRun = controls.taskRuns.get(taskRunId);
     if (!taskRun) throw new Error(`TaskRun not found: ${taskRunId}`);
@@ -223,7 +205,11 @@ vi.mock("../../src/task-run/manager.js", () => ({
     controls.taskRuns.set(taskRunId, finished);
     return finished;
   }),
-  retryTaskRun: vi.fn(async (_project: ManagedProject, options: { taskRunId: string; roleId?: string }) => {
+  retryTaskRunFromRuntime: vi.fn(async (
+    _runtime: unknown,
+    _changeStatus: unknown,
+    options: { taskRunId: string; roleId?: string },
+  ) => {
     const previous = controls.taskRuns.get(options.taskRunId);
     if (!previous) throw new Error(`TaskRun not found: ${options.taskRunId}`);
     const retry: TaskRun = {
@@ -260,7 +246,8 @@ vi.mock("../../src/task-run/manager.js", () => ({
     };
     return { taskRun: retry, lease };
   }),
-}));
+  };
+});
 
 import {
   readMainAgentLoopEvents,
@@ -277,7 +264,6 @@ import {
   workflowRuntimeDecisionEvidencePath,
   workflowRuntimeEvidenceEventsPath,
 } from "../../src/workflow-runtime/evidence-journal.js";
-import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import {
   runAuditorLeafStage,
   runCoderLeafStage,
@@ -285,16 +271,12 @@ import {
   runValidatorLeafStage,
 } from "../../src/workflow-runtime/leaf-execution.js";
 
-const project: ManagedProject = {
-  id: "project",
-  name: "project",
-  path: "E:/tmp/project",
-  addedAt: "2026-06-30T00:00:00.000Z",
-  lastSeenAt: "2026-06-30T00:00:00.000Z",
-};
+let project: ManagedProject;
+let fixture: SkillNativeWorkbenchFixture;
+const publishedScopes = new Map<string, SkillNativeTaskRunStageContext>();
 
-async function writeLegacyMainAgentLoopRun(
-  memory: ResolvedMemory,
+async function writeMainAgentLoopRun(
+  memory: ProjectExecutionRuntimePort,
   input: {
     loopRunId: string;
     changeId: string;
@@ -358,18 +340,50 @@ function workerLease(taskRunId = "task-run-1"): WorkerLease {
   };
 }
 
+async function skillNativeScope(changeId: string): Promise<SkillNativeTaskRunStageContext> {
+  const existing = publishedScopes.get(changeId);
+  if (existing) return existing;
+  const topic = await createConversationChangeFixture(project, { title: changeId });
+  if (topic.changeId !== changeId) {
+    throw new Error(`Fixture Change identity drifted: expected ${changeId}, received ${topic.changeId}.`);
+  }
+  const prepared = await writeSkillNativeAcceptedSpecAndTasks(fixture, changeId);
+  const leafServices = {
+    startCode: vi.fn(),
+    startValidation: vi.fn(),
+    startAudit: vi.fn(),
+  } as unknown as WorkflowLeafExecutionServices;
+  const scope = {
+    runtime: prepared.runtime,
+    changeStatus: prepared.harness.changeStatus,
+    leafServices,
+  };
+  publishedScopes.set(changeId, scope);
+  return scope;
+}
+
 describe("workflow runtime leaf contract", () => {
   beforeEach(async () => {
     controls.reworkOutcome = "completed";
     controls.validatorOutcomes = [];
     controls.auditorOutcomes = [];
-    controls.memoryRoot = await mkdtemp(join(tmpdir(), "aho-main-agent-loop-"));
+    const projectRoot = await mkdtemp(join(tmpdir(), "aho-main-agent-loop-"));
+    project = {
+      id: "project",
+      name: "project",
+      path: projectRoot,
+      addedAt: "2026-06-30T00:00:00.000Z",
+      lastSeenAt: "2026-06-30T00:00:00.000Z",
+    };
+    fixture = await prepareSkillNativeWorkbenchFixture({ project });
+    publishedScopes.clear();
     controls.taskRuns.clear();
     vi.clearAllMocks();
   });
 
   afterEach(async () => {
-    if (controls.memoryRoot) await rm(controls.memoryRoot, { recursive: true, force: true });
+    fixture.restoreEnvironment();
+    await rm(project.path, { recursive: true, force: true });
   });
 
   describe("runtime leaf sequences", () => {
@@ -383,6 +397,7 @@ describe("workflow runtime leaf contract", () => {
       project,
       started: { taskRun: initialTaskRun, lease: workerLease() },
       prompt: "Implement the queued task.",
+      skillNative: await skillNativeScope(initialTaskRun.changeId),
       onRetryTaskRunStarted: async (started) => {
         retryHandoffs.push(started.taskRun.id);
       },
@@ -402,7 +417,7 @@ describe("workflow runtime leaf contract", () => {
     expect(retryHandoffs).toEqual(["task-run-1-retry-1"]);
     const workflow = result.workflow as { loopRunId?: string };
     expect(workflow.loopRunId).toBeTruthy();
-    const memory = await resolveProjectMemory(project);
+    const memory = fixture.runtime;
     const events = await readWorkflowRuntimeEvidenceEvents(memory, workflow.loopRunId!);
     expect(events.filter((event) => event.type === "runtime.started")).toHaveLength(1);
     expect(events.filter((event) => event.type === "runtime.stopped")).toHaveLength(0);
@@ -419,8 +434,8 @@ describe("workflow runtime leaf contract", () => {
   it("does not let a child TaskRun finalize a parent queue loop", async () => {
     const initialTaskRun = taskRun({ id: "task-run-parent-child" });
     controls.taskRuns.set(initialTaskRun.id, initialTaskRun);
-    const memory = await resolveProjectMemory(project);
-    const parent = await writeLegacyMainAgentLoopRun(memory, {
+    const memory = fixture.runtime;
+    const parent = await writeMainAgentLoopRun(memory, {
       loopRunId: "queue-parent-loop",
       changeId: initialTaskRun.changeId,
       projectId: project.id,
@@ -433,6 +448,7 @@ describe("workflow runtime leaf contract", () => {
       prompt: "Run child task.",
       loopRunId: parent.run.id,
       ownsLoopFinalization: false,
+      skillNative: await skillNativeScope(initialTaskRun.changeId),
     });
 
     expect(result.taskRun).toMatchObject({ id: "task-run-parent-child", status: "completed" });
@@ -459,6 +475,7 @@ describe("workflow runtime leaf contract", () => {
       project,
       started: { taskRun: priorRetry, lease: workerLease("task-run-retry") },
       prompt: "Retry task.",
+      skillNative: await skillNativeScope(priorRetry.changeId),
     });
 
     expect(runCoderLeafStage).toHaveBeenCalledTimes(1);
@@ -469,7 +486,7 @@ describe("workflow runtime leaf contract", () => {
     expect(result.autoRework).toBeUndefined();
     expect([...controls.taskRuns.keys()]).toEqual(["task-run-retry"]);
     const workflow = result.workflow as { loopRunId?: string };
-    const memory = await resolveProjectMemory(project);
+    const memory = fixture.runtime;
     const events = await readWorkflowRuntimeEvidenceEvents(memory, workflow.loopRunId!);
     expect(events.filter((event) => event.roleId === "rework-coder")).toHaveLength(0);
     expect(events.filter((event) => event.type === "runtime.stopped")).toHaveLength(1);
@@ -477,6 +494,7 @@ describe("workflow runtime leaf contract", () => {
 
   it("does not nest automatic rework for source-refresh rework entrypoints", async () => {
     controls.validatorOutcomes = ["failed"];
+    await skillNativeScope("change-source-refresh");
 
     const result = await runSourceRefreshReworkWorkflow({
       project,
@@ -489,7 +507,7 @@ describe("workflow runtime leaf contract", () => {
     expect(runAuditorLeafStage).not.toHaveBeenCalled();
     expect(result.stoppedAt).toBe("validation");
     expect(result.status).toBe("needs-user-input");
-    const memory = await resolveProjectMemory(project);
+    const memory = fixture.runtime;
     const events = await readWorkflowRuntimeEvidenceEvents(memory, result.loopRunId!);
     const decisions = await readWorkflowRuntimeDecisionEvidence(memory, result.loopRunId!);
     expect(events.filter((event) => event.roleId === "rework-coder" && event.type === "leaf.started")).toHaveLength(1);
@@ -498,6 +516,7 @@ describe("workflow runtime leaf contract", () => {
   });
 
   it("runs source-refresh rework through rework, validation, and audit", async () => {
+    await skillNativeScope("change-source-refresh-success");
     const result = await runSourceRefreshReworkWorkflow({
       project,
       changeId: "change-source-refresh-success",
@@ -509,7 +528,7 @@ describe("workflow runtime leaf contract", () => {
     expect(runAuditorLeafStage).toHaveBeenCalledTimes(1);
     expect(result.stoppedAt).toBeNull();
     expect(result.status).toBeUndefined();
-    const memory = await resolveProjectMemory(project);
+    const memory = fixture.runtime;
     const events = await readWorkflowRuntimeEvidenceEvents(memory, result.loopRunId);
     const decisions = await readWorkflowRuntimeDecisionEvidence(memory, result.loopRunId);
     expect(events.filter((event) => event.type === "runtime.completed")).toHaveLength(1);
@@ -518,6 +537,7 @@ describe("workflow runtime leaf contract", () => {
 
   it("stops source-refresh rework at audit failure without apply or nested rework", async () => {
     controls.auditorOutcomes = ["failed"];
+    await skillNativeScope("change-source-refresh-audit");
 
     const result = await runSourceRefreshReworkWorkflow({
       project,
@@ -530,7 +550,7 @@ describe("workflow runtime leaf contract", () => {
     expect(runAuditorLeafStage).toHaveBeenCalledTimes(1);
     expect(result.stoppedAt).toBe("audit");
     expect(result.status).toBe("needs-user-input");
-    const memory = await resolveProjectMemory(project);
+    const memory = fixture.runtime;
     const decisions = await readWorkflowRuntimeDecisionEvidence(memory, result.loopRunId);
     expect(decisions.at(-1)?.decision.kind).toBe("needs-user-input");
     expect(decisions.filter((decision) => decision.decision.roleId === "rework-coder")).toHaveLength(1);
@@ -538,6 +558,7 @@ describe("workflow runtime leaf contract", () => {
 
   it("fails source-refresh rework before validation when rework-coder cannot produce code", async () => {
     controls.reworkOutcome = "failed";
+    await skillNativeScope("change-source-refresh-code-failure");
 
     const result = await runSourceRefreshReworkWorkflow({
       project,
@@ -550,12 +571,13 @@ describe("workflow runtime leaf contract", () => {
     expect(runAuditorLeafStage).not.toHaveBeenCalled();
     expect(result.stoppedAt).toBe("code");
     expect(result.status).toBe("failed");
-    const memory = await resolveProjectMemory(project);
+    const memory = fixture.runtime;
     const decisions = await readWorkflowRuntimeDecisionEvidence(memory, result.loopRunId);
     expect(decisions.at(-1)?.decision.kind).toBe("failed");
   });
 
   it("runs PR feedback rework through rework, validation, and audit", async () => {
+    await skillNativeScope("change-pr-feedback-success");
     const result = await runPrFeedbackReworkWorkflow({
       project,
       changeId: "change-pr-feedback-success",
@@ -567,7 +589,7 @@ describe("workflow runtime leaf contract", () => {
     expect(runAuditorLeafStage).toHaveBeenCalledTimes(1);
     expect(result.stoppedAt).toBeNull();
     expect(result.status).toBeUndefined();
-    const memory = await resolveProjectMemory(project);
+    const memory = fixture.runtime;
     const events = await readWorkflowRuntimeEvidenceEvents(memory, result.loopRunId);
     const decisions = await readWorkflowRuntimeDecisionEvidence(memory, result.loopRunId);
     expect(events.filter((event) => event.type === "runtime.completed")).toHaveLength(1);
@@ -576,6 +598,7 @@ describe("workflow runtime leaf contract", () => {
 
   it("stops PR feedback rework at validation failure without nested rework or audit", async () => {
     controls.validatorOutcomes = ["failed"];
+    await skillNativeScope("change-pr-feedback-validation");
 
     const result = await runPrFeedbackReworkWorkflow({
       project,
@@ -588,7 +611,7 @@ describe("workflow runtime leaf contract", () => {
     expect(runAuditorLeafStage).not.toHaveBeenCalled();
     expect(result.stoppedAt).toBe("validation");
     expect(result.status).toBe("needs-user-input");
-    const memory = await resolveProjectMemory(project);
+    const memory = fixture.runtime;
     const decisions = await readWorkflowRuntimeDecisionEvidence(memory, result.loopRunId);
     expect(decisions.filter((decision) => decision.entrypoint === "feedback-rework" && decision.decision.roleId === "rework-coder")).toHaveLength(1);
     expect(decisions.at(-1)?.decision.kind).toBe("needs-user-input");
@@ -596,6 +619,7 @@ describe("workflow runtime leaf contract", () => {
 
   it("fails PR feedback rework before validation when rework-coder cannot produce code", async () => {
     controls.reworkOutcome = "failed";
+    await skillNativeScope("change-pr-feedback-code-failure");
 
     const result = await runPrFeedbackReworkWorkflow({
       project,
@@ -608,7 +632,7 @@ describe("workflow runtime leaf contract", () => {
     expect(runAuditorLeafStage).not.toHaveBeenCalled();
     expect(result.stoppedAt).toBe("code");
     expect(result.status).toBe("failed");
-    const memory = await resolveProjectMemory(project);
+    const memory = fixture.runtime;
     const decisions = await readWorkflowRuntimeDecisionEvidence(memory, result.loopRunId);
     expect(decisions.at(-1)?.decision.kind).toBe("failed");
   });
@@ -619,8 +643,9 @@ describe("workflow runtime leaf contract", () => {
     const result = await runStartedTaskRunStage({
       project,
       started: { taskRun: malformedTaskRun, lease: workerLease(malformedTaskRun.id) },
+      skillNative: await skillNativeScope(malformedTaskRun.changeId),
     });
-    const memory = await resolveProjectMemory(project);
+    const memory = fixture.runtime;
 
     expect(await readWorkflowRuntimeEvidenceRun(memory, "missing-runtime")).toBeNull();
     expect(await readWorkflowRuntimeEvidenceEvents(memory, "missing-runtime")).toEqual([]);
@@ -632,8 +657,8 @@ describe("workflow runtime leaf contract", () => {
     expect(await readWorkflowRuntimeDecisionEvidence(memory, result.workflow.loopRunId!)).toEqual([]);
   });
 
-  it("treats malformed legacy loop metadata as unreadable compatibility evidence", async () => {
-    const memory = await resolveProjectMemory(project);
+  it("treats malformed loop metadata as unreadable evidence", async () => {
+    const memory = fixture.runtime;
     const malformedPath = mainAgentLoopRunPath(memory, "malformed-loop");
     await mkdir(dirname(malformedPath), { recursive: true });
     await writeFile(malformedPath, "{not-json}\n", "utf8");

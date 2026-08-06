@@ -1,7 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { initHarness } from "../../src/harness/init.js";
 import { contentHash } from "../../src/integration-check/artifacts.js";
 import { integrationCheckRoot } from "../../src/integration-check/paths.js";
 import { writeCheckArtifacts } from "../../src/integration-check/repository.js";
@@ -9,7 +8,7 @@ import type { IntegrationCheckRecord } from "../../src/integration-check/types.j
 import { collectSourceDiff } from "../../src/landing/source-diff.js";
 import { targetFromIntegrationCheck } from "../../src/landing/targets.js";
 import { diffContentHash } from "../../src/landing/utils.js";
-import { resolveProjectMemory } from "../../src/memory/resolver.js";
+import { prepareSkillNativeWorkbenchFixture } from "../helpers/skill-native-workbench-fixture.js";
 import { execFileAsync, getTempDir, initGitRepository, project } from "./workbench/fixtures.js";
 
 describe("landing source diff attribution", () => {
@@ -35,20 +34,22 @@ describe("landing source diff attribution", () => {
 
   it("uses normalized integration patch hash for landing attribution", async () => {
     await initGitRepository(getTempDir());
-    await initHarness(project());
     await mkdir(join(getTempDir(), "src"), { recursive: true });
     await writeFile(join(getTempDir(), "src", "alpha.ts"), "export const alphaMode = \"legacy\";\n", "utf8");
     await writeFile(join(getTempDir(), "src", "beta.ts"), "export const betaMode = \"legacy\";\n", "utf8");
     await execFileAsync("git", ["add", "."], { cwd: getTempDir() });
     await execFileAsync("git", ["commit", "-m", "initial"], { cwd: getTempDir() });
+    const fixture = await prepareSkillNativeWorkbenchFixture({
+      project: project(),
+      ahoHome: process.env.AHO_HOME,
+    });
 
     await writeFile(join(getTempDir(), "src", "alpha.ts"), "export const alphaMode = \"modern\";\n", "utf8");
     await writeFile(join(getTempDir(), "src", "beta.ts"), "export const betaMode = \"modern\";\n", "utf8");
     const source = await collectSourceDiff(getTempDir());
     const rawIntegrationPatch = source.diff.replace(/\ndiff --git a\/src\/beta\.ts/, "\n\ndiff --git a/src/beta.ts");
-    const memory = await resolveProjectMemory(project());
     const checkId = "apply-check-normalized";
-    const directory = join(integrationCheckRoot(memory), checkId);
+    const directory = join(integrationCheckRoot(fixture.runtime), checkId);
     await mkdir(directory, { recursive: true });
     await writeFile(join(directory, "combined.patch"), rawIntegrationPatch, "utf8");
     const rawArtifactHash = contentHash(rawIntegrationPatch);
@@ -66,7 +67,7 @@ describe("landing source diff attribution", () => {
       summary: "Applied integration result.",
       riskSummary: "Local result.",
       artifactRefs: ["workbench/integration-checks/apply-check-normalized/integration-check.json"],
-      artifacts: [{ kind: "combined", path: "memory://workbench/integration-checks/apply-check-normalized/combined.patch", hash: rawArtifactHash, createdAt: new Date().toISOString(), source: "integration-check" }],
+      artifacts: [{ kind: "combined", path: "workbench/integration-checks/apply-check-normalized/combined.patch", hash: rawArtifactHash, createdAt: new Date().toISOString(), source: "integration-check" }],
       latestArtifactHash: rawArtifactHash,
       latestArtifactRef: "workbench/integration-checks/apply-check-normalized/combined.patch",
       aggregateValidation: { id: "validation-1", status: "passed", command: ["npm", "run", "test:fast"], exitCode: 0, stdout: "", stderr: "", artifactRef: "validation.json", createdAt: new Date().toISOString() },
@@ -75,9 +76,9 @@ describe("landing source diff attribution", () => {
       blockingIssues: [],
       warnings: [],
     };
-    await writeCheckArtifacts(memory, directory, check);
+    await writeCheckArtifacts(fixture.runtime, directory, check);
 
-    const target = await targetFromIntegrationCheck(memory, checkId);
+    const target = await targetFromIntegrationCheck(fixture.runtime, checkId);
 
     expect(rawArtifactHash).not.toBe(source.diffHash);
     expect(target.expectedDiffHash).toBe(source.diffHash);

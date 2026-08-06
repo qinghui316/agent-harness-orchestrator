@@ -2,21 +2,9 @@ import { existsSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { writeJsonFile } from "../fs/json.js";
-import type { ResolvedMemory } from "../types/index.js";
 import type { ProjectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
-import { displayArtifactPath, displaySkillNativeArtifactPath } from "./paths.js";
+import { displaySkillNativeArtifactPath } from "./paths.js";
 import type { AggregateAuditResult, AggregateAuditStatus } from "./types.js";
-
-export async function runAggregateAudit(
-  memory: ResolvedMemory,
-  directory: string,
-  checkId: string,
-  checkoutPath: string,
-  validationPassed: boolean,
-  blockingIssues: string[],
-): Promise<AggregateAuditResult> {
-  return runAggregateAuditCore(directory, checkId, checkoutPath, validationPassed, blockingIssues, (path) => displayArtifactPath(memory, path));
-}
 
 export async function runSkillNativeAggregateAudit(
   runtime: ProjectExecutionRuntimePort,

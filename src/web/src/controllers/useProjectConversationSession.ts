@@ -69,13 +69,16 @@ export type WorkbenchRestoreParams = {
 export interface ProjectConversationSessionApi {
   loadAppStatus(): Promise<AppStatus>;
   loadProjects(): Promise<ProjectStatus[]>;
+  registerProject(path: string): Promise<{
+    project: NonNullable<ProjectStatus["project"]>;
+    status?: ProjectStatus;
+  }>;
   loadSnapshot(projectId: string, conversationId: string | null): Promise<Snapshot>;
   loadStream(projectId: string, runId: string): Promise<StreamPacket>;
   prepareProjectRemoval(projectId: string): Promise<ProjectRemovalConfirmation>;
   removeProject(projectId: string, confirmationToken: string): Promise<void>;
   hideConversation(projectId: string, conversationId: string): Promise<void>;
   updateConversationTitle(projectId: string, conversationId: string, title: string): Promise<{ conversation: Topic }>;
-  registerProject(path: string): Promise<{ project: { id: string }; status?: ProjectStatus }>;
   createDemandConversation(
     input: CreateDemandConversationInput,
     onEvent: (event: WorkbenchLiveEvent) => void,
@@ -402,31 +405,20 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
   }, []);
 
   const ensureProjectRegistered = useCallback(async (projectId: string): Promise<string | null> => {
-    let status = stateRef.current.projects.find((item) => item.project?.id === projectId) ?? null;
+    const status = stateRef.current.projects.find((item) => item.project?.id === projectId) ?? null;
     if (!status?.project) {
       reportError("请先选择一个项目。");
       return null;
     }
-    let effectiveProjectId = status.project.id;
-    if (!status.managed && status.memory?.registered === false) {
-      const saved = await sessionApi(portsRef.current).registerProject(status.path);
-      effectiveProjectId = saved.project.id;
-      if (saved.status) {
-        setProjects((current) => {
-          const index = current.findIndex((candidate) => candidate.project?.id === saved.project.id);
-          if (index < 0) return [...current, saved.status!];
-          const next = [...current];
-          next[index] = saved.status!;
-          return next;
-        });
-      }
-      status = saved.status ?? status;
+    if (status.managed) return status.project.id;
+    const saved = await sessionApi(portsRef.current).registerProject(status.path);
+    if (saved.status) {
+      setProjects((current) => [
+        ...current.filter((candidate) => candidate.project?.id !== projectId && candidate.project?.id !== saved.project.id),
+        saved.status!,
+      ]);
     }
-    if (status.managed && status.memory?.memoryAvailable === false) {
-      reportError("项目历史不可用，请在项目设置的高级诊断中确认应用数据目录。");
-      return null;
-    }
-    return effectiveProjectId;
+    return saved.project.id;
   }, [reportError]);
 
   const createDemandConversation = useCallback(async (
@@ -665,6 +657,7 @@ function canApplyConversationVersion(
 const defaultApi: ProjectConversationSessionApi = {
   loadAppStatus: () => fetchJson<AppStatus>("/api/app/status"),
   loadProjects: async () => (await fetchJson<{ projects: ProjectStatus[] }>("/api/projects")).projects,
+  registerProject: (path) => postJson("/api/projects", { path, confirm: true }),
   loadSnapshot: (projectId, conversationId) => fetchJson<Snapshot>(
     `/api/projects/${encodeURIComponent(projectId)}/workbench/snapshot${conversationId ? `?topic=${encodeURIComponent(conversationId)}` : ""}`,
   ),
@@ -688,7 +681,6 @@ const defaultApi: ProjectConversationSessionApi = {
     `/api/projects/${encodeURIComponent(projectId)}/workbench/topics/${encodeURIComponent(conversationId)}/title`,
     { title },
   ),
-  registerProject: (path) => postJson("/api/projects", { path, confirm: true }),
   createDemandConversation: (input, onEvent) => consumeWorkbenchLiveStream<WorkbenchLiveEvent>(
     `/api/projects/${encodeURIComponent(input.projectId)}/workbench/topics/live`,
     {
@@ -791,10 +783,8 @@ export function snapshotForProject(project: ProjectStatus | null | undefined): S
   return {
     ...emptyWorkbenchSnapshot,
     project: project.project,
-    memory: {
-      harnessReady: project.memory?.harnessReady ?? project.managed,
-      memoryMode: project.memory?.memoryMode,
-      artifactBase: project.memory?.artifactBase,
+    harness: {
+      harnessReady: project.harness.readiness === "ready",
     },
     center: { ...emptyWorkbenchSnapshot.center, workpad: emptyWorkpad(projectDisplayName(project.project)) },
     warnings: project.managed ? [] : ["首次需求会根据项目情况建立必要工作说明。"],
@@ -868,7 +858,7 @@ function emptyWorkpad(projectName = "未选择项目"): Workpad {
 
 export const emptyWorkbenchSnapshot: Snapshot = {
   project: null,
-  memory: {},
+  harness: {},
   left: { topics: [], workpads: [] },
   center: {
     selectedTopic: null,
