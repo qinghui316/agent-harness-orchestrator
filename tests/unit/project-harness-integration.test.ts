@@ -55,6 +55,54 @@ describe("project Harness Integration", () => {
     })).rejects.toThrow(/integrator identity/);
   });
 
+  it("records completed evidence dependencies without selecting or cherry-picking them", async () => {
+    const fixture = await createFixture({ evidenceDependency: {} });
+    const record = await fixture.start();
+
+    expect(record.change_ids).toEqual(["change-one"]);
+    expect(record.change_commit_ranges).toEqual({ "change-one": [fixture.completionCommit] });
+    expect(record.evidence_dependencies).toEqual([expect.objectContaining({
+      required_by_change_id: "change-one",
+      change_id: "architecture-change",
+      required_status: "completed",
+      validation_passed: true,
+      evidence_complete: true,
+      classification_contract_change_id: "dependency-correction",
+      classification_contract_fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+      classification_evidence_fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+      evidence_fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+    })]);
+  });
+
+  it("fails closed for unsatisfied or mismatched evidence dependency classification", async () => {
+    const invalid = await createFixture({ evidenceDependency: { validationPassed: false } });
+    await expect(invalid.start()).rejects.toThrow(/unsatisfied evidence dependency/);
+    expect(existsSync(join(invalid.skillRoot, "state", "registry", "integrations", "integration-one.json"))).toBe(false);
+    expect(existsSync(join(invalid.sidecarRoot, "integrations", "integration-one", "worktree"))).toBe(false);
+
+    const mismatched = await createFixture({ evidenceDependency: { classifiedChangeId: "different-change" } });
+    await expect(mismatched.start()).rejects.toThrow(/does not exactly match/);
+    expect(existsSync(join(mismatched.skillRoot, "state", "registry", "integrations", "integration-one.json"))).toBe(false);
+  });
+
+  it("keeps Git dependencies strict and revalidates evidence fingerprints before landing", async () => {
+    const gitDependency = await createFixture({ integrationDependency: true });
+    await expect(gitDependency.start()).rejects.toThrow(/unintegrated dependency/);
+
+    const evidence = await createFixture({ evidenceDependency: {} });
+    const record = await evidence.start();
+    await writeFile(join(evidence.skillRoot, "state", "changes", "archive", "architecture-change", "summary.md"), "drifted\n", "utf8");
+    await expect(evidence.complete(record)).rejects.toThrow(/evidence dependency drifted/);
+
+    const classification = await createFixture({ evidenceDependency: {} });
+    const classificationRecord = await classification.start();
+    const contractPath = join(classification.skillRoot, "state", "registry", "contracts", "dependency-correction.json");
+    const contractValue = JSON.parse(await readFile(contractPath, "utf8")) as Record<string, unknown>;
+    contractValue.compatibility = "drifted";
+    await writeFile(contractPath, `${JSON.stringify(contractValue, null, 2)}\n`, "utf8");
+    await expect(classification.complete(classificationRecord)).rejects.toThrow(/classification contract drifted/);
+  });
+
   it("recovers after canonical landing without repeating the reviewed merge", async () => {
     const fixture = await createFixture();
     const record = await fixture.start();
@@ -130,7 +178,16 @@ describe("project Harness Integration", () => {
   });
 });
 
-async function createFixture(options: { completionCommit?: boolean } = {}) {
+async function createFixture(options: {
+  completionCommit?: boolean;
+  integrationDependency?: boolean;
+  evidenceDependency?: {
+    validationPassed?: boolean;
+    evidenceComplete?: boolean;
+    status?: "completed" | "active";
+    classifiedChangeId?: string;
+  };
+} = {}) {
   const root = await mkdtemp(join(tmpdir(), "aho-integration-"));
   cleanup.push(root);
   const projectRoot = join(root, "project");
@@ -152,6 +209,10 @@ async function createFixture(options: { completionCommit?: boolean } = {}) {
   await git(projectRoot, "checkout", "main");
 
   await mkdir(join(skillRoot, "state", "registry", "changes"), { recursive: true });
+  await mkdir(join(skillRoot, "state", "registry", "contracts"), { recursive: true });
+  await mkdir(join(skillRoot, "state", "changes", "active"), { recursive: true });
+  await mkdir(join(skillRoot, "state", "changes", "parking"), { recursive: true });
+  await mkdir(join(skillRoot, "state", "changes", "archive"), { recursive: true });
   await writeFile(join(skillRoot, "SKILL.md"), "---\nname: sample-a1-harness\n---\n", "utf8");
   await writeFile(join(skillRoot, "state", "manifest.json"), `${JSON.stringify({
     schema_version: "2.0",
@@ -189,6 +250,36 @@ async function createFixture(options: { completionCommit?: boolean } = {}) {
     created_at: "2026-08-03T00:00:00.000Z",
     updated_at: "2026-08-03T00:00:00.000Z",
   }, null, 2)}\n`, "utf8");
+
+  if (options.integrationDependency || options.evidenceDependency) {
+    const evidence = options.evidenceDependency;
+    await writeChangeRecord(skillRoot, "architecture-change", {
+      status: evidence?.status ?? "completed",
+      validation_passed: evidence?.validationPassed ?? true,
+      evidence_complete: evidence?.evidenceComplete ?? true,
+    });
+    await mkdir(join(skillRoot, "state", "changes", "archive", "architecture-change"), { recursive: true });
+    await writeFile(join(skillRoot, "state", "changes", "archive", "architecture-change", "summary.md"), "architecture evidence\n", "utf8");
+    await writeContract(skillRoot, "change-one", {
+      depends_on_changes: ["architecture-change"],
+    });
+  }
+  if (options.evidenceDependency) {
+    await writeChangeRecord(skillRoot, "dependency-correction", {});
+    await mkdir(join(skillRoot, "state", "changes", "archive", "dependency-correction"), { recursive: true });
+    await writeFile(join(skillRoot, "state", "changes", "archive", "dependency-correction", "summary.md"), "dependency correction\n", "utf8");
+    await writeContract(skillRoot, "dependency-correction", {
+      depends_on_changes: ["change-one"],
+      dependency_contract_for: "change-one",
+      change_dependencies: [{
+        change_id: options.evidenceDependency.classifiedChangeId ?? "architecture-change",
+        kind: "evidence",
+        required_status: "completed",
+        require_validation_passed: true,
+        require_evidence_complete: true,
+      }],
+    });
+  }
 
   const start = () => startProjectHarnessIntegration({
     integrationId: "integration-one",
@@ -234,6 +325,61 @@ async function createFixture(options: { completionCommit?: boolean } = {}) {
     failureInjection: overrides.failureInjection,
   });
   return { root, projectRoot, skillRoot, sidecarRoot, baseCommit, completionCommit, start, review, complete };
+}
+
+async function writeChangeRecord(
+  skillRoot: string,
+  changeId: string,
+  overrides: Record<string, unknown>,
+): Promise<void> {
+  await writeFile(join(skillRoot, "state", "registry", "changes", `${changeId}.json`), `${JSON.stringify({
+    schema_version: "1.0",
+    change_id: changeId,
+    lane_id: `lane-${changeId}`,
+    status: "completed",
+    claim_token: `claim-${changeId}`,
+    scope: changeId,
+    paths: [],
+    base_commit: null,
+    completion_commit: null,
+    validation: ["validated"],
+    validation_passed: true,
+    evidence_complete: true,
+    contract_required: false,
+    contract_path: null,
+    evidence_paths: [`state/changes/archive/${changeId}`],
+    integrated_by: null,
+    integration_status: "not_integrated",
+    repository_mode: "multi_lane",
+    created_at: "2026-08-03T00:00:00.000Z",
+    updated_at: "2026-08-03T00:00:00.000Z",
+    ...overrides,
+  }, null, 2)}\n`, "utf8");
+}
+
+async function writeContract(
+  skillRoot: string,
+  changeId: string,
+  overrides: Record<string, unknown>,
+): Promise<void> {
+  await writeFile(join(skillRoot, "state", "registry", "contracts", `${changeId}.json`), `${JSON.stringify({
+    schema_version: "1.0",
+    change_id: changeId,
+    kind: "module_boundary",
+    subject: changeId,
+    operation: "test",
+    owner_module: "integration",
+    affected_paths: [],
+    consumers: [],
+    depends_on: [],
+    depends_on_changes: [],
+    dependency_contract_for: null,
+    change_dependencies: [],
+    compatibility: "test",
+    status: "accepted",
+    updated_at: "2026-08-03T00:00:00.000Z",
+    ...overrides,
+  }, null, 2)}\n`, "utf8");
 }
 
 async function git(cwd: string, ...args: string[]): Promise<string> {

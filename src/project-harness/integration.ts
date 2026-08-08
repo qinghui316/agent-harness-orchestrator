@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { lstat, mkdir, readFile, readdir, realpath, rm } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
@@ -7,8 +8,12 @@ import { z } from "zod";
 import { parseJsonText, writeJsonFile } from "../fs/json.js";
 import {
   listProjectHarnessChanges,
+  listProjectHarnessContracts,
   loadProjectHarnessContract,
+  readProjectHarnessChangeEvidence,
+  type ProjectHarnessChangeDependency,
   type ProjectHarnessChangeRecord,
+  type ProjectHarnessContractRecord,
 } from "./change.js";
 import { readProjectHarnessManifest } from "./manifest.js";
 import { assertPhysicalDirectory, resolveWithinPhysicalRoot } from "./path-safety.js";
@@ -67,6 +72,7 @@ export interface ProjectHarnessIntegrationRecord extends Record<string, unknown>
   change_ids: string[];
   completion_commits: string[];
   change_commit_ranges: Record<string, string[]>;
+  evidence_dependencies: ProjectHarnessIntegrationEvidenceDependency[];
   applied_commits: string[];
   remaining_commits: string[];
   worktree_ref: { owner: "runtime-sidecar"; path: string };
@@ -90,6 +96,18 @@ export interface ProjectHarnessIntegrationRecord extends Record<string, unknown>
   last_error: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ProjectHarnessIntegrationEvidenceDependency {
+  required_by_change_id: string;
+  change_id: string;
+  required_status: "completed";
+  validation_passed: true;
+  evidence_complete: true;
+  evidence_fingerprint: string;
+  classification_contract_change_id: string;
+  classification_contract_fingerprint: string;
+  classification_evidence_fingerprint: string;
 }
 
 export interface StartProjectHarnessIntegrationInput {
@@ -147,6 +165,17 @@ const integrationRecordSchema = z.object({
   change_ids: z.array(z.string()),
   completion_commits: z.array(commitSchema),
   change_commit_ranges: z.record(z.array(commitSchema)),
+  evidence_dependencies: z.array(z.object({
+    required_by_change_id: z.string().min(1),
+    change_id: z.string().min(1),
+    required_status: z.literal("completed"),
+    validation_passed: z.literal(true),
+    evidence_complete: z.literal(true),
+    evidence_fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+    classification_contract_change_id: z.string().min(1),
+    classification_contract_fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+    classification_evidence_fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+  }).strict()).default([]),
   applied_commits: z.array(commitSchema),
   remaining_commits: z.array(commitSchema),
   worktree_ref: z.object({ owner: z.literal("runtime-sidecar"), path: z.string().min(1) }).strict(),
@@ -232,7 +261,8 @@ export async function startProjectHarnessIntegration(
   }
   const canonical = await inspectCanonical(input.projectRoot, input.skillRoot, git);
   const selected = await selectIntegrationChanges(input, changeIds, git);
-  const ordered = await orderChanges(input.skillRoot, selected);
+  const dependencyResolution = await resolveIntegrationDependencies(input.skillRoot, selected);
+  const ordered = dependencyResolution.ordered;
   const ranges: Record<string, string[]> = {};
   for (const change of ordered) ranges[change.change_id] = await exactChangeCommits(input.projectRoot, change, git);
   const flattened = ordered.flatMap((change) => ranges[change.change_id]);
@@ -255,6 +285,7 @@ export async function startProjectHarnessIntegration(
     change_ids: ordered.map((change) => change.change_id),
     completion_commits: ordered.map((change) => change.completion_commit as string),
     change_commit_ranges: ranges,
+    evidence_dependencies: dependencyResolution.evidence,
     applied_commits: [],
     remaining_commits: flattened,
     worktree_ref: {
@@ -343,6 +374,7 @@ export async function completeProjectHarnessIntegration(
   if (record.remaining_commits.length > 0 && ["not_started", "pre_merge"].includes(record.landing_phase)) {
     throw new Error("Integration still has unapplied commits.");
   }
+  await revalidateEvidenceDependencies(input.skillRoot, record.evidence_dependencies);
 
   let candidate = record.landing_candidate_commit;
   let review = record.review;
@@ -519,19 +551,56 @@ async function selectIntegrationChanges(
   return selected;
 }
 
-async function orderChanges(skillRoot: string, selected: ProjectHarnessChangeRecord[]): Promise<ProjectHarnessChangeRecord[]> {
+async function resolveIntegrationDependencies(
+  skillRoot: string,
+  selected: ProjectHarnessChangeRecord[],
+): Promise<{ ordered: ProjectHarnessChangeRecord[]; evidence: ProjectHarnessIntegrationEvidenceDependency[] }> {
   const selectedById = new Map(selected.map((change) => [change.change_id, change]));
+  const allChanges = new Map((await listProjectHarnessChanges(skillRoot)).map((change) => [change.change_id, change]));
+  const contracts = await listProjectHarnessContracts(skillRoot);
   const remaining = [...selected];
   const ordered: ProjectHarnessChangeRecord[] = [];
   const orderedIds = new Set<string>();
+  const evidence: ProjectHarnessIntegrationEvidenceDependency[] = [];
+  const dependenciesByChange = new Map<string, ProjectHarnessChangeDependency[]>();
+  for (const change of selected) {
+    dependenciesByChange.set(change.change_id, resolveDependencyContract(change.change_id, contracts, allChanges));
+  }
+  for (const change of selected) {
+    for (const dependency of dependenciesByChange.get(change.change_id) ?? []) {
+      if (dependency.kind !== "evidence") continue;
+      const required = allChanges.get(dependency.change_id);
+      if (!required || required.status !== dependency.required_status
+        || required.validation_passed !== dependency.require_validation_passed
+        || required.evidence_complete !== dependency.require_evidence_complete) {
+        throw new Error(`Change ${change.change_id} has unsatisfied evidence dependency: ${dependency.change_id}.`);
+      }
+      const snapshot = await readProjectHarnessChangeEvidence(skillRoot, dependency.change_id);
+      const classification = classificationContract(change.change_id, contracts, allChanges);
+      if (!classification) throw new Error(`Change ${change.change_id} is missing its evidence dependency classification contract.`);
+      const classificationEvidence = await readProjectHarnessChangeEvidence(skillRoot, classification.change_id);
+      evidence.push({
+        required_by_change_id: change.change_id,
+        change_id: dependency.change_id,
+        required_status: "completed",
+        validation_passed: true,
+        evidence_complete: true,
+        evidence_fingerprint: snapshot.content_fingerprint,
+        classification_contract_change_id: classification.change_id,
+        classification_contract_fingerprint: hashStableJson(classification),
+        classification_evidence_fingerprint: classificationEvidence.content_fingerprint,
+      });
+    }
+  }
   while (remaining.length > 0) {
     let progressed = false;
     for (const change of [...remaining]) {
-      const contract = await loadProjectHarnessContract(skillRoot, change.change_id);
-      const dependencies = new Set(contract?.depends_on_changes ?? []);
+      const dependencies = new Set((dependenciesByChange.get(change.change_id) ?? [])
+        .filter((dependency) => dependency.kind === "integration")
+        .map((dependency) => dependency.change_id));
       for (const dependency of dependencies) {
         if (!selectedById.has(dependency)) {
-          const external = (await listProjectHarnessChanges(skillRoot)).find((item) => item.change_id === dependency);
+          const external = allChanges.get(dependency);
           if (!external?.integrated_by) throw new Error(`Change ${change.change_id} has unintegrated dependency: ${dependency}.`);
         }
       }
@@ -545,7 +614,88 @@ async function orderChanges(skillRoot: string, selected: ProjectHarnessChangeRec
     }
     if (!progressed) throw new Error(`Integration dependency cycle among: ${remaining.map((item) => item.change_id).join(", ")}.`);
   }
-  return ordered;
+  return { ordered, evidence };
+}
+
+function classificationContract(
+  changeId: string,
+  contracts: readonly ProjectHarnessContractRecord[],
+  changes: ReadonlyMap<string, ProjectHarnessChangeRecord>,
+): ProjectHarnessContractRecord | null {
+  const own = contracts.find((contract) => contract.change_id === changeId);
+  const corrections = contracts.filter((contract) => contract.dependency_contract_for === changeId).filter((contract) => {
+    const owner = changes.get(contract.change_id);
+    return owner?.status === "completed" && owner.validation_passed && owner.evidence_complete;
+  });
+  if (corrections.length > 1) throw new Error(`Change ${changeId} has ambiguous dependency classification contracts.`);
+  return corrections[0] ?? own ?? null;
+}
+
+function resolveDependencyContract(
+  changeId: string,
+  contracts: readonly ProjectHarnessContractRecord[],
+  changes: ReadonlyMap<string, ProjectHarnessChangeRecord>,
+): ProjectHarnessChangeDependency[] {
+  const own = contracts.find((contract) => contract.change_id === changeId);
+  const classification = classificationContract(changeId, contracts, changes);
+  if (!classification) return [];
+  if (classification.change_id !== changeId) {
+    const declared = new Set(own?.depends_on_changes ?? []);
+    const classified = new Set(classification.change_dependencies.map((dependency) => dependency.change_id));
+    if (declared.size !== classified.size || [...declared].some((id) => !classified.has(id))) {
+      throw new Error(`Dependency classification contract does not exactly match Change ${changeId}.`);
+    }
+    return classification.change_dependencies;
+  }
+  if (classification.change_dependencies.length > 0) {
+    if (classification.dependency_contract_for) {
+      return (own?.depends_on_changes ?? []).map((id) => ({ change_id: id, kind: "integration" }));
+    }
+    return classification.change_dependencies;
+  }
+  return (own?.depends_on_changes ?? []).map((id) => ({ change_id: id, kind: "integration" }));
+}
+
+async function revalidateEvidenceDependencies(
+  skillRoot: string,
+  dependencies: readonly ProjectHarnessIntegrationEvidenceDependency[],
+): Promise<void> {
+  const changes = new Map((await listProjectHarnessChanges(skillRoot)).map((change) => [change.change_id, change]));
+  for (const dependency of dependencies) {
+    const current = changes.get(dependency.change_id);
+    if (!current || current.status !== dependency.required_status
+      || !current.validation_passed || !current.evidence_complete) {
+      throw new Error(`Integration evidence dependency is no longer satisfied: ${dependency.change_id}.`);
+    }
+    const snapshot = await readProjectHarnessChangeEvidence(skillRoot, dependency.change_id);
+    if (snapshot.content_fingerprint !== dependency.evidence_fingerprint) {
+      throw new Error(`Integration evidence dependency drifted: ${dependency.change_id}.`);
+    }
+    const classification = await loadProjectHarnessContract(skillRoot, dependency.classification_contract_change_id);
+    if (!classification || hashStableJson(classification) !== dependency.classification_contract_fingerprint) {
+      throw new Error(`Integration dependency classification contract drifted: ${dependency.classification_contract_change_id}.`);
+    }
+    const classificationEvidence = await readProjectHarnessChangeEvidence(
+      skillRoot,
+      dependency.classification_contract_change_id,
+    );
+    if (classificationEvidence.content_fingerprint !== dependency.classification_evidence_fingerprint) {
+      throw new Error(`Integration dependency classification evidence drifted: ${dependency.classification_contract_change_id}.`);
+    }
+  }
+}
+
+function hashStableJson(value: unknown): string {
+  return createHash("sha256").update(stableJson(value), "utf8").digest("hex");
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 async function exactChangeCommits(

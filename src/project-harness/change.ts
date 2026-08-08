@@ -73,10 +73,25 @@ export interface ProjectHarnessContractRecord extends Record<string, unknown> {
   consumers: string[];
   depends_on: string[];
   depends_on_changes: string[];
+  dependency_contract_for: string | null;
+  change_dependencies: ProjectHarnessChangeDependency[];
   compatibility: string;
   status: string;
   updated_at: string;
 }
+
+export type ProjectHarnessChangeDependency =
+  | {
+      change_id: string;
+      kind: "integration";
+    }
+  | {
+      change_id: string;
+      kind: "evidence";
+      required_status: "completed";
+      require_validation_passed: true;
+      require_evidence_complete: true;
+    };
 
 export interface ProjectHarnessChangeIndexEntry {
   change_id: string;
@@ -186,7 +201,7 @@ export type ProjectHarnessContractInput = Pick<
   | "depends_on_changes"
   | "compatibility"
   | "status"
->;
+> & Partial<Pick<ProjectHarnessContractRecord, "dependency_contract_for" | "change_dependencies">>;
 
 export function parseProjectHarnessContractInput(input: unknown): ProjectHarnessContractInput {
   const parsed = contractRecordSchema.omit({
@@ -204,6 +219,8 @@ export function parseProjectHarnessContractInput(input: unknown): ProjectHarness
     consumers: normalized.consumers,
     depends_on: normalized.depends_on,
     depends_on_changes: normalized.depends_on_changes,
+    dependency_contract_for: normalized.dependency_contract_for,
+    change_dependencies: normalized.change_dependencies,
     compatibility: normalized.compatibility,
     status: normalized.status,
   };
@@ -267,6 +284,28 @@ const contractRecordSchema = z.object({
   consumers: z.array(z.string()),
   depends_on: z.array(z.string()),
   depends_on_changes: z.array(z.string()),
+  dependency_contract_for: z.string().nullable().default(null),
+  change_dependencies: z.array(z.discriminatedUnion("kind", [
+    z.object({
+      change_id: z.string().min(1),
+      kind: z.literal("integration"),
+    }).strict(),
+    z.object({
+      change_id: z.string().min(1),
+      kind: z.literal("evidence"),
+      required_status: z.literal("completed"),
+      require_validation_passed: z.literal(true),
+      require_evidence_complete: z.literal(true),
+    }).strict(),
+  ])).superRefine((dependencies, context) => {
+    const seen = new Set<string>();
+    for (const dependency of dependencies) {
+      if (seen.has(dependency.change_id)) {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: `Structured Change dependency is duplicated: ${dependency.change_id}.` });
+      }
+      seen.add(dependency.change_id);
+    }
+  }).default([]),
   compatibility: z.string().min(1),
   status: z.string().min(1),
   updated_at: z.string().min(1),
@@ -953,6 +992,15 @@ function validateContract(
     consumers: sortedUnique(input.consumers.map((item) => canonicalProjectHarnessId(item, "Contract consumer"))),
     depends_on: sortedUnique(input.depends_on.map((item) => canonicalProjectHarnessId(item, "Contract dependency"))),
     depends_on_changes: sortedUnique(input.depends_on_changes.map((item) => canonicalProjectHarnessId(item, "Contract dependency Change id"))),
+    dependency_contract_for: input.dependency_contract_for
+      ? canonicalProjectHarnessId(input.dependency_contract_for, "Dependency contract target Change id")
+      : null,
+    change_dependencies: [...(input.change_dependencies ?? [])]
+      .map((dependency) => ({
+        ...dependency,
+        change_id: canonicalProjectHarnessId(dependency.change_id, "Structured dependency Change id"),
+      }))
+      .sort((left, right) => left.change_id.localeCompare(right.change_id)),
     updated_at: updatedAt,
   };
   return contractRecordSchema.parse(value);

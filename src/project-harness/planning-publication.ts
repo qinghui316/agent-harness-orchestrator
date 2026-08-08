@@ -708,6 +708,8 @@ async function assertPlanningContractMatch(
   const expected = {
     ...evidence.contract,
     affected_paths: evidence.contract?.affected_paths ?? [],
+    dependency_contract_for: evidence.contract?.dependency_contract_for ?? null,
+    change_dependencies: evidence.contract?.change_dependencies ?? [],
   };
   const actual = {
     kind: current.kind,
@@ -718,6 +720,8 @@ async function assertPlanningContractMatch(
     consumers: current.consumers,
     depends_on: current.depends_on,
     depends_on_changes: current.depends_on_changes,
+    dependency_contract_for: current.dependency_contract_for,
+    change_dependencies: current.change_dependencies,
     compatibility: current.compatibility,
     status: current.status,
   };
