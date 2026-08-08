@@ -16,11 +16,10 @@ describe("Workbench shell layout contract", () => {
     expect(app).toContain('rightToolRailState.mode !== "closed" ? <RightToolRailShell');
     expect(app).not.toContain("BottomStatusBar");
     expect(sidebarCss).toContain("grid-template-rows: minmax(0, 1fr) auto;");
-    const normalizedWorkspaceCss = workspaceCss.replace(/\r\n/g, "\n");
-    expect(normalizedWorkspaceCss).toContain(".sidebar-resizer {\n  right: -9px;");
-    expect(normalizedWorkspaceCss).toContain(".sidebar-resizer::after {\n  right: 8px;");
-    expect(normalizedWorkspaceCss).toContain(".right-rail-resizer {\n  left: -9px;");
-    expect(normalizedWorkspaceCss).toContain(".right-rail-resizer::after {\n  left: 8px;");
+    expect(workspaceCss).toContain(".sidebar-resizer {\n  right: -9px;");
+    expect(workspaceCss).toContain(".sidebar-resizer::after {\n  right: 8px;");
+    expect(workspaceCss).toContain(".right-rail-resizer {\n  left: -9px;");
+    expect(workspaceCss).toContain(".right-rail-resizer::after {\n  left: 8px;");
   });
 
   it("does not retain the retired collapsed rail or text sanitizer", async () => {
