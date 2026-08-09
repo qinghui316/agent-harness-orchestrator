@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { lstat, mkdir, readFile, readdir, realpath, rm } from "node:fs/promises";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, toNamespacedPath } from "node:path";
 import { promisify } from "node:util";
 import { z } from "zod";
 import { parseJsonText, writeJsonFile } from "../fs/json.js";
@@ -92,10 +92,26 @@ export interface ProjectHarnessIntegrationRecord extends Record<string, unknown>
     affected_paths: string[];
     contract_change_ids: string[];
     event_id: string;
+    post_commit_fingerprints?: ProjectHarnessIntegrationPostCommitFingerprints;
+    cleanup_outcome?: ProjectHarnessIntegrationCleanupOutcome | null;
   } | null;
   last_error: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ProjectHarnessIntegrationPostCommitFingerprints {
+  changes: Record<string, string>;
+  contracts: Record<string, string>;
+  baseline_event: { event_id: string; fingerprint: string };
+  baseline: string;
+}
+
+export interface ProjectHarnessIntegrationCleanupOutcome {
+  detached_links: string[];
+  git_remove: "removed" | "failed_after_unregister" | "already_unregistered";
+  residual_directory_removed: boolean;
+  worktree_registered_after: false;
 }
 
 export interface ProjectHarnessIntegrationEvidenceDependency {
@@ -132,7 +148,9 @@ export interface CompleteProjectHarnessIntegrationInput {
   validation: readonly string[];
   validationPassed: boolean;
   review: unknown;
-  failureInjection?: (phase: ProjectHarnessIntegrationLandingPhase) => Promise<void> | void;
+  failureInjection?: (
+    phase: ProjectHarnessIntegrationLandingPhase | "worktree_cleaned"
+  ) => Promise<void> | void;
 }
 
 export interface ProjectHarnessGitResult {
@@ -195,6 +213,21 @@ const integrationRecordSchema = z.object({
     affected_paths: z.array(z.string()),
     contract_change_ids: z.array(z.string()),
     event_id: z.string(),
+    post_commit_fingerprints: z.object({
+      changes: z.record(z.string().regex(/^[a-f0-9]{64}$/)),
+      contracts: z.record(z.string().regex(/^[a-f0-9]{64}$/)),
+      baseline_event: z.object({
+        event_id: z.string().min(1),
+        fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+      }).strict(),
+      baseline: z.string().regex(/^[a-f0-9]{64}$/),
+    }).strict().optional(),
+    cleanup_outcome: z.object({
+      detached_links: z.array(z.string()),
+      git_remove: z.enum(["removed", "failed_after_unregister", "already_unregistered"]),
+      residual_directory_removed: z.boolean(),
+      worktree_registered_after: z.literal(false),
+    }).strict().nullable().optional(),
   }).strict().nullable(),
   last_error: z.string().nullable(),
   created_at: z.string(),
@@ -364,17 +397,32 @@ export async function completeProjectHarnessIntegration(
   if (record.project_id !== projectId || record.integrator_id !== integratorId) {
     throw new Error("Integration completion identity does not match the current record.");
   }
+  const initialPhase = record.landing_phase;
+  if (["registry_committed", "cleanup_complete"].includes(initialPhase)) {
+    await revalidatePostCommitRegistryState(input.skillRoot, record);
+  } else {
+    await revalidateEvidenceDependencies(input.skillRoot, record.evidence_dependencies);
+  }
   if (record.status === "integrated") {
     const head = await requireCommit(input.projectRoot, "HEAD", git);
     if (head !== record.landing_commit) throw new Error("Canonical HEAD no longer matches the integrated record.");
     await releaseOwnedWriterLock(input.sidecarRoot, integrationId);
     return record;
   }
-  const worktree = await resolveIntegrationWorktree(input.sidecarRoot, record);
+  if (initialPhase === "cleanup_complete") {
+    const head = await requireCommit(input.projectRoot, "HEAD", git);
+    if (head !== record.landing_commit) throw new Error("Canonical HEAD no longer matches the integrated record.");
+    record.status = "integrated";
+    record.last_error = null;
+    record.updated_at = new Date().toISOString();
+    await writeIntegrationRecord(input.skillRoot, record);
+    await releaseOwnedWriterLock(input.sidecarRoot, integrationId);
+    return record;
+  }
+  const worktree = await resolveIntegrationWorktree(input.sidecarRoot, record, false);
   if (record.remaining_commits.length > 0 && ["not_started", "pre_merge"].includes(record.landing_phase)) {
     throw new Error("Integration still has unapplied commits.");
   }
-  await revalidateEvidenceDependencies(input.skillRoot, record.evidence_dependencies);
 
   let candidate = record.landing_candidate_commit;
   let review = record.review;
@@ -397,7 +445,7 @@ export async function completeProjectHarnessIntegration(
   }
 
   const lock = await claimOrReuseWriterLock(input.sidecarRoot, projectId, integrationId);
-  let phase = record.landing_phase;
+  let phase: ProjectHarnessIntegrationLandingPhase = initialPhase;
   try {
     await heartbeatIntegrationWriter(input.sidecarRoot, lock.token);
     if (["not_started", "pre_merge"].includes(phase)) {
@@ -455,11 +503,17 @@ export async function completeProjectHarnessIntegration(
 
     if (phase === "registry_committed") {
       await heartbeatIntegrationWriter(input.sidecarRoot, lock.token);
-      if (existsSync(worktree)) {
-        await detachIntegrationDiscoveryLinks(worktree, input.skillRoot, (await readProjectHarnessManifest(input.skillRoot)).skill_name);
-        await assertNoDirectoryLinks(worktree);
-        await gitChecked(input.projectRoot, ["worktree", "remove", worktree], git);
-      }
+      if (!record.registry_result) throw new Error("Integration recovery record is missing its Registry result.");
+      record.registry_result.cleanup_outcome = await cleanupIntegrationWorktree(
+        input.projectRoot,
+        input.sidecarRoot,
+        input.skillRoot,
+        record,
+        git,
+      );
+      record.updated_at = new Date().toISOString();
+      await writeIntegrationRecord(input.skillRoot, record);
+      await input.failureInjection?.("worktree_cleaned");
       await git.run(input.projectRoot, ["branch", "-d", record.branch]);
       record.landing_phase = "cleanup_complete";
       record.status = "integrated";
@@ -503,12 +557,10 @@ export async function abortProjectHarnessIntegration(
     throw new Error("A canonically landed Integration cannot be aborted; resume completion instead.");
   }
   const worktree = await resolveIntegrationWorktree(input.sidecarRoot, record, false);
-  if (existsSync(worktree)) {
+  if (existsSync(worktree) || await isGitWorktreeRegistered(input.projectRoot, worktree, git)) {
     await git.run(worktree, ["cherry-pick", "--abort"]);
     await git.run(worktree, ["merge", "--abort"]);
-    await detachIntegrationDiscoveryLinks(worktree, input.skillRoot, (await readProjectHarnessManifest(input.skillRoot)).skill_name);
-    await assertNoDirectoryLinks(worktree);
-    await gitChecked(input.projectRoot, ["worktree", "remove", worktree], git);
+    await cleanupIntegrationWorktree(input.projectRoot, input.sidecarRoot, input.skillRoot, record, git);
   }
   await git.run(input.projectRoot, ["branch", "-D", record.branch]);
   record.status = "aborted";
@@ -685,6 +737,72 @@ async function revalidateEvidenceDependencies(
   }
 }
 
+async function revalidatePostCommitRegistryState(
+  skillRoot: string,
+  record: ProjectHarnessIntegrationRecord,
+): Promise<void> {
+  const result = record.registry_result;
+  const fingerprints = result?.post_commit_fingerprints;
+  if (!result || !fingerprints) {
+    throw new Error(`Integration ${record.integration_id} is missing post-commit Registry fingerprints.`);
+  }
+  if (fingerprints.baseline_event.event_id !== result.event_id) {
+    throw new Error("Integration post-commit baseline event identity does not match its Registry result.");
+  }
+  const expectedChangeIds = uniqueSorted([
+    ...record.change_ids,
+    ...record.evidence_dependencies.flatMap((dependency) => [
+      dependency.change_id,
+      dependency.classification_contract_change_id,
+    ]),
+  ]);
+  const expectedContractIds = uniqueSorted([
+    ...result.contract_change_ids,
+    ...record.evidence_dependencies.map((dependency) => dependency.classification_contract_change_id),
+  ]);
+  assertExactFingerprintIds("Change", fingerprints.changes, expectedChangeIds);
+  assertExactFingerprintIds("contract", fingerprints.contracts, expectedContractIds);
+  for (const [changeId, fingerprint] of Object.entries(fingerprints.changes)) {
+    await assertRegistryFileFingerprint(skillRoot, "changes", changeId, fingerprint, `Change ${changeId}`);
+  }
+  for (const [changeId, fingerprint] of Object.entries(fingerprints.contracts)) {
+    await assertRegistryFileFingerprint(skillRoot, "contracts", changeId, fingerprint, `contract ${changeId}`);
+  }
+  await assertRegistryFileFingerprint(
+    skillRoot,
+    "baseline-events",
+    result.event_id,
+    fingerprints.baseline_event.fingerprint,
+    `baseline event ${result.event_id}`,
+  );
+  const baselinePath = await resolveWithinPhysicalRoot(skillRoot, "state/registry/baseline.json", "project Harness baseline");
+  if (await fileSha256(baselinePath) !== fingerprints.baseline) {
+    throw new Error("Integration post-commit baseline drifted.");
+  }
+  for (const dependency of record.evidence_dependencies) {
+    const current = await readProjectHarnessChangeEvidence(skillRoot, dependency.change_id);
+    if (current.content_fingerprint !== dependency.evidence_fingerprint) {
+      throw new Error(`Integration evidence dependency drifted after Registry commit: ${dependency.change_id}.`);
+    }
+    const classification = await readProjectHarnessChangeEvidence(
+      skillRoot,
+      dependency.classification_contract_change_id,
+    );
+    if (classification.content_fingerprint !== dependency.classification_evidence_fingerprint) {
+      throw new Error(
+        `Integration dependency classification evidence drifted after Registry commit: ${dependency.classification_contract_change_id}.`,
+      );
+    }
+  }
+}
+
+function assertExactFingerprintIds(label: string, values: Record<string, string>, expected: readonly string[]): void {
+  const actual = Object.keys(values).sort();
+  if (actual.length !== expected.length || actual.some((id, index) => id !== expected[index])) {
+    throw new Error(`Integration post-commit ${label} fingerprint manifest does not match the selected owners.`);
+  }
+}
+
 function hashStableJson(value: unknown): string {
   return createHash("sha256").update(stableJson(value), "utf8").digest("hex");
 }
@@ -804,7 +922,57 @@ async function commitIntegrationRegistry(
     canonical_commit: landing,
     updated_at: new Date().toISOString(),
   });
-  return { affected_paths: affectedPaths, contract_change_ids: contractChangeIds, event_id: eventId };
+  const postCommitFingerprints = await capturePostCommitRegistryFingerprints(
+    skillRoot,
+    record,
+    contractChangeIds,
+    eventId,
+  );
+  return {
+    affected_paths: affectedPaths,
+    contract_change_ids: contractChangeIds,
+    event_id: eventId,
+    post_commit_fingerprints: postCommitFingerprints,
+    cleanup_outcome: null,
+  };
+}
+
+async function capturePostCommitRegistryFingerprints(
+  skillRoot: string,
+  record: ProjectHarnessIntegrationRecord,
+  contractChangeIds: readonly string[],
+  eventId: string,
+): Promise<ProjectHarnessIntegrationPostCommitFingerprints> {
+  const changeIds = uniqueSorted([
+    ...record.change_ids,
+    ...record.evidence_dependencies.flatMap((dependency) => [
+      dependency.change_id,
+      dependency.classification_contract_change_id,
+    ]),
+  ]);
+  const contractIds = uniqueSorted([
+    ...contractChangeIds,
+    ...record.evidence_dependencies.map((dependency) => dependency.classification_contract_change_id),
+  ]);
+  const changes = Object.fromEntries(await Promise.all(changeIds.map(async (changeId) => [
+    changeId,
+    await registryFileFingerprint(skillRoot, "changes", changeId),
+  ])));
+  const contracts = Object.fromEntries(await Promise.all(contractIds.map(async (changeId) => [
+    changeId,
+    await registryFileFingerprint(skillRoot, "contracts", changeId),
+  ])));
+  return {
+    changes,
+    contracts,
+    baseline_event: {
+      event_id: eventId,
+      fingerprint: await registryFileFingerprint(skillRoot, "baseline-events", eventId),
+    },
+    baseline: await fileSha256(
+      await resolveWithinPhysicalRoot(skillRoot, "state/registry/baseline.json", "project Harness baseline"),
+    ),
+  };
 }
 
 async function inspectCanonical(
@@ -849,8 +1017,91 @@ async function resolveIntegrationWorktree(
   return path;
 }
 
-async function detachIntegrationDiscoveryLinks(worktree: string, skillRoot: string, skillName: string): Promise<void> {
+async function cleanupIntegrationWorktree(
+  projectRoot: string,
+  sidecarRoot: string,
+  skillRoot: string,
+  record: ProjectHarnessIntegrationRecord,
+  git: ProjectHarnessGitPort,
+): Promise<ProjectHarnessIntegrationCleanupOutcome> {
+  const worktree = await resolveIntegrationWorktree(sidecarRoot, record, false);
+  const sidecar = await assertPhysicalDirectory(sidecarRoot, "project runtime sidecar");
+  const integrationRoot = await resolveWithinPhysicalRoot(
+    sidecar,
+    `integrations/${record.integration_id}`,
+    "Integration cleanup root",
+  );
+  const fromIntegrationRoot = relative(integrationRoot, worktree);
+  if (fromIntegrationRoot !== "worktree" || isAbsolute(fromIntegrationRoot)) {
+    throw new Error("Integration cleanup target is not the owned Integration worktree.");
+  }
+  for (const protectedRoot of [projectRoot, skillRoot, sidecarRoot, integrationRoot]) {
+    if (normalizeIdentity(worktree) === normalizeIdentity(protectedRoot)) {
+      throw new Error(`Integration cleanup target collides with a protected root: ${worktree}.`);
+    }
+  }
+
+  const registeredBefore = await isGitWorktreeRegistered(projectRoot, worktree, git);
+  const recordedOutcome = record.registry_result?.cleanup_outcome;
+  if (recordedOutcome && !registeredBefore && !existsSync(worktree)) {
+    return recordedOutcome;
+  }
+  let detachedLinks: string[] = [];
+  if (existsSync(worktree)) {
+    await assertPhysicalDirectory(worktree, "Integration worktree cleanup target");
+    detachedLinks = await detachIntegrationDiscoveryLinks(
+      worktree,
+      skillRoot,
+      (await readProjectHarnessManifest(skillRoot)).skill_name,
+    );
+    await assertNoDirectoryLinks(worktree);
+  }
+
+  let gitRemove: ProjectHarnessIntegrationCleanupOutcome["git_remove"] = "already_unregistered";
+  let removalFailure = "";
+  if (registeredBefore) {
+    const result = await git.run(projectRoot, ["worktree", "remove", worktree]);
+    gitRemove = result.exitCode === 0 ? "removed" : "failed_after_unregister";
+    removalFailure = result.exitCode === 0 ? "" : gitError(result);
+  }
+  if (await isGitWorktreeRegistered(projectRoot, worktree, git)) {
+    throw new Error(`Git still registers the Integration worktree after cleanup: ${worktree}.${removalFailure ? ` ${removalFailure}` : ""}`);
+  }
+
+  let residualDirectoryRemoved = false;
+  if (existsSync(worktree)) {
+    if (existsSync(join(worktree, ".git"))) {
+      throw new Error(`Unregistered Integration residual still contains .git metadata: ${worktree}.`);
+    }
+    await assertPhysicalDirectory(worktree, "Integration residual cleanup target");
+    await assertNoDirectoryLinks(worktree);
+    await rm(toNamespacedPath(worktree), { recursive: true, force: false, maxRetries: 3, retryDelay: 50 });
+    residualDirectoryRemoved = true;
+    if (existsSync(worktree)) throw new Error(`Integration residual directory still exists after cleanup: ${worktree}.`);
+  }
+  return {
+    detached_links: detachedLinks,
+    git_remove: gitRemove,
+    residual_directory_removed: residualDirectoryRemoved,
+    worktree_registered_after: false,
+  };
+}
+
+async function isGitWorktreeRegistered(
+  projectRoot: string,
+  worktree: string,
+  git: ProjectHarnessGitPort,
+): Promise<boolean> {
+  const result = await gitChecked(projectRoot, ["worktree", "list", "--porcelain", "-z"], git);
+  const expected = normalizeIdentity(worktree);
+  return result.stdout.split("\0")
+    .filter((field) => field.startsWith("worktree "))
+    .some((field) => normalizeIdentity(field.slice("worktree ".length)) === expected);
+}
+
+async function detachIntegrationDiscoveryLinks(worktree: string, skillRoot: string, skillName: string): Promise<string[]> {
   const target = normalizeIdentity(await realpath(skillRoot));
+  const detached: string[] = [];
   for (const link of [
     join(worktree, ".agents", "skills", skillName),
     join(worktree, ".claude", "skills", skillName),
@@ -862,7 +1113,9 @@ async function detachIntegrationDiscoveryLinks(worktree: string, skillRoot: stri
       throw new Error(`Integration discovery link targets another Skill: ${link}.`);
     }
     await rm(link, { force: false });
+    detached.push(relative(worktree, link).replace(/\\/g, "/"));
   }
+  return detached.sort();
 }
 
 async function assertNoDirectoryLinks(root: string): Promise<void> {
@@ -932,6 +1185,41 @@ async function writeRegistryEntity(skillRoot: string, collection: string, id: st
   const root = await resolveWithinPhysicalRoot(skillRoot, `state/registry/${collection}`, `project Harness ${collection}`);
   await mkdir(root, { recursive: true });
   await writeJsonFile(await resolveWithinPhysicalRoot(root, `${canonicalProjectHarnessId(id)}.json`, `project Harness ${collection}`), value);
+}
+
+async function registryFileFingerprint(
+  skillRoot: string,
+  collection: "changes" | "contracts" | "baseline-events",
+  id: string,
+): Promise<string> {
+  const identifier = canonicalProjectHarnessId(id, `${collection} fingerprint id`);
+  const path = await resolveWithinPhysicalRoot(
+    skillRoot,
+    `state/registry/${collection}/${identifier}.json`,
+    `project Harness ${collection} fingerprint`,
+  );
+  if (!existsSync(path)) throw new Error(`Integration post-commit ${collection} record is missing: ${identifier}.`);
+  return fileSha256(path);
+}
+
+async function assertRegistryFileFingerprint(
+  skillRoot: string,
+  collection: "changes" | "contracts" | "baseline-events",
+  id: string,
+  expected: string,
+  label: string,
+): Promise<void> {
+  if (await registryFileFingerprint(skillRoot, collection, id) !== expected) {
+    throw new Error(`Integration post-commit ${label} drifted.`);
+  }
+}
+
+async function fileSha256(path: string): Promise<string> {
+  return createHash("sha256").update(await readFile(path)).digest("hex");
+}
+
+function uniqueSorted(values: readonly string[]): string[] {
+  return [...new Set(values.map((value) => canonicalProjectHarnessId(value)))].sort();
 }
 
 async function requireIntegration(skillRoot: string, integrationId: string): Promise<ProjectHarnessIntegrationRecord> {

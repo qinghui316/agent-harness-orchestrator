@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -10,6 +10,7 @@ import {
   completeProjectHarnessIntegration,
   loadProjectHarnessIntegration,
   startProjectHarnessIntegration,
+  type ProjectHarnessGitPort,
 } from "../../src/project-harness/integration.js";
 import { readProjectHarnessBaseline } from "../../src/project-harness/registry.js";
 import {
@@ -37,7 +38,13 @@ describe("project Harness Integration", () => {
     expect(record.applied_commits).toEqual([fixture.completionCommit]);
     expect(record.remaining_commits).toEqual([]);
     expect(record.candidate_commit).toMatch(/^[a-f0-9]{40}$/);
-    expect(record.candidate_commit).not.toBe(fixture.completionCommit);
+    expect(await git(fixture.projectRoot, "cat-file", "-t", record.candidate_commit!)).toBe("commit");
+    expect(await git(fixture.projectRoot, "rev-parse", `${record.candidate_commit}^{tree}`))
+      .toBe(await git(fixture.projectRoot, "rev-parse", `${fixture.completionCommit}^{tree}`));
+    expect(await git(fixture.projectRoot, "merge-base", fixture.baseCommit, record.candidate_commit!))
+      .toBe(fixture.baseCommit);
+    expect(await git(fixture.projectRoot, "rev-list", "--merges", `${fixture.baseCommit}..${record.candidate_commit}`))
+      .toBe("");
   });
 
   it("requires exact commit boundaries and an approved candidate-bound review", async () => {
@@ -141,6 +148,254 @@ describe("project Harness Integration", () => {
 
     const idempotent = await fixture.complete(completed);
     expect(idempotent).toEqual(completed);
+  });
+
+  it("revalidates recorded post-commit Registry state without repeating landing or Registry commit", async () => {
+    const fixture = await createFixture({ evidenceDependency: {} });
+    const record = await fixture.start();
+    let mergeCount = 0;
+    const countingGit = interceptGit(async (cwd, args, next) => {
+      if (args[0] === "merge" && args[1] === "--ff-only") mergeCount += 1;
+      return next(cwd, args);
+    });
+    await expect(fixture.complete(record, {
+      git: countingGit,
+      failureInjection(phase) {
+        if (phase === "registry_committed") throw new Error("injected after Registry commit");
+      },
+    })).rejects.toThrow(/injected after Registry commit/);
+
+    const recovering = await loadProjectHarnessIntegration(fixture.skillRoot, "integration-one");
+    expect(recovering).toMatchObject({
+      status: "landing_recovery_required",
+      landing_phase: "registry_committed",
+      registry_result: {
+        post_commit_fingerprints: {
+          changes: expect.any(Object),
+          contracts: expect.any(Object),
+          baseline_event: expect.any(Object),
+          baseline: expect.stringMatching(/^[a-f0-9]{64}$/),
+        },
+      },
+    });
+    const changePath = join(fixture.skillRoot, "state", "registry", "changes", "change-one.json");
+    const contractPath = join(fixture.skillRoot, "state", "registry", "contracts", "change-one.json");
+    const committedChange = await readFile(changePath, "utf8");
+    const committedContract = await readFile(contractPath, "utf8");
+    await expireIntegrationWriter(fixture.sidecarRoot);
+
+    const completed = await fixture.complete(recovering!, { git: countingGit });
+    expect(completed).toMatchObject({ status: "integrated", landing_phase: "cleanup_complete" });
+    expect(mergeCount).toBe(1);
+    expect(await readFile(changePath, "utf8")).toBe(committedChange);
+    expect(await readFile(contractPath, "utf8")).toBe(committedContract);
+    expect(completed.registry_result?.cleanup_outcome).toMatchObject({
+      git_remove: "removed",
+      worktree_registered_after: false,
+    });
+  });
+
+  it.each(["worktree_cleaned", "cleanup_complete"] as const)(
+    "recovers after %s without repeating landing or Registry commit",
+    async (failurePoint) => {
+      const fixture = await createFixture({ evidenceDependency: {} });
+      const record = await fixture.start();
+      let mergeCount = 0;
+      const countingGit = interceptGit(async (cwd, args, next) => {
+        if (args[0] === "merge" && args[1] === "--ff-only") mergeCount += 1;
+        return next(cwd, args);
+      });
+      await expect(fixture.complete(record, {
+        git: countingGit,
+        failureInjection(phase) {
+          if (phase === failurePoint) throw new Error(`injected after ${failurePoint}`);
+        },
+      })).rejects.toThrow(`injected after ${failurePoint}`);
+
+      const recovering = await loadProjectHarnessIntegration(fixture.skillRoot, "integration-one");
+      expect(recovering?.landing_phase).toBe(failurePoint === "worktree_cleaned" ? "registry_committed" : "cleanup_complete");
+      expect(existsSync(integrationWorktree(fixture))).toBe(false);
+      const committedChange = await readFile(
+        join(fixture.skillRoot, "state", "registry", "changes", "change-one.json"),
+        "utf8",
+      );
+
+      const completed = await fixture.complete(recovering!, { git: countingGit });
+      expect(completed).toMatchObject({ status: "integrated", landing_phase: "cleanup_complete" });
+      expect(completed.registry_result?.cleanup_outcome).toMatchObject({
+        git_remove: "removed",
+        worktree_registered_after: false,
+      });
+      expect(mergeCount).toBe(1);
+      expect(await readFile(
+        join(fixture.skillRoot, "state", "registry", "changes", "change-one.json"),
+        "utf8",
+      )).toBe(committedChange);
+      expect(await readProjectHarnessWriterLock(projectHarnessSharedWriterRoot(fixture.sidecarRoot))).toBeNull();
+    },
+  );
+
+  it("fails closed when a post-commit legacy record lacks its fingerprint manifest", async () => {
+    const fixture = await createFixture({ evidenceDependency: {} });
+    const record = await fixture.start();
+    await expect(fixture.complete(record, {
+      failureInjection(phase) {
+        if (phase === "registry_committed") throw new Error("hold after Registry commit");
+      },
+    })).rejects.toThrow(/hold after Registry commit/);
+    const recordPath = join(fixture.skillRoot, "state", "registry", "integrations", "integration-one.json");
+    const stored = JSON.parse(await readFile(recordPath, "utf8")) as {
+      registry_result: { post_commit_fingerprints?: unknown };
+    };
+    delete stored.registry_result.post_commit_fingerprints;
+    await writeFile(recordPath, `${JSON.stringify(stored, null, 2)}\n`, "utf8");
+    const legacy = await loadProjectHarnessIntegration(fixture.skillRoot, "integration-one");
+    await expect(fixture.complete(legacy!)).rejects.toThrow(/missing post-commit Registry fingerprints/);
+  });
+
+  it.each([
+    ["Change", (fixture: Awaited<ReturnType<typeof createFixture>>, _record: NonNullable<Awaited<ReturnType<typeof loadProjectHarnessIntegration>>>) =>
+      join(fixture.skillRoot, "state", "registry", "changes", "change-one.json")],
+    ["contract", (fixture: Awaited<ReturnType<typeof createFixture>>, _record: NonNullable<Awaited<ReturnType<typeof loadProjectHarnessIntegration>>>) =>
+      join(fixture.skillRoot, "state", "registry", "contracts", "change-one.json")],
+    ["baseline event", (fixture: Awaited<ReturnType<typeof createFixture>>, record: NonNullable<Awaited<ReturnType<typeof loadProjectHarnessIntegration>>>) =>
+      join(fixture.skillRoot, "state", "registry", "baseline-events", `${record.registry_result!.event_id}.json`)],
+    ["baseline", (fixture: Awaited<ReturnType<typeof createFixture>>, _record: NonNullable<Awaited<ReturnType<typeof loadProjectHarnessIntegration>>>) =>
+      join(fixture.skillRoot, "state", "registry", "baseline.json")],
+  ])("rejects post-commit %s tampering", async (_label, targetPath) => {
+    const fixture = await createFixture({ evidenceDependency: {} });
+    const record = await fixture.start();
+    await expect(fixture.complete(record, {
+      failureInjection(phase) {
+        if (phase === "registry_committed") throw new Error("hold after Registry commit");
+      },
+    })).rejects.toThrow(/hold after Registry commit/);
+    const recovering = await loadProjectHarnessIntegration(fixture.skillRoot, "integration-one");
+    await mutateJson(targetPath(fixture, recovering!), { tampered: true });
+    await expect(fixture.complete(recovering!)).rejects.toThrow(/post-commit .* drifted/i);
+    expect(await readProjectHarnessWriterLock(projectHarnessSharedWriterRoot(fixture.sidecarRoot))).toMatchObject({
+      ownerId: "integration-one",
+    });
+  });
+
+  it("removes an unregistered long-path residual after Git worktree removal partially fails", async () => {
+    const fixture = await createFixture();
+    const record = await fixture.start();
+    await expect(fixture.complete(record, {
+      failureInjection(phase) {
+        if (phase === "registry_committed") throw new Error("hold before cleanup");
+      },
+    })).rejects.toThrow(/hold before cleanup/);
+    const recovering = await loadProjectHarnessIntegration(fixture.skillRoot, "integration-one");
+    await expireIntegrationWriter(fixture.sidecarRoot);
+    const partialRemoveGit = interceptGit(async (cwd, args, next) => {
+      if (args[0] !== "worktree" || args[1] !== "remove") return next(cwd, args);
+      const result = await next(cwd, args);
+      expect(result.exitCode).toBe(0);
+      const residual = args[2]!;
+      const longDirectory = join(residual, ...Array.from({ length: 12 }, (_, index) => `long-segment-${index}-${"x".repeat(20)}`));
+      await mkdir(longDirectory, { recursive: true });
+      await writeFile(join(longDirectory, "residual.txt"), "owned residual\n", "utf8");
+      return { exitCode: 1, stdout: "", stderr: "Filename too long" };
+    });
+
+    const completed = await fixture.complete(recovering!, { git: partialRemoveGit });
+    expect(completed.registry_result?.cleanup_outcome).toEqual({
+      detached_links: [],
+      git_remove: "failed_after_unregister",
+      residual_directory_removed: true,
+      worktree_registered_after: false,
+    });
+    expect(existsSync(integrationWorktree(fixture))).toBe(false);
+  });
+
+  it("fails closed when Git still registers the worktree after removal fails", async () => {
+    const fixture = await createFixture();
+    const record = await fixture.start();
+    await expect(fixture.complete(record, {
+      failureInjection(phase) {
+        if (phase === "registry_committed") throw new Error("hold before cleanup");
+      },
+    })).rejects.toThrow(/hold before cleanup/);
+    const recovering = await loadProjectHarnessIntegration(fixture.skillRoot, "integration-one");
+    await expireIntegrationWriter(fixture.sidecarRoot);
+    const registeredFailureGit = interceptGit(async (cwd, args, next) => {
+      if (args[0] === "worktree" && args[1] === "remove") {
+        return { exitCode: 1, stdout: "", stderr: "simulated registered failure" };
+      }
+      return next(cwd, args);
+    });
+
+    await expect(fixture.complete(recovering!, { git: registeredFailureGit })).rejects.toThrow(/still registers/);
+    expect(existsSync(integrationWorktree(fixture))).toBe(true);
+    expect(await readProjectHarnessWriterLock(projectHarnessSharedWriterRoot(fixture.sidecarRoot))).toMatchObject({
+      ownerId: "integration-one",
+    });
+  });
+
+  it("rejects an unregistered residual that still contains Git metadata", async () => {
+    const fixture = await createFixture();
+    const record = await fixture.start();
+    await expect(fixture.complete(record, {
+      failureInjection(phase) {
+        if (phase === "registry_committed") throw new Error("hold before cleanup");
+      },
+    })).rejects.toThrow(/hold before cleanup/);
+    const recovering = await loadProjectHarnessIntegration(fixture.skillRoot, "integration-one");
+    await expireIntegrationWriter(fixture.sidecarRoot);
+    const metadataResidualGit = interceptGit(async (cwd, args, next) => {
+      if (args[0] !== "worktree" || args[1] !== "remove") return next(cwd, args);
+      const result = await next(cwd, args);
+      expect(result.exitCode).toBe(0);
+      const residual = args[2]!;
+      await mkdir(residual, { recursive: true });
+      await writeFile(join(residual, ".git"), "gitdir: unexpected\n", "utf8");
+      return { exitCode: 1, stdout: "", stderr: "simulated residual" };
+    });
+
+    await expect(fixture.complete(recovering!, { git: metadataResidualGit })).rejects.toThrow(/still contains \.git/);
+    expect(existsSync(join(integrationWorktree(fixture), ".git"))).toBe(true);
+  });
+
+  it("rejects residual Junctions and discovery links with an unknown target", async () => {
+    for (const kind of ["junction", "wrong-skill"] as const) {
+      const fixture = await createFixture();
+      const record = await fixture.start();
+      await expect(fixture.complete(record, {
+        failureInjection(phase) {
+          if (phase === "registry_committed") throw new Error("hold before cleanup");
+        },
+      })).rejects.toThrow(/hold before cleanup/);
+      const recovering = await loadProjectHarnessIntegration(fixture.skillRoot, "integration-one");
+      const foreignTarget = join(fixture.root, `foreign-${kind}`);
+      await mkdir(foreignTarget, { recursive: true });
+      const link = kind === "junction"
+        ? join(integrationWorktree(fixture), "unknown-junction")
+        : join(integrationWorktree(fixture), ".agents", "skills", "sample-a1-harness");
+      await mkdir(dirname(link), { recursive: true });
+      await symlink(foreignTarget, link, process.platform === "win32" ? "junction" : "dir");
+      await expireIntegrationWriter(fixture.sidecarRoot);
+      await expect(fixture.complete(recovering!)).rejects.toThrow(
+        kind === "junction" ? /unknown link or Junction/ : /targets another Skill/,
+      );
+      await rm(link, { force: true });
+    }
+  });
+
+  it("rejects a recovery record whose worktree path escapes its Integration root", async () => {
+    const fixture = await createFixture();
+    const record = await fixture.start();
+    await expect(fixture.complete(record, {
+      failureInjection(phase) {
+        if (phase === "registry_committed") throw new Error("hold before cleanup");
+      },
+    })).rejects.toThrow(/hold before cleanup/);
+    const recordPath = join(fixture.skillRoot, "state", "registry", "integrations", "integration-one.json");
+    const stored = JSON.parse(await readFile(recordPath, "utf8")) as { worktree_ref: { path: string } };
+    stored.worktree_ref.path = "integrations/integration-one/../escape";
+    await writeFile(recordPath, `${JSON.stringify(stored, null, 2)}\n`, "utf8");
+    const corrupted = await loadProjectHarnessIntegration(fixture.skillRoot, "integration-one");
+    await expect(fixture.complete(corrupted!)).rejects.toThrow(/reference is invalid|escapes/);
   });
 
   it("honors the shared writer and aborts only an unlanded candidate", async () => {
@@ -309,7 +564,8 @@ async function createFixture(options: {
     overrides: {
       confirmI2?: boolean;
       review?: unknown;
-      failureInjection?: (phase: "not_started" | "pre_merge" | "canonical_landed" | "registry_committed" | "cleanup_complete") => void;
+      failureInjection?: (phase: "not_started" | "pre_merge" | "canonical_landed" | "registry_committed" | "worktree_cleaned" | "cleanup_complete") => void;
+      git?: ProjectHarnessGitPort;
     } = {},
   ) => completeProjectHarnessIntegration({
     integrationId: "integration-one",
@@ -323,7 +579,7 @@ async function createFixture(options: {
     validationPassed: true,
     review: overrides.review ?? review(record),
     failureInjection: overrides.failureInjection,
-  });
+  }, overrides.git);
   return { root, projectRoot, skillRoot, sidecarRoot, baseCommit, completionCommit, start, review, complete };
 }
 
@@ -385,4 +641,52 @@ async function writeContract(
 async function git(cwd: string, ...args: string[]): Promise<string> {
   const result = await execFileAsync("git", args, { cwd, encoding: "utf8", windowsHide: true });
   return result.stdout.trim();
+}
+
+function integrationWorktree(fixture: { sidecarRoot: string }): string {
+  return join(fixture.sidecarRoot, "integrations", "integration-one", "worktree");
+}
+
+async function expireIntegrationWriter(sidecarRoot: string): Promise<void> {
+  const ownerPath = join(projectHarnessSharedWriterRoot(sidecarRoot), "writer-lock", "owner.json");
+  const owner = JSON.parse(await readFile(ownerPath, "utf8")) as Record<string, unknown>;
+  owner.expiresAt = "2000-01-01T00:00:00.000Z";
+  await writeFile(ownerPath, `${JSON.stringify(owner, null, 2)}\n`, "utf8");
+}
+
+async function mutateJson(path: string, patch: Record<string, unknown>): Promise<void> {
+  const current = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+  await writeFile(path, `${JSON.stringify({ ...current, ...patch }, null, 2)}\n`, "utf8");
+}
+
+type GitInterceptor = (
+  cwd: string,
+  args: readonly string[],
+  next: (cwd: string, args: readonly string[]) => Promise<Awaited<ReturnType<ProjectHarnessGitPort["run"]>>>,
+) => Promise<Awaited<ReturnType<ProjectHarnessGitPort["run"]>>>;
+
+function interceptGit(interceptor: GitInterceptor): ProjectHarnessGitPort {
+  const run = async (cwd: string, args: readonly string[]) => {
+    try {
+      const result = await execFileAsync("git", [...args], {
+        cwd,
+        encoding: "utf8",
+        windowsHide: true,
+        maxBuffer: 50 * 1024 * 1024,
+      });
+      return { exitCode: 0, stdout: result.stdout, stderr: result.stderr };
+    } catch (error) {
+      const failure = error as NodeJS.ErrnoException & { stdout?: string; stderr?: string; code?: number | string };
+      return {
+        exitCode: typeof failure.code === "number" ? failure.code : 1,
+        stdout: failure.stdout ?? "",
+        stderr: failure.stderr ?? "",
+      };
+    }
+  };
+  return {
+    run(cwd, args) {
+      return interceptor(cwd, args, run);
+    },
+  };
 }
