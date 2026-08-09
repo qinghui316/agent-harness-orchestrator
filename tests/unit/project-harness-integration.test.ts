@@ -235,6 +235,44 @@ describe("project Harness Integration", () => {
     },
   );
 
+  it("requires the shared writer before terminal cleanup recovery mutates its record", async () => {
+    const fixture = await createFixture({ evidenceDependency: {} });
+    const record = await fixture.start();
+    await expect(fixture.complete(record, {
+      failureInjection(phase) {
+        if (phase === "cleanup_complete") throw new Error("hold after cleanup complete");
+      },
+    })).rejects.toThrow(/hold after cleanup complete/);
+
+    const recordPath = join(fixture.skillRoot, "state", "registry", "integrations", "integration-one.json");
+    const recovering = await loadProjectHarnessIntegration(fixture.skillRoot, "integration-one");
+    expect(recovering).toMatchObject({
+      status: "landing_recovery_required",
+      landing_phase: "cleanup_complete",
+    });
+    await expireIntegrationWriter(fixture.sidecarRoot);
+    const writerRoot = projectHarnessSharedWriterRoot(fixture.sidecarRoot);
+    const foreign = await claimProjectHarnessWriterLock(writerRoot, {
+      projectId: "sample-a1",
+      ownerId: "evolution-owner",
+      operation: "evolution-publish",
+    });
+    const before = await readFile(recordPath, "utf8");
+
+    await expect(fixture.complete(recovering!)).rejects.toThrow(/writer lock is already held/);
+    expect(await readFile(recordPath, "utf8")).toBe(before);
+    expect(await readProjectHarnessWriterLock(writerRoot)).toMatchObject({
+      token: foreign.token,
+      ownerId: "evolution-owner",
+      operation: "evolution-publish",
+    });
+
+    await releaseProjectHarnessWriterLock(writerRoot, foreign.token);
+    const completed = await fixture.complete(recovering!);
+    expect(completed).toMatchObject({ status: "integrated", landing_phase: "cleanup_complete" });
+    expect(await readProjectHarnessWriterLock(writerRoot)).toBeNull();
+  });
+
   it("fails closed when a post-commit legacy record lacks its fingerprint manifest", async () => {
     const fixture = await createFixture({ evidenceDependency: {} });
     const record = await fixture.start();

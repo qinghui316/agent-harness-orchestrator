@@ -410,14 +410,19 @@ export async function completeProjectHarnessIntegration(
     return record;
   }
   if (initialPhase === "cleanup_complete") {
-    const head = await requireCommit(input.projectRoot, "HEAD", git);
-    if (head !== record.landing_commit) throw new Error("Canonical HEAD no longer matches the integrated record.");
-    record.status = "integrated";
-    record.last_error = null;
-    record.updated_at = new Date().toISOString();
-    await writeIntegrationRecord(input.skillRoot, record);
-    await releaseOwnedWriterLock(input.sidecarRoot, integrationId);
-    return record;
+    const lock = await claimOrReuseWriterLock(input.sidecarRoot, projectId, integrationId);
+    try {
+      await heartbeatIntegrationWriter(input.sidecarRoot, lock.token);
+      const head = await requireCommit(input.projectRoot, "HEAD", git);
+      if (head !== record.landing_commit) throw new Error("Canonical HEAD no longer matches the integrated record.");
+      record.status = "integrated";
+      record.last_error = null;
+      record.updated_at = new Date().toISOString();
+      await writeIntegrationRecord(input.skillRoot, record);
+      return record;
+    } finally {
+      await releaseProjectHarnessWriterLock(projectHarnessSharedWriterRoot(input.sidecarRoot), lock.token);
+    }
   }
   const worktree = await resolveIntegrationWorktree(input.sidecarRoot, record, false);
   if (record.remaining_commits.length > 0 && ["not_started", "pre_merge"].includes(record.landing_phase)) {
