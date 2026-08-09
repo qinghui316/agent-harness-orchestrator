@@ -6,6 +6,7 @@ import {
   checkProjectHarnessEvolution,
   completeProjectHarnessEvolution,
   readProjectHarnessEvolutionState,
+  reconsiderProjectHarnessEvolution,
   stageProjectHarnessEvolution,
 } from "../../src/project-harness/evolution.js";
 import { SourceFingerprintSnapshot } from "../../src/project-harness/source-fingerprint.js";
@@ -27,7 +28,7 @@ describe("project Harness Evolution", () => {
     const state = await checkProjectHarnessEvolution(fixture.skillRoot, fixture.sidecarRoot);
 
     expect(state.pending).toBe(true);
-    expect(state.pending_change_ids).toEqual(changeIds(7));
+    expect(state.pending_change_ids).toEqual(changeIds(5));
 
     const stage = await fixture.stage();
     expect(stage.change_ids).toEqual(changeIds(5));
@@ -35,7 +36,7 @@ describe("project Harness Evolution", () => {
 
     const completed = await readProjectHarnessEvolutionState(fixture.skillRoot);
     expect(completed.evaluated_change_ids).toEqual(changeIds(5));
-    expect(completed.pending_change_ids).toEqual(changeIds(7).slice(5));
+    expect(completed.pending_change_ids).toEqual([]);
     expect(completed.pending).toBe(false);
   });
 
@@ -185,6 +186,387 @@ describe("project Harness Evolution", () => {
     }
     expect(await readFile(join(fixture.skillRoot, "static.txt"), "utf8")).toBe("current\n");
   });
+
+  it("reconsiders the latest unpublished rejection without re-consuming its Change window", async () => {
+    const fixture = await createFixture(7);
+    const rejectedStage = await fixture.stage();
+    await fixture.completeRejected(rejectedStage);
+    await rm(join(fixture.skillRoot, "state", "evolution", "attempts", `${rejectedStage.proposal_id}.json`));
+    await fixture.writeProposal("proposal-reconsidered", "Fresh reconsideration proposal.");
+
+    const claim = await reconsiderProjectHarnessEvolution(fixture.skillRoot, fixture.sidecarRoot, {
+      rejectedProposalId: rejectedStage.proposal_id,
+      proposalId: "proposal-reconsidered",
+      ownerId: "evolution-agent",
+      e1Approved: true,
+      reconsiderApproved: true,
+    });
+    expect(claim).toMatchObject({
+      attempt_kind: "reconsideration",
+      change_ids: changeIds(5),
+      queued_change_ids_snapshot: changeIds(7).slice(5),
+      base_revision: 27,
+    });
+    expect(await readFile(join(
+      fixture.skillRoot,
+      "state",
+      "evolution",
+      "attempts",
+      `${rejectedStage.proposal_id}.json`,
+    ), "utf8")).toContain('"status": "rejected"');
+
+    const stage = await fixture.stage({ proposalId: "proposal-reconsidered" });
+    expect(stage).toMatchObject({
+      attempt_kind: "reconsideration",
+      reconsidered_from_proposal_id: rejectedStage.proposal_id,
+      reconsidered_result_fingerprint: claim.reconsidered_result_fingerprint,
+      change_ids: changeIds(5),
+    });
+    const judge = fixture.judge(stage, "keep", 92);
+    await writeFile(join(
+      fixture.skillRoot,
+      "state",
+      "evolution",
+      "proposals",
+      `${stage.proposal_id}-judge.json`,
+    ), `${JSON.stringify(judge, null, 2)}\n`, "utf8");
+    const result = await completeProjectHarnessEvolution(fixture.skillRoot, fixture.sidecarRoot, {
+      ...fixture.completeInput(stage),
+      status: "keep",
+      judge,
+      validation: passingValidation(),
+      note: "Reconsidered with the missing external authorization.",
+    });
+    expect(result).toMatchObject({
+      status: "keep",
+      score: 92,
+      revision: 28,
+      evaluatedChangeIds: changeIds(5),
+      pendingChangeIds: changeIds(7).slice(5),
+    });
+    const state = await readProjectHarnessEvolutionState(fixture.skillRoot);
+    expect(state.evaluated_change_ids).toEqual(changeIds(5));
+    expect(state.pending_change_ids).toEqual([]);
+    const attempt = JSON.parse(await readFile(join(
+      fixture.skillRoot,
+      "state",
+      "evolution",
+      "attempts",
+      "proposal-reconsidered.json",
+    ), "utf8")) as Record<string, unknown>;
+    expect(attempt).toMatchObject({
+      attempt_kind: "reconsideration",
+      parent_proposal_id: rejectedStage.proposal_id,
+      published: true,
+      base_revision: 27,
+    });
+
+    const retry = await completeProjectHarnessEvolution(fixture.skillRoot, fixture.sidecarRoot, {
+      ...fixture.completeInput(stage),
+      status: "keep",
+      judge,
+      validation: passingValidation(),
+      note: "Idempotent retry.",
+    });
+    expect(retry).toEqual(result);
+    expect((await readProjectHarnessManifestForTest(fixture.skillRoot)).skill_revision).toBe(28);
+  });
+
+  it("requires both confirmations and rejects stale reconsideration evidence", async () => {
+    const fixture = await createFixture(7);
+    const rejectedStage = await fixture.stage();
+    await fixture.completeRejected(rejectedStage);
+    await fixture.writeProposal("proposal-reconsidered", "Fresh reconsideration proposal.");
+    const input = {
+      rejectedProposalId: rejectedStage.proposal_id,
+      proposalId: "proposal-reconsidered",
+      ownerId: "evolution-agent",
+      e1Approved: true,
+      reconsiderApproved: true,
+    };
+    await expect(reconsiderProjectHarnessEvolution(fixture.skillRoot, fixture.sidecarRoot, {
+      ...input,
+      e1Approved: false,
+    })).rejects.toThrow(/explicit E1 approval/);
+    await expect(reconsiderProjectHarnessEvolution(fixture.skillRoot, fixture.sidecarRoot, {
+      ...input,
+      reconsiderApproved: false,
+    })).rejects.toThrow(/explicit reconsider approval/);
+    await writeFile(join(
+      fixture.skillRoot,
+      "state",
+      "evolution",
+      "proposals",
+      "proposal-reconsidered-judge.json",
+    ), "{}\n", "utf8");
+    await expect(reconsiderProjectHarnessEvolution(fixture.skillRoot, fixture.sidecarRoot, input))
+      .rejects.toThrow(/fresh independent Judge/);
+  });
+
+  it("fails before claiming when the rejected window is no longer evaluated or a full next window is pending", async () => {
+    const missingEvaluated = await createFixture(7);
+    const missingStage = await missingEvaluated.stage();
+    await missingEvaluated.completeRejected(missingStage);
+    await missingEvaluated.writeProposal("proposal-reconsidered", "Fresh reconsideration proposal.");
+    const missingStatePath = join(missingEvaluated.skillRoot, "state", "evolution", "state.json");
+    const missingState = JSON.parse(await readFile(missingStatePath, "utf8")) as Record<string, unknown>;
+    await writeFile(missingStatePath, `${JSON.stringify({
+      ...missingState,
+      evaluated_change_ids: changeIds(5).slice(1),
+    }, null, 2)}\n`, "utf8");
+    await expect(reconsiderProjectHarnessEvolution(missingEvaluated.skillRoot, missingEvaluated.sidecarRoot, {
+      rejectedProposalId: missingStage.proposal_id,
+      proposalId: "proposal-reconsidered",
+      ownerId: "evolution-agent",
+      e1Approved: true,
+      reconsiderApproved: true,
+    })).rejects.toThrow(/must already exist in the evaluated Change set/);
+
+    const fullNextWindow = await createFixture(10);
+    const fullStage = await fullNextWindow.stage();
+    await fullNextWindow.completeRejected(fullStage);
+    await fullNextWindow.writeProposal("proposal-reconsidered", "Fresh reconsideration proposal.");
+    await expect(reconsiderProjectHarnessEvolution(fullNextWindow.skillRoot, fullNextWindow.sidecarRoot, {
+      rejectedProposalId: fullStage.proposal_id,
+      proposalId: "proposal-reconsidered",
+      ownerId: "evolution-agent",
+      e1Approved: true,
+      reconsiderApproved: true,
+    })).rejects.toThrow(/complete pending Evolution window/);
+  });
+
+  it("rolls back a failed legacy-attempt claim and refuses a foreign shared writer", async () => {
+    const failedClaim = await createFixture(7);
+    const failedStage = await failedClaim.stage();
+    await failedClaim.completeRejected(failedStage);
+    await failedClaim.writeProposal("proposal-reconsidered", "Fresh reconsideration proposal.");
+    const evolutionRoot = join(failedClaim.skillRoot, "state", "evolution");
+    const attemptsRoot = join(evolutionRoot, "attempts");
+    await rm(attemptsRoot, { recursive: true, force: true });
+    await writeFile(attemptsRoot, "exclusive attempt storage collision\n", "utf8");
+    const stateBefore = await readFile(join(evolutionRoot, "state.json"));
+    const resultsBefore = await readFile(join(evolutionRoot, "results.tsv"));
+    const judgeBefore = await readFile(join(evolutionRoot, "proposals", `${failedStage.proposal_id}-judge.json`));
+    await expect(reconsiderProjectHarnessEvolution(failedClaim.skillRoot, failedClaim.sidecarRoot, {
+      rejectedProposalId: failedStage.proposal_id,
+      proposalId: "proposal-reconsidered",
+      ownerId: "evolution-agent",
+      e1Approved: true,
+      reconsiderApproved: true,
+    })).rejects.toThrow();
+    expect(await readFile(join(evolutionRoot, "state.json"))).toEqual(stateBefore);
+    expect(await readFile(join(evolutionRoot, "results.tsv"))).toEqual(resultsBefore);
+    expect(await readFile(join(evolutionRoot, "proposals", `${failedStage.proposal_id}-judge.json`))).toEqual(judgeBefore);
+    expect(await readFile(attemptsRoot, "utf8")).toBe("exclusive attempt storage collision\n");
+    await expect(readFile(join(failedClaim.skillRoot, "state", "registry", "locks", "evolution-owner", "owner.json")))
+      .rejects.toThrow();
+
+    const foreignWriter = await createFixture(7);
+    const foreignStage = await foreignWriter.stage();
+    await foreignWriter.completeRejected(foreignStage);
+    await foreignWriter.writeProposal("proposal-reconsidered", "Fresh reconsideration proposal.");
+    const writerRoot = projectHarnessSharedWriterRoot(foreignWriter.sidecarRoot);
+    const lock = await claimProjectHarnessWriterLock(writerRoot, {
+      projectId: "sample-a1",
+      ownerId: "integration-owner",
+      operation: "integration-finalize",
+    });
+    try {
+      await expect(reconsiderProjectHarnessEvolution(foreignWriter.skillRoot, foreignWriter.sidecarRoot, {
+        rejectedProposalId: foreignStage.proposal_id,
+        proposalId: "proposal-reconsidered",
+        ownerId: "evolution-agent",
+        e1Approved: true,
+        reconsiderApproved: true,
+      })).rejects.toThrow(/writer lock is already held/);
+    } finally {
+      await releaseProjectHarnessWriterLock(writerRoot, lock.token);
+    }
+    await expect(readFile(join(foreignWriter.skillRoot, "state", "registry", "locks", "evolution-owner", "owner.json")))
+      .rejects.toThrow();
+  });
+
+  it("uses an operation-scoped writer with durable owner and fingerprint fencing between reconsider and stage", async () => {
+    const fixture = await createFixture(7);
+    const rejectedStage = await fixture.stage();
+    await fixture.completeRejected(rejectedStage);
+    await fixture.writeProposal("proposal-reconsidered", "Fresh reconsideration proposal.");
+    const claim = await reconsiderProjectHarnessEvolution(fixture.skillRoot, fixture.sidecarRoot, {
+      rejectedProposalId: rejectedStage.proposal_id,
+      proposalId: "proposal-reconsidered",
+      ownerId: "evolution-agent",
+      e1Approved: true,
+      reconsiderApproved: true,
+    });
+    const writerRoot = projectHarnessSharedWriterRoot(fixture.sidecarRoot);
+    const foreign = await claimProjectHarnessWriterLock(writerRoot, {
+      projectId: "sample-a1",
+      ownerId: "integration-owner",
+      operation: "integration-finalize",
+    });
+    try {
+      await expect(fixture.stage({ proposalId: "proposal-reconsidered" }))
+        .rejects.toThrow(/writer lock is already held/);
+    } finally {
+      await releaseProjectHarnessWriterLock(writerRoot, foreign.token);
+    }
+    const stage = await fixture.stage({ proposalId: "proposal-reconsidered" });
+    expect(stage.claim_token).toBe(claim.claim_token);
+    expect(stage.reconsidered_result_fingerprint).toBe(claim.reconsidered_result_fingerprint);
+  });
+
+  it("revalidates every durable reconsideration claim binding before an idempotent retry", async () => {
+    const fixture = await createFixture(7);
+    const rejectedStage = await fixture.stage();
+    await fixture.completeRejected(rejectedStage);
+    await fixture.writeProposal("proposal-reconsidered", "Fresh reconsideration proposal.");
+    const input = {
+      rejectedProposalId: rejectedStage.proposal_id,
+      proposalId: "proposal-reconsidered",
+      ownerId: "evolution-agent",
+      e1Approved: true,
+      reconsiderApproved: true,
+    };
+    const claim = await reconsiderProjectHarnessEvolution(fixture.skillRoot, fixture.sidecarRoot, input);
+    const ownerPath = join(fixture.skillRoot, "state", "registry", "locks", "evolution-owner", "owner.json");
+    for (const tampered of [
+      { ...claim, claim_token: "" },
+      { ...claim, reconsidered_from_proposal_id: "another-parent" },
+      { ...claim, change_ids: [...claim.change_ids].reverse() },
+      { ...claim, queued_change_ids_snapshot: [...claim.queued_change_ids_snapshot].reverse() },
+      { ...claim, queued_change_ids_digest: "0".repeat(64) },
+    ]) {
+      await writeFile(ownerPath, `${JSON.stringify(tampered, null, 2)}\n`, "utf8");
+      await expect(reconsiderProjectHarnessEvolution(fixture.skillRoot, fixture.sidecarRoot, input)).rejects.toThrow();
+    }
+    await writeFile(ownerPath, `${JSON.stringify(claim, null, 2)}\n`, "utf8");
+    await expect(reconsiderProjectHarnessEvolution(fixture.skillRoot, fixture.sidecarRoot, input)).resolves.toEqual(claim);
+  });
+
+  it("rejects non-rejected terminal results and reused attempt identities", async () => {
+    const kept = await createFixture();
+    const keptStage = await kept.stage();
+    const keepJudge = kept.judge(keptStage, "keep", 90);
+    await completeProjectHarnessEvolution(kept.skillRoot, kept.sidecarRoot, {
+      ...kept.completeInput(keptStage),
+      status: "keep",
+      judge: keepJudge,
+      validation: passingValidation(),
+      note: "Published terminal attempt.",
+    });
+    await kept.writeProposal("proposal-reconsidered", "Must not reopen a keep result.");
+    await expect(reconsiderProjectHarnessEvolution(kept.skillRoot, kept.sidecarRoot, {
+      rejectedProposalId: keptStage.proposal_id,
+      proposalId: "proposal-reconsidered",
+      ownerId: "evolution-agent",
+      e1Approved: true,
+      reconsiderApproved: true,
+    })).rejects.toThrow(/latest terminal result/);
+
+    const reused = await createFixture();
+    const rejectedStage = await reused.stage();
+    await reused.completeRejected(rejectedStage);
+    await reused.writeProposal("proposal-reconsidered", "Colliding attempt id.");
+    const attemptRoot = join(reused.skillRoot, "state", "evolution", "attempts");
+    await mkdir(attemptRoot, { recursive: true });
+    await writeFile(join(attemptRoot, "proposal-reconsidered.json"), "{}\n", "utf8");
+    await expect(reconsiderProjectHarnessEvolution(reused.skillRoot, reused.sidecarRoot, {
+      rejectedProposalId: rejectedStage.proposal_id,
+      proposalId: "proposal-reconsidered",
+      ownerId: "evolution-agent",
+      e1Approved: true,
+      reconsiderApproved: true,
+    })).rejects.toThrow(/fresh candidate and attempt id/);
+  });
+
+  it("records a second rejection as a new immutable lineage attempt", async () => {
+    const fixture = await createFixture(7);
+    const original = await fixture.stage();
+    await fixture.completeRejected(original);
+    await fixture.writeProposal("proposal-reconsidered-one", "First reconsideration proposal.");
+    await reconsiderProjectHarnessEvolution(fixture.skillRoot, fixture.sidecarRoot, {
+      rejectedProposalId: original.proposal_id,
+      proposalId: "proposal-reconsidered-one",
+      ownerId: "evolution-agent",
+      e1Approved: true,
+      reconsiderApproved: true,
+    });
+    const firstReconsideration = await fixture.stage({ proposalId: "proposal-reconsidered-one" });
+    await fixture.completeRejected(firstReconsideration);
+
+    await fixture.writeProposal("proposal-reconsidered-two", "Second reconsideration proposal.");
+    const secondClaim = await reconsiderProjectHarnessEvolution(fixture.skillRoot, fixture.sidecarRoot, {
+      rejectedProposalId: firstReconsideration.proposal_id,
+      proposalId: "proposal-reconsidered-two",
+      ownerId: "evolution-agent",
+      e1Approved: true,
+      reconsiderApproved: true,
+    });
+    expect(secondClaim).toMatchObject({
+      reconsidered_from_proposal_id: firstReconsideration.proposal_id,
+      change_ids: changeIds(5),
+      queued_change_ids_snapshot: changeIds(7).slice(5),
+    });
+    const firstAttempt = JSON.parse(await readFile(join(
+      fixture.skillRoot,
+      "state",
+      "evolution",
+      "attempts",
+      `${firstReconsideration.proposal_id}.json`,
+    ), "utf8")) as Record<string, unknown>;
+    expect(firstAttempt).toMatchObject({
+      parent_proposal_id: original.proposal_id,
+      status: "rejected",
+      published: false,
+    });
+  });
+
+  it("fails closed when queued Changes or the immutable parent attempt drift", async () => {
+    const queuedFixture = await createFixture(7);
+    const rejectedStage = await queuedFixture.stage();
+    await queuedFixture.completeRejected(rejectedStage);
+    await queuedFixture.writeProposal("proposal-reconsidered", "Fresh reconsideration proposal.");
+    await reconsiderProjectHarnessEvolution(queuedFixture.skillRoot, queuedFixture.sidecarRoot, {
+      rejectedProposalId: rejectedStage.proposal_id,
+      proposalId: "proposal-reconsidered",
+      ownerId: "evolution-agent",
+      e1Approved: true,
+      reconsiderApproved: true,
+    });
+    await writeCompletedChanges(queuedFixture.skillRoot, 8);
+    await expect(queuedFixture.stage({ proposalId: "proposal-reconsidered" }))
+      .rejects.toThrow(/Queued Evolution Changes changed/);
+
+    const parentFixture = await createFixture();
+    const parentStage = await parentFixture.stage();
+    await parentFixture.completeRejected(parentStage);
+    await parentFixture.writeProposal("proposal-reconsidered", "Fresh reconsideration proposal.");
+    const parentPath = join(parentFixture.skillRoot, "state", "evolution", "attempts", `${parentStage.proposal_id}.json`);
+    const parent = JSON.parse(await readFile(parentPath, "utf8")) as Record<string, unknown>;
+    await writeFile(parentPath, `${JSON.stringify({ ...parent, published: true }, null, 2)}\n`, "utf8");
+    await expect(reconsiderProjectHarnessEvolution(parentFixture.skillRoot, parentFixture.sidecarRoot, {
+      rejectedProposalId: parentStage.proposal_id,
+      proposalId: "proposal-reconsidered",
+      ownerId: "evolution-agent",
+      e1Approved: true,
+      reconsiderApproved: true,
+    })).rejects.toThrow(/fingerprint drifted/);
+
+    const ledgerFixture = await createFixture();
+    const ledgerStage = await ledgerFixture.stage();
+    await ledgerFixture.completeRejected(ledgerStage);
+    await ledgerFixture.writeProposal("proposal-reconsidered", "Fresh reconsideration proposal.");
+    const resultsPath = join(ledgerFixture.skillRoot, "state", "evolution", "results.tsv");
+    const results = await readFile(resultsPath, "utf8");
+    await writeFile(resultsPath, results.replace("Rejected by the independent Judge.", "Tampered note."), "utf8");
+    await expect(reconsiderProjectHarnessEvolution(ledgerFixture.skillRoot, ledgerFixture.sidecarRoot, {
+      rejectedProposalId: ledgerStage.proposal_id,
+      proposalId: "proposal-reconsidered",
+      ownerId: "evolution-agent",
+      e1Approved: true,
+      reconsiderApproved: true,
+    })).rejects.toThrow(/results ledger drifted/);
+  });
 });
 
 async function createFixture(changeCount = 5) {
@@ -201,6 +583,7 @@ async function createFixture(changeCount = 5) {
   await mkdir(join(projectRoot, "src"), { recursive: true });
   await writeFile(join(projectRoot, "src", "owner.ts"), "export const owner = 'current';\n", "utf8");
   await writeCompletedChanges(skillRoot, changeCount);
+  await writeEvolutionProposal(skillRoot, "proposal-one", "Initial Evolution proposal.");
 
   const stageInput = {
     proposalId: "proposal-one",
@@ -264,15 +647,26 @@ async function createFixture(changeCount = 5) {
       return stageProjectHarnessEvolution(skillRoot, sidecarRoot, { ...stageInput, ...overrides });
     },
     judge,
+    writeProposal(proposalId: string, content: string) {
+      return writeEvolutionProposal(skillRoot, proposalId, content);
+    },
     async completeRejected(
       stage: Awaited<ReturnType<typeof stageProjectHarnessEvolution>>,
       options: { validationPassed?: boolean } = {},
     ) {
       const validationPassed = options.validationPassed ?? true;
+      const report = judge(stage, "reject", 70);
+      await writeFile(join(
+        skillRoot,
+        "state",
+        "evolution",
+        "proposals",
+        `${stage.proposal_id}-judge.json`,
+      ), `${JSON.stringify(report, null, 2)}\n`, "utf8");
       return completeProjectHarnessEvolution(skillRoot, sidecarRoot, {
         ...completeInput(stage),
         status: "rejected",
-        judge: judge(stage, "reject", 70),
+        judge: report,
         validation: {
           harnessPassed: validationPassed,
           projectPassed: validationPassed,
@@ -282,6 +676,18 @@ async function createFixture(changeCount = 5) {
         note: "Rejected by the independent Judge.",
       });
     },
+  };
+}
+
+async function writeEvolutionProposal(skillRoot: string, proposalId: string, content: string): Promise<void> {
+  const root = join(skillRoot, "state", "evolution", "proposals");
+  await mkdir(root, { recursive: true });
+  await writeFile(join(root, `${proposalId}.md`), `# ${proposalId}\n\n${content}\n`, "utf8");
+}
+
+async function readProjectHarnessManifestForTest(skillRoot: string): Promise<{ skill_revision: number }> {
+  return JSON.parse(await readFile(join(skillRoot, "state", "manifest.json"), "utf8")) as {
+    skill_revision: number;
   };
 }
 

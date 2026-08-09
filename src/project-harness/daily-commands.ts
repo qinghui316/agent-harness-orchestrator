@@ -37,8 +37,10 @@ import {
   checkProjectHarnessEvolution,
   completeProjectHarnessEvolution,
   readProjectHarnessEvolutionState,
+  reconsiderProjectHarnessEvolution,
   stageProjectHarnessEvolution,
   type CompleteProjectHarnessEvolutionInput,
+  type ReconsiderProjectHarnessEvolutionInput,
   type StageProjectHarnessEvolutionInput,
 } from "./evolution.js";
 import { SourceFingerprintSnapshot } from "./source-fingerprint.js";
@@ -54,6 +56,7 @@ export interface ProjectHarnessDailyArguments {
 
 const BOOLEAN_OPTIONS = new Set([
   "help", "json", "resume", "validation-passed", "confirm-i2", "confirm-e1", "judge-unavailable",
+  "confirm-reconsider",
 ]);
 const MULTI_VALUE_OPTIONS = new Set(["paths"]);
 
@@ -287,12 +290,37 @@ export async function runDailyEvolutionCommand(
   assertOnlyOptions(parsed.options, [
     "project-root", "sidecar-root", "help", "json", "input-json", "confirm-e1", "proposal-id", "owner",
     "candidate-root", "source", "mode", "judge-report", "judge-unavailable", "status", "note",
+    "rejected-proposal-id", "confirm-reconsider",
   ]);
   if (parsed.help) return dailyCommandHelp("evolve");
   assertNoPositionals(parsed, "Evolution");
   await assertDailyProjectBinding(skillRoot, manifest, parsed.projectRoot, discoveryPolicy);
   if (parsed.action === "check") return checkProjectHarnessEvolution(skillRoot, parsed.sidecarRoot);
   if (parsed.action === "status") return readProjectHarnessEvolutionState(skillRoot);
+  if (parsed.action === "reconsider") {
+    const fileInput = await optionalInputJson<Partial<ReconsiderProjectHarnessEvolutionInput> & {
+      e1Approved?: unknown;
+      reconsiderApproved?: unknown;
+    }>(parsed.options);
+    rejectAuthorityField(fileInput, "e1Approved", "E1");
+    rejectAuthorityField(fileInput, "reconsiderApproved", "Evolution reconsideration");
+    if (booleanOption(parsed.options, "confirm-e1") !== true) {
+      throw new Error("Evolution reconsideration requires explicit --confirm-e1 on this invocation.");
+    }
+    if (booleanOption(parsed.options, "confirm-reconsider") !== true) {
+      throw new Error("Evolution reconsideration requires explicit --confirm-reconsider on this invocation.");
+    }
+    return reconsiderProjectHarnessEvolution(skillRoot, parsed.sidecarRoot, {
+      rejectedProposalId: requireValue(
+        option(parsed.options, "rejected-proposal-id") ?? fileInput.rejectedProposalId,
+        "--rejected-proposal-id",
+      ),
+      proposalId: requireValue(option(parsed.options, "proposal-id") ?? fileInput.proposalId, "--proposal-id"),
+      ownerId: requireValue(option(parsed.options, "owner") ?? fileInput.ownerId, "--owner"),
+      e1Approved: true,
+      reconsiderApproved: true,
+    });
+  }
   if (parsed.action === "stage") {
     const input = await inputJson<Omit<StageProjectHarnessEvolutionInput, "sourceSnapshot"> & { e1Approved?: unknown }>(parsed.options);
     rejectAuthorityField(input, "e1Approved", "E1");
@@ -312,7 +340,7 @@ export async function runDailyEvolutionCommand(
       sourceSnapshot: new SourceFingerprintSnapshot({ projectRoot: parsed.projectRoot }),
     });
   }
-  throw new Error("Evolution command requires check, status, stage, or mark-complete.");
+  throw new Error("Evolution command requires check, status, reconsider, stage, or mark-complete.");
 }
 
 async function registryContext(
@@ -481,7 +509,7 @@ function dailyCommandHelp(command: "change" | "integrate" | "evolve") {
     ? ["new", "preflight", "publish", "close", "park", "resume", "search", "context", "reindex", "status"]
     : command === "integrate"
       ? ["start", "status", "complete", "abort"]
-      : ["check", "status", "stage", "mark-complete"];
+      : ["check", "status", "reconsider", "stage", "mark-complete"];
   return { command, actions, projectRootDefault: "current-working-directory" };
 }
 

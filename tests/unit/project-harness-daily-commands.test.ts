@@ -110,8 +110,12 @@ describe("project Harness standalone daily commands", () => {
     const fixture = await createFixture();
     const integrationInput = join(fixture.root, "integration.json");
     const evolutionInput = join(fixture.root, "evolution.json");
+    const reconsiderE1Input = join(fixture.root, "reconsider-e1.json");
+    const reconsiderAuthorityInput = join(fixture.root, "reconsider-authority.json");
     await writeFile(integrationInput, `${JSON.stringify({ confirmI2: true })}\n`, "utf8");
     await writeFile(evolutionInput, `${JSON.stringify({ e1Approved: true })}\n`, "utf8");
+    await writeFile(reconsiderE1Input, `${JSON.stringify({ e1Approved: true })}\n`, "utf8");
+    await writeFile(reconsiderAuthorityInput, `${JSON.stringify({ reconsiderApproved: true })}\n`, "utf8");
 
     await expect(runProjectHarnessDailyCommand({
       command: "integrate",
@@ -123,6 +127,40 @@ describe("project Harness standalone daily commands", () => {
       skillRoot: fixture.skillRoot,
       args: ["stage", "--project-root", fixture.projectRoot, "--input-json", evolutionInput],
     })).rejects.toThrow(/must not be supplied by input JSON/);
+    await expect(runProjectHarnessDailyCommand({
+      command: "evolve",
+      skillRoot: fixture.skillRoot,
+      args: [
+        "reconsider", "--project-root", fixture.projectRoot, "--input-json", reconsiderE1Input,
+        "--confirm-e1", "--confirm-reconsider",
+      ],
+    })).rejects.toThrow(/must not be supplied by input JSON/);
+    await expect(runProjectHarnessDailyCommand({
+      command: "evolve",
+      skillRoot: fixture.skillRoot,
+      args: [
+        "reconsider", "--project-root", fixture.projectRoot, "--input-json", reconsiderAuthorityInput,
+        "--confirm-e1", "--confirm-reconsider",
+      ],
+    })).rejects.toThrow(/must not be supplied by input JSON/);
+  });
+
+  it("requires both current-invocation authorities for Evolution reconsideration", async () => {
+    const fixture = await createFixture();
+    const base = [
+      "reconsider", "--project-root", fixture.projectRoot,
+      "--rejected-proposal-id", "rejected-one", "--proposal-id", "reconsider-one", "--owner", "operator-one",
+    ];
+    await expect(runProjectHarnessDailyCommand({
+      command: "evolve",
+      skillRoot: fixture.skillRoot,
+      args: base,
+    })).rejects.toThrow(/confirm-e1/);
+    await expect(runProjectHarnessDailyCommand({
+      command: "evolve",
+      skillRoot: fixture.skillRoot,
+      args: [...base, "--confirm-e1"],
+    })).rejects.toThrow(/confirm-reconsider/);
   });
 
   it("rejects value-like positional arguments after explicit I2 and E1 flags before mutation", async () => {
@@ -154,6 +192,18 @@ describe("project Harness standalone daily commands", () => {
       skillRoot: fixture.skillRoot,
       args: ["status", "--project-root", fixture.projectRoot],
     })).resolves.toEqual({ changes: [] });
+  });
+
+  it("advertises Evolution reconsideration as a distinct action", async () => {
+    const fixture = await createFixture();
+    await expect(runProjectHarnessDailyCommand({
+      command: "evolve",
+      skillRoot: fixture.skillRoot,
+      args: ["--help"],
+    })).resolves.toEqual(expect.objectContaining({
+      command: "evolve",
+      actions: ["check", "status", "reconsider", "stage", "mark-complete"],
+    }));
   });
 });
 
