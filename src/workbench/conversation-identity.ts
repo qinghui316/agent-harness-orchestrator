@@ -7,12 +7,13 @@ export async function resolveConversationId(project: ManagedProject, targetId: s
   const state = await resolveProjectRuntimeState(project, {
     discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
   });
-  if (state.state !== "ready") throw new Error(`Project Harness is not ready for conversation resolution: ${state.state}.`);
-  const { paths } = state.resolution;
+  const paths = state.state === "onboarding" ? state.paths : state.resolution.paths;
   const database = await openProjectRuntimeWorkbenchDatabase(paths);
   try {
     const conversation = database.conversations.readConversation(paths.projectId, targetId)
-      ?? database.conversations.readConversationByChangeId(paths.projectId, targetId);
+      ?? (state.state === "ready"
+        ? database.conversations.readConversationByChangeId(paths.projectId, targetId)
+        : null);
     if (!conversation) throw new Error(`Conversation not found: ${targetId}.`);
     return conversation.conversationId;
   } finally {

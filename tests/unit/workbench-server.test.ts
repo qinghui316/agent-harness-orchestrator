@@ -361,7 +361,7 @@ describe("workbench server", () => {
     expect(error).toMatchObject({
       conversationId: created.conversationId,
       productMode: "agent",
-      message: "Direct Agent execution is not enabled in the T002 foundation.",
+      message: "Direct Agent execution is not enabled yet.",
     });
     expect(snapshot).toMatchObject({
       productMode: "agent",
@@ -1031,6 +1031,45 @@ describe("workbench server", () => {
       expect(snapshot.left.topics).toHaveLength(0);
       expect(snapshot.warnings).toEqual([
         "Project Harness onboarding is incomplete; Workbench will not infer project history.",
+      ]);
+
+      const createdResponse = await fetch(`${directHandle.url}/api/projects/missing-skill-repo/workbench/topics/live`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          body: "Create an Agent conversation without a project Harness.",
+          productMode: "agent",
+          clientRequestId: "missing-harness-agent-conversation",
+          confirm: true,
+        }),
+      });
+      const createdEvents = parseSseEvents(await createdResponse.text());
+      const created = createdEvents.find((event) => event.event === "topic.created")?.data as { conversationId: string };
+      expect(created.conversationId).toBeTruthy();
+
+      const laterResponse = await fetch(
+        `${directHandle.url}/api/projects/missing-skill-repo/workbench/topics/${created.conversationId}/messages/live`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: "Commit this later Agent message before execution fails closed.",
+            productMode: "agent",
+          }),
+        },
+      );
+      const laterEvents = parseSseEvents(await laterResponse.text());
+      expect(laterEvents.find((event) => event.event === "error")?.data).toMatchObject({
+        conversationId: created.conversationId,
+        productMode: "agent",
+        message: "Direct Agent execution is not enabled yet.",
+      });
+      const timeline = await getJson<{ entries: Array<{ cells: Array<{ text?: string }> }> }>(
+        `${directHandle.url}/api/projects/missing-skill-repo/workbench/conversations/${created.conversationId}/timeline?productMode=agent&agentSurfaceId=main-agent&limit=100`,
+      );
+      expect(timeline.entries.flatMap((entry) => entry.cells).map((cell) => cell.text)).toEqual([
+        "Create an Agent conversation without a project Harness.",
+        "Commit this later Agent message before execution fails closed.",
       ]);
     } finally {
       await new Promise<void>((resolve) => directHandle.server.close(() => resolve()));

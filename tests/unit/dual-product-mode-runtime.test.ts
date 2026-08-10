@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorkbenchConversation, postConversationMessage } from "../../src/workbench/conversation-service.js";
 import { getCanonicalTimelinePage } from "../../src/workbench/canonical-timeline-query.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
@@ -157,6 +157,109 @@ describe("dual product-mode foundation", () => {
     } finally {
       database.close();
     }
+  });
+
+  it("retains a committed later Agent message when routed execution fails closed", async () => {
+    const conversation = await createWorkbenchConversation(project(), {
+      body: "Initial Agent message",
+      productMode: "agent",
+      clientRequestId: "agent-later-fail-closed",
+    }, undefined, { runMainAgent: false });
+
+    await expect(postConversationMessage(project(), conversation.conversationId, {
+      message: "Durable later Agent message",
+      productMode: "agent",
+    })).rejects.toMatchObject({ name: "Conflict", message: "Direct Agent execution is not enabled yet." });
+
+    const database = await openProjectRuntimeWorkbenchDatabase(fixture.resolution.paths);
+    try {
+      expect(database.timeline.listConversationMessages(project().id, conversation.conversationId)).toEqual([
+        expect.objectContaining({ type: "user.message", text: "Initial Agent message" }),
+        expect.objectContaining({ type: "user.message", text: "Durable later Agent message" }),
+      ]);
+      expect(database.providerAttempts.listProviderAttempts(project().id, conversation.conversationId)).toEqual([]);
+      expect(database.providerAttempts.readConversationProviderBinding(
+        project().id,
+        conversation.conversationId,
+        conversation.selectedProviderId,
+      )).toBeNull();
+    } finally {
+      database.close();
+    }
+  });
+
+  it("rejects Harness-only Agent inputs before canonical or runtime side effects", async () => {
+    const conversation = await createWorkbenchConversation(project(), {
+      body: "Agent boundary",
+      productMode: "agent",
+      clientRequestId: "agent-harness-input-boundary",
+    }, undefined, { runMainAgent: false });
+    const before = await conversationState(conversation.conversationId);
+
+    await expect(postConversationMessage(project(), conversation.conversationId, {
+      message: "Must not target a child Agent.",
+      productMode: "agent",
+      agentSurfaceId: "agent:codex:thread:child",
+    })).rejects.toMatchObject({ name: "Conflict" });
+    await expect(postConversationMessage(project(), conversation.conversationId, {
+      message: "Must not hand off an AHO plan.",
+      productMode: "agent",
+      planHandoffIntent: {
+        sourceRunId: "planning-run",
+        sourceAgentRoleId: "planning-agent",
+        kind: "execute-plan",
+      },
+    })).rejects.toMatchObject({ name: "Conflict" });
+
+    expect(await conversationState(conversation.conversationId)).toEqual(before);
+  });
+
+  it("routes with the Provider from the committed Conversation instead of a stale identity snapshot", async () => {
+    const conversation = await createWorkbenchConversation(project(), {
+      body: "Provider snapshot boundary",
+      productMode: "agent",
+      clientRequestId: "agent-provider-snapshot-boundary",
+    }, undefined, { runMainAgent: false });
+    const mutationDatabase = await openProjectRuntimeWorkbenchDatabase(fixture.resolution.paths);
+    let switched = false;
+    const route = vi.fn(async () => {
+      const error = new Error("Captured routed input.");
+      error.name = "Conflict";
+      throw error;
+    });
+
+    try {
+      await expect(postConversationMessage(project(), conversation.conversationId, {
+        message: "Use the latest committed Provider.",
+        productMode: "agent",
+      }, undefined, {
+        turnRouter: {
+          assertRequestedMode(stored, requested): void {
+            expect(requested).toBe(stored.productMode);
+            if (switched) return;
+            switched = true;
+            mutationDatabase.conversations.switchSelectedProvider(
+              project().id,
+              conversation.conversationId,
+              conversation.selectedProviderId,
+              "other-provider",
+              new Date().toISOString(),
+            );
+          },
+          route,
+        },
+      })).rejects.toMatchObject({ name: "Conflict", message: "Captured routed input." });
+    } finally {
+      mutationDatabase.close();
+    }
+
+    expect(route).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversation: expect.objectContaining({ selectedProviderId: "other-provider" }),
+        providerId: "other-provider",
+      }),
+      "agent",
+    );
   });
 });
 
