@@ -1,4 +1,5 @@
 import type { ParentAgentTranscriptCell } from "./timeline-cell-contract.js";
+import type { ProductMode } from "../provider-runtime/index.js";
 
 export interface CanonicalTimelineScope {
   projectId: string;
@@ -7,6 +8,8 @@ export interface CanonicalTimelineScope {
 }
 
 export interface CanonicalTimelineEnvelope {
+  projectId: string;
+  productMode: ProductMode;
   conversationId: string;
   agentSurfaceId: string;
   messageId: string;
@@ -18,6 +21,8 @@ export interface CanonicalTimelineEnvelope {
 }
 
 export interface CanonicalTimelinePage {
+  projectId: string;
+  productMode: ProductMode;
   conversationId: string;
   agentSurfaceId: string;
   watermark: number;

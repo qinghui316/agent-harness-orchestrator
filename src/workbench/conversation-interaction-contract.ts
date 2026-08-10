@@ -1,3 +1,5 @@
+import type { ProductMode } from "../provider-runtime/index.js";
+
 export type ConversationQuestionInputMode = "single" | "multiple" | "text" | "secret";
 
 export interface ConversationInteractionOption {
@@ -45,6 +47,7 @@ export type ConversationInteraction =
   | ClarificationConversationInteraction;
 
 export interface ConversationInteractionQueue {
+  productMode: ProductMode;
   conversationId?: string;
   graphScopeId?: string;
   items: ConversationInteraction[];

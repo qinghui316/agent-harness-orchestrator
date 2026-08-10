@@ -86,10 +86,10 @@ describe("workbench server", () => {
   });
 
   it("serves workbench JSON routes and static index", async () => {
-    const snapshot = await getJson<SnapshotResponse>(`${handle!.url}/api/workbench/snapshot`);
+    const snapshot = await getJson<SnapshotResponse>(`${handle!.url}/api/workbench/snapshot?productMode=harness`);
     expect(snapshot.left.topics[0]).toMatchObject({ id: serverConversationId, boundChangeId: "server-topic" });
 
-    const topics = await getJson<unknown[]>(`${handle!.url}/api/projects/repo/workbench/topics`);
+    const topics = await getJson<unknown[]>(`${handle!.url}/api/projects/repo/workbench/topics?productMode=harness`);
     expect(topics).toHaveLength(1);
 
     const stream = await getJson<{ events: Array<{ type: string }> }>(`${handle!.url}/api/workbench/stream/${serverRunId}`);
@@ -97,6 +97,57 @@ describe("workbench server", () => {
 
     const page = await fetch(`${handle!.url}/`);
     expect(await page.text()).toContain("AHO");
+  });
+
+  it("requires mode-aware reads and makes first-send creation idempotent", async () => {
+    expect((await fetch(`${handle!.url}/api/projects/repo/workbench/topics`)).status).toBe(400);
+    expect((await fetch(`${handle!.url}/api/projects/repo/workbench/snapshot?productMode=invalid`)).status).toBe(400);
+
+    const request = {
+      body: "Create an Agent-mode conversation once.",
+      productMode: "agent",
+      clientRequestId: "server-mode-idempotency",
+      confirm: true,
+    };
+    const create = async (body: typeof request) => fetch(`${handle!.url}/api/projects/repo/workbench/topics`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const firstResponse = await create(request);
+    expect(firstResponse.ok).toBe(true);
+    const first = await firstResponse.json() as {
+      topic: { id: string; productMode: string; clientRequestId: string; replayed: boolean };
+    };
+    expect(first.topic).toMatchObject({
+      productMode: "agent",
+      clientRequestId: request.clientRequestId,
+      replayed: false,
+    });
+    const replayResponse = await create(request);
+    expect(replayResponse.ok).toBe(true);
+    const replay = await replayResponse.json() as typeof first;
+    expect(replay.topic).toMatchObject({ id: first.topic.id, productMode: "agent", replayed: true });
+    expect((await create({ ...request, body: "Conflicting payload" })).status).toBe(409);
+
+    const agentTopics = await getJson<Array<{ id: string; productMode: string }>>(
+      `${handle!.url}/api/projects/repo/workbench/topics?productMode=agent`,
+    );
+    expect(agentTopics).toEqual([expect.objectContaining({ id: first.topic.id, productMode: "agent" })]);
+    const harnessTopics = await getJson<Array<{ id: string; productMode: string }>>(
+      `${handle!.url}/api/projects/repo/workbench/topics?productMode=harness`,
+    );
+    expect(harnessTopics).toEqual([expect.objectContaining({ id: serverConversationId, productMode: "harness" })]);
+
+    expect((await fetch(
+      `${handle!.url}/api/projects/repo/workbench/topics/${encodeURIComponent(serverConversationId)}?productMode=agent`,
+    )).status).toBe(409);
+    expect((await fetch(
+      `${handle!.url}/api/projects/repo/workbench/snapshot?productMode=agent&topic=${encodeURIComponent(serverConversationId)}`,
+    )).status).toBe(409);
+    expect((await fetch(
+      `${handle!.url}/api/projects/repo/workbench/conversations/${encodeURIComponent(serverConversationId)}/timeline?productMode=agent&agentSurfaceId=main-agent`,
+    )).status).toBe(409);
   });
 
   it("orders identity reconciliation before project recovery and listen", async () => {
@@ -144,7 +195,7 @@ describe("workbench server", () => {
     await appendCanonicalTimelineEntry(project(), "server-topic", { type: "user.message", text: "Conversation route message." });
 
     const payload = await getJson<{ conversationId: string; entries: Array<{ cells: Array<{ text?: string }> }> }>(
-      `${handle!.url}/api/projects/repo/workbench/conversations/${serverConversationId}/timeline?agentSurfaceId=main-agent&limit=100`,
+      `${handle!.url}/api/projects/repo/workbench/conversations/${serverConversationId}/timeline?productMode=harness&agentSurfaceId=main-agent&limit=100`,
     );
     expect(payload.conversationId).toBe(serverConversationId);
     expect(payload.entries.flatMap((entry) => entry.cells)).toEqual(expect.arrayContaining([
@@ -235,6 +286,8 @@ describe("workbench server", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         attachmentIds: [attachmentPayload.attachment.id],
+        productMode: "harness",
+        clientRequestId: "server-attachment-first-send",
         confirm: true,
       }),
     });
@@ -242,7 +295,7 @@ describe("workbench server", () => {
     const topicPayload = await topicResponse.json() as { topic: { id: string; conversationId: string; title: string } };
     expect(topicPayload.topic.title).toBe("附件需求");
     const timeline = await getJson<{ entries: Array<{ cells: Array<{ kind: string; attachments?: Array<{ id: string; fileName: string }> }> }> }>(
-      `${handle!.url}/api/projects/repo/workbench/conversations/${encodeURIComponent(topicPayload.topic.conversationId ?? topicPayload.topic.id)}/timeline?agentSurfaceId=main-agent&limit=100`,
+      `${handle!.url}/api/projects/repo/workbench/conversations/${encodeURIComponent(topicPayload.topic.conversationId ?? topicPayload.topic.id)}/timeline?productMode=harness&agentSurfaceId=main-agent&limit=100`,
     );
     const userMessage = timeline.entries.flatMap((entry) => entry.cells).find((cell) => cell.kind === "user-message");
     expect(userMessage?.attachments).toContainEqual(expect.objectContaining({
@@ -255,7 +308,12 @@ describe("workbench server", () => {
     const live = await fetch(`${handle!.url}/api/projects/repo/workbench/topics/live`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ body: "请先判断下一步", confirm: true }),
+      body: JSON.stringify({
+        body: "请先判断下一步",
+        productMode: "harness",
+        clientRequestId: "server-live-first-send",
+        confirm: true,
+      }),
     });
 
     expect(live.ok).toBe(true);
@@ -284,7 +342,12 @@ describe("workbench server", () => {
     const created = await fetch(`${handle!.url}/api/projects/repo/workbench/topics`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ body: "\n> ## -   Build   a reliable checkout\nMore detail", confirm: true }),
+      body: JSON.stringify({
+        body: "\n> ## -   Build   a reliable checkout\nMore detail",
+        productMode: "harness",
+        clientRequestId: "server-title-first-send",
+        confirm: true,
+      }),
     });
     expect(created.ok).toBe(true);
     const createdBody = await created.json() as { topic: { id: string; title: string } };
@@ -300,7 +363,7 @@ describe("workbench server", () => {
     expect(renamedBody.conversation).toMatchObject({ id: createdBody.topic.id, title: "Checkout polish" });
 
     const snapshot = await getJson<{ left: { topics: Array<{ id: string; title: string }> } }>(
-      `${handle!.url}/api/projects/repo/workbench/snapshot?topic=${encodeURIComponent(createdBody.topic.id)}`,
+      `${handle!.url}/api/projects/repo/workbench/snapshot?productMode=harness&topic=${encodeURIComponent(createdBody.topic.id)}`,
     );
     expect(snapshot.left.topics).toContainEqual(expect.objectContaining({ id: createdBody.topic.id, title: "Checkout polish" }));
   });
@@ -637,13 +700,13 @@ describe("workbench server", () => {
       parentThreadId: "thread-main",
       agentRoleId: "planning-agent",
     });
-    const snapshot = await getJson<SnapshotResponse>(`${handle!.url}/api/workbench/snapshot?topic=${serverConversationId}`);
+    const snapshot = await getJson<SnapshotResponse>(`${handle!.url}/api/workbench/snapshot?productMode=harness&topic=${serverConversationId}`);
     expect(snapshot.center).not.toHaveProperty("agentRelationGraph");
     expect(snapshot.center).not.toHaveProperty("parentAgentTranscript");
     expect(snapshot.right).not.toHaveProperty("agentWorkspace");
 
     const main = await getJson<{ watermark: number; pinned: Array<{ agentSurfaceId: string; orderClass: string; revision: number }>; entries: Array<{ agentSurfaceId: string; orderClass: string; position: number; revision: number }>; paging: { limit: number; totalCount: number; nextBeforeCursor?: string } }>(
-      `${handle!.url}/api/projects/repo/workbench/conversations/${serverConversationId}/timeline?agentSurfaceId=main-agent&limit=2`,
+      `${handle!.url}/api/projects/repo/workbench/conversations/${serverConversationId}/timeline?productMode=harness&agentSurfaceId=main-agent&limit=2`,
     );
     expect(main).toMatchObject({ pinned: [], paging: { limit: 2 } });
     expect(main.entries.every((envelope) => envelope.agentSurfaceId === "main-agent" && envelope.orderClass === "sequence" && envelope.revision <= main.watermark)).toBe(true);
@@ -651,13 +714,13 @@ describe("workbench server", () => {
 
     const childSurfaceId = "agent:codex:thread:thread-child";
     const child = await getJson<typeof main>(
-      `${handle!.url}/api/projects/repo/workbench/conversations/${serverConversationId}/timeline?agentSurfaceId=${encodeURIComponent(childSurfaceId)}`,
+      `${handle!.url}/api/projects/repo/workbench/conversations/${serverConversationId}/timeline?productMode=harness&agentSurfaceId=${encodeURIComponent(childSurfaceId)}`,
     );
     expect(child.entries).toHaveLength(1);
     expect(child.entries[0]).toMatchObject({ agentSurfaceId: childSurfaceId, orderClass: "sequence" });
 
     const crossScopeCursor = await fetch(
-      `${handle!.url}/api/projects/repo/workbench/conversations/${serverConversationId}/timeline?agentSurfaceId=${encodeURIComponent(childSurfaceId)}&beforeCursor=${encodeURIComponent(main.paging.nextBeforeCursor!)}`,
+      `${handle!.url}/api/projects/repo/workbench/conversations/${serverConversationId}/timeline?productMode=harness&agentSurfaceId=${encodeURIComponent(childSurfaceId)}&beforeCursor=${encodeURIComponent(main.paging.nextBeforeCursor!)}`,
     );
     expect(crossScopeCursor.status).toBe(400);
 
@@ -701,13 +764,18 @@ describe("workbench server", () => {
       const projectTopic = await fetch(`${appHandle.url}/api/projects/${addedBody.project.id}/workbench/topics`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body: "Keep route behavior", confirm: true }),
+        body: JSON.stringify({
+          body: "Keep route behavior",
+          productMode: "harness",
+          clientRequestId: "server-app-first-send",
+          confirm: true,
+        }),
       });
       expect(projectTopic.ok).toBe(true);
       const projectTopicBody = await projectTopic.json() as { topic: { id: string; conversationId: string } };
       const projectTopicId = projectTopicBody.topic.conversationId ?? projectTopicBody.topic.id;
       const projectTimeline = await getJson<{ pinned: unknown[]; entries: Array<{ cells: Array<{ kind: string; text?: string }> }> }>(
-        `${appHandle.url}/api/projects/${addedBody.project.id}/workbench/conversations/${projectTopicId}/timeline?agentSurfaceId=main-agent&limit=100`,
+        `${appHandle.url}/api/projects/${addedBody.project.id}/workbench/conversations/${projectTopicId}/timeline?productMode=harness&agentSurfaceId=main-agent&limit=100`,
       );
       expect(Array.isArray(projectTimeline.entries)).toBe(true);
       expect(projectTimeline.entries.flatMap((entry) => entry.cells)).toEqual(expect.arrayContaining([
@@ -763,7 +831,7 @@ describe("workbench server", () => {
         providers: Array<{ providerId: string; productMode: string; runnable: boolean; snapshotHash: string; snapshotVersion: number; capabilities: Array<{ key: string; spec: string; runtime: string }> }>;
         runtimeSummaries: Array<{ providerId: string; productMode: string; harnessExecutionModes: string[]; snapshot: { providerId: string; productMode: string } }>;
       }>(
-        `${appHandle.url}/api/projects/${addedBody.project.id}/providers/capabilities`,
+        `${appHandle.url}/api/projects/${addedBody.project.id}/providers/capabilities?productMode=harness`,
       );
       expect(capabilities.providers).toHaveLength(1);
       expect(capabilities.providers[0]).toMatchObject({ providerId: "codex", productMode: "harness" });
@@ -870,7 +938,7 @@ describe("workbench server", () => {
       expect(saved.ok).toBe(true);
       expect(await store.listProjects()).toHaveLength(1);
 
-      const snapshot = await getJson<SnapshotResponse>(`${directHandle.url}/api/projects/external-repo/workbench/snapshot`);
+      const snapshot = await getJson<SnapshotResponse>(`${directHandle.url}/api/projects/external-repo/workbench/snapshot?productMode=harness`);
       expect(snapshot.left.topics[0]).toMatchObject({ id: "conv-restored-topic", boundChangeId: "restored-topic" });
     } finally {
       await new Promise<void>((resolve) => directHandle.server.close(() => resolve()));
@@ -905,7 +973,7 @@ describe("workbench server", () => {
           state: string;
           reason: string;
         };
-      }>(`${directHandle.url}/api/projects/missing-skill-repo/workbench/snapshot`);
+      }>(`${directHandle.url}/api/projects/missing-skill-repo/workbench/snapshot?productMode=harness`);
       expect(snapshot.harness).toMatchObject({
         kind: "project-skill",
         registered: true,

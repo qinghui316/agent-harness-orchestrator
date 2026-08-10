@@ -8,6 +8,7 @@ import { InteractionRepository } from "./repositories/interaction-repository.js"
 import { ProviderAttemptRepository } from "./repositories/provider-attempt-repository.js";
 import { SkillRepository } from "./repositories/skill-repository.js";
 import { TimelineRepository } from "./repositories/timeline-repository.js";
+import { ComposerDraftRepository } from "./repositories/composer-draft-repository.js";
 import type { WorkbenchResetGuard } from "./reset-guard.js";
 import {
   assertRuntimeDatabaseResetSafe,
@@ -26,6 +27,7 @@ export class WorkbenchDatabase {
   readonly providerAttempts: ProviderAttemptRepository;
   readonly skills: SkillRepository;
   readonly decisions: DecisionRepository;
+  readonly drafts: ComposerDraftRepository;
   readonly unitOfWork: WorkbenchUnitOfWork;
 
   private closed = false;
@@ -40,12 +42,15 @@ export class WorkbenchDatabase {
     this.providerAttempts = new ProviderAttemptRepository(connection);
     this.skills = new SkillRepository(connection);
     this.decisions = new DecisionRepository(connection);
+    this.drafts = new ComposerDraftRepository(connection);
     this.unitOfWork = new WorkbenchUnitOfWork(
       connection,
       this.timeline,
       this.conversations,
       this.providerAttempts,
       this.interactions,
+      this.skills,
+      this.drafts,
     );
   }
 

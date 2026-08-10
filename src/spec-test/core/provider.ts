@@ -26,5 +26,5 @@ export async function resolveSpecTestProvider(
   if (!selectedProviderId) {
     throw new Error(`Spec-Test execution requires an explicitly selected Provider for Conversation ${context.conversationId}.`);
   }
-  return defaultProviderRegistry.require(selectedProviderId, profile, project, cwd);
+  return defaultProviderRegistry.require(selectedProviderId, profile, "harness", project, cwd);
 }

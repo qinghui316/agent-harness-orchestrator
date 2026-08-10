@@ -12,6 +12,8 @@ import type { ConversationRepository } from "./repositories/conversation-reposit
 import type { InteractionRepository } from "./repositories/interaction-repository.js";
 import type { ProviderAttemptRepository } from "./repositories/provider-attempt-repository.js";
 import type { TimelineRepository } from "./repositories/timeline-repository.js";
+import type { SkillRepository } from "./repositories/skill-repository.js";
+import type { ComposerDraftRepository } from "./repositories/composer-draft-repository.js";
 
 export class WorkbenchUnitOfWork {
   constructor(
@@ -20,6 +22,8 @@ export class WorkbenchUnitOfWork {
     private readonly conversations: ConversationRepository,
     private readonly providerAttempts: ProviderAttemptRepository,
     private readonly interactions: InteractionRepository,
+    private readonly skills: SkillRepository,
+    private readonly drafts: ComposerDraftRepository,
   ) {}
 
   createConversationWithInitialMessage(
@@ -38,6 +42,62 @@ export class WorkbenchUnitOfWork {
       }
       return this.timeline.appendMessage(message);
     })();
+  }
+
+  createConversationFromFirstSend(input: {
+    conversation: Omit<StoredConversation, "timelinePosition" | "timelineRevision"> & Partial<Pick<StoredConversation, "timelinePosition" | "timelineRevision">>;
+    message: StoredTopicMessageWrite;
+    skillOverrides: Array<{ skillId: string; enabled: boolean }>;
+  }): { conversation: StoredConversation; message: StoredTopicMessage | null; replayed: boolean } {
+    return this.db.transaction(() => {
+      const requestId = input.conversation.clientCreateRequestId;
+      const requestHash = input.conversation.clientCreateRequestHash;
+      if (!requestId || !requestHash) {
+        throw new Error("First-send Conversation creation requires a client request id and hash.");
+      }
+      const existing = this.conversations.readConversationByClientCreateRequestId(
+        input.conversation.projectId,
+        requestId,
+      );
+      if (existing) {
+        if (existing.productMode !== input.conversation.productMode
+          || existing.clientCreateRequestHash !== requestHash) {
+          const error = new Error("clientRequestId was already used for a different Conversation request.");
+          error.name = "Conflict";
+          throw error;
+        }
+        return { conversation: existing, message: null, replayed: true };
+      }
+      this.conversations.createConversation(input.conversation);
+      if (input.conversation.currentGraphScopeId) {
+        this.conversations.initializeConversationGraphScope(
+          input.conversation.projectId,
+          input.conversation.conversationId,
+          input.conversation.currentGraphScopeId,
+          input.conversation.updatedAt,
+        );
+      }
+      const message = this.timeline.appendMessage(input.message);
+      for (const override of input.skillOverrides) {
+        this.skills.setSkillEnablement({
+          projectId: input.conversation.projectId,
+          changeId: input.conversation.conversationId,
+          skillId: override.skillId,
+          scope: "topic",
+          enabled: override.enabled,
+          updatedAt: input.conversation.updatedAt,
+        });
+      }
+      this.drafts.deleteDraft(input.conversation.projectId, input.conversation.productMode);
+      return {
+        conversation: this.conversations.readConversation(
+          input.conversation.projectId,
+          input.conversation.conversationId,
+        )!,
+        message,
+        replayed: false,
+      };
+    }).immediate();
   }
 
   commitProviderTurnTerminal(input: {

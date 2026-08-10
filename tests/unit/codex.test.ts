@@ -9,7 +9,14 @@ import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl, trunca
 import { candidatesFromModelListResponse, getCodexModelSettingsSnapshot, resolveCodexEffectiveModel, setSelectedCodexModel } from "../../src/codex/model-settings.js";
 import { composeCodexPrompt, readPromptInput } from "../../src/codex/prompt.js";
 import { readCodexConfigModelStatus, readCodexNativeCollabConfigStatus } from "../../src/codex/trust.js";
-import { isRunnableProductMode, RUNNABLE_PRODUCT_MODES, stableCapabilitySnapshotHash } from "../../src/provider-runtime/index.js";
+import {
+  assertProductMode,
+  parseProductMode,
+  PRODUCT_MODES,
+  stableCapabilitySnapshotHash,
+} from "../../src/provider-runtime/index.js";
+import { resolveCodexModeReadiness } from "../../src/provider-runtime/codex.js";
+import { PROVIDER_OPERATION_CAPABILITIES, type ProviderCapabilityItem } from "../../src/provider-runtime/types.js";
 import { renderTopicFileReferencesForPrompt } from "../../src/workbench/file-references.js";
 
 const rootHelp = "Usage: codex [OPTIONS]\n  -a, --ask-for-approval <APPROVAL_POLICY>\n";
@@ -410,10 +417,59 @@ describe("codex prompt and JSONL parsing", () => {
     }));
   });
 
-  it("keeps normal Agent product mode typed but not runnable", () => {
-    expect(RUNNABLE_PRODUCT_MODES).toEqual(["harness"]);
-    expect(isRunnableProductMode("harness")).toBe(true);
-    expect(isRunnableProductMode("agent")).toBe(false);
+  it("uses one strict product-mode parser and assertion boundary", () => {
+    expect(PRODUCT_MODES).toEqual(["agent", "harness"]);
+    expect(parseProductMode("agent")).toBe("agent");
+    expect(parseProductMode("harness")).toBe("harness");
+    expect(parseProductMode("planning")).toBeNull();
+    expect(assertProductMode("agent")).toBe("agent");
+    expect(() => assertProductMode("planning")).toThrow("productMode must be agent or harness.");
+  });
+
+  it("computes Agent readiness only from the Agent operation profile", () => {
+    const agentKeys = new Set(PROVIDER_OPERATION_CAPABILITIES.agent);
+    const capabilities: ProviderCapabilityItem[] = [
+      ...PROVIDER_OPERATION_CAPABILITIES.agent.map((key) => ({
+        key,
+        label: key,
+        spec: "supported" as const,
+        runtime: "ready" as const,
+        summary: "ready",
+      })),
+      {
+        key: "child.spawn",
+        label: "child.spawn",
+        spec: "supported",
+        runtime: "unavailable",
+        summary: "child orchestration unavailable",
+      },
+      {
+        key: "workspace.multiroot",
+        label: "workspace.multiroot",
+        spec: "supported",
+        runtime: "unavailable",
+        summary: "multiroot unavailable",
+      },
+    ];
+
+    const agent = resolveCodexModeReadiness(capabilities, "agent", true, true);
+    expect(agent).toMatchObject({ status: "ready", runnable: true, missingCapabilityKeys: [] });
+    expect(agent.relevantCapabilities.every((item) => agentKeys.has(item.key))).toBe(true);
+
+    const harness = resolveCodexModeReadiness(capabilities, "harness", true, true);
+    expect(harness).toMatchObject({ status: "degraded", runnable: true });
+
+    const withoutSession = resolveCodexModeReadiness(
+      capabilities.filter((item) => item.key !== "session.continuation"),
+      "agent",
+      true,
+      true,
+    );
+    expect(withoutSession).toMatchObject({
+      status: "degraded",
+      runnable: false,
+      missingCapabilityKeys: ["session.continuation"],
+    });
   });
 });
 

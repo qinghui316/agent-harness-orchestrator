@@ -4,14 +4,16 @@ import { getCodexModelSettingsSnapshot } from "../codex/model-settings.js";
 import { listCodexNativeSkills } from "../codex/native-skills.js";
 import { getSystemSkillsRoot } from "../template-source/paths.js";
 import type { ManagedProject } from "../types/index.js";
-import type {
-  ProviderCapabilityItem,
-  ProviderCapabilityKey,
-  ProviderCapabilitySnapshot,
-  ProviderRuntimeReadiness,
-  ProviderRuntimeSummary,
-  ProviderSnapshotStatus,
-  ProviderSpecCapabilityState,
+import {
+  PROVIDER_OPERATION_CAPABILITIES,
+  type ProductMode,
+  type ProviderCapabilityItem,
+  type ProviderCapabilityKey,
+  type ProviderCapabilitySnapshot,
+  type ProviderRuntimeReadiness,
+  type ProviderRuntimeSummary,
+  type ProviderSnapshotStatus,
+  type ProviderSpecCapabilityState,
 } from "./types.js";
 import { HARNESS_EXECUTION_MODES, PROVIDER_CAPABILITY_SNAPSHOT_VERSION, stableCapabilitySnapshotHash } from "./capabilities.js";
 
@@ -24,17 +26,17 @@ type CapabilityInput = {
   reason?: string;
 };
 
-export async function getCodexProviderRuntimeSummary(project: ManagedProject | null, projectPath?: string): Promise<ProviderRuntimeSummary> {
-  const snapshot = await getCodexProviderCapabilitySnapshot(project, projectPath);
+export async function getCodexProviderRuntimeSummary(project: ManagedProject | null, productMode: ProductMode, projectPath?: string): Promise<ProviderRuntimeSummary> {
+  const snapshot = await getCodexProviderCapabilitySnapshot(project, productMode, projectPath);
   return {
     providerId: "codex",
-    productMode: "harness",
+    productMode,
     harnessExecutionModes: HARNESS_EXECUTION_MODES,
     snapshot,
   };
 }
 
-export async function getCodexProviderCapabilitySnapshot(project: ManagedProject | null, projectPath?: string): Promise<ProviderCapabilitySnapshot> {
+export async function getCodexProviderCapabilitySnapshot(project: ManagedProject | null, productMode: ProductMode, projectPath?: string): Promise<ProviderCapabilitySnapshot> {
   const [cli, appServer, models, skills] = await Promise.all([
     detectCodexCapabilities(),
     detectCodexAppServerCapability(),
@@ -156,19 +158,20 @@ export async function getCodexProviderCapabilitySnapshot(project: ManagedProject
   );
 
   const capabilities = items.map(toCapabilityItem);
-  const status = snapshotStatus(capabilities, cli.available);
-  const degradedReasons = capabilities
+  const readiness = resolveCodexModeReadiness(capabilities, productMode, cli.available, safeExecReady);
+  const degradedReasons = readiness.relevantCapabilities
     .filter((item) => item.runtime !== "ready")
     .map((item) => item.reason ?? item.summary);
+  degradedReasons.push(...readiness.missingCapabilityKeys.map((key) => `Provider capability is missing: ${key}.`));
   const effectiveModelSource: ProviderCapabilitySnapshot["effectiveModelSource"] = models.effectiveModelSource === "codex-default"
     ? "provider-default"
     : models.effectiveModelSource;
   const base: Omit<ProviderCapabilitySnapshot, "snapshotHash"> = {
     providerId: "codex" as const,
     displayName: "Codex",
-    productMode: "harness" as const,
-    status,
-    runnable: status !== "unavailable" && safeExecReady,
+    productMode,
+    status: readiness.status,
+    runnable: readiness.runnable,
     checkedAt: new Date().toISOString(),
     snapshotVersion: PROVIDER_CAPABILITY_SNAPSHOT_VERSION,
     effectiveModel: models.effectiveModel,
@@ -179,6 +182,47 @@ export async function getCodexProviderCapabilitySnapshot(project: ManagedProject
   return {
     ...base,
     snapshotHash: stableCapabilitySnapshotHash(base),
+  };
+}
+
+export function resolveCodexModeReadiness(
+  capabilities: readonly ProviderCapabilityItem[],
+  productMode: ProductMode,
+  cliAvailable: boolean,
+  harnessSafeExecReady: boolean,
+): {
+  status: ProviderSnapshotStatus;
+  runnable: boolean;
+  relevantCapabilities: ProviderCapabilityItem[];
+  missingCapabilityKeys: ProviderCapabilityKey[];
+} {
+  if (productMode === "harness") {
+    return {
+      status: snapshotStatus(capabilities, cliAvailable),
+      runnable: cliAvailable && harnessSafeExecReady,
+      relevantCapabilities: [...capabilities],
+      missingCapabilityKeys: [],
+    };
+  }
+
+  const requiredKeys = PROVIDER_OPERATION_CAPABILITIES.agent;
+  const capabilityByKey = new Map(capabilities.map((item) => [item.key, item]));
+  const relevantCapabilities = requiredKeys.flatMap((key) => {
+    const capability = capabilityByKey.get(key);
+    return capability ? [capability] : [];
+  });
+  const missingCapabilityKeys = requiredKeys.filter((key) => !capabilityByKey.has(key));
+  const runnable = missingCapabilityKeys.length === 0
+    && relevantCapabilities.every((item) => item.runtime === "ready");
+  return {
+    status: !cliAvailable
+      ? "unavailable"
+      : runnable
+        ? "ready"
+        : "degraded",
+    runnable,
+    relevantCapabilities,
+    missingCapabilityKeys,
   };
 }
 
@@ -193,7 +237,7 @@ function toCapabilityItem(input: CapabilityInput): ProviderCapabilityItem {
   };
 }
 
-function snapshotStatus(capabilities: ProviderCapabilityItem[], cliAvailable: boolean): ProviderSnapshotStatus {
+function snapshotStatus(capabilities: readonly ProviderCapabilityItem[], cliAvailable: boolean): ProviderSnapshotStatus {
   if (!cliAvailable) return "unavailable";
   if (capabilities.some((item) => item.runtime === "unavailable" || item.runtime === "degraded")) return "degraded";
   return "ready";

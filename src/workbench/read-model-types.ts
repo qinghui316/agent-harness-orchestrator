@@ -17,6 +17,8 @@ import type {
 } from "../types/index.js";
 import type { ApplyReadinessKind } from "../apply/manager.js";
 import type { HighImpactApprovalScope } from "../workflow-actions/high-impact-approval.js";
+import type { ProductMode } from "../provider-runtime/index.js";
+import type { StoredProviderAttempt } from "./persistence/contracts.js";
 import type {
   WorkbenchSchedulerClaimReconcilePlanSummary,
   WorkbenchSchedulerContractSummary,
@@ -88,6 +90,7 @@ export type WorkbenchRuntimeStatus = WorkbenchProjectHarnessStatus | WorkbenchPr
 
 export interface WorkbenchTopicSummary {
   id: string;
+  productMode: ProductMode;
   kind?: "conversation" | "change";
   name: string;
   title: string;
@@ -101,6 +104,23 @@ export interface WorkbenchTopicSummary {
   closedAt?: string | null;
   archivePath?: string | null;
 }
+
+export type ProviderAttemptReadModel = Pick<StoredProviderAttempt,
+  | "projectId"
+  | "conversationId"
+  | "attemptId"
+  | "productMode"
+  | "graphScopeId"
+  | "providerId"
+  | "roleId"
+  | "operationProfile"
+  | "nativeSessionId"
+  | "model"
+  | "effectiveSkillInputs"
+  | "status"
+  | "createdAt"
+  | "updatedAt"
+>;
 
 export type WorkbenchWorkpadRuntimeStatus = "active" | "running" | "queued" | "blocked" | "waiting-decision" | "archived" | "readonly";
 export type WorkbenchUserDecisionState = "processing" | "waiting-confirmation" | "needs-rework" | "later" | "completed" | "abandoned";
@@ -934,6 +954,7 @@ export interface WorkbenchTopicDetail extends WorkbenchTopicSummary {
 }
 
 export interface WorkbenchSnapshot {
+  productMode: ProductMode;
   project: unknown;
   harness: WorkbenchRuntimeStatus;
   left: {

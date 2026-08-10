@@ -100,7 +100,7 @@ export async function getRuntimeActivityLog(
 async function appendProviderItems(items: RuntimeActivityItem[], project: ManagedProject, projectPath: string): Promise<void> {
   await Promise.all(defaultProviderRegistry.list().map(async (descriptor) => {
     try {
-      const summary = await descriptor.runtimeSummary(project, projectPath);
+      const summary = await descriptor.runtimeSummary(project, "harness", projectPath);
       const degraded = summary.snapshot.degradedReasons.slice(0, 4);
       items.push({
         id: `provider:${summary.providerId}:${summary.snapshot.snapshotHash}`,

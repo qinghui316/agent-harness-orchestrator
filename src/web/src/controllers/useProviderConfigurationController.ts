@@ -44,8 +44,8 @@ export function useProviderConfigurationController(input: ProviderConfigurationI
   const reload = useCallback(async (): Promise<void> => {
     const generation = ++requestGenerationRef.current;
     const path = input.projectId
-      ? `/api/projects/${encodeURIComponent(input.projectId)}/providers/capabilities`
-      : "/api/providers/capabilities";
+      ? `/api/projects/${encodeURIComponent(input.projectId)}/providers/capabilities?productMode=harness`
+      : "/api/providers/capabilities?productMode=harness";
     const payload = await fetchJson<{ providers?: unknown[] }>(path);
     if (generation !== requestGenerationRef.current) return;
     const nextCapabilities = Array.isArray(payload.providers)
@@ -120,8 +120,8 @@ export function useProviderConfigurationController(input: ProviderConfigurationI
       if (generation !== requestGenerationRef.current) return;
       setModelSettings(isProviderModelSettingsSnapshot(raw) ? raw : null);
       const capabilitiesPath = input.projectId
-        ? `/api/projects/${encodeURIComponent(input.projectId)}/providers/capabilities`
-        : "/api/providers/capabilities";
+        ? `/api/projects/${encodeURIComponent(input.projectId)}/providers/capabilities?productMode=harness`
+        : "/api/providers/capabilities?productMode=harness";
       const [rawDiagnostics, capabilityPayload] = await Promise.all([
         fetchJson<unknown>(providerPath(providerId, "diagnostics")),
         fetchJson<{ providers?: unknown[] }>(capabilitiesPath),

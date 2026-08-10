@@ -261,8 +261,8 @@ async function runProviderIntegrationRepair(input: IntegrationFixRepairRunnerInp
   }
 
   const providerId = await selectedProviderForIntegrationFix(input.runtime, input.project, input.changeId);
-  const provider = await defaultProviderRegistry.require(providerId, "coder", input.project, input.checkoutPath);
-  const capabilities = await provider.capabilitySnapshot(input.project, input.checkoutPath);
+  const provider = await defaultProviderRegistry.require(providerId, "coder", "harness", input.project, input.checkoutPath);
+  const capabilities = await provider.capabilitySnapshot(input.project, "harness", input.checkoutPath);
   let running: RunMetadata = {
     ...run,
     command: ["provider", "turn.start"],

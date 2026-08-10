@@ -93,7 +93,7 @@ export function createCanonicalTimelineState(): CanonicalTimelineState {
 }
 
 export function canonicalTimelineScopeKey(scope: CanonicalTimelineScope): string {
-  return JSON.stringify([scope.projectId, scope.conversationId, scope.agentSurfaceId]);
+  return JSON.stringify([scope.projectId, scope.productMode, scope.conversationId, scope.agentSurfaceId]);
 }
 
 export function beginCanonicalTimelineRequest(
@@ -501,7 +501,8 @@ function envelopeSetsMatch(current: StoredEnvelope[], incoming: CanonicalTimelin
 }
 
 function assertPage(scope: CanonicalTimelineScope, page: CanonicalTimelinePage): void {
-  if (page.conversationId !== scope.conversationId || page.agentSurfaceId !== scope.agentSurfaceId) {
+  if (page.projectId !== scope.projectId || page.productMode !== scope.productMode
+    || page.conversationId !== scope.conversationId || page.agentSurfaceId !== scope.agentSurfaceId) {
     throw new Error("Timeline page scope does not match its requested surface.");
   }
   if (!Number.isSafeInteger(page.watermark) || page.watermark < 0) {
@@ -511,7 +512,8 @@ function assertPage(scope: CanonicalTimelineScope, page: CanonicalTimelinePage):
   const messageIds = new Set<string>();
   for (const envelope of all) {
     assertEnvelope(envelope);
-    if (envelope.conversationId !== scope.conversationId || envelope.agentSurfaceId !== scope.agentSurfaceId) {
+    if (envelope.projectId !== scope.projectId || envelope.productMode !== scope.productMode
+      || envelope.conversationId !== scope.conversationId || envelope.agentSurfaceId !== scope.agentSurfaceId) {
       throw new Error("Timeline envelope scope does not match its requested surface.");
     }
     if (envelope.revision > page.watermark) {
@@ -525,7 +527,8 @@ function assertPage(scope: CanonicalTimelineScope, page: CanonicalTimelinePage):
 }
 
 function assertEnvelope(envelope: CanonicalTimelineEnvelope): void {
-  if (!envelope.conversationId || !envelope.agentSurfaceId || !envelope.messageId
+  if (!envelope.projectId || (envelope.productMode !== "agent" && envelope.productMode !== "harness")
+    || !envelope.conversationId || !envelope.agentSurfaceId || !envelope.messageId
     || !Number.isSafeInteger(envelope.position) || envelope.position <= 0
     || !Number.isSafeInteger(envelope.revision) || envelope.revision <= 0
     || (envelope.orderClass !== "sequence" && envelope.orderClass !== "thread-start")) {
@@ -579,13 +582,16 @@ function sameOrderIdentity(left: CanonicalTimelineEnvelope, right: CanonicalTime
 
 function sameScope(left: CanonicalTimelineScope, right: CanonicalTimelineScope): boolean {
   return left.projectId === right.projectId
+    && left.productMode === right.productMode
     && left.conversationId === right.conversationId
     && left.agentSurfaceId === right.agentSurfaceId;
 }
 
 function scopeForEnvelope(projectId: string, envelope: CanonicalTimelineEnvelope): CanonicalTimelineScope {
+  if (projectId !== envelope.projectId) throw new Error("Timeline envelope project does not match its stream scope.");
   return {
-    projectId,
+    projectId: envelope.projectId,
+    productMode: envelope.productMode,
     conversationId: envelope.conversationId,
     agentSurfaceId: envelope.agentSurfaceId,
   };

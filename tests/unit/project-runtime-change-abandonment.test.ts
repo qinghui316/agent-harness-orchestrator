@@ -575,7 +575,7 @@ describe.sequential("Skill-native Project Harness Change abandonment", () => {
     }, now);
     const owner = new ProviderChildLifecycleOwner({
       database: store,
-      delivery: new CanonicalTimelineDelivery(store),
+      delivery: new CanonicalTimelineDelivery(store, "harness"),
       catalog: readBundledAgentCatalog(),
       projectId: project().id,
       conversationId: topic.conversationId,

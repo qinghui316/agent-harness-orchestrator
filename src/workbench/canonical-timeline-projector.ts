@@ -2,11 +2,14 @@ import { canonicalTranscriptCellsFromThreadItem } from "./parent-agent-transcrip
 import { fromStoredThreadMessage } from "./conversation-thread-log.js";
 import type { StoredTopicMessage } from "./persistence/contracts.js";
 import type { CanonicalTimelineEnvelope } from "./canonical-timeline-contract.js";
+import type { ProductMode } from "../provider-runtime/index.js";
 
-export function projectCanonicalTimelineEnvelope(row: StoredTopicMessage): CanonicalTimelineEnvelope {
+export function projectCanonicalTimelineEnvelope(row: StoredTopicMessage, productMode: ProductMode): CanonicalTimelineEnvelope {
   const entry = fromStoredThreadMessage(row);
   const child = row.agentSurfaceId !== "main-agent";
   return {
+    projectId: row.projectId,
+    productMode,
     conversationId: row.conversationId,
     agentSurfaceId: row.agentSurfaceId,
     messageId: row.id,

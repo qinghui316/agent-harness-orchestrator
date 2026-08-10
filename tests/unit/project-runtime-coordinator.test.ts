@@ -38,7 +38,7 @@ describe("project runtime coordinator", () => {
     expect(existsSync(fixture.targetSidecar)).toBe(true);
     const database = new Database(join(fixture.targetSidecar, "workbench", "workbench.sqlite"), { readonly: true });
     try {
-      expect(database.pragma("user_version", { simple: true })).toBe(11);
+      expect(database.pragma("user_version", { simple: true })).toBe(12);
       expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'skills'").get()).toBeUndefined();
     } finally {
       database.close();

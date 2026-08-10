@@ -35,7 +35,7 @@ describe("workbench conversation lifecycle", () => {
       },
       confirm: true,
     });
-    const topics = await listWorkbenchTopics({ project: project(), path: getTempDir() });
+    const topics = await listWorkbenchTopics({ project: project(), path: getTempDir() }, "harness");
 
     expect(result.result).toMatchObject({
       change: expect.objectContaining({ id: topic.changeId, state: "archived" }),

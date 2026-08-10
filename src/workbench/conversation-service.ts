@@ -1,5 +1,5 @@
-import { randomUUID } from "node:crypto";
-import { defaultProviderRegistry } from "../provider-runtime/index.js";
+import { createHash, randomUUID } from "node:crypto";
+import { assertProductMode, defaultProviderRegistry, type ProductMode } from "../provider-runtime/index.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import { readProjectHarnessChangeContext } from "../project-harness/change.js";
 import { resolveProjectRuntimeState, type ProjectRuntimeState } from "../project-runtime/coordinator.js";
@@ -9,7 +9,6 @@ import { resolveTopicFileReferences } from "./file-references.js";
 import { validatePlanHandoffIntent } from "./plan-handoff.js";
 import { hasPlanningExecutionEvidence } from "../project-runtime/planning-publication.js";
 import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
-import type { StoredTopicMessage } from "./persistence/contracts.js";
 import { fromStoredThreadMessage } from "./conversation-thread-log.js";
 import { CanonicalTimelineDelivery, publishCommittedCanonicalTimelineRow } from "./canonical-timeline-delivery.js";
 import { toCanonicalTimelineMessage } from "./canonical-timeline-message.js";
@@ -17,7 +16,7 @@ import { resolveProviderSwitchWorkflowResumeRequest, switchConversationProviderA
 import { runProjectScopedMainAgentTurn } from "./main-agent-turn-coordinator.js";
 import { resolveConversationId } from "./conversation-identity.js";
 import { runWorkbenchWorkflowAction } from "./workflow-conversation-bridge.js";
-import type { TopicAttachment, TopicMessageInput, TopicMessageResult, TopicThreadEntry, ValidatedPlanHandoffIntent, WorkbenchLiveSink } from "./types.js";
+import type { NewConversationSkillOverride, TopicAttachment, TopicMessageInput, TopicMessageResult, TopicThreadEntry, ValidatedPlanHandoffIntent, WorkbenchLiveSink } from "./types.js";
 import { publishAgentSurfacesInvalidated, publishProjectLiveEvent } from "./project-live-events.js";
 import { runExactChildAgentTurn } from "./provider-child-turn-coordinator.js";
 import { runProjectHarnessOnboardingTurn } from "./project-harness-onboarding-turn.js";
@@ -26,11 +25,29 @@ import { createConversationGraphScopeId } from "./conversation-graph-scope.js";
 
 export async function createWorkbenchConversation(
   project: ManagedProject,
-  input: { body?: string; contextRefs?: TopicMessageInput["contextRefs"]; attachmentIds?: string[]; providerId?: string },
+  input: {
+    body?: string;
+    contextRefs?: TopicMessageInput["contextRefs"];
+    attachmentIds?: string[];
+    providerId?: string;
+    productMode: ProductMode;
+    clientRequestId: string;
+    skillOverrides?: NewConversationSkillOverride[];
+  },
   live?: WorkbenchLiveSink,
   options: { runMainAgent?: boolean } = {},
-): Promise<{ conversationId: string; title: string; state: "active" }> {
-  const persistence = await openProjectConversationDatabase(project);
+): Promise<{
+  conversationId: string;
+  title: string;
+  state: "active" | "archive";
+  productMode: ProductMode;
+  clientRequestId: string;
+  replayed: boolean;
+  selectedProviderId: string;
+}> {
+  const productMode = assertProductMode(input.productMode);
+  const clientRequestId = normalizeClientRequestId(input.clientRequestId);
+  const skillOverrides = normalizeSkillOverrides(input.skillOverrides);
   const resolved = await resolveTopicFileReferences(project, input.body ?? "", input.contextRefs);
   const attachments = await resolveTopicAttachments(project, input.attachmentIds);
   const title = deriveConversationTitle(resolved.text, attachments.length > 0);
@@ -43,12 +60,25 @@ export async function createWorkbenchConversation(
     : project.defaultProviderId
       ? defaultProviderRegistry.get(project.defaultProviderId).id
       : defaultProviderRegistry.requireOnly().id;
+  const requestHash = stableConversationCreateRequestHash({
+    productMode,
+    body,
+    contextRefs: resolved.contextRefs,
+    attachmentIds: attachments.map((attachment) => attachment.id),
+    providerId: selectedProviderId,
+    skillOverrides,
+  });
+  const persistence = await openProjectConversationDatabase(project);
   const database = persistence.database;
-  let storedUserRow: StoredTopicMessage;
+  let creation: ReturnType<WorkbenchDatabase["unitOfWork"]["createConversationFromFirstSend"]>;
   try {
-    storedUserRow = database.unitOfWork.createConversationWithInitialMessage({
+    creation = database.unitOfWork.createConversationFromFirstSend({
+      conversation: {
       projectId: persistence.projectId,
       conversationId,
+      productMode,
+      clientCreateRequestId: clientRequestId,
+      clientCreateRequestHash: requestHash,
       title,
       state: "active",
       boundChangeId: null,
@@ -58,38 +88,74 @@ export async function createWorkbenchConversation(
       createdAt: now,
       updatedAt: now,
       deletedAt: null,
-    }, toCanonicalTimelineMessage(persistence.projectId, conversationId, {
-      id: `user:${conversationId}:1`,
-      type: "user.message",
-      timestamp: now,
-      conversationId,
-      graphScopeId,
-      changeId: "",
-      completedTurnSequence: 1,
-      text: body,
-      contextRefs: resolved.contextRefs.length > 0 ? resolved.contextRefs : undefined,
-      attachments: attachments.length > 0 ? attachments : undefined,
-    }));
+      },
+      message: toCanonicalTimelineMessage(persistence.projectId, conversationId, {
+        id: `user:${conversationId}:1`,
+        type: "user.message",
+        timestamp: now,
+        conversationId,
+        graphScopeId,
+        changeId: "",
+        completedTurnSequence: 1,
+        text: body,
+        contextRefs: resolved.contextRefs.length > 0 ? resolved.contextRefs : undefined,
+        attachments: attachments.length > 0 ? attachments : undefined,
+      }),
+      skillOverrides,
+    });
   } finally {
     database.close();
   }
-  live?.emit({ event: "topic.created", data: { topic: { id: conversationId, conversationId, title, state: "active", selectedProviderId } } });
-  publishCommittedCanonicalTimelineRow(live, storedUserRow);
-  if (options.runMainAgent !== false) {
+  const committed = creation.conversation;
+  live?.emit({
+    event: "topic.created",
+    data: {
+      projectId: persistence.projectId,
+      productMode: committed.productMode,
+      conversationId: committed.conversationId,
+      clientRequestId,
+      replayed: creation.replayed,
+      topic: {
+        id: committed.conversationId,
+        conversationId: committed.conversationId,
+        title: committed.title,
+        state: committed.state,
+        selectedProviderId: committed.selectedProviderId,
+        productMode: committed.productMode,
+      },
+    },
+  });
+  if (creation.message) publishCommittedCanonicalTimelineRow(live, creation.message, committed.productMode);
+  if (!creation.replayed && options.runMainAgent !== false) {
+    if (productMode === "agent") {
+      const error = new Error("Direct Agent execution is not enabled in the T002 foundation.");
+      error.name = "Conflict";
+      throw error;
+    }
     if (persistence.runtimeState?.state === "onboarding") {
-      await runProjectHarnessOnboardingTurn(project, persistence.runtimeState, conversationId, body, live);
+      await runProjectHarnessOnboardingTurn(project, persistence.runtimeState, committed.conversationId, body, live);
     } else {
-      await runProjectScopedMainAgentTurn(project, conversationId, body, live, undefined, { graphScopeId });
+      await runProjectScopedMainAgentTurn(project, committed.conversationId, body, live, undefined, {
+        graphScopeId: committed.currentGraphScopeId ?? graphScopeId,
+      });
     }
   }
-  return { conversationId, title, state: "active" };
+  return {
+    conversationId: committed.conversationId,
+    title: committed.title,
+    state: committed.state,
+    productMode: committed.productMode,
+    clientRequestId,
+    replayed: creation.replayed,
+    selectedProviderId: committed.selectedProviderId,
+  };
 }
 
 export async function updateWorkbenchConversationTitle(
   project: ManagedProject,
   conversationId: string,
   input: { title: string },
-): Promise<{ id: string; title: string; state: string; updatedAt: string; selectedProviderId?: string }> {
+): Promise<{ id: string; productMode: ProductMode; title: string; state: string; updatedAt: string; selectedProviderId?: string }> {
   const persistence = await openProjectConversationDatabase(project);
   const title = normalizeConversationTitle(input.title);
   const updatedAt = new Date().toISOString();
@@ -98,6 +164,7 @@ export async function updateWorkbenchConversationTitle(
     const conversation = database.conversations.updateConversationTitle(persistence.projectId, conversationId, title, updatedAt);
     const projection = {
       id: conversation.conversationId,
+      productMode: conversation.productMode,
       title: conversation.title,
       state: conversation.state,
       updatedAt: conversation.updatedAt,
@@ -144,10 +211,21 @@ export async function postConversationMessage(
   input: string | TopicMessageInput,
   live?: WorkbenchLiveSink,
 ): Promise<TopicMessageResult> {
+  const identity = await resolveStoredConversationIdentity(project, conversationId);
+  conversationId = identity.conversationId;
+  const requestedMode = typeof input === "string" ? undefined : input.productMode;
+  if (requestedMode !== undefined && requestedMode !== identity.productMode) {
+    const error = new Error("Conversation productMode does not match the requested mode.");
+    error.name = "Conflict";
+    throw error;
+  }
+  if (identity.productMode === "agent") {
+    const error = new Error("Direct Agent execution is not enabled in the T002 foundation.");
+    error.name = "Conflict";
+    throw error;
+  }
   const parsed = await normalizeTopicMessageInput(project, input);
-  const runtimeState = await resolveProjectRuntimeState(project, {
-    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
-  });
+  const runtimeState = identity.runtimeState;
   if (runtimeState.state === "onboarding") {
     return postProjectHarnessOnboardingMessage(project, runtimeState, conversationId, parsed, live);
   }
@@ -156,7 +234,6 @@ export async function postConversationMessage(
   }
   const resolution = runtimeState.resolution;
   const projectId = resolution.harness.projectId;
-  conversationId = await resolveConversationId(project, conversationId);
   if (parsed.agentSurfaceId) {
     if (parsed.contextRefs?.length || parsed.attachments?.length || parsed.planHandoffIntent || parsed.providerId) {
       const error = new Error("Child Agent feedback supports text only and cannot switch providers or carry Main planning context.");
@@ -182,7 +259,7 @@ export async function postConversationMessage(
   let storedUser: TopicThreadEntry = user;
   const database = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
   try {
-    const delivery = new CanonicalTimelineDelivery(database, live);
+    const delivery = new CanonicalTimelineDelivery(database, "harness", live);
     const conversation = database.conversations.readConversation(projectId, conversationId);
     if (!conversation) throw new Error(`Conversation not found: ${conversationId}.`);
     planHandoff = validatePlanHandoffIntent(
@@ -301,7 +378,7 @@ async function postProjectHarnessOnboardingMessage(
     attachments: parsed.attachments,
   };
   try {
-    new CanonicalTimelineDelivery(database, live)
+    new CanonicalTimelineDelivery(database, "harness", live)
       .append(toCanonicalTimelineMessage(project.id, conversationId, user));
   } finally {
     database.close();
@@ -338,4 +415,88 @@ function defaultAttachmentMessage(attachments: TopicAttachment[]): string {
   if (imageCount > 0 && textCount === 0) return "Please inspect the attached image first, describe what you see, and ask a clarifying question if the requested outcome is unclear.";
   if (textCount > 0 && imageCount === 0) return "Please use the attached file content as message-scoped context for this request.";
   return "Please use the attached images and files as message-scoped context for this request.";
+}
+
+async function resolveStoredConversationIdentity(
+  project: ManagedProject,
+  requestedConversationId: string,
+): Promise<{ conversationId: string; productMode: ProductMode; runtimeState: ProjectRuntimeState }> {
+  const persistence = await openProjectConversationDatabase(project);
+  let conversationId = requestedConversationId;
+  try {
+    let conversation = persistence.database.conversations.readConversation(
+      persistence.projectId,
+      conversationId,
+    );
+    if (!conversation && persistence.runtimeState.state === "ready") {
+      conversationId = await resolveConversationId(project, requestedConversationId);
+      conversation = persistence.database.conversations.readConversation(
+        persistence.projectId,
+        conversationId,
+      );
+    }
+    if (!conversation) {
+      const error = new Error(`Conversation not found: ${requestedConversationId}.`);
+      error.name = "NotFound";
+      throw error;
+    }
+    return {
+      conversationId: conversation.conversationId,
+      productMode: conversation.productMode,
+      runtimeState: persistence.runtimeState,
+    };
+  } finally {
+    persistence.database.close();
+  }
+}
+
+function normalizeClientRequestId(value: string): string {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  if (!normalized || normalized.length > 128 || !/^[A-Za-z0-9._:-]+$/.test(normalized)) {
+    const error = new Error("clientRequestId must be 1 to 128 URL-safe characters.");
+    error.name = "BadRequest";
+    throw error;
+  }
+  return normalized;
+}
+
+function normalizeSkillOverrides(value: NewConversationSkillOverride[] | undefined): NewConversationSkillOverride[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    const error = new Error("skillOverrides must be an array.");
+    error.name = "BadRequest";
+    throw error;
+  }
+  const normalized = new Map<string, boolean>();
+  for (const item of value) {
+    const skillId = typeof item?.skillId === "string" ? item.skillId.trim() : "";
+    if (!skillId || typeof item?.enabled !== "boolean" || normalized.has(skillId)) {
+      const error = new Error("skillOverrides must contain unique non-empty skillId values and boolean enabled values.");
+      error.name = "BadRequest";
+      throw error;
+    }
+    normalized.set(skillId, item.enabled);
+  }
+  return [...normalized]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([skillId, enabled]) => ({ skillId, enabled }));
+}
+
+function stableConversationCreateRequestHash(input: {
+  productMode: ProductMode;
+  body: string;
+  contextRefs: TopicMessageInput["contextRefs"];
+  attachmentIds: string[];
+  providerId: string;
+  skillOverrides: NewConversationSkillOverride[];
+}): string {
+  return createHash("sha256").update(JSON.stringify({
+    version: 1,
+    productMode: input.productMode,
+    body: input.body,
+    contextRefs: input.contextRefs ?? [],
+    attachmentIds: input.attachmentIds,
+    providerId: input.providerId,
+    skillOverrides: input.skillOverrides,
+  })).digest("hex");
 }

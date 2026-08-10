@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { relative, resolve } from "node:path";
 import type { ManagedProject } from "../../types/index.js";
 import type { WorkbenchProjectInput } from "../../workbench/read-model-types.js";
+import { parseProductMode, type ProductMode } from "../../provider-runtime/index.js";
 
 export async function readJsonBody<T>(request: IncomingMessage): Promise<T> {
   const chunks: Buffer[] = [];
@@ -68,6 +69,14 @@ export function assertRegisteredProject(input: WorkbenchProjectInput): asserts i
 export function requireChangeId(changeId: string | undefined): string {
   if (typeof changeId === "string" && changeId.trim()) return changeId.trim();
   const error = new Error("changeId is required.");
+  error.name = "BadRequest";
+  throw error;
+}
+
+export function requireProductMode(value: unknown): ProductMode {
+  const productMode = parseProductMode(value);
+  if (productMode) return productMode;
+  const error = new Error("productMode must be agent or harness.");
   error.name = "BadRequest";
   throw error;
 }

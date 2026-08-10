@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { git } from "../../src/project/git.js";
 import { resolveProjectRuntimePaths, type ProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import type { ManagedProject } from "../../src/types/index.js";
-import { createWorkbenchConversation } from "../../src/workbench/conversation-service.js";
+import { createHarnessWorkbenchConversation as createWorkbenchConversation } from "../helpers/conversation-change-fixture.js";
 import { fromStoredThreadMessage } from "../../src/workbench/conversation-thread-log.js";
 import { buildConversationInteractionQueue } from "../../src/workbench/conversation-interactions.js";
 import { canonicalTranscriptCellsFromThreadItem } from "../../src/workbench/parent-agent-transcript.js";
@@ -59,7 +59,7 @@ describe("conversation interaction projection", () => {
       store.close();
     }
 
-    const queue = await buildConversationInteractionQueue(runtime, conversation.conversationId, graphScopeId);
+    const queue = await buildConversationInteractionQueue(runtime, conversation.conversationId, graphScopeId, "harness");
 
     expect(queue.items.map((item) => item.questions[0]?.questionId)).toEqual(["q-first", "q-second"]);
     expect(queue.items.every((item, index, items) => index === 0 || item.canonicalSequence > items[index - 1]!.canonicalSequence)).toBe(true);
@@ -79,7 +79,7 @@ describe("conversation interaction projection", () => {
     } finally {
       transitionStore.close();
     }
-    expect((await buildConversationInteractionQueue(runtime, conversation.conversationId, "scope-next")).items).toEqual([]);
+    expect((await buildConversationInteractionQueue(runtime, conversation.conversationId, "scope-next", "harness")).items).toEqual([]);
   });
 
   it("terminalizes provider, clarification, and Plan interactions with the graph scope", async () => {
@@ -122,7 +122,7 @@ describe("conversation interaction projection", () => {
       store.close();
     }
 
-    expect((await buildConversationInteractionQueue(runtime, conversation.conversationId, graphScopeId)).items).toEqual([]);
+    expect((await buildConversationInteractionQueue(runtime, conversation.conversationId, graphScopeId, "harness")).items).toEqual([]);
   });
 
   it.each(["interrupted", "superseded"] as const)("retains %s provider input as read-only history", (status) => {
@@ -180,7 +180,7 @@ describe("conversation interaction projection", () => {
       store.close();
     }
 
-    expect((await buildConversationInteractionQueue(runtime, conversation.conversationId, graphScopeId)).items).toEqual([]);
+    expect((await buildConversationInteractionQueue(runtime, conversation.conversationId, graphScopeId, "harness")).items).toEqual([]);
   });
 });
 

@@ -111,6 +111,7 @@ describe("Skill-native Spec-Test ownership", () => {
       database.conversations.createConversation({
         projectId: fixture.project.id,
         conversationId: "unrelated-conversation",
+        productMode: "harness",
         title: "Unrelated",
         state: "active",
         boundChangeId: null,
@@ -202,7 +203,7 @@ describe("Skill-native Spec-Test ownership", () => {
       },
     );
 
-    expect(providerRequire).toHaveBeenCalledWith("codex", "auditor", fixture.project, fixture.project.path);
+    expect(providerRequire).toHaveBeenCalledWith("codex", "auditor", "harness", fixture.project, fixture.project.path);
     expect(runTurn).toHaveBeenCalledWith(expect.objectContaining({
       projectId: fixture.project.id,
       conversationId: fixture.conversationId,

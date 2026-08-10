@@ -17,7 +17,7 @@ import { addExistingProject, createNewProject, listProjectStatuses, prepareRegis
 import { handleDirectWorkbenchApi } from "./direct-routes.js";
 import { handleProjectWorkbenchApi } from "./project-routes.js";
 import { handleTerminalApi } from "./terminal-routes.js";
-import { assertConfirmed, assertLocalWorkbenchRequest, assertRegisteredProject, readJsonBody, sendJson } from "./http.js";
+import { assertConfirmed, assertLocalWorkbenchRequest, assertRegisteredProject, readJsonBody, requireProductMode, sendJson } from "./http.js";
 import type { AddExistingProjectRequest, CreateNewProjectRequest, RemoveProjectRequest, WorkbenchServerContext } from "./types.js";
 
 export async function handleApi(context: WorkbenchServerContext, request: IncomingMessage, response: ServerResponse, url: URL): Promise<void> {
@@ -58,7 +58,8 @@ async function handleApiRequest(context: WorkbenchServerContext, request: Incomi
     return;
   }
   if (request.method === "GET" && url.pathname === "/api/providers/capabilities") {
-    const runtimeSummaries = await Promise.all(context.providerRegistry.list().map((provider) => provider.runtimeSummary(null)));
+    const productMode = requireProductMode(url.searchParams.get("productMode"));
+    const runtimeSummaries = await Promise.all(context.providerRegistry.list().map((provider) => provider.runtimeSummary(null, productMode)));
     sendJson(response, 200, { providers: runtimeSummaries.map((summary) => summary.snapshot), runtimeSummaries });
     return;
   }
@@ -138,7 +139,8 @@ async function handleApiRequest(context: WorkbenchServerContext, request: Incomi
   const providerCapabilitiesMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/providers\/capabilities$/);
   if (request.method === "GET" && providerCapabilitiesMatch?.[1]) {
     const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(providerCapabilitiesMatch[1]));
-    const runtimeSummaries = await Promise.all(context.providerRegistry.list().map((provider) => provider.runtimeSummary(input.project, input.path)));
+    const productMode = requireProductMode(url.searchParams.get("productMode"));
+    const runtimeSummaries = await Promise.all(context.providerRegistry.list().map((provider) => provider.runtimeSummary(input.project, productMode, input.path)));
     sendJson(response, 200, { providers: runtimeSummaries.map((summary) => summary.snapshot), runtimeSummaries });
     return;
   }

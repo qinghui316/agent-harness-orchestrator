@@ -13,7 +13,7 @@ import {
 import { getCanonicalTimelinePage } from "../../workbench/canonical-timeline-query.js";
 import { getWorkbenchProjection } from "./projections.js";
 import { readWorkbenchActionEvents, sendActionEventReplay } from "./live.js";
-import { assertConfirmed, assertRegisteredProject, readJsonBody, sendJson } from "./http.js";
+import { assertConfirmed, assertRegisteredProject, readJsonBody, requireProductMode, sendJson } from "./http.js";
 import { handleIntakeReanalyze, handleIntakeScan } from "./intake.js";
 import { sendConversationInteractionSettlement } from "./conversation-interactions.js";
 import { sendWorkbenchActionLive } from "./live-actions.js";
@@ -29,7 +29,8 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
     return;
   }
   if (request.method === "GET" && rest === "snapshot") {
-    sendJson(response, 200, await getWorkbenchSnapshot(input, { topicId: url.searchParams.get("topic") ?? undefined }));
+    const productMode = requireProductMode(url.searchParams.get("productMode"));
+    sendJson(response, 200, await getWorkbenchSnapshot(input, { topicId: url.searchParams.get("topic") ?? undefined, productMode }));
     return;
   }
   if (request.method === "GET" && rest.startsWith("projections/")) {
@@ -37,7 +38,7 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
     return;
   }
   if (request.method === "GET" && rest === "topics") {
-    sendJson(response, 200, await listWorkbenchTopics(input));
+    sendJson(response, 200, await listWorkbenchTopics(input, requireProductMode(url.searchParams.get("productMode"))));
     return;
   }
   if (request.method === "POST" && rest === "topics/live") {
@@ -50,8 +51,16 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
     const body = await readCreateTopicBody(request);
     const topic = await createWorkbenchConversation(input.project, body, undefined, { runMainAgent: false });
     sendJson(response, 200, {
-      topic: { id: topic.conversationId, conversationId: topic.conversationId, title: topic.title, state: topic.state },
-      snapshot: await getWorkbenchSnapshot(input, { topicId: topic.conversationId }),
+      topic: {
+        id: topic.conversationId,
+        conversationId: topic.conversationId,
+        productMode: topic.productMode,
+        clientRequestId: topic.clientRequestId,
+        replayed: topic.replayed,
+        title: topic.title,
+        state: topic.state,
+      },
+      snapshot: await getWorkbenchSnapshot(input, { topicId: topic.conversationId, productMode: topic.productMode }),
     });
     return;
   }
@@ -89,10 +98,16 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
       throw error;
     }
     const limitRaw = url.searchParams.get("limit");
-    sendJson(response, 200, await getCanonicalTimelinePage(input, conversationId, agentSurfaceId, {
+    sendJson(response, 200, await getCanonicalTimelinePage(
+      input,
+      conversationId,
+      agentSurfaceId,
+      requireProductMode(url.searchParams.get("productMode")),
+      {
       limit: limitRaw === null ? undefined : Number(limitRaw),
       beforeCursor: url.searchParams.get("beforeCursor") ?? undefined,
-    }));
+      },
+    ));
     return;
   }
   const topicTitleMatch = rest.match(/^topics\/([^/]+)\/title$/);
@@ -132,7 +147,11 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
     return;
   }
   if (request.method === "GET" && rest.startsWith("topics/")) {
-    sendJson(response, 200, await getWorkbenchTopic(input, decodeURIComponent(rest.slice("topics/".length))));
+    sendJson(response, 200, await getWorkbenchTopic(
+      input,
+      decodeURIComponent(rest.slice("topics/".length)),
+      requireProductMode(url.searchParams.get("productMode")),
+    ));
     return;
   }
   if (request.method === "GET" && rest.startsWith("stream/")) {
@@ -140,7 +159,10 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
     return;
   }
   if (request.method === "GET" && rest === "approvals") {
-    sendJson(response, 200, await listWorkbenchApprovals(input, { topicId: url.searchParams.get("topic") ?? undefined }));
+    sendJson(response, 200, await listWorkbenchApprovals(input, {
+      topicId: url.searchParams.get("topic") ?? undefined,
+      productMode: requireProductMode(url.searchParams.get("productMode")),
+    }));
     return;
   }
   if (request.method === "POST" && rest === "actions") {

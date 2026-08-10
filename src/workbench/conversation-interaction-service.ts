@@ -192,7 +192,7 @@ async function transitionProviderRequest(
   const store = await openProjectRuntimeWorkbenchDatabase(runtime.paths);
   try {
     const transition = store.interactions.transitionProviderUserInputRequest(projectId, conversationId, expectedGraphScopeId, requestKey, expectedStatus, nextStatus, settlement, new Date().toISOString());
-    new CanonicalTimelineDelivery(store, live).publishCommitted(transition.row);
+    new CanonicalTimelineDelivery(store, "harness", live).publishCommitted(transition.row);
     const graphScopeId = store.conversations.readConversation(projectId, conversationId)?.currentGraphScopeId;
     publishAgentSurfacesInvalidated(projectId, {
       conversationId,

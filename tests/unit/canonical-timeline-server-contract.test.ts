@@ -19,6 +19,8 @@ import type {
   CanonicalTimelinePage as WebTimelinePage,
 } from "../../src/web/src/types.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
+import { createWorkbenchConversation } from "../../src/workbench/conversation-service.js";
+import { getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
 import type { WorkbenchDatabase } from "../../src/workbench/persistence/database.js";
 import { type StoredTopicMessageWrite } from "../../src/workbench/persistence/contracts.js";
 import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
@@ -49,6 +51,49 @@ afterEach(async () => {
 });
 
 describe("canonical Timeline server contract", () => {
+  it("reads Agent history from the sidecar before the project Harness is ready", async () => {
+    const project = {
+      id: projectId,
+      name: "Timeline project",
+      path: root,
+      addedAt: "2026-07-17T00:00:00.000Z",
+      lastSeenAt: "2026-07-17T00:00:00.000Z",
+    };
+    const created = await createWorkbenchConversation(project, {
+      body: "Agent history before Harness onboarding.",
+      productMode: "agent",
+      clientRequestId: "agent-onboarding-timeline",
+    }, undefined, { runMainAgent: false });
+    const input = { project, path: root };
+
+    await expect(getWorkbenchSnapshot(input, {
+      topicId: created.conversationId,
+      productMode: "agent",
+    })).resolves.toMatchObject({
+      productMode: "agent",
+      center: { selectedTopic: { id: created.conversationId, productMode: "agent" } },
+    });
+    await expect(getCanonicalTimelinePage(
+      input,
+      created.conversationId,
+      "main-agent",
+      "agent",
+    )).resolves.toMatchObject({
+      productMode: "agent",
+      conversationId: created.conversationId,
+    });
+    await expect(getWorkbenchSnapshot(input, {
+      topicId: created.conversationId,
+      productMode: "harness",
+    })).rejects.toMatchObject({ name: "Conflict" });
+    await expect(getCanonicalTimelinePage(
+      input,
+      created.conversationId,
+      "main-agent",
+      "harness",
+    )).rejects.toMatchObject({ name: "Conflict" });
+  });
+
   it("allocates immutable positions and mutation revisions transactionally", async () => {
     const memory = runtimePaths();
     const store = await openProjectRuntimeWorkbenchDatabase(memory);
@@ -90,7 +135,7 @@ describe("canonical Timeline server contract", () => {
 
     const db = new Database(memory.workbenchDbPath, { readonly: true });
     try {
-      expect(db.pragma("user_version", { simple: true })).toBe(11);
+      expect(db.pragma("user_version", { simple: true })).toBe(12);
       expect(db.prepare("PRAGMA index_list(canonical_timeline_items)").all()).toEqual(expect.arrayContaining([
         expect.objectContaining({ name: "idx_timeline_conversation_position", unique: 1 }),
       ]));
@@ -110,7 +155,7 @@ describe("canonical Timeline server contract", () => {
       store.close();
     }
 
-    const envelope = projectCanonicalTimelineEnvelope(persisted);
+    const envelope = projectCanonicalTimelineEnvelope(persisted, "harness");
     expect(envelope).toMatchObject({
       conversationId,
       agentSurfaceId: agentThreadSurfaceId("codex", "thread-child"),
@@ -160,6 +205,7 @@ describe("canonical Timeline server contract", () => {
       { project, path: root },
       conversationId,
       agentThreadSurfaceId("codex", "thread-child"),
+      "harness",
       { limit: 2 },
     );
     expect(page.pinned).toEqual([
@@ -197,14 +243,14 @@ describe("canonical Timeline server contract", () => {
     try {
       seedConversation(store);
       const published: string[] = [];
-      const delivery = new CanonicalTimelineDelivery(store, (envelope) => published.push(envelope.messageId));
+      const delivery = new CanonicalTimelineDelivery(store, "harness", (envelope) => published.push(envelope.messageId));
       delivery.append(message("first", "main-agent"));
       expect(published).toEqual(["first"]);
 
       expect(() => delivery.append(message("first", "main-agent"))).toThrow();
       expect(published).toEqual(["first"]);
 
-      const failingDelivery = new CanonicalTimelineDelivery(store, () => { throw new Error("transport unavailable"); });
+      const failingDelivery = new CanonicalTimelineDelivery(store, "harness", () => { throw new Error("transport unavailable"); });
       expect(() => failingDelivery.append(message("committed", "main-agent"))).not.toThrow();
       expect(store.timeline.readMessage(projectId, conversationId, "committed")).toMatchObject({ position: 2, revision: 2 });
     } finally {
@@ -218,7 +264,7 @@ describe("canonical Timeline server contract", () => {
     try {
       seedConversation(store);
       const revisions: number[] = [];
-      const delivery = new CanonicalTimelineDelivery(store, (envelope) => revisions.push(envelope.revision));
+      const delivery = new CanonicalTimelineDelivery(store, "harness", (envelope) => revisions.push(envelope.revision));
       delivery.upsert(message("stable", "main-agent"));
       for (let index = 1; index <= 100; index += 1) {
         delivery.upsert({ ...message("stable", "main-agent"), text: `revision-${index}` });
@@ -241,6 +287,7 @@ function seedConversation(store: WorkbenchDatabase): void {
   store.conversations.createConversation({
     projectId,
     conversationId,
+    productMode: "harness",
     title: "Timeline conversation",
     state: "active",
     boundChangeId: null,

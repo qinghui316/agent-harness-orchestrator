@@ -188,7 +188,7 @@ describe("workbench read-model projections", () => {
     });
     const active = await createConversationChangeFixture(project(), { title: "Active Topic" });
 
-    const topics = await listWorkbenchTopics({ project: project(), path: getTempDir() });
+    const topics = await listWorkbenchTopics({ project: project(), path: getTempDir() }, "harness");
 
     expect(topics.map((item) => [item.boundChangeId, item.state])).toEqual(expect.arrayContaining([
       [active.changeId, "active"],
@@ -208,11 +208,11 @@ describe("workbench read-model projections", () => {
 
     expect(existsSync(changeDir)).toBe(true);
     expect(existsSync(join(changeDir, "summary.md"))).toBe(true);
-    await expect(listWorkbenchTopics({ project: project(), path: getTempDir() })).resolves.not.toEqual(expect.arrayContaining([
+    await expect(listWorkbenchTopics({ project: project(), path: getTempDir() }, "harness")).resolves.not.toEqual(expect.arrayContaining([
       expect.objectContaining({ id: conversation.conversationId }),
     ]));
 
-    await expect(getWorkbenchTopic({ project: project(), path: getTempDir() }, conversation.conversationId)).rejects.toThrow();
+    await expect(getWorkbenchTopic({ project: project(), path: getTempDir() }, conversation.conversationId, "harness")).rejects.toThrow();
     expect(existsSync(join(skillNativeFixture.skillRoot, "state", "registry", "changes", `${conversation.changeId}.json`))).toBe(true);
   });
 
@@ -237,7 +237,11 @@ describe("workbench read-model projections", () => {
   });
 
   it("keeps ordinary conversations out of Harness gate projections", async () => {
-    const conversation = await createWorkbenchConversation(project(), { body: "Just talk to the main Agent." }, undefined, { runMainAgent: false });
+    const conversation = await createWorkbenchConversation(project(), {
+      body: "Just talk to the main Agent.",
+      productMode: "harness",
+      clientRequestId: "workbench-read-model-ordinary-conversation",
+    }, undefined, { runMainAgent: false });
 
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() });
 
@@ -400,7 +404,7 @@ describe("workbench read-model projections", () => {
       ],
     });
 
-    const page = await getCanonicalTimelinePage({ project: project(), path: getTempDir() }, topic.conversationId, "main-agent");
+    const page = await getCanonicalTimelinePage({ project: project(), path: getTempDir() }, topic.conversationId, "main-agent", "harness");
     const cells = [...page.pinned, ...page.entries].flatMap((envelope) => envelope.cells);
 
     expect(cells).toEqual(expect.arrayContaining([
@@ -490,7 +494,7 @@ describe("workbench read-model projections", () => {
     await writeValidationResult(topic.changeId, run.id, "wt-code-evidence", "passed");
     await writeAuditResult(topic.changeId, run.id, "wt-code-evidence", "approved-with-notes");
 
-    const detail = await getWorkbenchTopic({ project: project(), path: getTempDir() }, topic.changeId);
+    const detail = await getWorkbenchTopic({ project: project(), path: getTempDir() }, topic.changeId, "harness");
 
     expect(detail.threadItems.filter((item) => item.kind === "workflow-summary" && item.actionRunId === "action-code")).toHaveLength(1);
     expect(detail.threadItems.filter((item) => item.kind === "assistant-turn" && item.runId === run.id)).toHaveLength(0);
@@ -537,7 +541,7 @@ describe("workbench read-model projections", () => {
       }],
     });
 
-    const page = await getCanonicalTimelinePage({ project: project(), path: getTempDir() }, topic.conversationId, "main-agent");
+    const page = await getCanonicalTimelinePage({ project: project(), path: getTempDir() }, topic.conversationId, "main-agent", "harness");
     const cells = [...page.pinned, ...page.entries].flatMap((envelope) => envelope.cells);
 
     expect(cells).toEqual(expect.arrayContaining([
@@ -960,7 +964,7 @@ describe("workbench read-model projections", () => {
       },
       confirm: true,
     });
-    const topics = await listWorkbenchTopics({ project: project(), path: getTempDir() });
+    const topics = await listWorkbenchTopics({ project: project(), path: getTempDir() }, "harness");
 
     expect(topics.find((topic) => topic.boundChangeId === "first-abandon-target")).toMatchObject({ state: "active" });
     expect(topics.find((topic) => topic.boundChangeId === "second-abandon-target")).toMatchObject({ state: "archive" });
@@ -972,7 +976,7 @@ describe("workbench read-model projections", () => {
   it("returns one selected topic by id", async () => {
     const created = await createConversationChangeFixture(project(), { title: "Specific Topic" });
 
-    const topic = await getWorkbenchTopic({ project: project(), path: getTempDir() }, created.changeId);
+    const topic = await getWorkbenchTopic({ project: project(), path: getTempDir() }, created.changeId, "harness");
 
     expect(topic).toMatchObject({ id: created.conversationId, boundChangeId: created.changeId, state: "active" });
   });
@@ -982,7 +986,7 @@ describe("workbench read-model projections", () => {
     await writeSkillNativeAcceptedSpecAndTasks(skillNativeFixture, created.changeId);
     await rewriteActiveChangeMetadata(created.changeId, { change_id: "forged-topic", scope: "Forged Topic Title" });
 
-    await expect(listWorkbenchTopics({ project: project(), path: getTempDir() })).resolves.toEqual([]);
+    await expect(listWorkbenchTopics({ project: project(), path: getTempDir() }, "harness")).resolves.toEqual([]);
     await expect(getWorkbenchSnapshot(
       { project: project(), path: getTempDir() },
       { topicId: created.changeId },
@@ -1002,7 +1006,7 @@ describe("workbench read-model projections", () => {
       confirm: true,
     });
 
-    const topic = await getWorkbenchTopic({ project: project(), path: getTempDir() }, created.changeId);
+    const topic = await getWorkbenchTopic({ project: project(), path: getTempDir() }, created.changeId, "harness");
 
     expect(topic).toMatchObject({
       id: created.conversationId,

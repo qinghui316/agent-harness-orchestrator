@@ -1,5 +1,5 @@
 import type { ProviderSkillInput } from "../project-harness/contracts.js";
-import type { ProviderCapabilitySnapshot, ProviderDiagnosticsSnapshot, ProviderId, ProviderModelRef, ProviderModelSettingsSnapshot, ProviderOperationProfile, ProviderRuntimeSummary } from "./types.js";
+import type { ProductMode, ProviderCapabilitySnapshot, ProviderDiagnosticsSnapshot, ProviderId, ProviderModelRef, ProviderModelSettingsSnapshot, ProviderOperationProfile, ProviderRuntimeSummary } from "./types.js";
 
 export interface ProviderSessionRef {
   providerId: ProviderId;
@@ -383,8 +383,8 @@ export interface ProviderDescriptor {
       reason?: string,
     ): void | Promise<void>;
   };
-  capabilitySnapshot(project: import("../types/index.js").ManagedProject | null, projectPath?: string): Promise<ProviderCapabilitySnapshot>;
-  runtimeSummary(project: import("../types/index.js").ManagedProject | null, projectPath?: string): Promise<ProviderRuntimeSummary>;
+  capabilitySnapshot(project: import("../types/index.js").ManagedProject | null, productMode: ProductMode, projectPath?: string): Promise<ProviderCapabilitySnapshot>;
+  runtimeSummary(project: import("../types/index.js").ManagedProject | null, productMode: ProductMode, projectPath?: string): Promise<ProviderRuntimeSummary>;
   models: {
     read(projectPath?: string): Promise<ProviderModelSettingsSnapshot>;
     select(modelId: string | null, projectPath?: string): Promise<ProviderModelSettingsSnapshot>;

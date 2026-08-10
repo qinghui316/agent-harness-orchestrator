@@ -3,12 +3,14 @@ import type { StoredTopicMessage, StoredTopicMessageWrite } from "./persistence/
 import type { WorkbenchLiveSink } from "./types.js";
 import type { CanonicalTimelineEnvelope } from "./canonical-timeline-contract.js";
 import { projectCanonicalTimelineEnvelope } from "./canonical-timeline-projector.js";
+import type { ProductMode } from "../provider-runtime/index.js";
 
 export type CanonicalTimelinePublisher = (envelope: CanonicalTimelineEnvelope) => void;
 
 export class CanonicalTimelineDelivery {
   constructor(
     private readonly database: WorkbenchDatabase,
+    private readonly productMode: ProductMode,
     private readonly target?: WorkbenchLiveSink | CanonicalTimelinePublisher,
   ) {}
 
@@ -26,7 +28,7 @@ export class CanonicalTimelineDelivery {
   }
 
   publishCommitted(row: StoredTopicMessage): CanonicalTimelineEnvelope {
-    return publishCommittedCanonicalTimelineRow(this.target, row);
+    return publishCommittedCanonicalTimelineRow(this.target, row, this.productMode);
   }
 
   publishCommittedMany(rows: readonly StoredTopicMessage[]): CanonicalTimelineEnvelope[] {
@@ -48,8 +50,9 @@ export function publishCanonicalTimelineEnvelope(
 export function publishCommittedCanonicalTimelineRow(
   target: WorkbenchLiveSink | CanonicalTimelinePublisher | undefined,
   row: StoredTopicMessage,
+  productMode: ProductMode,
 ): CanonicalTimelineEnvelope {
-  const envelope = projectCanonicalTimelineEnvelope(row);
+  const envelope = projectCanonicalTimelineEnvelope(row, productMode);
   try {
     if (typeof target === "function") target(envelope);
     else target?.emit({ event: "timeline.patch", data: envelope });

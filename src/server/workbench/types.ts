@@ -2,7 +2,8 @@ import type { IncomingMessage, Server } from "node:http";
 import type { ProjectRegistryStore } from "../../registry/store.js";
 import type { TerminalRuntime } from "../terminal/terminal-runtime.js";
 import type { WorkbenchApprovalAction, WorkbenchProjectInput } from "../../workbench/read-model-types.js";
-import type { TopicMessageInput, WorkbenchWorkflowActionRequest } from "../../workbench/types.js";
+import type { NewConversationSkillOverride, TopicMessageInput, WorkbenchWorkflowActionRequest } from "../../workbench/types.js";
+import type { ProductMode } from "../../provider-runtime/index.js";
 import type { ProjectRuntimeCoordinatorPort } from "../../project-runtime/coordinator.js";
 import type { ProviderRegistry } from "../../provider-runtime/registry.js";
 import type { WorkbenchProjectRemovalPort } from "./project-removal.js";
@@ -141,6 +142,9 @@ export interface RemoveProjectRequest {
 
 export interface CreateTopicRequest {
   body?: string;
+  productMode: ProductMode;
+  clientRequestId: string;
+  skillOverrides?: NewConversationSkillOverride[];
   confirm?: boolean;
   contextRefs?: TopicMessageInput["contextRefs"];
   attachmentIds?: string[];
@@ -160,6 +164,7 @@ export interface TopicMessageRequest {
   providerId?: TopicMessageInput["providerId"];
   providerSwitchIntent?: TopicMessageInput["providerSwitchIntent"];
   agentSurfaceId?: TopicMessageInput["agentSurfaceId"];
+  productMode: ProductMode;
 }
 
 export interface FolderDialogResult {

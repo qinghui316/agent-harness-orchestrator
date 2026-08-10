@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import type { ProviderId } from "../../../provider-runtime/index.js";
+import type { ProductMode, ProviderId } from "../../../provider-runtime/index.js";
 import type { StoredConversation, StoredConversationGraphScope } from "../contracts.js";
 import { mapConversationRow, nullableString, type SqliteRow } from "../sql-mappers.js";
 
@@ -74,25 +74,22 @@ constructor(private readonly db: Database.Database) {}
     `).run(acceptanceId, projectId, conversationId, changeId, graphScopeId, proposalHash, committedAt);
   }
 
-createConversation(conversation: Omit<StoredConversation, "timelinePosition" | "timelineRevision"> & Partial<Pick<StoredConversation, "timelinePosition" | "timelineRevision">>): void {
+createConversation(
+  conversation: Omit<StoredConversation, "timelinePosition" | "timelineRevision" | "clientCreateRequestId" | "clientCreateRequestHash">
+    & Partial<Pick<StoredConversation, "timelinePosition" | "timelineRevision" | "clientCreateRequestId" | "clientCreateRequestHash">>,
+): void {
     this.db.prepare(`
       INSERT INTO conversations (
-        project_id, conversation_id, title, state, surface_kind, bound_change_id, current_graph_scope_id,
+        project_id, conversation_id, product_mode, client_create_request_id, client_create_request_hash,
+        title, state, surface_kind, bound_change_id, current_graph_scope_id,
         selected_provider_id, completed_turn_sequence, timeline_position, timeline_revision, created_at, updated_at, deleted_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(project_id, conversation_id) DO UPDATE SET
-        title = excluded.title,
-        state = excluded.state,
-        surface_kind = excluded.surface_kind,
-        bound_change_id = excluded.bound_change_id,
-        current_graph_scope_id = excluded.current_graph_scope_id,
-        selected_provider_id = excluded.selected_provider_id,
-        completed_turn_sequence = excluded.completed_turn_sequence,
-        updated_at = excluded.updated_at,
-        deleted_at = excluded.deleted_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       conversation.projectId,
       conversation.conversationId,
+      conversation.productMode,
+      conversation.clientCreateRequestId ?? null,
+      conversation.clientCreateRequestHash ?? null,
       conversation.title,
       conversation.state,
       conversation.surfaceKind ?? "user",
@@ -108,36 +105,42 @@ createConversation(conversation: Omit<StoredConversation, "timelinePosition" | "
     );
   }
 
-listConversations(projectId: string, options: { includeDeleted?: boolean } = {}): StoredConversation[] {
+listConversations(projectId: string, productMode: ProductMode, options: { includeDeleted?: boolean } = {}): StoredConversation[] {
     const rows = options.includeDeleted
       ? this.db.prepare(`
-        SELECT project_id AS projectId, conversation_id AS conversationId, title, state, surface_kind AS surfaceKind,
+        SELECT project_id AS projectId, conversation_id AS conversationId, product_mode AS productMode,
+          client_create_request_id AS clientCreateRequestId, client_create_request_hash AS clientCreateRequestHash,
+          title, state, surface_kind AS surfaceKind,
           bound_change_id AS boundChangeId, current_graph_scope_id AS currentGraphScopeId,
           selected_provider_id AS selectedProviderId, completed_turn_sequence AS completedTurnSequence,
           timeline_position AS timelinePosition, timeline_revision AS timelineRevision,
           created_at AS createdAt, updated_at AS updatedAt,
           deleted_at AS deletedAt
         FROM conversations
-        WHERE project_id = ? AND surface_kind = 'user'
+        WHERE project_id = ? AND product_mode = ? AND surface_kind = 'user'
         ORDER BY updated_at DESC
-      `).all(projectId) as SqliteRow[]
+      `).all(projectId, productMode) as SqliteRow[]
       : this.db.prepare(`
-        SELECT project_id AS projectId, conversation_id AS conversationId, title, state, surface_kind AS surfaceKind,
+        SELECT project_id AS projectId, conversation_id AS conversationId, product_mode AS productMode,
+          client_create_request_id AS clientCreateRequestId, client_create_request_hash AS clientCreateRequestHash,
+          title, state, surface_kind AS surfaceKind,
           bound_change_id AS boundChangeId, current_graph_scope_id AS currentGraphScopeId,
           selected_provider_id AS selectedProviderId, completed_turn_sequence AS completedTurnSequence,
           timeline_position AS timelinePosition, timeline_revision AS timelineRevision,
           created_at AS createdAt, updated_at AS updatedAt,
           deleted_at AS deletedAt
         FROM conversations
-        WHERE project_id = ? AND deleted_at IS NULL AND surface_kind = 'user'
+        WHERE project_id = ? AND product_mode = ? AND deleted_at IS NULL AND surface_kind = 'user'
         ORDER BY updated_at DESC
-      `).all(projectId) as SqliteRow[];
+      `).all(projectId, productMode) as SqliteRow[];
     return rows.map(mapConversationRow);
   }
 
 readConversation(projectId: string, conversationId: string, options: { includeDeleted?: boolean } = {}): StoredConversation | null {
     const row = this.db.prepare(`
-      SELECT project_id AS projectId, conversation_id AS conversationId, title, state, surface_kind AS surfaceKind,
+      SELECT project_id AS projectId, conversation_id AS conversationId, product_mode AS productMode,
+        client_create_request_id AS clientCreateRequestId, client_create_request_hash AS clientCreateRequestHash,
+        title, state, surface_kind AS surfaceKind,
         bound_change_id AS boundChangeId, current_graph_scope_id AS currentGraphScopeId,
         selected_provider_id AS selectedProviderId, completed_turn_sequence AS completedTurnSequence,
         timeline_position AS timelinePosition, timeline_revision AS timelineRevision,
@@ -149,9 +152,27 @@ readConversation(projectId: string, conversationId: string, options: { includeDe
     return row ? mapConversationRow(row) : null;
   }
 
+  readConversationByClientCreateRequestId(projectId: string, clientRequestId: string): StoredConversation | null {
+    const row = this.db.prepare(`
+      SELECT project_id AS projectId, conversation_id AS conversationId, product_mode AS productMode,
+        client_create_request_id AS clientCreateRequestId, client_create_request_hash AS clientCreateRequestHash,
+        title, state, surface_kind AS surfaceKind, bound_change_id AS boundChangeId,
+        current_graph_scope_id AS currentGraphScopeId, selected_provider_id AS selectedProviderId,
+        completed_turn_sequence AS completedTurnSequence, timeline_position AS timelinePosition,
+        timeline_revision AS timelineRevision, created_at AS createdAt, updated_at AS updatedAt,
+        deleted_at AS deletedAt
+      FROM conversations
+      WHERE project_id = ? AND client_create_request_id = ?
+      LIMIT 1
+    `).get(projectId, clientRequestId) as SqliteRow | undefined;
+    return row ? mapConversationRow(row) : null;
+  }
+
 readConversationByChangeId(projectId: string, changeId: string): StoredConversation | null {
     const row = this.db.prepare(`
-      SELECT c.project_id AS projectId, c.conversation_id AS conversationId, c.title, c.state, c.surface_kind AS surfaceKind,
+      SELECT c.project_id AS projectId, c.conversation_id AS conversationId, c.product_mode AS productMode,
+        c.client_create_request_id AS clientCreateRequestId, c.client_create_request_hash AS clientCreateRequestHash,
+        c.title, c.state, c.surface_kind AS surfaceKind,
         c.bound_change_id AS boundChangeId, c.current_graph_scope_id AS currentGraphScopeId,
         c.selected_provider_id AS selectedProviderId, c.completed_turn_sequence AS completedTurnSequence,
         c.timeline_position AS timelinePosition, c.timeline_revision AS timelineRevision,
@@ -434,7 +455,9 @@ listConversationChangeIds(projectId: string, conversationId: string): string[] {
 
 findConversationForChange(projectId: string, changeId: string): StoredConversation | null {
     const row = this.db.prepare(`
-      SELECT c.project_id AS projectId, c.conversation_id AS conversationId, c.title, c.state, c.surface_kind AS surfaceKind,
+      SELECT c.project_id AS projectId, c.conversation_id AS conversationId, c.product_mode AS productMode,
+        c.client_create_request_id AS clientCreateRequestId, c.client_create_request_hash AS clientCreateRequestHash,
+        c.title, c.state, c.surface_kind AS surfaceKind,
         c.bound_change_id AS boundChangeId, c.current_graph_scope_id AS currentGraphScopeId,
         c.selected_provider_id AS selectedProviderId, c.completed_turn_sequence AS completedTurnSequence,
         c.timeline_position AS timelinePosition, c.timeline_revision AS timelineRevision,

@@ -9,7 +9,7 @@ import { codexModelSettings } from "./codex-models.js";
 export async function getCodexDiagnostics(project: ManagedProject | null, projectPath?: string): Promise<ProviderDiagnosticsSnapshot> {
   const [runtime, capabilities, models, trust, rawModels] = await Promise.all([
     detectCodexCapabilities(),
-    getCodexProviderCapabilitySnapshot(project, projectPath),
+    getCodexProviderCapabilitySnapshot(project, "harness", projectPath),
     codexModelSettings(projectPath),
     projectPath ? readCodexProjectTrust(projectPath) : Promise.resolve(null),
     getCodexModelSettingsSnapshot(projectPath),

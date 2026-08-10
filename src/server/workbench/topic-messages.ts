@@ -5,13 +5,21 @@ import { resolveConversationId } from "../../workbench/conversation-identity.js"
 import { getWorkbenchSnapshot, type WorkbenchProjectInput } from "../../workbench/projections/read-model/implementation.js";
 import type { ManagedProject } from "../../types/index.js";
 import { createLiveSink } from "./live.js";
-import { readJsonBody } from "./http.js";
+import { readJsonBody, requireProductMode } from "./http.js";
 import type {
   CreateTopicRequest,
   TopicMessageRequest,
 } from "./types.js";
 
-export async function readCreateTopicBody(request: IncomingMessage): Promise<{ body?: string; contextRefs?: CreateTopicRequest["contextRefs"]; attachmentIds?: string[]; providerId?: string }> {
+export async function readCreateTopicBody(request: IncomingMessage): Promise<{
+  body?: string;
+  contextRefs?: CreateTopicRequest["contextRefs"];
+  attachmentIds?: string[];
+  providerId?: string;
+  productMode: import("../../provider-runtime/index.js").ProductMode;
+  clientRequestId: string;
+  skillOverrides?: CreateTopicRequest["skillOverrides"];
+}> {
   const body = await readJsonBody<CreateTopicRequest>(request);
   if (body.confirm !== true) {
     const error = new Error("Creating a demand conversation requires confirm: true.");
@@ -25,7 +33,20 @@ export async function readCreateTopicBody(request: IncomingMessage): Promise<{ b
     error.name = "BadRequest";
     throw error;
   }
-  return { body: body.body, contextRefs: body.contextRefs, attachmentIds: body.attachmentIds, providerId: body.providerId };
+  if (typeof body.clientRequestId !== "string") {
+    const error = new Error("Creating a conversation requires clientRequestId.");
+    error.name = "BadRequest";
+    throw error;
+  }
+  return {
+    body: body.body,
+    contextRefs: body.contextRefs,
+    attachmentIds: body.attachmentIds,
+    providerId: body.providerId,
+    productMode: requireProductMode(body.productMode),
+    clientRequestId: body.clientRequestId,
+    skillOverrides: body.skillOverrides,
+  };
 }
 
 export async function readTopicMessageBody(request: IncomingMessage): Promise<TopicMessageRequest> {
@@ -39,6 +60,7 @@ export async function readTopicMessageBody(request: IncomingMessage): Promise<To
     providerId: raw.providerId,
     providerSwitchIntent: raw.providerSwitchIntent,
     agentSurfaceId: raw.agentSurfaceId,
+    productMode: requireProductMode(raw.productMode),
   };
   assertTopicMessageText(message);
   return message;
@@ -56,12 +78,12 @@ export async function sendCreateTopicLive(
   try {
     const topic = await createWorkbenchConversation(input.project, body, sink);
     conversationId = topic.conversationId;
-    sink.emit({ event: "snapshot", data: await getWorkbenchSnapshot(input, { topicId: topic.conversationId }) });
-    sink.emit({ event: "done", data: { status: "completed" } });
+    sink.emit({ event: "snapshot", data: await getWorkbenchSnapshot(input, { topicId: topic.conversationId, productMode: topic.productMode }) });
+    sink.emit({ event: "done", data: { projectId: input.project.id, productMode: topic.productMode, conversationId: topic.conversationId, status: "completed" } });
   } catch (cause) {
-    sink.emit({ event: "error", data: { message: cause instanceof Error ? cause.message : String(cause) } });
-    sink.emit({ event: "snapshot", data: await getWorkbenchSnapshot(input, { topicId: conversationId }).catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) })) });
-    sink.emit({ event: "done", data: { status: "failed" } });
+    sink.emit({ event: "error", data: { projectId: input.project.id, productMode: body.productMode, conversationId, message: cause instanceof Error ? cause.message : String(cause) } });
+    sink.emit({ event: "snapshot", data: await getWorkbenchSnapshot(input, { topicId: conversationId, productMode: body.productMode }).catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) })) });
+    sink.emit({ event: "done", data: { projectId: input.project.id, productMode: body.productMode, conversationId, status: "failed" } });
   } finally {
     sse.end();
   }
@@ -75,12 +97,12 @@ export async function sendConversationMessageLive(input: WorkbenchProjectInput &
   try {
     resolvedConversationId = await resolveConversationId(input.project, conversationId);
     await postConversationMessage(input.project, resolvedConversationId, message, sink);
-    sink.emit({ event: "snapshot", data: await getWorkbenchSnapshot(input, { topicId: resolvedConversationId }) });
-    sink.emit({ event: "done", data: { status: "completed" } });
+    sink.emit({ event: "snapshot", data: await getWorkbenchSnapshot(input, { topicId: resolvedConversationId, productMode: message.productMode }) });
+    sink.emit({ event: "done", data: { projectId: input.project.id, productMode: message.productMode, conversationId: resolvedConversationId, status: "completed" } });
   } catch (cause) {
-    sink.emit({ event: "error", data: { message: cause instanceof Error ? cause.message : String(cause) } });
-    sink.emit({ event: "snapshot", data: await getWorkbenchSnapshot(input, { topicId: resolvedConversationId }).catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) })) });
-    sink.emit({ event: "done", data: { status: "failed" } });
+    sink.emit({ event: "error", data: { projectId: input.project.id, productMode: message.productMode, conversationId: resolvedConversationId, message: cause instanceof Error ? cause.message : String(cause) } });
+    sink.emit({ event: "snapshot", data: await getWorkbenchSnapshot(input, { topicId: resolvedConversationId, productMode: message.productMode }).catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) })) });
+    sink.emit({ event: "done", data: { projectId: input.project.id, productMode: message.productMode, conversationId: resolvedConversationId, status: "failed" } });
   } finally {
     sse.end();
   }

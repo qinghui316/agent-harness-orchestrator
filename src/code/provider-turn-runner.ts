@@ -59,8 +59,8 @@ async function runProviderCodeTurnActivity(input: {
   const mainThread = input.requireMainAgentLineage
     ? await resolveCurrentMainAgentProviderThread(input.memory, input.changeId, providerId)
     : null;
-  const provider = await defaultProviderRegistry.require(providerId, "coder", input.project, input.project.path);
-  const capabilitySnapshot = await provider.capabilitySnapshot(input.project, input.project.path);
+  const provider = await defaultProviderRegistry.require(providerId, "coder", "harness", input.project, input.project.path);
+  const capabilitySnapshot = await provider.capabilitySnapshot(input.project, "harness", input.project.path);
   const model = capabilitySnapshot.effectiveModel ? { providerId, modelId: capabilitySnapshot.effectiveModel } : null;
   const handoff = await assembleSharedConversationContext({
     resolution: runtimeState.resolution,

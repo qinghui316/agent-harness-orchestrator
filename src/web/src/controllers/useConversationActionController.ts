@@ -30,6 +30,7 @@ export interface ConversationActionPorts {
   refreshSession: (projectId: string, conversationId: string | null) => Promise<Snapshot | null | void>;
   calibrateTimeline: (input: {
     projectId: string;
+    productMode: Snapshot["productMode"];
     conversationId: string;
     agentSurfaceId: "main-agent";
   }) => Promise<void>;
@@ -154,7 +155,7 @@ export function useConversationActionController({
     } finally {
       try {
         if (isCurrentScope(projectId, conversationId)) {
-          await actionPorts.calibrateTimeline({ projectId, conversationId, agentSurfaceId: "main-agent" });
+          await actionPorts.calibrateTimeline({ projectId, productMode: current.snapshot.productMode, conversationId, agentSurfaceId: "main-agent" });
         }
       } finally {
         actionPorts.operationGate.release(operationToken);
@@ -291,7 +292,7 @@ export function useConversationActionController({
     try {
       await (actionPorts.consumeLiveStream ?? consumeWorkbenchLiveStream)(
         `/api/projects/${encodeURIComponent(projectId)}/workbench/conversations/${encodeURIComponent(conversationId)}/interactions/${encodeURIComponent(interactionId)}/settle`,
-        settlement,
+        { ...settlement, productMode: current.snapshot.productMode },
         (event) => {
           if (event.event === "error") failed = true;
           if (event.event === "snapshot") {
@@ -307,7 +308,7 @@ export function useConversationActionController({
     } finally {
       try {
         if (isCurrentScope(projectId, conversationId)) {
-          await actionPorts.calibrateTimeline({ projectId, conversationId, agentSurfaceId: "main-agent" });
+          await actionPorts.calibrateTimeline({ projectId, productMode: current.snapshot.productMode, conversationId, agentSurfaceId: "main-agent" });
         }
       } finally {
         actionPorts.operationGate.release(operationToken);

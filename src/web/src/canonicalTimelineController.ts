@@ -18,6 +18,7 @@ export type CanonicalTimelineReconnectCandidate = {
 
 export function canonicalTimelineReconnectScopes(
   projectId: string,
+  productMode: CanonicalTimelineScope["productMode"],
   conversationId: string,
   candidates: readonly CanonicalTimelineReconnectCandidate[],
 ): CanonicalTimelineScope[] {
@@ -29,7 +30,7 @@ export function canonicalTimelineReconnectScopes(
       surfaceIds.add(candidate.target.agentSurfaceId);
     }
   }
-  return [...surfaceIds].map((agentSurfaceId) => ({ projectId, conversationId, agentSurfaceId }));
+  return [...surfaceIds].map((agentSurfaceId) => ({ projectId, productMode, conversationId, agentSurfaceId }));
 }
 
 export function useCanonicalTimelineController(onError: (message: string) => void) {
@@ -45,7 +46,7 @@ export function useCanonicalTimelineController(onError: (message: string) => voi
     const generation = (generationsRef.current.get(generationKey) ?? 0) + 1;
     generationsRef.current.set(generationKey, generation);
     dispatch({ type: "request.started", scope, requestKind, generation });
-    const params = new URLSearchParams({ agentSurfaceId: scope.agentSurfaceId, limit: "100" });
+    const params = new URLSearchParams({ productMode: scope.productMode, agentSurfaceId: scope.agentSurfaceId, limit: "100" });
     if (beforeCursor) params.set("beforeCursor", beforeCursor);
     try {
       const page = await fetchJson<CanonicalTimelinePage>(

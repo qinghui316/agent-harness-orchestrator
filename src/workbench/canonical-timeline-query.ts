@@ -4,6 +4,7 @@ import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
 import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import type { CanonicalTimelineCursor, CanonicalTimelinePage, CanonicalTimelineScope } from "./canonical-timeline-contract.js";
 import { projectCanonicalTimelineEnvelope } from "./canonical-timeline-projector.js";
+import type { ProductMode } from "../provider-runtime/index.js";
 
 const DEFAULT_TIMELINE_PAGE_LIMIT = 100;
 const MAX_TIMELINE_PAGE_LIMIT = 500;
@@ -13,16 +14,17 @@ export async function getCanonicalTimelinePage(
   input: WorkbenchProjectInput,
   conversationId: string,
   agentSurfaceId: string,
+  productMode: ProductMode,
   options: { limit?: number; beforeCursor?: string } = {},
 ): Promise<CanonicalTimelinePage> {
   if (!input.project) throw notFound(`Conversation not found: ${conversationId}.`);
   const state = await resolveProjectRuntimeState(input.project, {
     discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
   });
-  if (state.state !== "ready") throw notFound(`Conversation not found: ${conversationId}.`);
-  const scope = { projectId: state.resolution.harness.projectId, conversationId, agentSurfaceId };
+  const paths = state.state === "onboarding" ? state.paths : state.resolution.paths;
+  const scope = { projectId: paths.projectId, conversationId, agentSurfaceId };
   const limit = normalizePageLimit(options.limit);
-  const database = await openProjectRuntimeWorkbenchDatabase(state.resolution.paths);
+  const database = await openProjectRuntimeWorkbenchDatabase(paths);
   try {
     const cursor = options.beforeCursor ? decodeCanonicalTimelineCursor(options.beforeCursor, scope) : undefined;
     const snapshot = database.timeline.readTimelineSurfacePageSnapshot(scope.projectId, conversationId, agentSurfaceId, {
@@ -30,15 +32,22 @@ export async function getCanonicalTimelinePage(
       limit,
     });
     if (!snapshot) throw notFound(`Conversation not found: ${conversationId}.`);
+    if (snapshot.conversation.productMode !== productMode) {
+      const error = new Error("Conversation productMode does not match the requested mode.");
+      error.name = "Conflict";
+      throw error;
+    }
     if (cursor && cursor.watermarkRevision > snapshot.conversation.timelineRevision) throw invalidCursor();
     const firstPosition = snapshot.rows[0]?.position;
     const watermark = snapshot.conversation.timelineRevision;
     return {
+      projectId: scope.projectId,
+      productMode,
       conversationId,
       agentSurfaceId,
       watermark,
-      pinned: snapshot.pinnedRows.map(projectCanonicalTimelineEnvelope),
-      entries: snapshot.rows.map(projectCanonicalTimelineEnvelope),
+      pinned: snapshot.pinnedRows.map((row) => projectCanonicalTimelineEnvelope(row, productMode)),
+      entries: snapshot.rows.map((row) => projectCanonicalTimelineEnvelope(row, productMode)),
       paging: {
         limit,
         totalCount: snapshot.totalCount,

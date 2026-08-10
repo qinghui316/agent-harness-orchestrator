@@ -48,6 +48,7 @@ describe("Workbench Skill-native project Harness onboarding", () => {
     database.unitOfWork.createConversationWithInitialMessage({
       projectId: registered.project.id,
       conversationId,
+      productMode: "harness",
       title: "Create the project Harness",
       state: "active",
       boundChangeId: null,
@@ -329,6 +330,7 @@ async function createFlowFixture() {
     database.unitOfWork.createConversationWithInitialMessage({
       projectId: registered.project.id,
       conversationId,
+      productMode: "harness",
       title: "Create the project Harness",
       state: "active",
       boundChangeId: null,

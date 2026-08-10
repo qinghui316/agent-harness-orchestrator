@@ -58,12 +58,11 @@ export type ProviderCapabilityItem = {
 };
 export type ProviderId = string;
 export type ProductMode = "harness" | "agent";
-export type RunnableProductMode = "harness";
 export type HarnessExecutionMode = "stepwise" | "scoped-auto";
 export type ProviderCapabilitySnapshot = {
   providerId: ProviderId;
   displayName: string;
-  productMode: RunnableProductMode;
+  productMode: ProductMode;
   status: "ready" | "degraded" | "unavailable";
   runnable: boolean;
   checkedAt: string;
@@ -76,7 +75,7 @@ export type ProviderCapabilitySnapshot = {
 };
 export type ProviderRuntimeSummary = {
   providerId: ProviderId;
-  productMode: RunnableProductMode;
+  productMode: ProductMode;
   harnessExecutionModes: HarnessExecutionMode[];
   snapshot: ProviderCapabilitySnapshot;
 };
@@ -323,6 +322,7 @@ export type RuntimeActivityLogSnapshot = {
   items: RuntimeActivityItem[];
 };
 export type Snapshot = {
+  productMode: ProductMode;
   project: { id: string; name: string; path: string } | null;
   harness: { harnessReady?: boolean };
   left: {
@@ -343,7 +343,7 @@ export type Snapshot = {
   warnings: string[];
 };
 
-export type Topic = { id: string; title: string; state: string; updatedAt?: string; kind?: "conversation" | "change"; boundChangeId?: string | null; graphScopeId?: string; selectedProviderId?: string };
+export type Topic = { id: string; productMode: ProductMode; title: string; state: string; updatedAt?: string; kind?: "conversation" | "change"; boundChangeId?: string | null; graphScopeId?: string; selectedProviderId?: string };
 export type WorkpadRuntimeStatus = "active" | "running" | "queued" | "blocked" | "waiting-decision" | "archived" | "readonly";
 export type WorkpadUserStatus = "processing" | "waiting-confirmation" | "needs-rework" | "later" | "completed" | "abandoned";
 export type ConversationLifecycle = "active" | "running" | "waiting-user" | "archived-readonly" | "abandoned";
@@ -1583,10 +1583,13 @@ export type StreamPacket = {
 export type FolderDialogResult = { path: string | null; canceled: boolean; supported: boolean; error?: string };
 export type CanonicalTimelineScope = {
   projectId: string;
+  productMode: ProductMode;
   conversationId: string;
   agentSurfaceId: string;
 };
 export type CanonicalTimelineEnvelope = {
+  projectId: string;
+  productMode: ProductMode;
   conversationId: string;
   graphScopeId?: string;
   agentSurfaceId: string;
@@ -1597,6 +1600,8 @@ export type CanonicalTimelineEnvelope = {
   cells: ParentAgentTranscriptCell[];
 };
 export type CanonicalTimelinePage = {
+  projectId: string;
+  productMode: ProductMode;
   conversationId: string;
   agentSurfaceId: string;
   watermark: number;
@@ -1610,7 +1615,7 @@ export type CanonicalTimelinePage = {
   };
 };
 export type WorkbenchLiveEvent =
-  | { event: "topic.created"; data: { topic: { id?: string; conversationId?: string; changeId?: string; title: string; state: "active"; selectedProviderId?: string } } }
+  | { event: "topic.created"; data: { projectId: string; productMode: ProductMode; conversationId: string; clientRequestId: string; replayed: boolean; topic: { id?: string; conversationId?: string; changeId?: string; title: string; state: "active" | "archive"; selectedProviderId?: string; productMode: ProductMode } } }
   | { event: "topic.updated"; data: { conversation: Topic } }
   | { event: "timeline.patch"; data: CanonicalTimelineEnvelope }
   | { event: "conversation.interactions.updated"; data: ConversationInteractionQueue }
@@ -1623,9 +1628,10 @@ export type WorkbenchLiveEvent =
   | { event: "usage"; data: WorkbenchLiveIdentity & { usage?: Record<string, unknown> } }
   | { event: "snapshot"; data: Snapshot }
   | { event: "error"; data: WorkbenchLiveIdentity & { message: string; runId?: string; actionRunId?: string } }
-  | { event: "done"; data: { status: "completed" | "failed" } };
+  | { event: "done"; data: Pick<WorkbenchLiveIdentity, "projectId" | "productMode" | "conversationId"> & { status: "completed" | "failed" } };
 export type WorkbenchLiveToolEvent = {
   runId: string;
+  productMode?: ProductMode;
   providerId?: ProviderId;
   attemptId?: string;
   sessionId?: string;
@@ -1745,6 +1751,7 @@ export type LiveAssistantTurn = {
 
 export type WorkbenchLiveIdentity = {
   projectId?: string;
+  productMode?: ProductMode;
   conversationId?: string;
   graphScopeId?: string;
   changeId?: string;

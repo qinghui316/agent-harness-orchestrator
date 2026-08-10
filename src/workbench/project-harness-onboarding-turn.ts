@@ -66,7 +66,7 @@ async function runProjectHarnessOnboardingTurnActivity(
   const providerId = conversation.selectedProviderId;
   let resolvedProvider: Awaited<ReturnType<ProviderRegistry["requireProfiles"]>>;
   try {
-    resolvedProvider = await registry.requireProfiles(providerId, ["main"], project, project.path);
+    resolvedProvider = await registry.requireProfiles(providerId, ["main"], "harness", project, project.path);
   } catch (error) {
     database.close();
     throw error;
@@ -113,7 +113,7 @@ async function runProjectHarnessOnboardingTurnActivity(
     }
     throw error;
   }
-  live?.emit({ event: "run.started", data: { runId, conversationId, providerId, attemptId, actionType: "project.harness.onboard" } });
+  live?.emit({ event: "run.started", data: { projectId: project.id, productMode: "harness", runId, conversationId, providerId, attemptId, actionType: "project.harness.onboard" } });
 
   let publication: ProjectHarnessOnboardingResult | null = null;
   let publicationAttempt: Promise<ProjectHarnessOnboardingResult> | null = null;
@@ -251,7 +251,7 @@ async function runProjectHarnessOnboardingTurnActivity(
           liveMainThreadId = event.threadId;
           publishAgentSurfacesInvalidated(project.id, { conversationId, graphScopeId: conversation.currentGraphScopeId ?? undefined, reason: "thread-bound" });
         }
-        forwardProviderRealtimeEvent(event, live);
+        forwardProviderRealtimeEvent(event, live, { productMode: "harness" });
       },
     });
   } catch (error) {
@@ -321,7 +321,7 @@ async function runProjectHarnessOnboardingTurnActivity(
     throw error;
   }
   database.close();
-  for (const row of terminal.timelineRows) publishCommittedCanonicalTimelineRow(live, row);
+  for (const row of terminal.timelineRows) publishCommittedCanonicalTimelineRow(live, row, "harness");
   publishAgentSurfacesInvalidated(project.id, { conversationId, graphScopeId: conversation.currentGraphScopeId ?? undefined, reason: "attempt-updated" });
   return assistant;
 }
@@ -373,7 +373,7 @@ async function runIndependentBundleReview(input: {
   workspace: Awaited<ReturnType<typeof createOnboardingRuntime>>;
   registry: Pick<ProviderRegistry, "requireProfiles">;
 }): Promise<string> {
-  const resolved = await input.registry.requireProfiles(input.providerId, ["auditor"], input.project, input.project.path);
+  const resolved = await input.registry.requireProfiles(input.providerId, ["auditor"], "harness", input.project, input.project.path);
   const attemptId = `attempt-${randomUUID()}`;
   const runId = `onboarding-review-${randomUUID()}`;
   const runRoot = join(input.state.paths.runsRoot, runId);

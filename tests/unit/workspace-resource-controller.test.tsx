@@ -22,6 +22,7 @@ describe("Workspace resource controller", () => {
         mode: "chat",
         message: "feedback",
         agentSurfaceId: "agent:codex:thread:a",
+        productMode: "harness",
       });
       return new Response("event: done\ndata: {\"status\":\"completed\"}\n\n", {
         status: 200,

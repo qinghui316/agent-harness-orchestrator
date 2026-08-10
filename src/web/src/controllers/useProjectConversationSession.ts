@@ -659,7 +659,7 @@ const defaultApi: ProjectConversationSessionApi = {
   loadProjects: async () => (await fetchJson<{ projects: ProjectStatus[] }>("/api/projects")).projects,
   registerProject: (path) => postJson("/api/projects", { path, confirm: true }),
   loadSnapshot: (projectId, conversationId) => fetchJson<Snapshot>(
-    `/api/projects/${encodeURIComponent(projectId)}/workbench/snapshot${conversationId ? `?topic=${encodeURIComponent(conversationId)}` : ""}`,
+    `/api/projects/${encodeURIComponent(projectId)}/workbench/snapshot?productMode=harness${conversationId ? `&topic=${encodeURIComponent(conversationId)}` : ""}`,
   ),
   loadStream: (projectId, runId) => fetchJson<StreamPacket>(
     `/api/projects/${encodeURIComponent(projectId)}/workbench/stream/${encodeURIComponent(runId)}`,
@@ -689,10 +689,16 @@ const defaultApi: ProjectConversationSessionApi = {
       attachmentIds: input.attachmentIds,
       confirm: true,
       providerId: input.providerId,
+      productMode: "harness",
+      clientRequestId: createClientRequestId(),
     },
     onEvent,
   ),
 };
+
+function createClientRequestId(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `web-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
 
 function sessionApi(ports: ProjectConversationSessionPorts): ProjectConversationSessionApi {
   return { ...defaultApi, ...ports.api };
@@ -798,7 +804,7 @@ function newConversationSnapshot(base: Snapshot, status: ProjectStatus): Snapsho
       selectedTopic: null,
       workpad: emptyWorkpad(projectDisplayName(base.project ?? status.project, "当前项目")),
       thread: { items: [] },
-      conversationInteractions: { items: [] },
+      conversationInteractions: { productMode: base.productMode, items: [] },
       activeTab: "conversation",
       agentLoop: { runs: [] },
     },
@@ -857,6 +863,7 @@ function emptyWorkpad(projectName = "未选择项目"): Workpad {
 }
 
 export const emptyWorkbenchSnapshot: Snapshot = {
+  productMode: "harness",
   project: null,
   harness: {},
   left: { topics: [], workpads: [] },
@@ -865,7 +872,7 @@ export const emptyWorkbenchSnapshot: Snapshot = {
     workpad: emptyWorkpad(),
     agentLoop: { runs: [] },
     thread: { items: [] },
-    conversationInteractions: { items: [] },
+    conversationInteractions: { productMode: "harness", items: [] },
     activeTab: "conversation",
   },
   right: {

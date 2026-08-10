@@ -256,8 +256,8 @@ async function startPreparedAuditRun(
   let provider;
   let capabilitySnapshot;
   try {
-    provider = await defaultProviderRegistry.require(providerId, "auditor", project, cwd);
-    capabilitySnapshot = await provider.capabilitySnapshot(project, cwd);
+    provider = await defaultProviderRegistry.require(providerId, "auditor", "harness", project, cwd);
+    capabilitySnapshot = await provider.capabilitySnapshot(project, "harness", cwd);
   } catch (error) {
     const failure = error instanceof Error ? error.message : String(error);
     await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "provider.exited", runId, data: { providerId, status: "failed", error: failure } });

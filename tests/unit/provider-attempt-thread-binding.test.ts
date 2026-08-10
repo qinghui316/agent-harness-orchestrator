@@ -66,7 +66,7 @@ describe("ProviderAttempt-owned thread binding", () => {
       store.close();
     }
     const db = new Database(memory.workbenchDbPath, { readonly: true });
-    expect(db.pragma("user_version", { simple: true })).toBe(11);
+    expect(db.pragma("user_version", { simple: true })).toBe(12);
     expect(db.prepare("PRAGMA table_info(provider_thread_links)").all()).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "attempt_id", notnull: 1 }),
       expect.objectContaining({ name: "parent_agent_surface_id" }),
@@ -215,6 +215,7 @@ describe("ProviderAttempt-owned thread binding", () => {
       otherStore.conversations.createConversation({
         projectId,
         conversationId: "conversation-2",
+        productMode: "harness",
         title: "Unrelated conversation",
         state: "active",
         boundChangeId: "change-other",
@@ -360,6 +361,7 @@ async function seedConversation(memory: ProjectRuntimePaths): Promise<void> {
     store.conversations.createConversation({
       projectId,
       conversationId: "conversation-1",
+      productMode: "harness",
       title: "Provider thread owner",
       state: "active",
       boundChangeId: "change-1",

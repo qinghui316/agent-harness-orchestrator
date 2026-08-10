@@ -172,7 +172,7 @@ export function useWorkspaceResourceController({
         try {
           await consumeWorkbenchLiveStream<WorkbenchLiveEvent>(
             `/api/projects/${encodeURIComponent(projectId)}/workbench/topics/${encodeURIComponent(conversationId)}/messages/live`,
-            { mode: "chat", message, agentSurfaceId: agent.agentSurfaceId },
+            { mode: "chat", message, agentSurfaceId: agent.agentSurfaceId, productMode: "harness" },
             (event) => {
               const active = scopeRef.current;
               if (active.projectId === projectId && active.conversationId === conversationId) {

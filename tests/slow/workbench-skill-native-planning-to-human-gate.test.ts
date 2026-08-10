@@ -81,13 +81,13 @@ import { listWorkflowRuns } from "../../src/workflow-run/manager.js";
 import { readLatestWorkflowGraphPlanAt } from "../../src/workflow-artifacts/manager.js";
 import { readExecutionAuthorization } from "../../src/workflow-runtime/execution-authorization.js";
 import {
-  createWorkbenchConversation,
   listConversationMessages,
   postConversationMessage,
 } from "../../src/workbench/conversation-service.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
 import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
+import { createHarnessWorkbenchConversation as createWorkbenchConversation } from "../helpers/conversation-change-fixture.js";
 
 const SLOW_FLOW_TIMEOUT_MS = 120_000;
 let root: string;

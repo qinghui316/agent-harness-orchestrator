@@ -43,7 +43,7 @@ vi.mock("../../src/workbench/conversation-interactions.js", async (importOrigina
 import { git } from "../../src/project/git.js";
 import { resolveProjectRuntimePaths, type ProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import type { ManagedProject } from "../../src/types/index.js";
-import { createWorkbenchConversation } from "../../src/workbench/conversation-service.js";
+import { createHarnessWorkbenchConversation as createWorkbenchConversation } from "../helpers/conversation-change-fixture.js";
 import { settleConversationInteraction } from "../../src/workbench/conversation-interaction-service.js";
 import { buildConversationInteractionQueue } from "../../src/workbench/conversation-interactions.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
@@ -296,7 +296,7 @@ async function providerInteraction(status: "pending" | "submitting" = "pending")
   } finally {
     store.close();
   }
-  const queue = await buildConversationInteractionQueue(runtime, conversation.conversationId, graphScopeId);
+  const queue = await buildConversationInteractionQueue(runtime, conversation.conversationId, graphScopeId, "harness");
   return { conversationId: conversation.conversationId, interactionId: queue.items[0]!.interactionId };
 }
 

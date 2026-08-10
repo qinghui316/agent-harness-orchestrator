@@ -550,6 +550,7 @@ async function sendComposerMessage(
       attachmentIds: request.attachmentIds,
       providerId: request.providerId,
       providerSwitchIntent: request.providerSwitchIntent,
+      productMode: "harness",
     },
     (event) => routeEvent?.(request.projectId, event),
   );

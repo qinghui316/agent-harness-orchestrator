@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import type { ProviderId } from "../../../provider-runtime/index.js";
+import { assertProductMode, type ProviderId } from "../../../provider-runtime/index.js";
 import { agentThreadSurfaceId } from "../../../provider-runtime/agent-surface-id.js";
 import type { StoredConversationProviderBinding, StoredProviderAttempt, StoredProviderResumePoint, StoredProviderThreadLink } from "../contracts.js";
 import { mapConversationProviderBindingRow, mapProviderAttemptRow, mapProviderResumePointRow, mapProviderThreadRow, nullableString, type SqliteRow } from "../sql-mappers.js";
@@ -163,18 +163,38 @@ writeConversationProviderBinding(binding: StoredConversationProviderBinding): vo
     );
   }
 
-createProviderAttempt(attempt: StoredProviderAttempt): void {
+createProviderAttempt(
+  attempt: Omit<StoredProviderAttempt, "productMode" | "effectiveSkillInputs">
+    & Partial<Pick<StoredProviderAttempt, "productMode" | "effectiveSkillInputs">>,
+): void {
+    let productMode = attempt.productMode;
+    if (attempt.conversationId) {
+      const conversation = this.db.prepare(`
+        SELECT product_mode AS productMode
+        FROM conversations
+        WHERE project_id = ? AND conversation_id = ? AND deleted_at IS NULL
+      `).get(attempt.projectId, attempt.conversationId) as SqliteRow | undefined;
+      if (!conversation) throw new Error(`Conversation not found for Provider attempt: ${attempt.conversationId}.`);
+      const storedMode = assertProductMode(conversation.productMode, "Stored Conversation productMode");
+      if (productMode && productMode !== storedMode) {
+        throw new Error(`Provider attempt mode does not match Conversation: ${attempt.attemptId}.`);
+      }
+      productMode = storedMode;
+    } else if (productMode !== "harness") {
+      throw new Error("Provider attempts without a Conversation must explicitly use harness mode.");
+    }
     this.db.prepare(`
       INSERT INTO provider_attempts (
-        project_id, conversation_id, attempt_id, graph_scope_id, provider_id,
+        project_id, conversation_id, attempt_id, product_mode, graph_scope_id, provider_id,
         change_id, agent_task_id, role_id, parent_agent_surface_id, operation_profile,
-        native_session_id, model_json, capability_snapshot_json, handoff_hash,
+        native_session_id, model_json, capability_snapshot_json, effective_skill_inputs_json, handoff_hash,
         delivered_through_completed_turn, worktree_id, status, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       attempt.projectId,
       attempt.conversationId,
       attempt.attemptId,
+      productMode,
       attempt.graphScopeId,
       attempt.providerId,
       attempt.changeId,
@@ -185,6 +205,7 @@ createProviderAttempt(attempt: StoredProviderAttempt): void {
       attempt.nativeSessionId,
       attempt.model ? JSON.stringify(attempt.model) : null,
       JSON.stringify(attempt.capabilitySnapshot),
+      JSON.stringify(attempt.effectiveSkillInputs ?? []),
       attempt.handoffHash,
       attempt.deliveredThroughCompletedTurn,
       attempt.worktreeId,
@@ -212,18 +233,20 @@ deleteProviderAttempt(projectId: string, attemptId: string, expectedRoleId: stri
 startQueuedProviderAttempt(
     projectId: string,
     attemptId: string,
-    input: Pick<StoredProviderAttempt, "capabilitySnapshot" | "handoffHash" | "deliveredThroughCompletedTurn" | "model" | "updatedAt">,
+    input: Pick<StoredProviderAttempt, "capabilitySnapshot" | "effectiveSkillInputs" | "handoffHash" | "deliveredThroughCompletedTurn" | "model" | "updatedAt">,
   ): void {
     const result = this.db.prepare(`
       UPDATE provider_attempts
       SET status = 'running', capability_snapshot_json = ?, handoff_hash = ?,
-          delivered_through_completed_turn = ?, model_json = ?, updated_at = ?
+          delivered_through_completed_turn = ?, model_json = ?,
+          effective_skill_inputs_json = ?, updated_at = ?
       WHERE project_id = ? AND attempt_id = ? AND status = 'queued'
     `).run(
       JSON.stringify(input.capabilitySnapshot),
       input.handoffHash,
       input.deliveredThroughCompletedTurn,
       input.model ? JSON.stringify(input.model) : null,
+      JSON.stringify(input.effectiveSkillInputs),
       input.updatedAt,
       projectId,
       attemptId,
@@ -244,10 +267,12 @@ completeProviderAttempt(projectId: string, attemptId: string, status: StoredProv
   readProviderAttempt(projectId: string, attemptId: string): StoredProviderAttempt | null {
     const row = this.db.prepare(`
       SELECT project_id AS projectId, conversation_id AS conversationId, attempt_id AS attemptId,
+        product_mode AS productMode,
         graph_scope_id AS graphScopeId, provider_id AS providerId, native_session_id AS nativeSessionId,
         change_id AS changeId, agent_task_id AS agentTaskId, role_id AS roleId,
         parent_agent_surface_id AS parentAgentSurfaceId, operation_profile AS operationProfile,
         model_json AS modelJson, capability_snapshot_json AS capabilitySnapshotJson,
+        effective_skill_inputs_json AS effectiveSkillInputsJson,
         handoff_hash AS handoffHash, delivered_through_completed_turn AS deliveredThroughCompletedTurn,
         worktree_id AS worktreeId, status, created_at AS createdAt, updated_at AS updatedAt
       FROM provider_attempts WHERE project_id = ? AND attempt_id = ?
@@ -457,10 +482,12 @@ bindProviderAttemptThread(
 listProviderAttempts(projectId: string, conversationId: string): StoredProviderAttempt[] {
     const rows = this.db.prepare(`
       SELECT project_id AS projectId, conversation_id AS conversationId, attempt_id AS attemptId,
+        product_mode AS productMode,
         graph_scope_id AS graphScopeId, provider_id AS providerId, native_session_id AS nativeSessionId,
         change_id AS changeId, agent_task_id AS agentTaskId, role_id AS roleId,
         parent_agent_surface_id AS parentAgentSurfaceId, operation_profile AS operationProfile,
         model_json AS modelJson, capability_snapshot_json AS capabilitySnapshotJson,
+        effective_skill_inputs_json AS effectiveSkillInputsJson,
         handoff_hash AS handoffHash, delivered_through_completed_turn AS deliveredThroughCompletedTurn,
         worktree_id AS worktreeId, status, created_at AS createdAt, updated_at AS updatedAt
       FROM provider_attempts

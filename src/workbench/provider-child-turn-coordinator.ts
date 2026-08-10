@@ -127,6 +127,7 @@ async function runExactChildAgentCloseActivity(input: {
   const resolvedProvider = await defaultProviderRegistry.requireProfiles(
     target.providerId,
     [target.operationProfile],
+    "harness",
     input.project,
     input.project.path,
   );
@@ -201,6 +202,7 @@ async function runExactChildAgentTurnActivity(input: {
   const resolvedProvider = await defaultProviderRegistry.requireProfiles(
     target.providerId,
     [target.operationProfile],
+    "harness",
     input.project,
     input.project.path,
   );
@@ -220,7 +222,7 @@ async function runExactChildAgentTurnActivity(input: {
     ? { providerId: target.providerId, modelId: resolvedProvider.snapshot.effectiveModel }
     : null);
   const store = await openProjectRuntimeWorkbenchDatabase(runtime.paths);
-  const delivery = new CanonicalTimelineDelivery(store, input.live);
+  const delivery = new CanonicalTimelineDelivery(store, "harness", input.live);
   const user: TopicThreadEntry = {
     id: `user:${input.conversationId}:${target.providerId}:${runId}`,
     type: "user.message",
@@ -300,6 +302,8 @@ async function runExactChildAgentTurnActivity(input: {
     delivery.append(toCanonicalTimelineMessage(runtime.harness.projectId, input.conversationId, user));
     publishAgentSurfacesInvalidated(runtime.harness.projectId, { conversationId: input.conversationId, graphScopeId: target.graphScopeId, reason: "attempt-updated" });
     capture.sink.emit({ event: "run.started", data: {
+      projectId: runtime.harness.projectId,
+      productMode: "harness",
       runId,
       conversationId: input.conversationId,
       graphScopeId: target.graphScopeId,
@@ -339,9 +343,11 @@ async function runExactChildAgentTurnActivity(input: {
       parentSession: { providerId: target.providerId, sessionId: target.parentThreadId },
       onRealtimeEvent: (event) => {
         if (event.threadId !== target.threadId) return;
-        forwardProviderRealtimeEvent({ ...event, roleId: target.roleId }, capture.sink, { graphScopeId: target.graphScopeId });
+        forwardProviderRealtimeEvent({ ...event, roleId: target.roleId }, capture.sink, { productMode: "harness", graphScopeId: target.graphScopeId });
       },
       onError: (error) => capture.sink.emit({ event: "error", data: {
+        projectId: runtime.harness.projectId,
+        productMode: "harness",
         runId,
         conversationId: input.conversationId,
         graphScopeId: target.graphScopeId,

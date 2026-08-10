@@ -93,7 +93,6 @@ import { listTaskQueueItems, listTaskQueues } from "../../src/task-queue/manager
 import { persistTaskQueueRunFromGraph } from "../../src/task-queue/queue-creation.js";
 import { listTaskRuns, listWorkerLeases } from "../../src/task-run/manager.js";
 import {
-  createWorkbenchConversation,
   listConversationMessages,
   postConversationMessage,
 } from "../../src/workbench/conversation-service.js";
@@ -120,6 +119,7 @@ import {
 import { persistWorkflowRunForGraph } from "../../src/workflow-run/manager.js";
 import { listWorktreeMetadata } from "../../src/worktree/manager.js";
 import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
+import { createHarnessWorkbenchConversation as createWorkbenchConversation } from "../helpers/conversation-change-fixture.js";
 import { getTempDir, git, initGitRepository } from "../unit/workbench/fixtures.js";
 
 const SLOW_FLOW_TIMEOUT_MS = 120_000;

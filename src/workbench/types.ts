@@ -1,4 +1,4 @@
-import type { ProviderId, ProviderReadableEvent, ProviderUserInputQuestion } from "../provider-runtime/index.js";
+import type { ProductMode, ProviderId, ProviderReadableEvent, ProviderUserInputQuestion } from "../provider-runtime/index.js";
 import type { ConversationInteractionQueue } from "./conversation-interaction-contract.js";
 import type { HarnessExecutionMode, RunMetadata } from "../types/index.js";
 import type { WorkflowActionType } from "../workflow-actions/registry.js";
@@ -193,6 +193,7 @@ export interface TopicMessageResult {
 
 export interface WorkbenchLiveIdentity {
   projectId?: string;
+  productMode?: ProductMode;
   conversationId?: string;
   graphScopeId?: string;
   changeId?: string;
@@ -213,8 +214,23 @@ export interface WorkbenchLiveIdentity {
 }
 
 export type WorkbenchLiveEvent =
-  | { event: "topic.created"; data: { topic: { id?: string; conversationId?: string; changeId?: string; title: string; state: "active"; selectedProviderId?: string } } }
-  | { event: "topic.updated"; data: { conversation: { id: string; title: string; state: string; updatedAt?: string; selectedProviderId?: string } } }
+  | { event: "topic.created"; data: {
+    projectId: string;
+    productMode: ProductMode;
+    conversationId: string;
+    clientRequestId: string;
+    replayed: boolean;
+    topic: {
+      id?: string;
+      conversationId?: string;
+      changeId?: string;
+      title: string;
+      state: "active" | "archive";
+      selectedProviderId?: string;
+      productMode: ProductMode;
+    };
+  } }
+  | { event: "topic.updated"; data: { conversation: { id: string; productMode: ProductMode; title: string; state: string; updatedAt?: string; selectedProviderId?: string } } }
   | { event: "timeline.patch"; data: CanonicalTimelineEnvelope }
   | { event: "conversation.interactions.updated"; data: ConversationInteractionQueue }
   | { event: "agent-surfaces.invalidated"; data: AgentSurfacesInvalidated }
@@ -226,7 +242,7 @@ export type WorkbenchLiveEvent =
   | { event: "usage"; data: WorkbenchLiveIdentity & { usage?: Record<string, unknown> } }
   | { event: "snapshot"; data: unknown }
   | { event: "error"; data: WorkbenchLiveIdentity & { message: string; runId?: string; actionRunId?: string } }
-  | { event: "done"; data: { status: "completed" | "failed" } };
+  | { event: "done"; data: Pick<WorkbenchLiveIdentity, "projectId" | "productMode" | "conversationId"> & { status: "completed" | "failed" } };
 
 export interface WorkbenchLiveSink {
   emit(event: WorkbenchLiveEvent): void;
@@ -235,6 +251,7 @@ export interface WorkbenchLiveSink {
 
 export interface WorkbenchLiveToolEvent {
   runId: string;
+  productMode?: ProductMode;
   providerId?: ProviderId;
   attemptId?: string;
   sessionId?: string;
@@ -263,6 +280,7 @@ export interface WorkbenchLiveToolEvent {
 export interface WorkbenchAssistantEvent extends Omit<ProviderReadableEvent, "itemId"> {
   itemId?: string;
   runId: string;
+  productMode?: ProductMode;
   providerId?: ProviderId;
   attemptId?: string;
   sessionId?: string;
@@ -291,6 +309,12 @@ export interface TopicMessageInput {
   providerId?: ProviderId;
   providerSwitchIntent?: "resume-workflow" | "conversation-only";
   agentSurfaceId?: string;
+  productMode?: ProductMode;
+}
+
+export interface NewConversationSkillOverride {
+  skillId: string;
+  enabled: boolean;
 }
 
 export type PlanHandoffAgentRoleId = "planning-agent";

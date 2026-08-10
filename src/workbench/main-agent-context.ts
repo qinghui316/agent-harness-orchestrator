@@ -25,6 +25,7 @@ export async function buildMainAgentExecutionContext(
     resolution.paths,
     conversationId,
     graphScopeId,
+    "harness",
   );
   return [
     chat.context,

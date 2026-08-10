@@ -1,6 +1,5 @@
 export type ProviderId = string;
-export type ProductMode = "harness" | "agent";
-export type RunnableProductMode = "harness";
+export type ProductMode = "agent" | "harness";
 export type HarnessExecutionMode = "stepwise" | "scoped-auto";
 
 export type ProviderCapabilityKey =
@@ -27,6 +26,7 @@ export type ProviderCapabilityKey =
   | "reasoning.effort";
 
 export type ProviderOperationProfile =
+  | "agent"
   | "main"
   | "planning"
   | "coder"
@@ -95,7 +95,7 @@ export interface ProviderProjectAction {
 export interface ProviderCapabilitySnapshot {
   providerId: ProviderId;
   displayName: string;
-  productMode: RunnableProductMode;
+  productMode: ProductMode;
   status: ProviderSnapshotStatus;
   runnable: boolean;
   checkedAt: string;
@@ -109,12 +109,13 @@ export interface ProviderCapabilitySnapshot {
 
 export interface ProviderRuntimeSummary {
   providerId: ProviderId;
-  productMode: RunnableProductMode;
+  productMode: ProductMode;
   harnessExecutionModes: HarnessExecutionMode[];
   snapshot: ProviderCapabilitySnapshot;
 }
 
 export const PROVIDER_OPERATION_CAPABILITIES: Readonly<Record<ProviderOperationProfile, readonly ProviderCapabilityKey[]>> = {
+  agent: ["turn.start", "turn.resume", "turn.interrupt", "turn.user-input", "stream.text", "stream.tool-output", "workspace.read", "workspace.write", "skill.native-load", "session.continuation"],
   main: ["turn.start", "turn.resume", "turn.interrupt", "turn.user-input", "stream.text", "stream.reasoning-summary", "child.spawn", "child.result", "workspace.read", "workspace.write", "workspace.multiroot", "skill.native-load", "tool.dynamic", "session.continuation"],
   planning: ["turn.start", "turn.interrupt", "turn.user-input", "stream.text", "child.result", "workspace.read", "workspace.write", "workspace.multiroot", "skill.native-load"],
   coder: ["turn.start", "turn.interrupt", "stream.text", "stream.tool-output", "workspace.read", "workspace.write", "workspace.multiroot"],

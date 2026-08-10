@@ -38,7 +38,7 @@ export function installWorkbenchCommands(program: Command, context: CliContext):
     .option("--json", "print JSON")
     .action(async (query: string, options: { topic?: string; json?: boolean }) => {
       const resolved = await resolveRegisteredOrPath(store, query);
-      const snapshot = await getWorkbenchSnapshot({ project: resolved.project, path: resolved.path }, { topicId: options.topic });
+      const snapshot = await getWorkbenchSnapshot({ project: resolved.project, path: resolved.path }, { topicId: options.topic, productMode: "harness" });
       if (options.json) printJson(snapshot);
       else {
         printTable([{
@@ -84,7 +84,7 @@ export function installWorkbenchCommands(program: Command, context: CliContext):
     .option("--json", "print JSON")
     .action(async (query: string, options: { topic?: string; json?: boolean }) => {
       const resolved = await resolveRegisteredOrPath(store, query);
-      const approvals = await listWorkbenchApprovals({ project: resolved.project, path: resolved.path }, { topicId: options.topic });
+      const approvals = await listWorkbenchApprovals({ project: resolved.project, path: resolved.path }, { topicId: options.topic, productMode: "harness" });
       if (options.json) printJson(approvals);
       else printTable(approvals.map((item) => ({
         id: item.id,
@@ -102,7 +102,7 @@ export function installWorkbenchCommands(program: Command, context: CliContext):
     .option("--json", "print JSON")
     .action(async (query: string, options: { json?: boolean }) => {
       const resolved = await resolveRegisteredOrPath(store, query);
-      const topics = await listWorkbenchTopics({ project: resolved.project, path: resolved.path });
+      const topics = await listWorkbenchTopics({ project: resolved.project, path: resolved.path }, "harness");
       if (options.json) printJson(topics);
       else printTable(topics.map((item) => ({
         id: item.id,
@@ -120,7 +120,7 @@ export function installWorkbenchCommands(program: Command, context: CliContext):
     .option("--json", "print JSON")
     .action(async (query: string, changeId: string, options: { json?: boolean }) => {
       const resolved = await resolveRegisteredOrPath(store, query);
-      const topic = await getWorkbenchTopic({ project: resolved.project, path: resolved.path }, changeId);
+      const topic = await getWorkbenchTopic({ project: resolved.project, path: resolved.path }, changeId, "harness");
       if (options.json) printJson(topic);
       else {
         printTable([{

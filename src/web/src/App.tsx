@@ -424,7 +424,7 @@ export function App(): ReactElement {
     const conversationId = activeTopic?.id;
     if (!conversationId || !selectedProjectId) return;
     openWorkspaceResource({ kind: "agent", conversationId, agentSurfaceId });
-    void timeline.loadLatest({ projectId: selectedProjectId, conversationId, agentSurfaceId });
+    void timeline.loadLatest({ projectId: selectedProjectId, productMode: snapshot.productMode, conversationId, agentSurfaceId });
   }
 
   function openWorkspaceResource(target: WorkspaceResourceTarget): void {
@@ -452,6 +452,7 @@ export function App(): ReactElement {
   const activeTopic = activePendingConversation
     ? {
       id: activePendingConversation.id,
+      productMode: snapshot.productMode,
       title: activePendingConversation.title,
       state: "active" as const,
       acCount: 0,
@@ -468,6 +469,7 @@ export function App(): ReactElement {
       if (!selectedProjectId) return;
       return timeline.loadLatest({
         projectId: selectedProjectId,
+        productMode: snapshot.productMode,
         conversationId: target.conversationId,
         agentSurfaceId: target.agentSurfaceId,
       });
@@ -476,6 +478,7 @@ export function App(): ReactElement {
     routeProjectionEvent: routeProjectionEventForProject,
     calibrateAgentTranscript: (projectId, conversationId, agentSurfaceId) => timeline.loadLatest({
       projectId,
+      productMode: snapshot.productMode,
       conversationId,
       agentSurfaceId,
     }),
@@ -533,7 +536,7 @@ export function App(): ReactElement {
       routeEvent: routeProjectionEventForProject,
     },
     timeline: {
-      calibrate: (projectId, conversationId, agentSurfaceId) => timeline.loadLatest({ projectId, conversationId, agentSurfaceId }),
+      calibrate: (projectId, conversationId, agentSurfaceId) => timeline.loadLatest({ projectId, productMode: "harness", conversationId, agentSurfaceId }),
     },
     onError: setError,
   });
@@ -547,7 +550,7 @@ export function App(): ReactElement {
   const composerAttachments = composer.attachments;
   const activeTimelineScope = useMemo<CanonicalTimelineScope | null>(() => (
     selectedProjectId && activeTopic?.id && !isPendingTopic
-      ? { projectId: selectedProjectId, conversationId: activeTopic.id, agentSurfaceId: "main-agent" }
+      ? { projectId: selectedProjectId, productMode: activeTopic.productMode, conversationId: activeTopic.id, agentSurfaceId: "main-agent" }
       : null
   ), [activeTopic?.id, isPendingTopic, selectedProjectId]);
   const activeTranscript = useMemo<ParentAgentTranscript>(() => activeTimelineScope
@@ -591,7 +594,7 @@ export function App(): ReactElement {
       cleanupResources: workspaceResources.cleanupTransition,
       openAgentSurface: ({ conversationId, agentSurfaceId }) => {
         openWorkspaceResource({ kind: "agent", conversationId, agentSurfaceId });
-        if (selectedProjectId) void timeline.loadLatest({ projectId: selectedProjectId, conversationId, agentSurfaceId });
+        if (selectedProjectId) void timeline.loadLatest({ projectId: selectedProjectId, productMode: snapshot.productMode, conversationId, agentSurfaceId });
         if (globalThis.matchMedia?.("(max-width: 720px)").matches) closeOrchestrationOverlay();
       },
       closeOfficeView: closeOrchestrationOverlay,
@@ -604,11 +607,12 @@ export function App(): ReactElement {
       agent.agentSurfaceId,
       selectCanonicalTimelineTranscript(timeline.state, {
         projectId: selectedProjectId,
+        productMode: activeTopic.productMode,
         conversationId: activeTopic.id,
         agentSurfaceId: agent.agentSurfaceId,
       }),
     ]));
-  }, [activeAgentSurfaces, activeTopic?.id, selectedProjectId, timeline.state]);
+  }, [activeAgentSurfaces, activeTopic?.id, activeTopic?.productMode, selectedProjectId, timeline.state]);
   const projectionStream = useWorkbenchProjectionStream(selectedProjectId, {
     timeline: {
       patch: (projectId, envelope) => {
@@ -663,7 +667,7 @@ export function App(): ReactElement {
       const conversationId = activeTopic?.id;
       if (!conversationId || isPendingTopic) return;
       agentSurfaces.invalidate({ conversationId, reason: "snapshot" });
-      for (const scope of canonicalTimelineReconnectScopes(projectId, conversationId, workspaceResourceTabs)) {
+      for (const scope of canonicalTimelineReconnectScopes(projectId, snapshot.productMode, conversationId, workspaceResourceTabs)) {
         void timeline.loadLatest(scope);
       }
     },
@@ -1035,6 +1039,7 @@ export function App(): ReactElement {
               if (!selectedProjectId || !activeTopic?.id) return;
               await timeline.loadEarlier({
                 projectId: selectedProjectId,
+                productMode: activeTopic.productMode,
                 conversationId: activeTopic.id,
                 agentSurfaceId,
               }, cursor);

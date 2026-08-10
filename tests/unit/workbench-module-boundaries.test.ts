@@ -106,7 +106,8 @@ describe("Workbench module boundaries", () => {
     ]);
 
     const contract = readFileSync("src/workbench/canonical-timeline-contract.ts", "utf8");
-    expect(contract).not.toMatch(/read-model|database|provider-runtime|\.\/types\.js/);
+    expect(contract).not.toMatch(/read-model|database|\.\/types\.js/);
+    expect(contract).toContain('import type { ProductMode } from "../provider-runtime/index.js";');
     const retiredSymbols = rgOutput([
       "-n",
       "knownIds|canonicalMessageIds|upsertCanonicalMessage|upsertBackgroundEntry|appendConversationTimelineEntry|openConversationTimelineWriter|ConversationTimelineWriter",

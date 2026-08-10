@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { git } from "../../src/project/git.js";
 import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import type { ManagedProject } from "../../src/types/index.js";
-import { createWorkbenchConversation } from "../../src/workbench/conversation-service.js";
+import { createHarnessWorkbenchConversation as createWorkbenchConversation } from "../helpers/conversation-change-fixture.js";
 import { planDocumentContentHash } from "../../src/workbench/plan-documents.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { resolveWorkspaceResource } from "../../src/workbench/workspace-resources.js";

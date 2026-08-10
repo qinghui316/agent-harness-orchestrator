@@ -12,6 +12,7 @@ import type {
   ConversationInteractionQuestion,
   ConversationInteractionQueue,
 } from "./conversation-interaction-contract.js";
+import type { ProductMode } from "../provider-runtime/index.js";
 
 export type ResolvedConversationInteraction =
   | { kind: "provider-input"; public: ConversationInteraction & { kind: "provider-input" }; source: { entry: TopicThreadEntry; request: WorkbenchProviderUserInputRequest } }
@@ -24,10 +25,23 @@ export async function buildConversationInteractionQueue(
   runtime: ProjectWorkbenchPathPort,
   conversationId: string | undefined,
   graphScopeId: string | undefined,
+  productMode: ProductMode,
 ): Promise<ConversationInteractionQueue> {
-  if (!conversationId || !graphScopeId) return { conversationId, graphScopeId, items: [] };
+  if (!conversationId || !graphScopeId) return { productMode, conversationId, graphScopeId, items: [] };
+  const database = await openProjectRuntimeWorkbenchDatabase(runtime);
+  try {
+    const conversation = database.conversations.readConversation(runtime.projectId, conversationId);
+    if (!conversation) throw notFound("Conversation interaction is unavailable.");
+    if (conversation.productMode !== productMode) {
+      const error = new Error("Conversation productMode does not match the requested mode.");
+      error.name = "Conflict";
+      throw error;
+    }
+  } finally {
+    database.close();
+  }
   const resolved = await resolveConversationInteractions(runtime, conversationId, graphScopeId);
-  return { conversationId, graphScopeId, items: resolved.map((item) => item.public) };
+  return { productMode, conversationId, graphScopeId, items: resolved.map((item) => item.public) };
 }
 
 export async function resolveConversationInteraction(

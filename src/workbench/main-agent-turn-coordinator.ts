@@ -129,7 +129,7 @@ async function runProjectScopedMainAgentTurnActivity(
   const publishTerminalRows = (): number => {
     const count = terminalCommittedRows.length;
     for (const row of terminalCommittedRows.splice(0)) {
-      publishCommittedCanonicalTimelineRow(live, row);
+      publishCommittedCanonicalTimelineRow(live, row, "harness");
     }
     return count;
   };
@@ -156,7 +156,7 @@ async function runProjectScopedMainAgentTurnActivity(
     }
   });
   const emitInteractionUpdate = async (sink: WorkbenchLiveSink | undefined = capture.sink): Promise<void> => {
-    sink?.emit({ event: "conversation.interactions.updated", data: await buildConversationInteractionQueue(resolution.paths, conversationId, graphScopeId) });
+    sink?.emit({ event: "conversation.interactions.updated", data: await buildConversationInteractionQueue(resolution.paths, conversationId, graphScopeId, "harness") });
     publishAgentSurfacesInvalidated(projectId, { conversationId, graphScopeId, reason: "interaction-updated" });
   };
   const proposalDirectory = join(directory, "planner-proposal");
@@ -269,9 +269,9 @@ async function runProjectScopedMainAgentTurnActivity(
     expectedResumeAttemptId,
   );
   attemptId = queuedResumeAttempt?.attemptId ?? `attempt-${randomUUID()}`;
-  capture.sink.emit({ event: "run.started", data: { runId, conversationId, graphScopeId, providerId, attemptId, actionType: "chat.ask" } });
-  capture.sink.emit({ event: "run.status", data: { runId, conversationId, graphScopeId, providerId, attemptId, status: "connecting", label: "正在连接 Agent" } });
-  const resolvedProvider = await defaultProviderRegistry.requireProfiles(providerId!, ["main"], project, project.path);
+  capture.sink.emit({ event: "run.started", data: { projectId, productMode: "harness", runId, conversationId, graphScopeId, providerId, attemptId, actionType: "chat.ask" } });
+  capture.sink.emit({ event: "run.status", data: { projectId, productMode: "harness", runId, conversationId, graphScopeId, providerId, attemptId, status: "connecting", label: "正在连接 Agent" } });
+  const resolvedProvider = await defaultProviderRegistry.requireProfiles(providerId!, ["main"], "harness", project, project.path);
   const provider = resolvedProvider.descriptor;
   const capabilitySnapshot = resolvedProvider.snapshot;
   const attemptStartedAt = new Date().toISOString();
@@ -308,6 +308,7 @@ async function runProjectScopedMainAgentTurnActivity(
     if (queuedResumeAttempt) {
       attemptStore.providerAttempts.startQueuedProviderAttempt(projectId, attemptId, {
         capabilitySnapshot,
+        effectiveSkillInputs: [],
         handoffHash: handoff.hash,
         deliveredThroughCompletedTurn: completedTurnSequence,
         model: attemptRecord.model,
@@ -321,7 +322,7 @@ async function runProjectScopedMainAgentTurnActivity(
   }
   publishAgentSurfacesInvalidated(projectId, { conversationId, graphScopeId, reason: "attempt-updated" });
   canonicalStore = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
-  canonicalDelivery = new CanonicalTimelineDelivery(canonicalStore, live);
+  canonicalDelivery = new CanonicalTimelineDelivery(canonicalStore, "harness", live);
   if (mainSessionId) {
     canonicalStore.providerAttempts.bindProviderAttemptThread(projectId, {
       attemptId,
@@ -526,7 +527,7 @@ async function runProjectScopedMainAgentTurnActivity(
         const acceptedStore = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
         try {
           const row = acceptedStore.interactions.updatePlanningMessageStatus(projectId, conversationId, planHandoff.sourceArtifact, "accepted");
-          new CanonicalTimelineDelivery(acceptedStore, capture.sink).publishCommitted(row);
+          new CanonicalTimelineDelivery(acceptedStore, "harness", capture.sink).publishCommitted(row);
         } finally {
           acceptedStore.close();
         }
@@ -620,7 +621,7 @@ async function runProjectScopedMainAgentTurnActivity(
       const canonicalEvent = registeredChild
         ? { ...event, roleId: registeredChild.roleId, attemptId: registeredChild.attemptId }
         : event;
-      forwardProviderRealtimeEvent(canonicalEvent, capture.sink, { graphScopeId });
+      forwardProviderRealtimeEvent(canonicalEvent, capture.sink, { productMode: "harness", graphScopeId });
     },
     onChildLifecycleEvent: (event) => {
       const child = childLifecycleOwner.onLifecycle(event);
@@ -670,7 +671,7 @@ async function runProjectScopedMainAgentTurnActivity(
           await emitInteractionUpdate();
         })
         .catch((cause) => {
-          capture.sink.emit({ event: "error", data: { runId, graphScopeId, message: cause instanceof Error ? cause.message : String(cause) } });
+          capture.sink.emit({ event: "error", data: { projectId, productMode: "harness", conversationId, runId, graphScopeId, message: cause instanceof Error ? cause.message : String(cause) } });
         });
     },
     onUserInputResolved: (providerResolution) => {
@@ -701,15 +702,15 @@ async function runProjectScopedMainAgentTurnActivity(
         } finally {
           resolutionStore.close();
         }
-        if (row) publishCommittedCanonicalTimelineRow(capture.sink, row);
+        if (row) publishCommittedCanonicalTimelineRow(capture.sink, row, "harness");
         await emitInteractionUpdate();
       })().catch((cause) => {
-        capture.sink.emit({ event: "error", data: { runId, graphScopeId, message: cause instanceof Error ? cause.message : String(cause) } });
+        capture.sink.emit({ event: "error", data: { projectId, productMode: "harness", conversationId, runId, graphScopeId, message: cause instanceof Error ? cause.message : String(cause) } });
       });
       pendingProviderInputResolutions.add(resolutionWork);
       void resolutionWork.finally(() => pendingProviderInputResolutions.delete(resolutionWork));
     },
-    onError: (error) => capture.sink.emit({ event: "error", data: { runId, message: error instanceof Error ? error.message : String(error) } }),
+    onError: (error) => capture.sink.emit({ event: "error", data: { projectId, productMode: "harness", conversationId, runId, message: error instanceof Error ? error.message : String(error) } }),
     model: capabilitySnapshot.effectiveModel ? { providerId: providerId!, modelId: capabilitySnapshot.effectiveModel } : null,
     });
   } catch (error) {
@@ -752,7 +753,7 @@ async function runProjectScopedMainAgentTurnActivity(
       ? new Error("Main Agent planning and execution handoff requires a native Goal on the provider thread.")
       : null;
   if (postRunInvariantError) {
-    capture.sink.emit({ event: "error", data: { runId, message: postRunInvariantError.message } });
+    capture.sink.emit({ event: "error", data: { projectId, productMode: "harness", conversationId, runId, message: postRunInvariantError.message } });
   }
   if (acceptedPlanning && !postRunInvariantError) {
     await issueAcceptedPlanningAuthorization(project, resolution, conversationId, attemptId, result, acceptedPlanning, planHandoff);
@@ -883,7 +884,7 @@ async function runProjectScopedMainAgentTurnActivity(
           };
         }
       } catch (cause) {
-        capture.sink.emit({ event: "error", data: { runId, message: cause instanceof Error ? cause.message : String(cause) } });
+        capture.sink.emit({ event: "error", data: { projectId, productMode: "harness", conversationId, runId, message: cause instanceof Error ? cause.message : String(cause) } });
       }
     }
     const terminalTimelineMessages = buildCaptureWrites({
@@ -966,7 +967,7 @@ async function runProjectScopedMainAgentTurnActivity(
       );
       publishAgentSurfacesInvalidated(projectId, { conversationId, graphScopeId, reason: "scope-changed" });
       terminalizedInteractionCount = rows.length;
-      new CanonicalTimelineDelivery(terminalStore, live).publishCommittedMany(rows);
+      new CanonicalTimelineDelivery(terminalStore, "harness", live).publishCommittedMany(rows);
     } finally {
       terminalStore.close();
     }

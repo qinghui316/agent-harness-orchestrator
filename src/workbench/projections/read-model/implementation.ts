@@ -15,6 +15,10 @@ import { tryBuildSkillNativePlanningSnapshot } from "./skill-native-planning-sna
 import { listWorkbenchRoles } from "./roles.js";
 import { buildHarnessGaps, buildRepoSummary } from "./support.js";
 import { buildDiagnosticWorkpad } from "./workpad.js";
+import { buildThreadStreamFromMessages } from "./thread-stream.js";
+import { fromStoredThreadMessage } from "../../conversation-thread-log.js";
+import { buildConversationInteractionQueue } from "../../conversation-interactions.js";
+import type { ProductMode } from "../../../provider-runtime/index.js";
 import type { LandingQueueSnapshot, ManagedProject } from "../../../types/index.js";
 import type {
   WorkbenchApprovalItem,
@@ -54,6 +58,7 @@ export type {
   WorkbenchDecisionItem,
   WorkbenchFailureClassification,
   WorkbenchPendingFeedback,
+  ProviderAttemptReadModel,
   WorkbenchProjectInput,
   WorkbenchResultReview,
   WorkbenchResultReviewStatus,
@@ -121,14 +126,28 @@ export {
 
 export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options: {
   topicId?: string;
+  productMode?: ProductMode;
   ignoreActiveWorkflowActions?: boolean;
   ignoreActiveWorkflowActionTypes?: string[];
 } = {}): Promise<WorkbenchSnapshot> {
+  const productMode = options.productMode ?? "harness";
   let runtimeState: Awaited<ReturnType<typeof resolveProjectRuntimeState>> | null = null;
   if (input.project) {
     runtimeState = await resolveProjectRuntimeState(input.project, {
       discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
     });
+    const runtimePaths = runtimeState.state === "onboarding"
+      ? runtimeState.paths
+      : runtimeState.resolution.paths;
+    await assertRequestedConversationMode(
+      runtimePaths,
+      runtimePaths.projectId,
+      options.topicId,
+      productMode,
+    );
+    if (productMode === "agent") {
+      return buildAgentModeSnapshot(input.project, runtimeState, options.topicId);
+    }
     if (runtimeState.state === "ready") {
       const planningSnapshot = await tryBuildSkillNativePlanningSnapshot({
         project: input.project,
@@ -146,6 +165,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
   const warnings = [status.reason];
   const diagnosticWorkpad = buildDiagnosticWorkpad(input.project?.name ?? "未选择项目", warnings, gaps);
   return {
+    productMode,
     project: input.project,
     harness: status,
     left: {
@@ -159,7 +179,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
       selectedTopic: null,
       workpad: diagnosticWorkpad,
       thread: { items: [] },
-      conversationInteractions: { items: [] },
+      conversationInteractions: { productMode, items: [] },
       activeTab: "conversation",
       agentLoop: { runs: [] },
     },
@@ -181,7 +201,7 @@ async function requireReadyProjectRuntime(project: ManagedProject): Promise<Proj
 }
 
 export async function getWorkbenchWorkpadProjection(input: WorkbenchProjectInput, changeId: string): Promise<WorkbenchWorkpad> {
-  return (await getWorkbenchSnapshot(input, { topicId: changeId })).center.workpad;
+  return (await getWorkbenchSnapshot(input, { topicId: changeId, productMode: "harness" })).center.workpad;
 }
 
 export async function getWorkbenchEvidenceProjection(input: WorkbenchProjectInput, changeId: string): Promise<{
@@ -201,16 +221,18 @@ export async function getWorkbenchLandingQueueProjection(input: WorkbenchProject
   return latestLandingQueueSnapshot(runtime.paths).catch(() => null);
 }
 
-export async function listWorkbenchTopics(input: WorkbenchProjectInput): Promise<WorkbenchTopicSummary[]> {
+export async function listWorkbenchTopics(input: WorkbenchProjectInput, productMode: ProductMode): Promise<WorkbenchTopicSummary[]> {
   if (!input.project) return [];
   const runtime = await resolveProjectRuntimeState(input.project, {
     discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
   });
-  if (runtime.state !== "ready") return [];
-  const store = await openProjectRuntimeWorkbenchDatabase(runtime.resolution.paths);
+  if (runtime.state !== "ready" && productMode === "harness") return [];
+  const paths = runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
+  const store = await openProjectRuntimeWorkbenchDatabase(paths);
   try {
-    return store.conversations.listConversations(runtime.resolution.harness.projectId).map((conversation) => ({
+    return store.conversations.listConversations(paths.projectId, productMode).map((conversation) => ({
       id: conversation.conversationId,
+      productMode: conversation.productMode,
       kind: "conversation",
       name: conversation.conversationId,
       title: conversation.title,
@@ -224,6 +246,142 @@ export async function listWorkbenchTopics(input: WorkbenchProjectInput): Promise
     }));
   } finally {
     store.close();
+  }
+}
+
+async function buildAgentModeSnapshot(
+  project: ManagedProject,
+  runtime: Awaited<ReturnType<typeof resolveProjectRuntimeState>>,
+  topicId?: string,
+): Promise<WorkbenchSnapshot> {
+  const paths = runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
+  const database = await openProjectRuntimeWorkbenchDatabase(paths);
+  try {
+    const conversations = database.conversations.listConversations(paths.projectId, "agent");
+    const selected = topicId
+      ? conversations.find((conversation) => conversation.conversationId === topicId)
+      : conversations.find((conversation) => conversation.state === "active") ?? conversations[0];
+    if (topicId && !selected) {
+      const other = database.conversations.readConversation(paths.projectId, topicId);
+      const error = new Error(other
+        ? `Conversation ${topicId} belongs to ${other.productMode} mode, not agent.`
+        : `Conversation not found: ${topicId}.`);
+      error.name = other ? "Conflict" : "NotFound";
+      throw error;
+    }
+    const topics: WorkbenchTopicSummary[] = conversations.map((conversation) => ({
+      id: conversation.conversationId,
+      productMode: "agent",
+      kind: "conversation",
+      name: conversation.conversationId,
+      title: conversation.title,
+      state: conversation.state,
+      path: `runtime-sidecar:conversation/${conversation.conversationId}`,
+      boundChangeId: conversation.boundChangeId,
+      graphScopeId: conversation.currentGraphScopeId ?? undefined,
+      selectedProviderId: conversation.selectedProviderId,
+      createdAt: conversation.createdAt,
+      updatedAt: conversation.updatedAt,
+    }));
+    let selectedTopic: WorkbenchTopicDetail | null = null;
+    if (selected) {
+      const topic = topics.find((candidate) => candidate.id === selected.conversationId)!;
+      selectedTopic = {
+        ...topic,
+        change: null,
+        runs: [],
+        taskQueues: [],
+        taskQueueItems: [],
+        taskRuns: [],
+        workerLeases: [],
+        worktrees: [],
+        validations: [],
+        audits: [],
+        threadItems: await buildThreadStreamFromMessages(
+          topic,
+          database.timeline.listConversationMessages(paths.projectId, selected.conversationId).map(fromStoredThreadMessage),
+          { includeChangeState: false },
+        ),
+      };
+    }
+    const [projectStatus, roles] = await Promise.all([
+      getProjectStatus(project, project.path),
+      listWorkbenchRoles(),
+    ]);
+    const harness = runtime.state === "ready" ? {
+      kind: "project-skill" as const,
+      registered: true as const,
+      managed: true as const,
+      harnessReady: true as const,
+      projectId: runtime.resolution.harness.projectId,
+      skillName: runtime.resolution.harness.skillName,
+      skillRevision: runtime.resolution.harness.skillRevision,
+      contentFingerprint: runtime.resolution.harness.contentFingerprint,
+      runtimeAvailable: true as const,
+    } : diagnosticProjectHarnessStatus({ project, path: project.path }, runtime);
+    const workpad = {
+      ...buildDiagnosticWorkpad(project.name, [], []),
+      title: selectedTopic?.title ?? "Agent",
+      subtitle: project.name,
+      state: selectedTopic ? "active" as const : "empty" as const,
+      conversationId: selectedTopic?.id,
+      demandId: selectedTopic?.id,
+      blockers: [],
+      warnings: [],
+    };
+    const conversationInteractions = selected?.currentGraphScopeId
+      ? await buildConversationInteractionQueue(
+          paths,
+          selected.conversationId,
+          selected.currentGraphScopeId,
+          "agent",
+        )
+      : { productMode: "agent" as const, items: [] };
+    return {
+      productMode: "agent",
+      project,
+      harness,
+      left: { project, harness, topics, workpads: [], repo: buildRepoSummary(projectStatus) },
+      center: {
+        selectedTopic,
+        workpad,
+        thread: { items: selectedTopic?.threadItems ?? [] },
+        conversationInteractions,
+        activeTab: "conversation",
+        agentLoop: { runs: [] },
+      },
+      right: {
+        approvals: [],
+        decisions: [],
+        decisionInspector: emptyDecisionInspector(),
+        confirmationQueue: emptyConfirmationQueue(),
+      },
+      roles,
+      harnessGaps: [],
+      warnings: [],
+    };
+  } finally {
+    database.close();
+  }
+}
+
+async function assertRequestedConversationMode(
+  paths: ProjectRuntimeResolution["paths"],
+  projectId: string,
+  topicId: string | undefined,
+  productMode: ProductMode,
+): Promise<void> {
+  if (!topicId) return;
+  const database = await openProjectRuntimeWorkbenchDatabase(paths);
+  try {
+    const conversation = database.conversations.readConversation(projectId, topicId);
+    if (conversation && conversation.productMode !== productMode) {
+      const error = new Error("Conversation productMode does not match the requested mode.");
+      error.name = "Conflict";
+      throw error;
+    }
+  } finally {
+    database.close();
   }
 }
 
@@ -249,9 +407,9 @@ export async function deleteWorkbenchConversation(input: WorkbenchProjectInput, 
   return { deleted: true, topicId };
 }
 
-export async function getWorkbenchTopic(input: WorkbenchProjectInput, topicId: string): Promise<WorkbenchTopicDetail> {
+export async function getWorkbenchTopic(input: WorkbenchProjectInput, topicId: string, productMode: ProductMode): Promise<WorkbenchTopicDetail> {
   if (!input.project) throw new Error(`Topic not found: ${topicId}.`);
-  const detail = (await getWorkbenchSnapshot(input, { topicId })).center.selectedTopic;
+  const detail = (await getWorkbenchSnapshot(input, { topicId, productMode })).center.selectedTopic;
   if (!detail) throw new Error(`Topic not found: ${topicId}.`);
   return detail;
 }
@@ -282,9 +440,9 @@ export async function getWorkbenchStream(input: WorkbenchProjectInput, runId: st
   };
 }
 
-export async function listWorkbenchApprovals(input: WorkbenchProjectInput, options: { topicId?: string } = {}): Promise<WorkbenchApprovalItem[]> {
+export async function listWorkbenchApprovals(input: WorkbenchProjectInput, options: { topicId?: string; productMode: ProductMode }): Promise<WorkbenchApprovalItem[]> {
   if (!input.project) return [];
-  return (await getWorkbenchSnapshot(input, { topicId: options.topicId })).right.approvals;
+  return (await getWorkbenchSnapshot(input, { topicId: options.topicId, productMode: options.productMode })).right.approvals;
 }
 
 function diagnosticProjectHarnessStatus(

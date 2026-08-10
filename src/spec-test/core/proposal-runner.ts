@@ -187,7 +187,7 @@ async function startSpecTestProposalRunActivity(project: ManagedProject, options
   const provider = await resolveSpecTestProvider(contextScope, project, "auditor", contextScope.projectRoot);
   const providerId = provider.id;
   const [capabilitySnapshot, mainThread] = await Promise.all([
-    provider.capabilitySnapshot(project, project.path),
+    provider.capabilitySnapshot(project, "harness", project.path),
     resolveCurrentMainAgentProviderThread(contextScope.runtime, changeId, providerId),
   ]);
   let providerAttemptStarted = false;

@@ -17,20 +17,21 @@ import {
 
 const mainScope: CanonicalTimelineScope = {
   projectId: "project-a",
+  productMode: "harness",
   conversationId: "conversation-a",
   agentSurfaceId: "main-agent",
 };
 
 describe("canonical Timeline Store", () => {
   it("calibrates Main and every open child surface after project SSE reconnect", () => {
-    expect(canonicalTimelineReconnectScopes("project-a", "conversation-a", [
+    expect(canonicalTimelineReconnectScopes("project-a", "harness", "conversation-a", [
       { resourceId: "agent:a", target: { kind: "agent", conversationId: "conversation-a", agentSurfaceId: "agent:a" } },
       { resourceId: "agent:b", target: { kind: "agent", conversationId: "conversation-b", agentSurfaceId: "agent:b" } },
       { resourceId: "document:a", target: { kind: "document", conversationId: "conversation-a", documentId: "document:a" } },
       { resourceId: "agent:a-duplicate", target: { kind: "agent", conversationId: "conversation-a", agentSurfaceId: "agent:a" } },
     ])).toEqual([
-      { projectId: "project-a", conversationId: "conversation-a", agentSurfaceId: "main-agent" },
-      { projectId: "project-a", conversationId: "conversation-a", agentSurfaceId: "agent:a" },
+      { projectId: "project-a", productMode: "harness", conversationId: "conversation-a", agentSurfaceId: "main-agent" },
+      { projectId: "project-a", productMode: "harness", conversationId: "conversation-a", agentSurfaceId: "agent:a" },
     ]);
   });
 
@@ -161,17 +162,20 @@ describe("canonical Timeline Store", () => {
     const childScope = { ...mainScope, agentSurfaceId: "agent:codex:thread-child" };
     const otherConversation = { ...mainScope, conversationId: "conversation-b" };
     const otherProject = { ...mainScope, projectId: "project-b" };
+    const otherMode = { ...mainScope, productMode: "agent" as const };
     let state = receive(createCanonicalTimelineState(), envelope("main", 10, 1));
     state = receive(state, envelope("child", 10, 2, childScope), childScope.projectId);
     state = receive(state, envelope("conversation", 10, 3, otherConversation), otherConversation.projectId);
     state = receive(state, envelope("project", 10, 4, otherProject), otherProject.projectId);
+    state = receive(state, envelope("mode", 10, 5, otherMode), otherMode.projectId);
 
     expect(texts(state, mainScope)).toEqual(["main@1"]);
     expect(texts(state, childScope)).toEqual(["child@2"]);
     expect(texts(state, otherConversation)).toEqual(["conversation@3"]);
     expect(texts(state, otherProject)).toEqual(["project@4"]);
-    expect(Object.keys(state.surfaces)).toHaveLength(4);
-    expect(canonicalTimelineScopeKey(mainScope)).toBe(JSON.stringify(["project-a", "conversation-a", "main-agent"]));
+    expect(texts(state, otherMode)).toEqual(["mode@5"]);
+    expect(Object.keys(state.surfaces)).toHaveLength(5);
+    expect(canonicalTimelineScopeKey(mainScope)).toBe(JSON.stringify(["project-a", "harness", "conversation-a", "main-agent"]));
   });
 
   it("places an explicit thread-start envelope before ordinary child entries", () => {
@@ -269,6 +273,8 @@ function envelope(
   orderClass: CanonicalTimelineEnvelope["orderClass"] = "sequence",
 ): CanonicalTimelineEnvelope {
   return {
+    projectId: scope.projectId,
+    productMode: scope.productMode,
     conversationId: scope.conversationId,
     agentSurfaceId: scope.agentSurfaceId,
     messageId,
@@ -291,6 +297,8 @@ function page(
   pinned: CanonicalTimelineEnvelope[] = [],
 ): CanonicalTimelinePage {
   return {
+    projectId: mainScope.projectId,
+    productMode: mainScope.productMode,
     conversationId: mainScope.conversationId,
     agentSurfaceId: mainScope.agentSurfaceId,
     watermark,

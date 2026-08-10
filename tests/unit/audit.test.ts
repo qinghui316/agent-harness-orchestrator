@@ -222,7 +222,7 @@ describe("audit close gate", () => {
 
     const result = await startAuditRun(project(tempDir));
 
-    expect(providerRequire).toHaveBeenCalledWith("codex", "auditor", expect.objectContaining({ id: "repo" }), tempDir);
+    expect(providerRequire).toHaveBeenCalledWith("codex", "auditor", "harness", expect.objectContaining({ id: "repo" }), tempDir);
     expect(runTurn).toHaveBeenCalledWith(expect.objectContaining({
       providerId: "codex",
       operationProfile: "auditor",

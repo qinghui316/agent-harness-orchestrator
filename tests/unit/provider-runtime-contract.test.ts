@@ -30,8 +30,65 @@ afterEach(async () => {
 
 describe("provider-neutral runtime contract", () => {
   it("requires native user-input settlement for both main and planning operations", () => {
+    expect(PROVIDER_OPERATION_CAPABILITIES.agent).toEqual(expect.arrayContaining([
+      "turn.start",
+      "turn.resume",
+      "turn.interrupt",
+      "turn.user-input",
+      "stream.text",
+      "stream.tool-output",
+      "workspace.read",
+      "workspace.write",
+      "skill.native-load",
+      "session.continuation",
+    ]));
+    expect(PROVIDER_OPERATION_CAPABILITIES.agent).not.toContain("child.spawn");
+    expect(PROVIDER_OPERATION_CAPABILITIES.agent).not.toContain("workspace.multiroot");
     expect(PROVIDER_OPERATION_CAPABILITIES.main).toContain("turn.user-input");
     expect(PROVIDER_OPERATION_CAPABILITIES.planning).toContain("turn.user-input");
+  });
+
+  it("reports Agent and Harness readiness independently", async () => {
+    const registry = new ProviderRegistry();
+    const provider = fakeProvider("mode-aware");
+    provider.capabilitySnapshot = async (_project, productMode) => {
+      const snapshot = capabilitySnapshot("mode-aware", productMode);
+      return productMode === "agent" ? snapshot : {
+        ...snapshot,
+        status: "degraded",
+        runnable: false,
+        degradedReasons: ["child orchestration unavailable"],
+        capabilities: snapshot.capabilities.map((item) => item.key === "child.spawn"
+          ? { ...item, runtime: "unavailable" as const }
+          : item),
+      };
+    };
+    registry.register(provider);
+
+    await expect(registry.require("mode-aware", "agent", "agent", null, root)).resolves.toBe(provider);
+    await expect(registry.require("mode-aware", "main", "harness", null, root)).rejects.toThrow(/cannot run main/);
+  });
+
+  it("rejects Provider operation profiles that do not belong to the requested product mode", async () => {
+    const registry = new ProviderRegistry();
+    const provider = fakeProvider("mode-profile-guard");
+    let snapshotCalls = 0;
+    provider.capabilitySnapshot = async (_project, productMode) => {
+      snapshotCalls += 1;
+      return capabilitySnapshot(provider.id, productMode);
+    };
+    registry.register(provider);
+
+    await expect(registry.require(provider.id, "main", "agent", null, root)).rejects.toThrow(
+      "Provider profiles main cannot run in agent product mode.",
+    );
+    await expect(registry.require(provider.id, "agent", "harness", null, root)).rejects.toThrow(
+      "Provider profiles agent cannot run in harness product mode.",
+    );
+    await expect(registry.requireProfiles(provider.id, ["agent", "coder"], "agent", null, root)).rejects.toThrow(
+      "Provider profiles coder cannot run in agent product mode.",
+    );
+    expect(snapshotCalls).toBe(0);
   });
 
   it("fails closed instead of selecting the first provider when more than one is registered", () => {
@@ -151,6 +208,7 @@ describe("provider-neutral runtime contract", () => {
       store.conversations.createConversation({
         projectId: project.id,
         conversationId: "conversation-1",
+        productMode: "harness",
         title: "Provider switch",
         state: "active",
         boundChangeId: null,
@@ -183,7 +241,7 @@ describe("provider-neutral runtime contract", () => {
         providerId: "alpha",
         nativeSessionId: "alpha-session",
         model: null,
-        capabilitySnapshot: await alpha.capabilitySnapshot(project, project.path),
+        capabilitySnapshot: await alpha.capabilitySnapshot(project, "harness", project.path),
         handoffHash: "alpha-handoff",
         deliveredThroughCompletedTurn: 0,
         worktreeId: null,
@@ -244,9 +302,10 @@ describe("provider-neutral runtime contract", () => {
     const claimStore = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
     try {
       claimStore.providerAttempts.startQueuedProviderAttempt(project.id, result.resumeAttemptId, {
-        capabilitySnapshot: await registry.get("beta").capabilitySnapshot(project, project.path),
+        capabilitySnapshot: await registry.get("beta").capabilitySnapshot(project, "harness", project.path),
         handoffHash: handoff.hash,
         deliveredThroughCompletedTurn: 0,
+        effectiveSkillInputs: [],
         model: null,
         updatedAt: new Date().toISOString(),
       });
@@ -308,6 +367,7 @@ describe("provider-neutral runtime contract", () => {
       store.conversations.createConversation({
         projectId: project.id,
         conversationId: "conversation-sync",
+        productMode: "harness",
         title: "Shared timeline",
         state: "active",
         boundChangeId: null,
@@ -454,6 +514,7 @@ describe("provider-neutral runtime contract", () => {
       store.conversations.createConversation({
         projectId: project.id,
         conversationId: "old-conversation",
+        productMode: "harness",
         title: "Old history",
         state: "active",
         boundChangeId: null,
@@ -491,6 +552,7 @@ describe("provider-neutral runtime contract", () => {
     store.conversations.createConversation({
       projectId: project.id,
       conversationId: "preserved-conversation",
+      productMode: "harness",
       title: "Preserved history",
       state: "active",
       boundChangeId: null,
@@ -526,7 +588,7 @@ describe("provider-neutral runtime contract", () => {
     migrated.close();
     const inspected = new Database(memory.workbenchDbPath, { readonly: true });
     expect(inspected.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'bridge_sync'").get()).toBeUndefined();
-    expect(Number(inspected.pragma("user_version", { simple: true }))).toBe(11);
+    expect(Number(inspected.pragma("user_version", { simple: true }))).toBe(12);
     inspected.close();
   });
 
@@ -570,7 +632,7 @@ function managedProject(path: string): ManagedProject {
 }
 
 function fakeProvider(providerId: string): ProviderDescriptor {
-  const snapshot = capabilitySnapshot(providerId);
+  const snapshot = capabilitySnapshot(providerId, "harness");
   const turnResult = (sessionId: string): ProviderTurnResult => ({
     providerId,
     status: "completed",
@@ -587,8 +649,13 @@ function fakeProvider(providerId: string): ProviderDescriptor {
       shutdown: async () => undefined,
       shutdownProject: async () => undefined,
     },
-    capabilitySnapshot: async () => snapshot,
-    runtimeSummary: async () => ({ providerId, productMode: "harness", harnessExecutionModes: ["stepwise", "scoped-auto"], snapshot }),
+    capabilitySnapshot: async (_project, productMode) => capabilitySnapshot(providerId, productMode),
+    runtimeSummary: async (_project, productMode) => ({
+      providerId,
+      productMode,
+      harnessExecutionModes: ["stepwise", "scoped-auto"],
+      snapshot: capabilitySnapshot(providerId, productMode),
+    }),
     models: {
       read: async () => ({ providerId, selectedModel: null, effectiveModel: null, effectiveModelSource: "provider-default", candidates: [], available: true }),
       select: async () => ({ providerId, selectedModel: null, effectiveModel: null, effectiveModelSource: "provider-default", candidates: [], available: true }),
@@ -622,12 +689,12 @@ function fakeProvider(providerId: string): ProviderDescriptor {
   };
 }
 
-function capabilitySnapshot(providerId: string): ProviderCapabilitySnapshot {
+function capabilitySnapshot(providerId: string, productMode: "agent" | "harness"): ProviderCapabilitySnapshot {
   const keys = new Set<ProviderCapabilityKey>(Object.values(PROVIDER_OPERATION_CAPABILITIES).flat());
   return {
     providerId,
     displayName: providerId,
-    productMode: "harness",
+    productMode,
     status: "ready",
     runnable: true,
     checkedAt: new Date().toISOString(),

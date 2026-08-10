@@ -1,10 +1,10 @@
 import type Database from "better-sqlite3";
 import type { SqliteRow } from "./sql-mappers.js";
 
-export const WORKBENCH_SCHEMA_VERSION = 11;
+export const WORKBENCH_SCHEMA_VERSION = 12;
 
 export function requiresRuntimeSchemaRebuild(currentVersion: number): boolean {
-  return currentVersion !== 9 && currentVersion !== 10 && currentVersion !== WORKBENCH_SCHEMA_VERSION;
+  return ![9, 10, 11, WORKBENCH_SCHEMA_VERSION].includes(currentVersion);
 }
 
 export function migrate(db: Database.Database): void {
@@ -47,6 +47,9 @@ export function migrate(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS conversations (
       project_id TEXT NOT NULL,
       conversation_id TEXT NOT NULL,
+      product_mode TEXT NOT NULL CHECK(product_mode IN ('agent', 'harness')),
+      client_create_request_id TEXT,
+      client_create_request_hash TEXT,
       title TEXT NOT NULL,
       state TEXT NOT NULL DEFAULT 'active',
       surface_kind TEXT NOT NULL DEFAULT 'user',
@@ -115,6 +118,7 @@ export function migrate(db: Database.Database): void {
       project_id TEXT NOT NULL,
       conversation_id TEXT,
       attempt_id TEXT NOT NULL,
+      product_mode TEXT NOT NULL CHECK(product_mode IN ('agent', 'harness')),
       graph_scope_id TEXT,
       provider_id TEXT NOT NULL,
       change_id TEXT,
@@ -125,12 +129,14 @@ export function migrate(db: Database.Database): void {
       native_session_id TEXT,
       model_json TEXT,
       capability_snapshot_json TEXT NOT NULL,
+      effective_skill_inputs_json TEXT NOT NULL DEFAULT '[]',
       handoff_hash TEXT NOT NULL,
       delivered_through_completed_turn INTEGER NOT NULL,
       worktree_id TEXT,
       status TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
+      CHECK(conversation_id IS NOT NULL OR product_mode = 'harness'),
       PRIMARY KEY(project_id, attempt_id)
     );
     CREATE INDEX IF NOT EXISTS idx_provider_attempts_conversation
@@ -198,6 +204,18 @@ export function migrate(db: Database.Database): void {
       PRIMARY KEY(project_id, change_id, skill_id, scope)
     );
 
+    CREATE TABLE IF NOT EXISTS composer_drafts (
+      project_id TEXT NOT NULL,
+      product_mode TEXT NOT NULL CHECK(product_mode IN ('agent', 'harness')),
+      text TEXT NOT NULL DEFAULT '',
+      context_refs_json TEXT NOT NULL DEFAULT '[]',
+      attachment_ids_json TEXT NOT NULL DEFAULT '[]',
+      skill_overrides_json TEXT NOT NULL DEFAULT '[]',
+      selected_provider_id TEXT,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, product_mode)
+    );
+
     CREATE TABLE IF NOT EXISTS approval_cache (
       project_id TEXT NOT NULL,
       change_id TEXT,
@@ -229,6 +247,11 @@ export function migrate(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_decision_records_topic ON decision_records(project_id, change_id, updated_at);
   `);
   ensureColumn(db, "provider_attempts", "parent_agent_surface_id", "TEXT");
+  ensureColumn(db, "conversations", "product_mode", "TEXT NOT NULL DEFAULT 'harness' CHECK(product_mode IN ('agent', 'harness'))");
+  ensureColumn(db, "conversations", "client_create_request_id", "TEXT");
+  ensureColumn(db, "conversations", "client_create_request_hash", "TEXT");
+  ensureColumn(db, "provider_attempts", "product_mode", "TEXT NOT NULL DEFAULT 'harness' CHECK(product_mode IN ('agent', 'harness'))");
+  ensureColumn(db, "provider_attempts", "effective_skill_inputs_json", "TEXT NOT NULL DEFAULT '[]'");
   db.exec("DELETE FROM skill_roots WHERE source_kind <> 'custom';");
   db.exec(`
     DELETE FROM conversation_change_links
@@ -249,6 +272,44 @@ export function migrate(db: Database.Database): void {
       ON conversation_change_links(project_id, change_id);
   `);
   db.exec("CREATE INDEX IF NOT EXISTS idx_timeline_conversation ON canonical_timeline_items(project_id, conversation_id, position);");
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_conversations_project_mode_updated
+      ON conversations(project_id, product_mode, deleted_at, updated_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_conversations_project_create_request
+      ON conversations(project_id, client_create_request_id)
+      WHERE client_create_request_id IS NOT NULL;
+    DROP TRIGGER IF EXISTS trg_conversations_product_mode_immutable;
+    CREATE TRIGGER trg_conversations_product_mode_immutable
+    BEFORE UPDATE OF product_mode ON conversations
+    WHEN NEW.product_mode <> OLD.product_mode
+    BEGIN
+      SELECT RAISE(ABORT, 'Conversation product_mode is immutable');
+    END;
+    DROP TRIGGER IF EXISTS trg_provider_attempt_mode_insert;
+    CREATE TRIGGER trg_provider_attempt_mode_insert
+    BEFORE INSERT ON provider_attempts
+    WHEN NEW.conversation_id IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM conversations
+      WHERE project_id = NEW.project_id
+        AND conversation_id = NEW.conversation_id
+        AND product_mode = NEW.product_mode
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'ProviderAttempt product_mode must match Conversation');
+    END;
+    DROP TRIGGER IF EXISTS trg_provider_attempt_mode_update;
+    CREATE TRIGGER trg_provider_attempt_mode_update
+    BEFORE UPDATE OF conversation_id, product_mode ON provider_attempts
+    WHEN NEW.conversation_id IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM conversations
+      WHERE project_id = NEW.project_id
+        AND conversation_id = NEW.conversation_id
+        AND product_mode = NEW.product_mode
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'ProviderAttempt product_mode must match Conversation');
+    END;
+  `);
   db.pragma(`user_version = ${WORKBENCH_SCHEMA_VERSION}`);
 }
 
@@ -305,6 +366,7 @@ export function resetWorkbenchConversationRunSchema(db: Database.Database): void
     DROP TABLE IF EXISTS conversation_change_links;
     DROP TABLE IF EXISTS conversation_graph_scopes;
     DROP TABLE IF EXISTS planning_acceptance_commits;
+    DROP TABLE IF EXISTS composer_drafts;
     DROP TABLE IF EXISTS approval_cache;
     DROP TABLE IF EXISTS decision_records;
   `);

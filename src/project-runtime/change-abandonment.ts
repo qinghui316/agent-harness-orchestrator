@@ -315,7 +315,7 @@ async function prepareAbandonment(
   let decisionBefore: StoredDecisionRecord | null;
   let graphScopeBefore: StoredConversationGraphScope;
   try {
-    const candidates = store.conversations.listConversations(resolution.harness.projectId)
+    const candidates = store.conversations.listConversations(resolution.harness.projectId, "harness")
       .filter((candidate) => candidate.boundChangeId === input.changeId
         || store.conversations.listConversationChangeIds(resolution.harness.projectId, candidate.conversationId).includes(input.changeId));
     if (candidates.length !== 1) {

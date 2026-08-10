@@ -1,4 +1,5 @@
-import type { ProviderCapabilitySnapshot, ProviderModelRef } from "../../provider-runtime/index.js";
+import type { ProviderSkillInput } from "../../project-harness/contracts.js";
+import { assertProductMode, type ProviderCapabilitySnapshot, type ProviderModelRef } from "../../provider-runtime/index.js";
 import type { StoredConversation, StoredConversationProviderBinding, StoredDecisionRecord, StoredDecisionStatus, StoredProviderAttempt, StoredProviderResumePoint, StoredProviderThreadLink, StoredSkillEnablement, StoredSkillRoot, StoredTopicMessage } from "./contracts.js";
 
 export interface SqliteRow { [key: string]: unknown; }
@@ -34,6 +35,9 @@ export function mapConversationRow(row: SqliteRow): StoredConversation {
   return {
     projectId: String(row.projectId),
     conversationId: String(row.conversationId),
+    productMode: assertProductMode(row.productMode, "Stored Conversation productMode"),
+    clientCreateRequestId: nullableString(row.clientCreateRequestId),
+    clientCreateRequestHash: nullableString(row.clientCreateRequestHash),
     title: String(row.title),
     state: row.state === "archive" ? "archive" : "active",
     surfaceKind: row.surfaceKind === "runtime" ? "runtime" : "user",
@@ -101,11 +105,14 @@ export function mapConversationProviderBindingRow(row: SqliteRow): StoredConvers
 export function mapProviderAttemptRow(row: SqliteRow): StoredProviderAttempt {
   const capabilitySnapshot = parseJsonObject<ProviderCapabilitySnapshot>(row.capabilitySnapshotJson);
   if (!capabilitySnapshot) throw new Error(`Provider attempt has invalid capability snapshot: ${String(row.attemptId)}`);
+  const effectiveSkillInputs = parseJsonArray<ProviderSkillInput>(row.effectiveSkillInputsJson);
+  if (!effectiveSkillInputs) throw new Error(`Provider attempt has invalid effective Skill inputs: ${String(row.attemptId)}`);
   const status = String(row.status);
   return {
     projectId: String(row.projectId),
     conversationId: nullableString(row.conversationId),
     attemptId: String(row.attemptId),
+    productMode: assertProductMode(row.productMode, "Stored ProviderAttempt productMode"),
     graphScopeId: nullableString(row.graphScopeId),
     changeId: nullableString(row.changeId),
     agentTaskId: nullableString(row.agentTaskId),
@@ -116,6 +123,7 @@ export function mapProviderAttemptRow(row: SqliteRow): StoredProviderAttempt {
     nativeSessionId: nullableString(row.nativeSessionId),
     model: parseJsonObject<ProviderModelRef>(row.modelJson),
     capabilitySnapshot,
+    effectiveSkillInputs,
     handoffHash: String(row.handoffHash),
     deliveredThroughCompletedTurn: Number(row.deliveredThroughCompletedTurn),
     worktreeId: nullableString(row.worktreeId),
@@ -123,6 +131,16 @@ export function mapProviderAttemptRow(row: SqliteRow): StoredProviderAttempt {
     createdAt: String(row.createdAt),
     updatedAt: String(row.updatedAt),
   };
+}
+
+function parseJsonArray<T>(value: unknown): T[] | null {
+  if (typeof value !== "string") return null;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed as T[] : null;
+  } catch {
+    return null;
+  }
 }
 
 export function mapProviderResumePointRow(row: SqliteRow): StoredProviderResumePoint {

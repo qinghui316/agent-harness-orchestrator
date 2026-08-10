@@ -59,7 +59,6 @@ import { listRuns } from "../../src/run/manager.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
 import {
-  createWorkbenchConversation,
   listConversationMessages,
   postConversationMessage,
 } from "../../src/workbench/conversation-service.js";
@@ -72,7 +71,10 @@ import {
   prepareSkillNativeApplyFixture,
   type SkillNativeApplyFixture,
 } from "../helpers/skill-native-apply-fixture.js";
-import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
+import {
+  createConversationChangeFixture,
+  createHarnessWorkbenchConversation as createWorkbenchConversation,
+} from "../helpers/conversation-change-fixture.js";
 import {
   authorizeSkillNativeWorkflowStartFixture,
   createSkillNativeWorkbenchReadyCandidate,

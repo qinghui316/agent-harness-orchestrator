@@ -176,6 +176,7 @@ function createSnapshot(interaction?: ConversationInteraction): Snapshot {
   const project = { id: "repo", name: "Repo", path: "E:/repo" };
   const topic = {
     id: "conv-1",
+    productMode: "harness" as const,
     title: "Owner convergence",
     state: "active",
     kind: "conversation" as const,
@@ -197,7 +198,7 @@ function createSnapshot(interaction?: ConversationInteraction): Snapshot {
         state: "active",
         conversationLifecycle: "active",
       },
-      conversationInteractions: { conversationId: topic.id, items: interaction ? [interaction] : [] },
+      conversationInteractions: { productMode: "harness", conversationId: topic.id, items: interaction ? [interaction] : [] },
     },
     right: { ...emptyWorkbenchSnapshot.right },
   };
@@ -225,11 +226,15 @@ function createInteraction(): ConversationInteraction {
 function timelinePage(agentSurfaceId: string): CanonicalTimelinePage {
   const text = agentSurfaceId === "main-agent" ? "Canonical Main reply" : "Canonical child reply";
   return {
+    projectId: "repo",
+    productMode: "harness",
     conversationId: "conv-1",
     agentSurfaceId,
     watermark: 1,
     pinned: [],
     entries: [{
+      projectId: "repo",
+      productMode: "harness",
       conversationId: "conv-1",
       agentSurfaceId,
       messageId: `message:${agentSurfaceId}`,
@@ -313,7 +318,7 @@ function installApiFixture(snapshot: Snapshot): void {
       const parsed = new URL(url, "http://localhost");
       return json(timelinePage(parsed.searchParams.get("agentSurfaceId") ?? "main-agent"));
     }
-    if (url.endsWith("/providers/capabilities")) {
+    if (url.includes("/providers/capabilities?")) {
       return json({ providers: [{ providerId: "codex", displayName: "Codex", capabilities: {} }] });
     }
     if (url.endsWith("/providers/codex/diagnostics")) return json({ providerId: "codex", displayName: "Codex", models: {} });

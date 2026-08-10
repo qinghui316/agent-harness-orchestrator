@@ -406,8 +406,8 @@ export async function tryBuildSkillNativePlanningSnapshot(input: {
     getProjectStatus(input.project, input.project.path),
     listWorkbenchRoles(),
     selected.currentGraphScopeId
-      ? buildConversationInteractionQueue(input.resolution.paths, selected.conversationId, selected.currentGraphScopeId)
-      : Promise.resolve({ items: [] }),
+      ? buildConversationInteractionQueue(input.resolution.paths, selected.conversationId, selected.currentGraphScopeId, "harness")
+      : Promise.resolve({ productMode: "harness" as const, items: [] }),
   ]);
   const projectedWorkpad = {
     ...applySkillNativeWorkpadEvidence(workpad, topic, taskGraph, agentTasks, existingWorkflowRun),
@@ -434,6 +434,7 @@ export async function tryBuildSkillNativePlanningSnapshot(input: {
     }
   }
   return {
+    productMode: "harness",
     project: input.project,
     harness: status,
     left: {
@@ -666,8 +667,8 @@ async function buildSkillNativeExecutionSnapshot(input: {
     getProjectStatus(input.project, input.project.path),
     listWorkbenchRoles(),
     input.selected.currentGraphScopeId
-      ? buildConversationInteractionQueue(input.resolution.paths, input.selected.conversationId, input.selected.currentGraphScopeId)
-      : Promise.resolve({ items: [] }),
+      ? buildConversationInteractionQueue(input.resolution.paths, input.selected.conversationId, input.selected.currentGraphScopeId, "harness")
+      : Promise.resolve({ productMode: "harness" as const, items: [] }),
   ]);
   const decisionInspector = buildDecisionInspector({
     selectedTopic: topic,
@@ -681,6 +682,7 @@ async function buildSkillNativeExecutionSnapshot(input: {
     topic.id,
   );
   return {
+    productMode: "harness",
     project: input.project,
     harness: input.status,
     left: { project: input.project, harness: input.status, topics, workpads, repo: buildRepoSummary(projectStatus) },
@@ -1181,7 +1183,7 @@ interface PlanningConversation {
 async function readPlanningConversations(resolution: ProjectRuntimeResolution): Promise<PlanningConversation[]> {
   const store = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
   try {
-    return store.conversations.listConversations(resolution.harness.projectId).map((conversation) => ({
+    return store.conversations.listConversations(resolution.harness.projectId, "harness").map((conversation) => ({
       conversationId: conversation.conversationId,
       title: conversation.title,
       state: conversation.state,
@@ -1217,6 +1219,7 @@ async function readPlanningThread(
 function conversationTopicSummary(conversation: PlanningConversation): WorkbenchTopicSummary {
   return {
     id: conversation.conversationId,
+    productMode: "harness",
     kind: "conversation",
     name: conversation.conversationId,
     title: conversation.title,
@@ -1370,6 +1373,7 @@ async function buildEmptySkillNativeSnapshot(
     buildSkillNativeEvolutionApprovals(resolution),
   ]);
   return {
+    productMode: "harness",
     project,
     harness: status,
     left: {
@@ -1383,7 +1387,7 @@ async function buildEmptySkillNativeSnapshot(
       selectedTopic: null,
       workpad,
       thread: { items: [] },
-      conversationInteractions: { items: [] },
+      conversationInteractions: { productMode: "harness", items: [] },
       activeTab: "conversation",
       agentLoop: { runs: [] },
     },

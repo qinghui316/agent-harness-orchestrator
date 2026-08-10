@@ -38,7 +38,7 @@ export async function persistProviderUserInputRequest(
   };
   const database = await openProjectRuntimeWorkbenchDatabase(runtime);
   try {
-    return new CanonicalTimelineDelivery(database, publisher).append(toCanonicalTimelineMessage(runtime.projectId, request.conversationId, entry));
+    return new CanonicalTimelineDelivery(database, "harness", publisher).append(toCanonicalTimelineMessage(runtime.projectId, request.conversationId, entry));
   } finally {
     database.close();
   }

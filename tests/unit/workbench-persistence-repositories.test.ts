@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -8,6 +8,7 @@ import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { WorkbenchDatabase } from "../../src/workbench/persistence/database.js";
 import type { StoredTopicMessageWrite } from "../../src/workbench/persistence/contracts.js";
+import { WORKBENCH_SCHEMA_VERSION } from "../../src/workbench/persistence/schema.js";
 
 let root: string;
 const projectId = "persistence-owner";
@@ -22,6 +23,61 @@ afterEach(async () => {
 });
 
 describe("Workbench persistence owners", () => {
+  it.each([9, 10, 11])("migrates revision %i to 12 without losing Conversation continuity", async (revision) => {
+    await createLegacyWorkbenchDatabase(revision);
+
+    const database = await openProjectRuntimeWorkbenchDatabase(runtimePaths());
+    try {
+      expect(database.conversations.readConversation(projectId, "legacy-conversation")).toMatchObject({
+        productMode: "harness",
+        clientCreateRequestId: null,
+        clientCreateRequestHash: null,
+        title: "Legacy conversation",
+      });
+      expect(database.timeline.listConversationMessages(projectId, "legacy-conversation")).toEqual([
+        expect.objectContaining({ id: "legacy-message", text: "Preserve this message." }),
+      ]);
+      expect(database.providerAttempts.readConversationProviderBinding(projectId, "legacy-conversation", "codex")).toMatchObject({
+        nativeSessionId: "legacy-session",
+        lastDeliveredCompletedTurn: 1,
+      });
+      expect(database.providerAttempts.readProviderAttempt(projectId, "legacy-attempt")).toMatchObject({
+        productMode: "harness",
+        effectiveSkillInputs: [],
+        nativeSessionId: "legacy-session",
+        status: "completed",
+      });
+    } finally {
+      database.close();
+    }
+
+    const inspected = new Database(runtimePaths().workbenchDbPath);
+    try {
+      expect(Number(inspected.pragma("user_version", { simple: true }))).toBe(WORKBENCH_SCHEMA_VERSION);
+      expect(inspected.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'composer_drafts'").get()).toBeTruthy();
+      expect(() => inspected.prepare(`
+        INSERT INTO conversations (
+          project_id, conversation_id, product_mode, title, state, surface_kind,
+          selected_provider_id, completed_turn_sequence, timeline_position, timeline_revision,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, 'active', 'user', 'codex', 0, 0, 0, ?, ?)
+      `).run(projectId, "invalid-mode", "invalid", "Invalid", now, now)).toThrow();
+      expect(() => inspected.prepare(`
+        UPDATE conversations SET product_mode = 'agent'
+        WHERE project_id = ? AND conversation_id = ?
+      `).run(projectId, "legacy-conversation")).toThrow(/immutable/);
+      expect(() => inspected.prepare(`
+        INSERT INTO provider_attempts (
+          project_id, conversation_id, attempt_id, product_mode, provider_id, role_id,
+          operation_profile, capability_snapshot_json, effective_skill_inputs_json,
+          handoff_hash, delivered_through_completed_turn, status, created_at, updated_at
+        ) VALUES (?, ?, ?, 'agent', 'codex', 'main-agent', 'main', '{}', '[]', '', 0, 'queued', ?, ?)
+      `).run(projectId, "legacy-conversation", "wrong-mode-attempt", now, now)).toThrow(/must match Conversation/);
+    } finally {
+      inspected.close();
+    }
+  });
+
   it("updates a Conversation title only inside the exact project scope", async () => {
     const database = await openProjectRuntimeWorkbenchDatabase(runtimePaths());
     try {
@@ -55,6 +111,54 @@ describe("Workbench persistence owners", () => {
     }
   });
 
+  it("rolls back the entire first-send transaction including Skill overrides and draft deletion", async () => {
+    const paths = runtimePaths();
+    const initialized = await openProjectRuntimeWorkbenchDatabase(paths);
+    initialized.close();
+    const raw = new Database(paths.workbenchDbPath);
+    raw.prepare(`
+      INSERT INTO composer_drafts (
+        project_id, product_mode, text, context_refs_json, attachment_ids_json,
+        skill_overrides_json, selected_provider_id, updated_at
+      ) VALUES (?, 'harness', 'draft', '[]', '[]', '[]', 'codex', ?)
+    `).run(projectId, now);
+    raw.close();
+
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      database.unitOfWork.createConversationWithInitialMessage(
+        conversation("conversation-1"),
+        message("shared-message", "conversation-1"),
+      );
+      expect(() => database.unitOfWork.createConversationFromFirstSend({
+        conversation: {
+          ...conversation("conversation-2"),
+          clientCreateRequestId: "rollback-first-send",
+          clientCreateRequestHash: "rollback-hash",
+        },
+        message: message("shared-message", "conversation-2"),
+        skillOverrides: [{ skillId: "must-not-persist", enabled: true }],
+      })).toThrow();
+
+      expect(database.conversations.readConversation(projectId, "conversation-2")).toBeNull();
+      expect(database.timeline.listConversationMessages(projectId, "conversation-2")).toEqual([]);
+      expect(database.skills.listSkillEnablement(projectId)).not.toContainEqual(expect.objectContaining({
+        skillId: "must-not-persist",
+      }));
+    } finally {
+      database.close();
+    }
+
+    const inspected = new Database(paths.workbenchDbPath, { readonly: true });
+    try {
+      expect(inspected.prepare(`
+        SELECT text FROM composer_drafts WHERE project_id = ? AND product_mode = 'harness'
+      `).get(projectId)).toMatchObject({ text: "draft" });
+    } finally {
+      inspected.close();
+    }
+  });
+
   it("rolls back interaction, attempt, and binding terminal state when the turn CAS fails", async () => {
     const database = await openProjectRuntimeWorkbenchDatabase(runtimePaths());
     try {
@@ -63,6 +167,7 @@ describe("Workbench persistence owners", () => {
         projectId,
         conversationId: "conversation-1",
         attemptId: "attempt-1",
+        productMode: "harness",
         graphScopeId: "graph-1",
         changeId: null,
         agentTaskId: null,
@@ -72,6 +177,7 @@ describe("Workbench persistence owners", () => {
         nativeSessionId: null,
         model: null,
         capabilitySnapshot: { providerId: "codex", effectiveModel: null } as unknown as ProviderCapabilitySnapshot,
+        effectiveSkillInputs: [],
         handoffHash: "handoff-1",
         deliveredThroughCompletedTurn: 0,
         worktreeId: null,
@@ -419,6 +525,7 @@ function providerAttempt(attemptId: string, providerId: string) {
     projectId,
     conversationId: "conversation-1",
     attemptId,
+    productMode: "harness",
     graphScopeId: "graph-1",
     changeId: null,
     agentTaskId: null,
@@ -428,6 +535,7 @@ function providerAttempt(attemptId: string, providerId: string) {
     nativeSessionId: null,
     model: null,
     capabilitySnapshot: { providerId, effectiveModel: null } as unknown as ProviderCapabilitySnapshot,
+    effectiveSkillInputs: [],
     handoffHash: `handoff-${attemptId}`,
     deliveredThroughCompletedTurn: 0,
     worktreeId: null,
@@ -441,6 +549,9 @@ function conversation(conversationId: string) {
   return {
     projectId,
     conversationId,
+    productMode: "harness" as const,
+    clientCreateRequestId: null,
+    clientCreateRequestHash: null,
     title: conversationId,
     state: "active" as const,
     boundChangeId: null,
@@ -485,4 +596,110 @@ async function collectTypeScriptFiles(directory: string): Promise<string[]> {
     else if (entry.name.endsWith(".ts")) files.push(path);
   }
   return files.sort();
+}
+
+async function createLegacyWorkbenchDatabase(revision: 9 | 10 | 11): Promise<void> {
+  const paths = runtimePaths();
+  await mkdir(paths.workbenchRoot, { recursive: true });
+  const database = new Database(paths.workbenchDbPath);
+  try {
+    database.exec(`
+      CREATE TABLE conversations (
+        project_id TEXT NOT NULL,
+        conversation_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        state TEXT NOT NULL DEFAULT 'active',
+        surface_kind TEXT NOT NULL DEFAULT 'user',
+        bound_change_id TEXT,
+        current_graph_scope_id TEXT,
+        selected_provider_id TEXT NOT NULL,
+        completed_turn_sequence INTEGER NOT NULL DEFAULT 0,
+        timeline_position INTEGER NOT NULL DEFAULT 0,
+        timeline_revision INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT,
+        PRIMARY KEY(project_id, conversation_id)
+      );
+      CREATE TABLE canonical_timeline_items (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        conversation_id TEXT NOT NULL DEFAULT '',
+        change_id TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        revision INTEGER NOT NULL,
+        agent_surface_id TEXT NOT NULL,
+        initial_thread_input INTEGER NOT NULL DEFAULT 0,
+        type TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        text TEXT,
+        action_run_id TEXT,
+        action_type TEXT,
+        status TEXT,
+        run_id TEXT,
+        provider_id TEXT,
+        thread_id TEXT,
+        turn_id TEXT,
+        item_id TEXT,
+        artifact TEXT,
+        error TEXT,
+        raw_json TEXT NOT NULL
+      );
+      CREATE TABLE conversation_provider_bindings (
+        project_id TEXT NOT NULL,
+        conversation_id TEXT NOT NULL,
+        provider_id TEXT NOT NULL,
+        native_session_id TEXT,
+        last_delivered_completed_turn INTEGER NOT NULL DEFAULT 0,
+        preferred_model_json TEXT,
+        last_used_at TEXT,
+        binding_status TEXT NOT NULL,
+        PRIMARY KEY(project_id, conversation_id, provider_id)
+      );
+      CREATE TABLE provider_attempts (
+        project_id TEXT NOT NULL,
+        conversation_id TEXT,
+        attempt_id TEXT NOT NULL,
+        graph_scope_id TEXT,
+        provider_id TEXT NOT NULL,
+        change_id TEXT,
+        agent_task_id TEXT,
+        role_id TEXT NOT NULL,
+        parent_agent_surface_id TEXT,
+        operation_profile TEXT NOT NULL,
+        native_session_id TEXT,
+        model_json TEXT,
+        capability_snapshot_json TEXT NOT NULL,
+        handoff_hash TEXT NOT NULL,
+        delivered_through_completed_turn INTEGER NOT NULL,
+        worktree_id TEXT,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY(project_id, attempt_id)
+      );
+      INSERT INTO conversations VALUES (
+        '${projectId}', 'legacy-conversation', 'Legacy conversation', 'active', 'user',
+        NULL, 'legacy-graph', 'codex', 1, 1, 1, '${now}', '${now}', NULL
+      );
+      INSERT INTO canonical_timeline_items VALUES (
+        'legacy-message', '${projectId}', 'legacy-conversation', '', 1, 1,
+        'main-agent', 0, 'user.message', '${now}', 'Preserve this message.',
+        NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, '{}'
+      );
+      INSERT INTO conversation_provider_bindings VALUES (
+        '${projectId}', 'legacy-conversation', 'codex', 'legacy-session', 1,
+        NULL, '${now}', 'ready'
+      );
+      INSERT INTO provider_attempts VALUES (
+        '${projectId}', 'legacy-conversation', 'legacy-attempt', 'legacy-graph', 'codex',
+        NULL, NULL, 'main-agent', NULL, 'main', 'legacy-session', NULL,
+        '{"providerId":"codex","productMode":"harness"}', '', 1, NULL,
+        'completed', '${now}', '${now}'
+      );
+    `);
+    database.pragma(`user_version = ${revision}`);
+  } finally {
+    database.close();
+  }
 }

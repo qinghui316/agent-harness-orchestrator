@@ -82,7 +82,7 @@ describe("Workbench project removal", () => {
     });
     expect(readded.project.id).toBe("project-one");
     expect(existsSync(fixture.projectOne.paths.sidecarRoot)).toBe(true);
-    const reactivated = await fetch(`${fixture.handle.url}/api/projects/project-one/providers/capabilities`);
+    const reactivated = await fetch(`${fixture.handle.url}/api/projects/project-one/providers/capabilities?productMode=harness`);
     expect(reactivated.status).toBe(200);
   });
 
@@ -113,13 +113,13 @@ describe("Workbench project removal", () => {
     await withTimeout(shutdownObserved, "provider shutdown was not requested");
 
     const blocked = await withTimeout(
-      fetch(`${fixture.handle.url}/api/projects/project-one/providers/capabilities`),
+      fetch(`${fixture.handle.url}/api/projects/project-one/providers/capabilities?productMode=harness`),
       "fenced request did not finish",
     );
     expect(blocked.status).toBe(409);
     expect(await blocked.text()).toContain("cannot accept work");
     const unaffected = await withTimeout(
-      fetch(`${fixture.handle.url}/api/projects/project-two/providers/capabilities`),
+      fetch(`${fixture.handle.url}/api/projects/project-two/providers/capabilities?productMode=harness`),
       "unaffected project request did not finish",
     );
     expect(unaffected.status).toBe(200);

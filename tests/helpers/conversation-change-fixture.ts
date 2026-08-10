@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { shortHash, slugify } from "../../src/fs/path.js";
 import {
   createProjectHarnessChange,
@@ -11,7 +12,21 @@ import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../src/provider-run
 import { resolveProjectRuntimeState } from "../../src/project-runtime/coordinator.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import { appendCanonicalTimelineEntry } from "../../src/workbench/canonical-timeline-command.js";
+import { createWorkbenchConversation } from "../../src/workbench/conversation-service.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
+
+export function createHarnessWorkbenchConversation(
+  project: ManagedProject,
+  input: Omit<Parameters<typeof createWorkbenchConversation>[1], "productMode" | "clientRequestId">,
+  live?: Parameters<typeof createWorkbenchConversation>[2],
+  options?: Parameters<typeof createWorkbenchConversation>[3],
+): ReturnType<typeof createWorkbenchConversation> {
+  return createWorkbenchConversation(project, {
+    ...input,
+    productMode: "harness",
+    clientRequestId: `test-${randomUUID()}`,
+  }, live, options);
+}
 
 export async function createConversationChangeFixture(
   project: ManagedProject,
@@ -43,6 +58,7 @@ export async function createConversationChangeFixture(
     store.conversations.createConversation({
       projectId: runtime.resolution.harness.projectId,
       conversationId,
+      productMode: "harness",
       title: input.title,
       state: "active",
       boundChangeId: changeId,

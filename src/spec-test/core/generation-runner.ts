@@ -80,7 +80,7 @@ async function startSpecTestGenerationRunActivity(project: ManagedProject, optio
   const provider = await resolveSpecTestProvider(contextScope, project, "coder", project.path);
   const providerId = provider.id;
   const [capabilitySnapshot, mainThread] = await Promise.all([
-    provider.capabilitySnapshot(project, project.path),
+    provider.capabilitySnapshot(project, "harness", project.path),
     resolveCurrentMainAgentProviderThread(contextScope.runtime, changeId, providerId),
   ]);
   const created = await createWorktreeWithRuntimePort(project, contextScope.runtime, changeId, { runId });

@@ -485,6 +485,7 @@ describe("Skill-native Workbench planning composition", () => {
       store.conversations.createConversation({
         projectId: fixture.project.id,
         conversationId,
+        productMode: "harness",
         title: "Native health endpoint",
         state: "active",
         boundChangeId: null,

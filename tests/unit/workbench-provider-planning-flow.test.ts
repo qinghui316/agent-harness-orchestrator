@@ -81,7 +81,7 @@ import { agentThreadSurfaceId } from "../../src/provider-runtime/agent-surface-i
 import { git } from "../../src/project/git.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import { appendCanonicalTimelineEntry } from "../../src/workbench/canonical-timeline-command.js";
-import { createWorkbenchConversation, listConversationMessages, postConversationMessage } from "../../src/workbench/conversation-service.js";
+import { listConversationMessages, postConversationMessage } from "../../src/workbench/conversation-service.js";
 import { runProjectScopedMainAgentTurn } from "../../src/workbench/main-agent-turn-coordinator.js";
 import { resumeNativeGoalAfterAction, runWorkbenchWorkflowAction } from "../../src/workbench/workflow-conversation-bridge.js";
 import { buildConversationInteractionQueue } from "../../src/workbench/conversation-interactions.js";
@@ -93,6 +93,7 @@ import { readLatestWorkflowGraphPlanAt } from "../../src/workflow-artifacts/mana
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { planDocumentContentHash } from "../../src/workbench/plan-documents.js";
 import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
+import { createHarnessWorkbenchConversation as createWorkbenchConversation } from "../helpers/conversation-change-fixture.js";
 
 let root: string;
 let originalAhoHome: string | undefined;
@@ -454,7 +455,7 @@ describe("Workbench provider planning flow", () => {
     const conversation = await createWorkbenchConversation(project(), {
       body: "Continue later.",
     }, undefined, { runMainAgent: false });
-    const capabilitySnapshot = await defaultProviderRegistry.get("codex").capabilitySnapshot(project(), root);
+    const capabilitySnapshot = await defaultProviderRegistry.get("codex").capabilitySnapshot(project(), "harness", root);
     const store = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
     const stored = store.conversations.readConversation(project().id, conversation.conversationId)!;
     const baseAttempt = {
@@ -602,7 +603,7 @@ describe("Workbench provider planning flow", () => {
     const store = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
     const graphScopeId = store.conversations.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
     store.close();
-    expect((await buildConversationInteractionQueue(runtimePaths, conversation.conversationId, graphScopeId)).items).toEqual([]);
+    expect((await buildConversationInteractionQueue(runtimePaths, conversation.conversationId, graphScopeId, "harness")).items).toEqual([]);
   });
 
   it("projects a child provider question onto its exact canonical surface", async () => {
@@ -627,6 +628,7 @@ describe("Workbench provider planning flow", () => {
           { project: project(), path: root },
           conversation.conversationId,
           childSurfaceId,
+          "harness",
           { limit: 100 },
         );
         expect(page.entries).toEqual([
@@ -639,7 +641,7 @@ describe("Workbench provider planning flow", () => {
       const store = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
       const graphScopeId = store.conversations.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
       store.close();
-      expect((await buildConversationInteractionQueue(runtimePaths, conversation.conversationId, graphScopeId)).items).toEqual([
+      expect((await buildConversationInteractionQueue(runtimePaths, conversation.conversationId, graphScopeId, "harness")).items).toEqual([
         expect.objectContaining({ kind: "provider-input", status: "pending" }),
       ]);
 
@@ -1038,7 +1040,7 @@ describe("Workbench provider planning flow", () => {
     const store = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
     let conversationId = "";
     try {
-      const conversations = store.conversations.listConversations(project().id);
+      const conversations = store.conversations.listConversations(project().id, "harness");
       expect(conversations).toHaveLength(1);
       conversationId = conversations[0]?.conversationId ?? "";
       const attempts = store.providerAttempts.listProviderAttempts(project().id, conversationId);
@@ -1105,7 +1107,7 @@ describe("Workbench provider planning flow", () => {
         documentRef: expect.objectContaining({ documentId: expect.stringMatching(/^plan-document-/) }),
       }),
     ]);
-    const timeline = await getCanonicalTimelinePage({ project: project(), path: root }, conversation.conversationId, "main-agent");
+    const timeline = await getCanonicalTimelinePage({ project: project(), path: root }, conversation.conversationId, "main-agent", "harness");
     expect([...timeline.pinned, ...timeline.entries].flatMap((envelope) => envelope.cells)).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "document-preview", title: "实现计划" }),
     ]));
@@ -1367,6 +1369,7 @@ describe("Workbench provider planning flow", () => {
       runtimePaths,
       conversation.conversationId,
       plan?.graphScopeId,
+      "harness",
     )).items).toEqual([
       expect.objectContaining({ kind: "plan", graphScopeId: plan?.graphScopeId }),
     ]);
@@ -1378,6 +1381,7 @@ describe("Workbench provider planning flow", () => {
       { project: project(), path: root },
       conversation.conversationId,
       agentThreadSurfaceId("codex", "thread-planner"),
+      "harness",
     );
     const plannerInputEnvelope = plannerTimeline.pinned.find((envelope) => envelope.orderClass === "thread-start");
     expect(plannerInputEnvelope).toMatchObject({ orderClass: "thread-start" });
@@ -1498,6 +1502,7 @@ describe("Workbench provider planning flow", () => {
       { project: project(), path: root },
       conversation.conversationId,
       agentThreadSurfaceId("codex", "thread-planner"),
+      "harness",
     );
     const durablePlannerCells = [...durablePlannerTimeline.pinned, ...durablePlannerTimeline.entries].flatMap((envelope) => envelope.cells);
     expect(durablePlannerCells.map((cell) => cell.kind)).toEqual(expect.arrayContaining([

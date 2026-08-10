@@ -1,5 +1,5 @@
 import type { ActiveProviderTurn, ProviderDescriptor } from "./contracts.js";
-import { missingProviderCapabilities, type ProviderCapabilitySnapshot, type ProviderId, type ProviderOperationProfile } from "./types.js";
+import { missingProviderCapabilities, type ProductMode, type ProviderCapabilitySnapshot, type ProviderId, type ProviderOperationProfile } from "./types.js";
 
 export class ProviderRegistry {
   private readonly descriptors = new Map<ProviderId, ProviderDescriptor>();
@@ -78,18 +78,23 @@ export class ProviderRegistry {
     }
   }
 
-  async require(providerId: ProviderId, profile: ProviderOperationProfile, project: import("../types/index.js").ManagedProject | null, projectPath?: string): Promise<ProviderDescriptor> {
-    return (await this.requireProfiles(providerId, [profile], project, projectPath)).descriptor;
+  async require(providerId: ProviderId, profile: ProviderOperationProfile, productMode: ProductMode, project: import("../types/index.js").ManagedProject | null, projectPath?: string): Promise<ProviderDescriptor> {
+    return (await this.requireProfiles(providerId, [profile], productMode, project, projectPath)).descriptor;
   }
 
   async requireProfiles(
     providerId: ProviderId,
     profiles: readonly ProviderOperationProfile[],
+    productMode: ProductMode,
     project: import("../types/index.js").ManagedProject | null,
     projectPath?: string,
   ): Promise<{ descriptor: ProviderDescriptor; snapshot: ProviderCapabilitySnapshot }> {
+    assertProfilesMatchProductMode(profiles, productMode);
     const descriptor = this.get(providerId);
-    const snapshot = await descriptor.capabilitySnapshot(project, projectPath);
+    const snapshot = await descriptor.capabilitySnapshot(project, productMode, projectPath);
+    if (snapshot.productMode !== productMode) {
+      throw new Error("Provider " + providerId + " returned " + snapshot.productMode + " readiness for requested " + productMode + " mode.");
+    }
     for (const profile of [...new Set(profiles)]) {
       const missing = missingProviderCapabilities(snapshot, profile);
       if (!snapshot.runnable || missing.length > 0) {
@@ -97,5 +102,17 @@ export class ProviderRegistry {
       }
     }
     return { descriptor, snapshot };
+  }
+}
+
+function assertProfilesMatchProductMode(
+  profiles: readonly ProviderOperationProfile[],
+  productMode: ProductMode,
+): void {
+  const mismatched = [...new Set(profiles)].filter((profile) => (
+    productMode === "agent" ? profile !== "agent" : profile === "agent"
+  ));
+  if (mismatched.length > 0) {
+    throw new Error(`Provider profiles ${mismatched.join(", ")} cannot run in ${productMode} product mode.`);
   }
 }

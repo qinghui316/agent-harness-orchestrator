@@ -111,6 +111,7 @@ export async function switchConversationProviderAtSafePoint(input: {
   const preflight = await registry.requireProfiles(
     input.targetProviderId,
     requiredProfilesForResume(preflightHandoff.snapshot),
+    "harness",
     input.project,
     input.project.path,
   );
@@ -149,6 +150,7 @@ export async function switchConversationProviderAtSafePoint(input: {
   const postReconcile = await registry.requireProfiles(
     input.targetProviderId,
     requiredProfilesForResume(handoff.snapshot),
+    "harness",
     input.project,
     input.project.path,
   );
@@ -184,6 +186,7 @@ export async function switchConversationProviderAtSafePoint(input: {
       projectId,
       conversationId: input.conversationId,
       attemptId: resumeAttemptId,
+      productMode: initial.conversation.productMode,
       graphScopeId: initial.conversation.currentGraphScopeId,
       changeId: initial.conversation.boundChangeId,
       agentTaskId: null,
@@ -193,6 +196,7 @@ export async function switchConversationProviderAtSafePoint(input: {
       nativeSessionId: existingBinding?.nativeSessionId ?? null,
       model: capabilitySnapshot.effectiveModel ? { providerId: input.targetProviderId, modelId: capabilitySnapshot.effectiveModel } : null,
       capabilitySnapshot,
+      effectiveSkillInputs: [],
       handoffHash: snapshotHash,
       deliveredThroughCompletedTurn: initial.conversation.completedTurnSequence,
       worktreeId: null,

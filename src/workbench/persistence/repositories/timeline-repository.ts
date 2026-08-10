@@ -180,7 +180,14 @@ readTimelineSurfacePageSnapshot(
     hasMoreBefore: boolean;
   } | null {
     return this.db.transaction(() => {
-      const conversationRow = this.db.prepare(`SELECT project_id AS projectId, conversation_id AS conversationId, title, state, surface_kind AS surfaceKind, bound_change_id AS boundChangeId, current_graph_scope_id AS currentGraphScopeId, selected_provider_id AS selectedProviderId, completed_turn_sequence AS completedTurnSequence, timeline_position AS timelinePosition, timeline_revision AS timelineRevision, created_at AS createdAt, updated_at AS updatedAt, deleted_at AS deletedAt FROM conversations WHERE project_id = ? AND conversation_id = ?`).get(projectId, conversationId) as SqliteRow | undefined;
+      const conversationRow = this.db.prepare(`SELECT project_id AS projectId, conversation_id AS conversationId,
+        product_mode AS productMode, client_create_request_id AS clientCreateRequestId,
+        client_create_request_hash AS clientCreateRequestHash, title, state, surface_kind AS surfaceKind,
+        bound_change_id AS boundChangeId, current_graph_scope_id AS currentGraphScopeId,
+        selected_provider_id AS selectedProviderId, completed_turn_sequence AS completedTurnSequence,
+        timeline_position AS timelinePosition, timeline_revision AS timelineRevision,
+        created_at AS createdAt, updated_at AS updatedAt, deleted_at AS deletedAt
+        FROM conversations WHERE project_id = ? AND conversation_id = ?`).get(projectId, conversationId) as SqliteRow | undefined;
       const conversation = conversationRow ? mapConversationRow(conversationRow) : null;
       if (!conversation) return null;
       const rows = options.beforePosition === undefined

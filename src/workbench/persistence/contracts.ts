@@ -1,4 +1,5 @@
-import type { ProviderCapabilitySnapshot, ProviderId, ProviderModelRef } from "../../provider-runtime/index.js";
+import type { ProviderSkillInput } from "../../project-harness/contracts.js";
+import type { ProductMode, ProviderCapabilitySnapshot, ProviderId, ProviderModelRef } from "../../provider-runtime/index.js";
 
 export interface StoredTopicMessage {
   id: string;
@@ -32,6 +33,9 @@ export type StoredTopicMessageWrite = Omit<StoredTopicMessage, "position" | "rev
 export interface StoredConversation {
   projectId: string;
   conversationId: string;
+  productMode: ProductMode;
+  clientCreateRequestId: string | null;
+  clientCreateRequestHash: string | null;
   title: string;
   state: "active" | "archive";
   surfaceKind?: "user" | "runtime";
@@ -86,6 +90,7 @@ export interface StoredProviderAttempt {
   projectId: string;
   conversationId: string | null;
   attemptId: string;
+  productMode: ProductMode;
   graphScopeId: string | null;
   changeId: string | null;
   agentTaskId: string | null;
@@ -96,11 +101,23 @@ export interface StoredProviderAttempt {
   nativeSessionId: string | null;
   model: ProviderModelRef | null;
   capabilitySnapshot: ProviderCapabilitySnapshot;
+  effectiveSkillInputs: ProviderSkillInput[];
   handoffHash: string;
   deliveredThroughCompletedTurn: number;
   worktreeId: string | null;
   status: "queued" | "running" | "completed" | "interrupted" | "failed" | "blocked" | "terminated";
   createdAt: string;
+  updatedAt: string;
+}
+
+export interface StoredComposerDraft {
+  projectId: string;
+  productMode: ProductMode;
+  text: string;
+  contextRefsJson: string;
+  attachmentIdsJson: string;
+  skillOverridesJson: string;
+  selectedProviderId: ProviderId | null;
   updatedAt: string;
 }
 

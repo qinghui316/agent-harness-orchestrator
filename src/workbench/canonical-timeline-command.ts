@@ -28,7 +28,7 @@ export async function openCanonicalTimelineWriter(
     throw new Error(`Change ${changeId} is not bound to a Demand Conversation.`);
   }
   const graphScopeId = database.conversations.findGraphScopeForChange(projectId, changeId) ?? undefined;
-  const delivery = new CanonicalTimelineDelivery(database, live);
+  const delivery = new CanonicalTimelineDelivery(database, "harness", live);
   return {
     upsert(entry) {
       const canonical: TopicThreadEntry = {
@@ -67,7 +67,7 @@ export async function appendCanonicalTimelineEntry(
     ...input,
   };
   try {
-    return new CanonicalTimelineDelivery(database, live).append(toCanonicalTimelineMessage(projectId, conversation.conversationId, entry));
+    return new CanonicalTimelineDelivery(database, "harness", live).append(toCanonicalTimelineMessage(projectId, conversation.conversationId, entry));
   } finally {
     database.close();
   }
