@@ -31,7 +31,16 @@ const execFileAsync = promisify(execFile);
 
 interface SnapshotResponse {
   left: { topics: Array<{ id: string }> };
-  center: { agentLoop: { runs: Array<{ id: string }> } };
+  center: { selectedTopic?: { id: string } | null; agentLoop: { runs: Array<{ id: string }> } };
+}
+
+function parseSseEvents(body: string): Array<{ event: string; data: unknown }> {
+  return body.split(/\r?\n\r?\n/).flatMap((block) => {
+    const lines = block.split(/\r?\n/);
+    const event = lines.find((line) => line.startsWith("event: "))?.slice(7);
+    const data = lines.find((line) => line.startsWith("data: "))?.slice(6);
+    return event && data ? [{ event, data: JSON.parse(data) as unknown }] : [];
+  });
 }
 
 function project(): ManagedProject {
@@ -327,6 +336,42 @@ describe("workbench server", () => {
     const userMessageIndex = body.indexOf("event: timeline.patch");
     expect(createdIndex).toBeGreaterThanOrEqual(0);
     expect(userMessageIndex).toBeGreaterThan(createdIndex);
+  });
+
+  it("keeps the committed Conversation identity when first-turn execution fails", async () => {
+    const live = await fetch(`${handle!.url}/api/projects/repo/workbench/topics/live`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        body: "Create the durable Agent conversation before execution fails.",
+        productMode: "agent",
+        clientRequestId: "server-live-agent-failure",
+        confirm: true,
+      }),
+    });
+
+    expect(live.ok).toBe(true);
+    const events = parseSseEvents(await live.text());
+    const created = events.find((event) => event.event === "topic.created")?.data as { conversationId: string };
+    const error = events.find((event) => event.event === "error")?.data as { conversationId: string; productMode: string; message: string };
+    const snapshot = events.find((event) => event.event === "snapshot")?.data as SnapshotResponse & { productMode: string };
+    const done = events.find((event) => event.event === "done")?.data as { conversationId: string; productMode: string; status: string };
+
+    expect(created.conversationId).toBeTruthy();
+    expect(error).toMatchObject({
+      conversationId: created.conversationId,
+      productMode: "agent",
+      message: "Direct Agent execution is not enabled in the T002 foundation.",
+    });
+    expect(snapshot).toMatchObject({
+      productMode: "agent",
+      center: { selectedTopic: { id: created.conversationId } },
+    });
+    expect(done).toMatchObject({
+      conversationId: created.conversationId,
+      productMode: "agent",
+      status: "failed",
+    });
   });
 
   it("passes the Main Agent only the user's natural-language turn", () => {

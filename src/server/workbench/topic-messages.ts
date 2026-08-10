@@ -3,6 +3,7 @@ import { createSseResponse } from "../sse.js";
 import { createWorkbenchConversation, postConversationMessage } from "../../workbench/conversation-service.js";
 import { resolveConversationId } from "../../workbench/conversation-identity.js";
 import { getWorkbenchSnapshot, type WorkbenchProjectInput } from "../../workbench/projections/read-model/implementation.js";
+import type { WorkbenchLiveSink } from "../../workbench/types.js";
 import type { ManagedProject } from "../../types/index.js";
 import { createLiveSink } from "./live.js";
 import { readJsonBody, requireProductMode } from "./http.js";
@@ -73,8 +74,15 @@ export async function sendCreateTopicLive(
 ): Promise<void> {
   const body = await readCreateTopicBody(request);
   const sse = createSseResponse(response);
-  const sink = createLiveSink(sse, input.project.id);
   let conversationId: string | undefined;
+  const downstream = createLiveSink(sse, input.project.id);
+  const sink: WorkbenchLiveSink = {
+    emit(event): void {
+      if (event.event === "topic.created") conversationId = event.data.conversationId;
+      downstream.emit(event);
+    },
+    isClosed: () => downstream.isClosed?.() ?? false,
+  };
   try {
     const topic = await createWorkbenchConversation(input.project, body, sink);
     conversationId = topic.conversationId;
