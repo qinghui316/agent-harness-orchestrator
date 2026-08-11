@@ -11,7 +11,7 @@ import type {
 import { initializeProjectRuntimeSidecar } from "../../src/project-runtime/lifecycle.js";
 import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import { hashNativeSkillPackageContent } from "../../src/skill/content-hash.js";
-import { buildSkillCatalog } from "../../src/skill/catalog.js";
+import { buildSkillCatalog, buildSkillResolutionCatalog } from "../../src/skill/catalog.js";
 import { TurnSkillContextResolver } from "../../src/skill/turn-skill-context-resolver.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import type { TurnSkillContextRequest } from "../../src/workbench/conversation-turn-contract.js";
@@ -174,8 +174,8 @@ describe("TurnSkillContextResolver", () => {
     const physical = { ...skill, path: skill.entryPath, enabled: true, scope: "user" as const };
     const first = await catalog([alias, physical]);
     const second = await catalog([physical, alias]);
-    const firstCatalog = buildSkillCatalog(first, { roots: [], enablements: [] });
-    const secondCatalog = buildSkillCatalog(second, { roots: [], enablements: [] });
+    const firstCatalog = buildSkillResolutionCatalog(first, { roots: [], enablements: [] });
+    const secondCatalog = buildSkillResolutionCatalog(second, { roots: [], enablements: [] });
     expect(firstCatalog.skills).toHaveLength(1);
     expect(firstCatalog.skills).toEqual(secondCatalog.skills);
     expect(new Set(firstCatalog.skills.map((item) => item.skillId)).size).toBe(1);

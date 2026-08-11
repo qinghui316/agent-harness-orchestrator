@@ -37,7 +37,6 @@ export interface SkillProviderBinding {
 
 export interface SkillListItem {
   skillId: string;
-  selectionSkillIds: string[];
   name: string;
   description: string;
   sourcePath: string;
@@ -49,13 +48,17 @@ export interface SkillListItem {
   providerEnabled: boolean;
   required: boolean;
   runtimeAssigned: boolean;
+  enabledProject: boolean;
+  enabledTopics: string[];
+  disabledTopics: string[];
+}
+
+export interface SkillResolutionCatalogItem extends SkillListItem {
+  selectionSkillIds: string[];
   canonicalSourcePath: string | null;
   sourcePathIdentity: string;
   catalogConflict: string | null;
   pathDiagnostic: { code: string; message: string } | null;
-  enabledProject: boolean;
-  enabledTopics: string[];
-  disabledTopics: string[];
 }
 
 export interface SkillRootListItem {
@@ -67,6 +70,12 @@ export interface SkillRootListItem {
 export interface SkillCatalogResult {
   roots: SkillRootListItem[];
   skills: SkillListItem[];
+  errors: ProviderSkillCatalogError[];
+}
+
+export interface SkillResolutionCatalogResult {
+  roots: SkillRootListItem[];
+  skills: SkillResolutionCatalogItem[];
   errors: ProviderSkillCatalogError[];
 }
 
@@ -133,6 +142,20 @@ export function buildSkillCatalog(
   identityInputs: readonly ProviderSkillInput[] = [],
   requiredInputs: readonly ProviderSkillInput[] = [],
 ): SkillCatalogResult {
+  const internal = buildSkillResolutionCatalog(snapshot, state, identityInputs, requiredInputs);
+  return {
+    roots: internal.roots,
+    skills: internal.skills.map(toPublicSkillListItem),
+    errors: internal.errors,
+  };
+}
+
+export function buildSkillResolutionCatalog(
+  snapshot: ProviderSkillCatalogSnapshot,
+  state: SkillCatalogState,
+  identityInputs: readonly ProviderSkillInput[] = [],
+  requiredInputs: readonly ProviderSkillInput[] = [],
+): SkillResolutionCatalogResult {
   const roots = state.roots.map(mapSkillRoot);
   const skills = decorateSkills(snapshot, roots, identityInputs, requiredInputs).map((skill) => {
     const projectSelection = effectiveEnablement(skill, state.enablements, "project", null);
@@ -160,17 +183,22 @@ export async function setSkillEnabled(
   options: { topic?: string; enabled: boolean },
   requiredInputs: readonly ProviderSkillInput[] = [],
 ): Promise<SkillCatalogResult> {
+  assertSnapshotIdentity(paths, snapshot);
+  assertRequiredInputsDiscovered(snapshot, requiredInputs);
   const skillId = slugify(skillIdInput);
-  const catalog = await listSkills(paths, snapshot, requiredInputs);
-  const matches = catalog.skills.filter((item) => item.selectionSkillIds.includes(skillId));
-  if (matches.length === 0) throw new Error(`Unknown native Skill: ${skillId}`);
-  if (matches.length !== 1) throw new Error(`Ambiguous native Skill identity: ${skillId}`);
-  const skill = matches[0]!;
-  if (skill.required || skill.runtimeAssigned) {
-    throw new Error(`Skill ${skillId} is assigned by the Runtime and cannot be changed as a project or Conversation selection.`);
-  }
   const store = await openProjectRuntimeWorkbenchDatabase(paths);
   try {
+    const catalog = buildSkillResolutionCatalog(snapshot, {
+      roots: store.skills.listSkillRoots(paths.projectId),
+      enablements: store.skills.listSkillEnablement(paths.projectId),
+    }, requiredInputs, requiredInputs);
+    const matches = catalog.skills.filter((item) => item.selectionSkillIds.includes(skillId));
+    if (matches.length === 0) throw new Error(`Unknown native Skill: ${skillId}`);
+    if (matches.length !== 1) throw new Error(`Ambiguous native Skill identity: ${skillId}`);
+    const skill = matches[0]!;
+    if (skill.required || skill.runtimeAssigned) {
+      throw new Error(`Skill ${skillId} is assigned by the Runtime and cannot be changed as a project or Conversation selection.`);
+    }
     store.skills.setSkillEnablement({
       projectId: paths.projectId,
       changeId: options.topic ?? null,
@@ -191,9 +219,30 @@ export async function getEnabledSkillContext(
   changeId: string | undefined,
   requiredInputs: readonly ProviderSkillInput[] = [],
 ): Promise<EnabledSkillContext> {
-  const catalog = await listSkills(paths, snapshot, requiredInputs);
+  assertSnapshotIdentity(paths, snapshot);
+  assertRequiredInputsDiscovered(snapshot, requiredInputs);
+  const store = await openProjectRuntimeWorkbenchDatabase(paths);
+  let catalog: SkillResolutionCatalogResult;
+  try {
+    catalog = buildSkillResolutionCatalog(snapshot, {
+      roots: store.skills.listSkillRoots(paths.projectId),
+      enablements: store.skills.listSkillEnablement(paths.projectId),
+    }, requiredInputs, requiredInputs);
+  } finally {
+    store.close();
+  }
   const inputs = new Map<string, ProviderSkillInput>();
-  for (const input of requiredInputs) inputs.set(inputIdentity(input), input);
+  for (const input of requiredInputs) {
+    const item = catalog.skills.find((skill) =>
+      skill.required
+      && skill.name === input.id
+      && skill.contentHash === input.contentHash);
+    if (!item?.canonicalSourcePath) {
+      throw new Error(`Required Skill ${input.id} has no validated physical source identity.`);
+    }
+    const canonicalInput = { ...input, path: item.canonicalSourcePath };
+    inputs.set(inputIdentity(canonicalInput), canonicalInput);
+  }
   const warnings = catalog.errors.map((error) => `${error.path}: ${error.message}`);
   for (const skill of catalog.skills) {
     if (skill.required || skill.runtimeAssigned) continue;
@@ -247,7 +296,7 @@ function decorateSkills(
   roots: readonly SkillRootListItem[],
   identityInputs: readonly ProviderSkillInput[],
   requiredInputs: readonly ProviderSkillInput[],
-): Array<Omit<SkillListItem, "enabledProject" | "enabledTopics" | "disabledTopics">> {
+): Array<Omit<SkillResolutionCatalogItem, "enabledProject" | "enabledTopics" | "disabledTopics">> {
   const groups = normalizeProviderSkills(snapshot.skills);
   return groups.map((group) => {
     const skill = group.representative;
@@ -371,8 +420,28 @@ function inputIdentity(input: ProviderSkillInput): string {
   return `${input.id}\0${skillPathIdentity(input.path)}`;
 }
 
+function toPublicSkillListItem(skill: SkillResolutionCatalogItem): SkillListItem {
+  return {
+    skillId: skill.skillId,
+    name: skill.name,
+    description: skill.description,
+    sourcePath: skill.sourcePath,
+    sourceKind: skill.sourceKind,
+    scope: skill.scope,
+    contentHash: skill.contentHash,
+    compatibility: skill.compatibility,
+    providerBindings: skill.providerBindings,
+    providerEnabled: skill.providerEnabled,
+    required: skill.required,
+    runtimeAssigned: skill.runtimeAssigned,
+    enabledProject: skill.enabledProject,
+    enabledTopics: skill.enabledTopics,
+    disabledTopics: skill.disabledTopics,
+  };
+}
+
 function effectiveEnablement(
-  skill: Pick<SkillListItem, "skillId" | "selectionSkillIds">,
+  skill: Pick<SkillResolutionCatalogItem, "skillId" | "selectionSkillIds">,
   enablements: readonly StoredSkillEnablement[],
   scope: StoredSkillEnablement["scope"],
   changeId: string | null,

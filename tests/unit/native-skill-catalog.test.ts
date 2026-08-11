@@ -9,7 +9,7 @@ import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import { initializeProjectRuntimeSidecar } from "../../src/project-runtime/lifecycle.js";
 import {
   addSkillRoot,
-  buildSkillCatalog,
+  buildSkillResolutionCatalog,
   getEnabledSkillContext,
   listSkills,
   setSkillEnabled,
@@ -131,6 +131,23 @@ describe("native Skill catalog and sidecar selections", () => {
     };
 
     const initial = await listSkills(paths, snapshot, [harnessInput]);
+    expect(Object.keys(JSON.parse(JSON.stringify(initial.skills[0]))).sort()).toEqual([
+      "compatibility",
+      "contentHash",
+      "description",
+      "disabledTopics",
+      "enabledProject",
+      "enabledTopics",
+      "name",
+      "providerBindings",
+      "providerEnabled",
+      "required",
+      "runtimeAssigned",
+      "scope",
+      "skillId",
+      "sourceKind",
+      "sourcePath",
+    ].sort());
     expect(initial.skills.find((skill) => skill.skillId === "portable-skill")).toMatchObject({
       sourceKind: "custom",
       providerEnabled: true,
@@ -196,7 +213,7 @@ describe("native Skill catalog and sidecar selections", () => {
 
     const context = await getEnabledSkillContext(paths, snapshot, undefined, [{
       id: "demo-project-harness",
-      path: physicalPath,
+      path: aliasPath,
       contentHash,
       source: "project-harness",
       required: true,
@@ -240,7 +257,7 @@ describe("native Skill catalog and sidecar selections", () => {
     }
 
     const listed = await listSkills(paths, snapshot);
-    const selected = listed.skills.find((item) => item.selectionSkillIds.includes(legacyId));
+    const selected = listed.skills.find((item) => item.enabledProject);
     expect(selected).toMatchObject({ enabledProject: true });
     await setSkillEnabled(paths, snapshot, legacyId, { enabled: false });
     const converged = await listSkills(paths, snapshot);
@@ -275,8 +292,10 @@ describe("native Skill catalog and sidecar selections", () => {
     };
     const right = { ...left, description: "B", path: aliasPath, enabled: false, scope: "repo" as const };
     const state = { roots: [], enablements: [] };
-    const forward = buildSkillCatalog({ providerId: "codex", projectPath, skills: [left, right], errors: [] }, state);
-    const reverse = buildSkillCatalog({ providerId: "codex", projectPath, skills: [right, left], errors: [] }, state);
+    const forward = buildSkillResolutionCatalog(
+      { providerId: "codex", projectPath, skills: [left, right], errors: [] }, state);
+    const reverse = buildSkillResolutionCatalog(
+      { providerId: "codex", projectPath, skills: [right, left], errors: [] }, state);
     expect(forward.skills).toHaveLength(1);
     expect(forward.skills).toEqual(reverse.skills);
     expect(forward.skills[0]).toMatchObject({ catalogConflict: expect.any(String) });

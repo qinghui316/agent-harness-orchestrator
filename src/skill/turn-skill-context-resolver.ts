@@ -14,8 +14,8 @@ import type { WorkbenchDatabase } from "../workbench/persistence/database.js";
 import type { StoredConversation, StoredSkillEnablement, StoredSkillRoot } from "../workbench/persistence/contracts.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../workbench/persistence/open-workbench-database.js";
 import {
-  buildSkillCatalog,
-  type SkillListItem,
+  buildSkillResolutionCatalog,
+  type SkillResolutionCatalogItem,
   type SkillSourceKind,
 } from "./catalog.js";
 import {
@@ -41,7 +41,7 @@ interface SelectionState {
 }
 
 interface ValidatedSkill {
-  item: SkillListItem;
+  item: SkillResolutionCatalogItem;
   path: string;
   source: ProviderSkillInput["source"];
 }
@@ -78,7 +78,7 @@ export class TurnSkillContextResolver implements TurnSkillContextPort {
       code: "provider_catalog_error",
       message: error.path + ": " + error.message,
     }));
-    const catalog = buildSkillCatalog(snapshot, state);
+    const catalog = buildSkillResolutionCatalog(snapshot, state);
     const sourceInputs = await this.resolveSourceSkillInputs(request, providerId);
     const identity = validateSourceInputs(catalog.skills, sourceInputs, diagnostics);
     const skills = catalog.skills.map((skill) => ({
@@ -188,7 +188,7 @@ function assertSnapshotIdentity(
 }
 
 function validateSourceInputs(
-  skills: readonly SkillListItem[],
+  skills: readonly SkillResolutionCatalogItem[],
   inputs: readonly ProviderSkillInput[],
   diagnostics: TurnSkillContextDiagnostic[],
 ): { sourceKinds: Map<string, SkillSourceKind>; invalidSkillIds: Set<string> } {
@@ -233,10 +233,10 @@ function validateSourceInputs(
 }
 
 function resolveRequiredSkills(
-  skills: readonly SkillListItem[],
+  skills: readonly SkillResolutionCatalogItem[],
   requiredSkillIds: readonly string[],
-): SkillListItem[] {
-  const resolved: SkillListItem[] = [];
+): SkillResolutionCatalogItem[] {
+  const resolved: SkillResolutionCatalogItem[] = [];
   for (const id of [...new Set(requiredSkillIds.map((value) => slugify(value)))].sort()) {
     const exact = skills.filter((skill) => skill.selectionSkillIds.includes(id));
     const matches = exact.length > 0 ? exact : skills.filter((skill) => slugify(skill.name) === id);
@@ -259,7 +259,7 @@ function resolveRequiredSkills(
   return resolved;
 }
 
-function isPersistedSelectionEnabled(skill: SkillListItem, conversationId: string): boolean {
+function isPersistedSelectionEnabled(skill: SkillResolutionCatalogItem, conversationId: string): boolean {
   if (skill.disabledTopics.includes(conversationId)) return false;
   if (skill.enabledTopics.includes(conversationId)) return true;
   return skill.enabledProject;
@@ -267,7 +267,7 @@ function isPersistedSelectionEnabled(skill: SkillListItem, conversationId: strin
 
 function addOrphanSelectionDiagnostics(
   enablements: readonly StoredSkillEnablement[],
-  skills: readonly SkillListItem[],
+  skills: readonly SkillResolutionCatalogItem[],
   conversationId: string,
   diagnostics: TurnSkillContextDiagnostic[],
 ): void {
@@ -291,7 +291,7 @@ function addOrphanSelectionDiagnostics(
 }
 
 async function validateCandidate(
-  skill: SkillListItem,
+  skill: SkillResolutionCatalogItem,
   invalidSourceIds: ReadonlySet<string>,
 ): Promise<{ ok: true; path: string } | { ok: false; code: string; message: string }> {
   if (skill.catalogConflict) {
@@ -356,7 +356,7 @@ function providerSource(source: SkillSourceKind): ProviderSkillInput["source"] {
   return "provider-native";
 }
 
-function uniqueSkills(skills: readonly SkillListItem[]): SkillListItem[] {
+function uniqueSkills(skills: readonly SkillResolutionCatalogItem[]): SkillResolutionCatalogItem[] {
   return [...new Map(skills.map((skill) => [skill.skillId, skill])).values()]
     .sort((left, right) => left.skillId.localeCompare(right.skillId));
 }
