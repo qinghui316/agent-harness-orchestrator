@@ -1,5 +1,3 @@
-import { existsSync, statSync } from "node:fs";
-import { basename, isAbsolute, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { slugify } from "../fs/path.js";
 import type { ProviderSkillInput } from "../project-harness/contracts.js";
@@ -13,13 +11,19 @@ import type {
   TurnSkillContextResolution,
 } from "../workbench/conversation-turn-contract.js";
 import type { WorkbenchDatabase } from "../workbench/persistence/database.js";
-import type { StoredSkillEnablement, StoredSkillRoot } from "../workbench/persistence/contracts.js";
+import type { StoredConversation, StoredSkillEnablement, StoredSkillRoot } from "../workbench/persistence/contracts.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../workbench/persistence/open-workbench-database.js";
 import {
   buildSkillCatalog,
   type SkillListItem,
   type SkillSourceKind,
 } from "./catalog.js";
+import {
+  canonicalExistingSkillEntryPath,
+  canonicalPathIdentity,
+  sameSkillPath,
+  skillPathIdentity,
+} from "./path-identity.js";
 
 export interface TurnSkillContextResolverOptions {
   providerRegistry: Pick<ProviderRegistry, "get">;
@@ -63,7 +67,7 @@ export class TurnSkillContextResolver implements TurnSkillContextPort {
       throw new Error("Turn Skill Runtime paths do not match the selected project identity.");
     }
 
-    const state = await this.readSelectionState(paths);
+    const state = await this.readSelectionState(paths, request.conversation);
     const snapshot = await this.providerRegistry.get(providerId).skills.list({
       projectPath: request.project.path,
       extraRoots: state.roots.map((root) => root.rootPath),
@@ -100,7 +104,7 @@ export class TurnSkillContextResolver implements TurnSkillContextPort {
       }
       validated.push({
         item,
-        path: normalizeSkillPath(item.sourcePath),
+        path: canonicalExistingSkillEntryPath(item.sourcePath),
         source: providerSource(item.sourceKind),
       });
     }
@@ -136,9 +140,18 @@ export class TurnSkillContextResolver implements TurnSkillContextPort {
     return { skillInputs: deduplicateInputs(skillInputs), diagnostics };
   }
 
-  private async readSelectionState(paths: ProjectRuntimePaths): Promise<SelectionState> {
+  private async readSelectionState(
+    paths: ProjectRuntimePaths,
+    requestConversation: StoredConversation,
+  ): Promise<SelectionState> {
     const database = await this.openDatabase(paths);
     try {
+      const stored = database.conversations.readConversation(
+        paths.projectId,
+        requestConversation.conversationId,
+        { includeDeleted: true },
+      );
+      assertCurrentConversation(stored, requestConversation);
       return {
         roots: database.skills.listSkillRoots(paths.projectId),
         enablements: database.skills.listSkillEnablement(paths.projectId),
@@ -165,7 +178,7 @@ function assertSnapshotIdentity(
       "Provider Skill catalog identity mismatch: expected " + providerId + ", received " + snapshot.providerId + ".",
     );
   }
-  if (normalizeComparablePath(snapshot.projectPath) !== normalizeComparablePath(projectPath)) {
+  if (canonicalPathIdentity(snapshot.projectPath) !== canonicalPathIdentity(projectPath)) {
     throw new Error("Provider Skill catalog project path does not match the selected project.");
   }
 }
@@ -180,9 +193,11 @@ function validateSourceInputs(
   const identities = new Set<string>();
   for (const input of inputs) {
     const skillId = slugify(input.id);
-    const identity = input.id + "\0" + normalizeComparablePath(input.path);
+    const identity = input.id + "\0" + skillPathIdentity(input.path);
     const sameName = snapshot.skills.filter((skill) => skill.name === input.id);
-    const matching = sameName.filter((skill) => sameSkillPath(skill.path, input.path));
+    const matching = deduplicateSkillsByPhysicalIdentity(
+      sameName.filter((skill) => sameSkillPath(skill.path, input.path)),
+    );
     const match = matching.length === 1 ? matching[0] : undefined;
     if (identities.has(identity) || !match || match.contentHash !== input.contentHash) {
       const reason = identities.has(identity)
@@ -204,7 +219,7 @@ function validateSourceInputs(
     }
     identities.add(identity);
     try {
-      validInputs.push({ ...input, path: normalizeSkillPath(match.path), required: false });
+      validInputs.push({ ...input, path: canonicalExistingSkillEntryPath(match.path), required: false });
     } catch (error) {
       diagnostics.push({
         code: "source_identity_mismatch",
@@ -293,7 +308,7 @@ function validateCandidate(
     };
   }
   try {
-    normalizeSkillPath(skill.sourcePath);
+    canonicalExistingSkillEntryPath(skill.sourcePath);
   } catch (error) {
     return {
       code: "skill_path_invalid",
@@ -307,19 +322,6 @@ function validateCandidate(
     };
   }
   return null;
-}
-
-function normalizeSkillPath(path: string): string {
-  if (!isAbsolute(path)) throw new Error("Skill path must be absolute: " + path);
-  let normalized = resolve(path);
-  if (!existsSync(normalized)) throw new Error("Skill path does not exist: " + normalized);
-  if (statSync(normalized).isDirectory()) normalized = join(normalized, "SKILL.md");
-  if (basename(normalized).toLowerCase() !== "skill.md"
-    || !existsSync(normalized)
-    || !statSync(normalized).isFile()) {
-    throw new Error("Skill path must identify an existing SKILL.md file: " + normalized);
-  }
-  return normalized;
 }
 
 function providerSource(source: SkillSourceKind): ProviderSkillInput["source"] {
@@ -341,7 +343,7 @@ function duplicateNames(skills: readonly ValidatedSkill[]): Set<string> {
 
 function deduplicateInputs(inputs: readonly ProviderSkillInput[]): ProviderSkillInput[] {
   return [...new Map(inputs.map((input) => [
-    input.id + "\0" + normalizeComparablePath(input.path),
+    input.id + "\0" + skillPathIdentity(input.path),
     input,
   ])).values()];
 }
@@ -357,21 +359,43 @@ function skillResolutionError(skillId: string, code: string, message: string): E
   return error;
 }
 
-function sameSkillPath(left: string, right: string): boolean {
-  return normalizeComparablePath(left) === normalizeComparablePath(right);
-}
-
-function normalizeComparablePath(path: string): string {
-  const normalized = resolve(path);
-  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
-}
-
 function skillIdFor(
   snapshot: ProviderSkillCatalogSnapshot,
   target: ProviderSkillCatalogSnapshot["skills"][number],
 ): string {
   const baseId = slugify(target.name);
-  return snapshot.skills.filter((skill) => slugify(skill.name) === baseId).length === 1
+  return deduplicateSkillsByPhysicalIdentity(snapshot.skills)
+    .filter((skill) => slugify(skill.name) === baseId).length === 1
     ? baseId
-    : baseId + "-" + createHash("sha256").update(normalizeComparablePath(target.path)).digest("hex").slice(0, 8);
+    : baseId + "-" + createHash("sha256").update(canonicalPathIdentity(target.path)).digest("hex").slice(0, 8);
+}
+
+function assertCurrentConversation(
+  stored: StoredConversation | null,
+  requested: StoredConversation,
+): asserts stored is StoredConversation {
+  if (!stored || stored.deletedAt || stored.state !== "active") {
+    throw skillResolutionError(requested.conversationId, "stale_conversation", "Turn Skill Conversation is no longer active.");
+  }
+  if (stored.projectId !== requested.projectId
+    || stored.conversationId !== requested.conversationId
+    || stored.productMode !== requested.productMode
+    || stored.selectedProviderId !== requested.selectedProviderId
+    || stored.currentGraphScopeId !== requested.currentGraphScopeId
+    || stored.completedTurnSequence !== requested.completedTurnSequence) {
+    throw skillResolutionError(
+      requested.conversationId,
+      "stale_conversation",
+      "Turn Skill Conversation identity changed before Provider discovery.",
+    );
+  }
+}
+
+function deduplicateSkillsByPhysicalIdentity(
+  skills: readonly ProviderSkillCatalogSnapshot["skills"][number][],
+): ProviderSkillCatalogSnapshot["skills"][number][] {
+  return [...new Map(skills.map((skill) => [
+    [skill.name, skillPathIdentity(skill.path), skill.contentHash].join("\0"),
+    skill,
+  ])).values()];
 }

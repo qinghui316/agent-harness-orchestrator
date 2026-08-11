@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, relative, sep } from "node:path";
 import { resolveExistingDirectory, slugify } from "../fs/path.js";
 import type { ProviderSkillInput } from "../project-harness/contracts.js";
 import type {
@@ -13,6 +13,7 @@ import type { ProjectRuntimePaths } from "../project-runtime/paths.js";
 import { getSystemSkillsRoot } from "../template-source/paths.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../workbench/persistence/open-workbench-database.js";
 import type { StoredSkillEnablement, StoredSkillRoot } from "../workbench/persistence/contracts.js";
+import { canonicalPathIdentity, sameSkillPath, skillPathIdentity } from "./path-identity.js";
 
 export type SkillSourceKind = "custom" | "system-aho" | "provider-native" | "project-harness";
 
@@ -223,20 +224,21 @@ function decorateSkills(
   identityInputs: readonly ProviderSkillInput[],
   requiredInputs: readonly ProviderSkillInput[],
 ): Array<Omit<SkillListItem, "enabledProject" | "enabledTopics" | "disabledTopics">> {
-  const baseIds = snapshot.skills.map((skill) => slugify(skill.name));
-  return snapshot.skills.map((skill, index) => {
+  const discoveredSkills = deduplicateProviderSkills(snapshot.skills);
+  const baseIds = discoveredSkills.map((skill) => slugify(skill.name));
+  return discoveredSkills.map((skill, index) => {
     const baseId = baseIds[index];
     const skillId = baseIds.filter((candidate) => candidate === baseId).length === 1
       ? baseId
-      : `${baseId}-${hashText(normalizePath(skill.path)).slice(0, 8)}`;
+      : `${baseId}-${hashText(canonicalPathIdentity(skill.path)).slice(0, 8)}`;
     const identityInput = identityInputs.find((input) =>
       input.id === skill.name
       && input.contentHash === skill.contentHash
-      && samePath(input.path, skill.path));
+      && sameSkillPath(input.path, skill.path));
     const requiredInput = requiredInputs.find((input) =>
       input.id === skill.name
       && input.contentHash === skill.contentHash
-      && samePath(input.path, skill.path));
+      && sameSkillPath(input.path, skill.path));
     const sourceKind = sourceKindFor(skill, roots, identityInput);
     const required = requiredInput?.required === true;
     const runtimeAssigned = isRuntimeAssignedSkill(skillId);
@@ -297,9 +299,10 @@ function assertRequiredInputsDiscovered(
     if (identities.has(identity)) throw new Error(`Duplicate required Skill input: ${input.id}`);
     identities.add(identity);
 
-    const sameName = snapshot.skills.filter((skill) => skill.name === input.id);
-    const sameLocation = snapshot.skills.filter((skill) => samePath(skill.path, input.path));
-    const matching = sameName.filter((skill) => samePath(skill.path, input.path));
+    const discoveredSkills = deduplicateProviderSkills(snapshot.skills);
+    const sameName = discoveredSkills.filter((skill) => skill.name === input.id);
+    const sameLocation = discoveredSkills.filter((skill) => sameSkillPath(skill.path, input.path));
+    const matching = sameName.filter((skill) => sameSkillPath(skill.path, input.path));
     if (matching.length === 0) {
       if (sameName.length > 0 || sameLocation.length > 0) {
         throw new Error(`Required Skill ${input.id} does not match the Provider-discovered path identity.`);
@@ -324,25 +327,27 @@ function skillRootForPath(path: string): string {
 }
 
 function inputIdentity(input: ProviderSkillInput): string {
-  return `${input.id}\0${normalizePath(input.path)}`;
-}
-
-function samePath(left: string, right: string): boolean {
-  const leftRoot = skillRootForPath(left);
-  const rightRoot = skillRootForPath(right);
-  return normalizePath(resolve(leftRoot)) === normalizePath(resolve(rightRoot));
+  return `${input.id}\0${skillPathIdentity(input.path)}`;
 }
 
 function isInside(root: string, candidate: string): boolean {
-  const normalizedRoot = resolve(root);
-  const normalizedCandidate = resolve(candidate);
+  const normalizedRoot = canonicalPathIdentity(root);
+  const normalizedCandidate = canonicalPathIdentity(candidate);
   const rel = relative(normalizedRoot, normalizedCandidate);
   return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
-function normalizePath(path: string): string {
-  const normalized = resolve(path);
-  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+function deduplicateProviderSkills(skills: readonly ProviderNativeSkill[]): ProviderNativeSkill[] {
+  return [...new Map(skills.map((skill) => [
+    [
+      skill.name,
+      skillPathIdentity(skill.path),
+      skill.contentHash,
+      skill.scope,
+      skill.enabled ? "enabled" : "disabled",
+    ].join("\0"),
+    skill,
+  ])).values()];
 }
 
 function hashText(text: string): string {

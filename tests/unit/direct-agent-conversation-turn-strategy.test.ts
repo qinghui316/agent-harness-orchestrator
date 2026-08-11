@@ -129,6 +129,43 @@ describe("DirectAgentConversationTurnStrategy", () => {
     ]);
   });
 
+  it("does not discover Skills or create Provider activity for a stale Conversation", async () => {
+    const provider = fakeProvider();
+    const skillList = vi.spyOn(provider.descriptor.skills, "list");
+    const { strategy, registry } = strategyFor(provider.descriptor);
+    const input = await initialTurnInput(fixture, "Do not execute this stale Turn.");
+    const database = await openProjectRuntimeWorkbenchDatabase(fixture.paths);
+    try {
+      database.conversations.markConversationDeleted(
+        fixture.project.id,
+        input.conversation.conversationId,
+        new Date().toISOString(),
+      );
+    } finally {
+      database.close();
+    }
+    const resolver = new TurnSkillContextResolver({
+      providerRegistry: registry,
+      resolvePaths: () => fixture.paths,
+    });
+
+    await expect(strategy.execute(input, { skillContext: resolver })).rejects.toMatchObject({
+      name: "TurnSkillContextError",
+      code: "stale_conversation",
+    });
+    expect(skillList).not.toHaveBeenCalled();
+    expect(provider.requests).toEqual([]);
+    const sidecar = await openProjectRuntimeWorkbenchDatabase(fixture.paths);
+    try {
+      expect(sidecar.providerAttempts.listProviderAttempts(
+        fixture.project.id,
+        input.conversation.conversationId,
+      )).toEqual([]);
+    } finally {
+      sidecar.close();
+    }
+  });
+
   it("resumes only the same Conversation binding and persists top-level realtime while ignoring child events", async () => {
     const provider = fakeProvider({ realtime: true, lastMessage: "fallback must not duplicate" });
     const { strategy } = strategyFor(provider.descriptor);

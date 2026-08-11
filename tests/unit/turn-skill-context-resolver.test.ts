@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -112,6 +112,46 @@ describe("TurnSkillContextResolver", () => {
     } finally {
       database.close();
     }
+  });
+
+  it("treats a Junction or symlink alias as the same physical Harness Skill identity", async () => {
+    const harness = await createNativeSkill("resolver-project-harness");
+    const aliasRoot = join(root, "connector-alias");
+    await symlink(dirname(harness.entryPath), aliasRoot, process.platform === "win32" ? "junction" : "dir");
+    const snapshot = await catalog([
+      { ...harness, path: join(aliasRoot, "SKILL.md") },
+      { ...harness, path: harness.entryPath },
+    ]);
+    const conversation = storedConversation("conversation-alias", "codex", "harness");
+    await seedConversation(conversation);
+
+    const result = await resolverFor(snapshot, [sourceInput(harness, "project-harness", false)])
+      .resolve(requestFor(conversation, ["resolver-project-harness"]));
+
+    expect(result.skillInputs).toEqual([{
+      id: "resolver-project-harness",
+      path: await realpath(harness.entryPath),
+      contentHash: harness.contentHash,
+      source: "project-harness",
+      required: true,
+    }]);
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it("rejects a source identity that has the same name but a different physical target", async () => {
+    const discovered = await createNativeSkill("resolver-project-harness", true, "discovered-target");
+    const registered = await createNativeSkill("resolver-project-harness", true, "registered-target");
+    const conversation = storedConversation("conversation-physical-mismatch", "codex", "harness");
+    await seedConversation(conversation);
+    const resolver = resolverFor(
+      await catalog([discovered]),
+      [{ ...sourceInput(registered, "project-harness", false), contentHash: discovered.contentHash }],
+    );
+
+    await expect(resolver.resolve(requestFor(conversation, ["resolver-project-harness"]))).rejects.toMatchObject({
+      name: "TurnSkillContextError",
+      code: "skill_identity_mismatch",
+    });
   });
 
   it.each([
@@ -239,6 +279,51 @@ describe("TurnSkillContextResolver", () => {
       skillInputs: [expect.objectContaining({ id: "rooted-skill" })],
     });
     expect(calls).toEqual([{ providerId: "beta", extraRoots: [customRoot] }]);
+  });
+
+  it.each([
+    { label: "missing", seed: false, patch: {} },
+    { label: "deleted", seed: true, patch: {}, deleted: true },
+    { label: "product mode", seed: true, patch: { productMode: "harness" as const } },
+    { label: "provider", seed: true, patch: { selectedProviderId: "beta" } },
+    { label: "graph scope", seed: true, patch: { currentGraphScopeId: "stale-graph" } },
+    { label: "completed sequence", seed: true, patch: { completedTurnSequence: 9 } },
+  ])("fails before Provider discovery for a $label Conversation snapshot", async (fixture) => {
+    const stored = storedConversation("conversation-stale-" + fixture.label.replaceAll(" ", "-"), "codex", "agent");
+    if (fixture.seed) {
+      await seedConversation(stored);
+      if (fixture.deleted) {
+        const database = await openProjectRuntimeWorkbenchDatabase(paths);
+        try {
+          database.conversations.markConversationDeleted(project.id, stored.conversationId, new Date().toISOString());
+        } finally {
+          database.close();
+        }
+      }
+    }
+    const requested = { ...stored, ...fixture.patch };
+    let providerListCalls = 0;
+    const resolver = new TurnSkillContextResolver({
+      providerRegistry: {
+        get() {
+          return {
+            skills: {
+              list: async () => {
+                providerListCalls += 1;
+                return catalog([], requested.selectedProviderId);
+              },
+            },
+          } as never;
+        },
+      },
+      resolvePaths: () => paths,
+    });
+
+    await expect(resolver.resolve(requestFor(requested))).rejects.toMatchObject({
+      name: "TurnSkillContextError",
+      code: "stale_conversation",
+    });
+    expect(providerListCalls).toBe(0);
   });
 
   it("leaves default production composition on the explicit empty port", async () => {

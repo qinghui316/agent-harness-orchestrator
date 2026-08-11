@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -173,6 +173,38 @@ describe("native Skill catalog and sidecar selections", () => {
     expect(catalog.skills[0]).toMatchObject({ runtimeAssigned: true });
     await expect(setSkillEnabled(paths, snapshot, "aho-harness-engineering", { enabled: true }))
       .rejects.toThrow("assigned by the Runtime");
+  });
+
+  it("matches required Skill identity through a Junction or symlink alias", async () => {
+    const projectPath = await directory("repo");
+    const paths = resolveProjectRuntimePaths("demo-project", join(root, "aho-home"));
+    await initializeProjectRuntimeSidecar(paths);
+    const physicalPath = await createSkill(join(root, "physical-skills"), "demo-project-harness");
+    const aliasRoot = join(root, "connector-harness");
+    await symlink(dirname(physicalPath), aliasRoot, process.platform === "win32" ? "junction" : "dir");
+    const aliasPath = join(aliasRoot, "SKILL.md");
+    const snapshot = await snapshotFor(projectPath, [{
+      name: "demo-project-harness",
+      path: aliasPath,
+      enabled: true,
+      scope: "repo",
+    }]);
+    const contentHash = await hashNativeSkillPackageContent(dirname(physicalPath));
+
+    const context = await getEnabledSkillContext(paths, snapshot, undefined, [{
+      id: "demo-project-harness",
+      path: physicalPath,
+      contentHash,
+      source: "project-harness",
+      required: true,
+    }]);
+
+    expect(context.inputs).toEqual([expect.objectContaining({
+      id: "demo-project-harness",
+      path: await realpath(physicalPath),
+      source: "project-harness",
+      required: true,
+    })]);
   });
 
   it.each([
