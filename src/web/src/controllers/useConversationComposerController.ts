@@ -325,8 +325,20 @@ export function useConversationComposerController(
       if (uploadedDraft.length > 0 && uploadProjectId) {
         await Promise.allSettled(uploadedDraft.map((attachment) => (portsRef.current.attachments ?? defaultAttachmentApi).remove(uploadProjectId!, attachment.id)));
       }
-      if (created && composerRequestOwnsCurrentScope(generation, [capturedProjectId, created.projectId], capturedProductMode, scopeGenerationRef, scopeRef, created.conversationId)) {
-        await calibrateTimeline(created.projectId, created.conversationId);
+      const completedCreation = created;
+      if (completedCreation && composerRequestOwnsCurrentScope(generation, [capturedProjectId, completedCreation.projectId], capturedProductMode, scopeGenerationRef, scopeRef, completedCreation.conversationId)) {
+        await calibrateTimeline(
+          completedCreation.projectId,
+          completedCreation.conversationId,
+          () => composerRequestOwnsCurrentScope(
+            generation,
+            [capturedProjectId, completedCreation.projectId],
+            capturedProductMode,
+            scopeGenerationRef,
+            scopeRef,
+            completedCreation.conversationId,
+          ),
+        );
       }
       portsRef.current.operation.release(token);
     }
@@ -413,14 +425,18 @@ export function useConversationComposerController(
         setAttachments([]);
       }
     } catch (cause) {
-      if (composerRequestOwnsCurrentScope(generation, [currentScope.projectId], capturedProductMode, scopeGenerationRef, scopeRef)) {
+      if (composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) {
         setComposerText((current) => current ? current : draft.composerText);
         portsRef.current.onError(errorMessage(cause));
       }
       throw cause;
     } finally {
-      if (composerRequestOwnsCurrentScope(generation, [currentScope.projectId], capturedProductMode, scopeGenerationRef, scopeRef)) {
-        await calibrateTimeline(currentScope.projectId, currentScope.conversation.id);
+      if (composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) {
+        await calibrateTimeline(
+          currentScope.projectId,
+          currentScope.conversation.id,
+          () => composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef),
+        );
       }
       portsRef.current.operation.release(token);
     }
@@ -443,11 +459,15 @@ export function useConversationComposerController(
     }
   }
 
-  async function calibrateTimeline(projectId: string, conversationId: string): Promise<void> {
+  async function calibrateTimeline(
+    projectId: string,
+    conversationId: string,
+    canPublishError: () => boolean,
+  ): Promise<void> {
     try {
       await portsRef.current.timeline.calibrate(projectId, conversationId, "main-agent");
     } catch (cause) {
-      portsRef.current.onError(errorMessage(cause));
+      if (canPublishError()) portsRef.current.onError(errorMessage(cause));
     }
   }
 
@@ -476,7 +496,11 @@ export function useConversationComposerController(
     } finally {
       if (actionScope.projectId && actionScope.conversation
         && composerActionOwnsCurrentScope(generation, actionScope, scopeGenerationRef, scopeRef)) {
-        await calibrateTimeline(actionScope.projectId, actionScope.conversation.id);
+        await calibrateTimeline(
+          actionScope.projectId,
+          actionScope.conversation.id,
+          () => composerActionOwnsCurrentScope(generation, actionScope, scopeGenerationRef, scopeRef),
+        );
       }
       portsRef.current.operation.release(token);
     }

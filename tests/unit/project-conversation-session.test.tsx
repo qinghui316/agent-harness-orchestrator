@@ -309,7 +309,7 @@ describe("Project conversation session owner", () => {
     let finishStream!: () => void;
     const streamPending = new Promise<void>((resolve) => { finishStream = resolve; });
     fixture.api.createDemandConversation.mockImplementation(async (_input, onEvent) => {
-      const emit = (data: Record<string, unknown>) => onEvent({
+      const emitCreated = (data: Record<string, unknown>) => onEvent({
         event: "topic.created",
         data: {
           projectId: "repo-1",
@@ -321,10 +321,22 @@ describe("Project conversation session owner", () => {
           ...data,
         },
       } as WorkbenchLiveEvent);
-      emit({ clientRequestId: "foreign-request", conversationId: "conv-foreign", topic: { id: "conv-foreign", title: "Foreign", productMode: "agent" } });
-      emit({ clientRequestId: undefined, conversationId: "conv-missing", topic: { id: "conv-missing", title: "Missing", productMode: "agent" } });
-      emit({ productMode: "harness", conversationId: "conv-wrong-mode", topic: { id: "conv-wrong-mode", title: "Wrong mode", productMode: "harness" } });
-      emit({});
+      emitCreated({ clientRequestId: "foreign-request", conversationId: "conv-foreign", topic: { id: "conv-foreign", title: "Foreign", productMode: "agent" } });
+      onEvent({
+        event: "snapshot",
+        data: snapshot("repo-1", "conv-foreign", undefined, "agent"),
+      });
+      emitCreated({ clientRequestId: undefined, conversationId: "conv-missing", topic: { id: "conv-missing", title: "Missing", productMode: "agent" } });
+      onEvent({
+        event: "run.status",
+        data: { projectId: "repo-1", productMode: "agent", conversationId: "conv-missing", status: "running" },
+      });
+      emitCreated({ productMode: "harness", conversationId: "conv-wrong-mode", topic: { id: "conv-wrong-mode", title: "Wrong mode", productMode: "harness" } });
+      emitCreated({});
+      onEvent({
+        event: "run.status",
+        data: { projectId: "repo-1", productMode: "agent", conversationId: "conv-correct", status: "running" },
+      });
       await streamPending;
     });
     const { result } = renderHook(() => useProjectConversationSession({
@@ -354,7 +366,7 @@ describe("Project conversation session owner", () => {
       clientRequestId: "request-correct",
       canonical: true,
     });
-    expect(routed).toHaveLength(1);
+    expect(routed.map((event) => event.event)).toEqual(["topic.created", "run.status"]);
     expect(routed[0]?.data.clientRequestId).toBe("request-correct");
 
     await act(async () => {

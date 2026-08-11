@@ -540,6 +540,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
             }
             return;
           }
+          if (!conversationId) return;
           if (canApplyToCurrentSelection() && eventMatchesConversationScope(event, {
             projectId: request.projectId,
             productMode: request.productMode,

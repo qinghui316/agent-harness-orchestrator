@@ -309,6 +309,75 @@ describe("Conversation composer controller", () => {
     expect(ports.timeline.calibrate).not.toHaveBeenCalled();
   });
 
+  it("does not surface or calibrate a failed Turn after another Conversation becomes active", async () => {
+    let rejectSend!: (cause: Error) => void;
+    const ports = composerPorts();
+    ports.actions.sendMessage.mockImplementation(() => new Promise<void>((_resolve, reject) => { rejectSend = reject; }));
+    const { result, rerender } = renderHook(
+      ({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
+      { initialProps: { scope: conversationScope({ conversation: {
+        id: "conversation-a",
+        productMode: "harness",
+        state: "active",
+        selectedProviderId: "codex",
+      } }) } },
+    );
+    act(() => result.current.setComposerText("conversation A turn"));
+
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.send(); });
+    await waitFor(() => expect(ports.actions.sendMessage).toHaveBeenCalledOnce());
+    rerender({ scope: conversationScope({ conversation: {
+      id: "conversation-b",
+      productMode: "harness",
+      state: "active",
+      selectedProviderId: "codex",
+    } }) });
+    act(() => result.current.setComposerText("conversation B draft"));
+    await act(async () => {
+      rejectSend(new Error("conversation A failed"));
+      await expect(pending).rejects.toThrow("conversation A failed");
+    });
+
+    expect(result.current.composerText).toBe("conversation B draft");
+    expect(ports.onError).not.toHaveBeenCalledWith("conversation A failed");
+    expect(ports.timeline.calibrate).not.toHaveBeenCalled();
+  });
+
+  it("does not publish a calibration error after its Conversation scope changes", async () => {
+    let rejectCalibration!: (cause: Error) => void;
+    const ports = composerPorts();
+    ports.timeline.calibrate.mockImplementation(() => new Promise<void>((_resolve, reject) => {
+      rejectCalibration = reject;
+    }));
+    const { result, rerender } = renderHook(
+      ({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
+      { initialProps: { scope: conversationScope({ conversation: {
+        id: "conversation-a",
+        productMode: "harness",
+        state: "active",
+        selectedProviderId: "codex",
+      } }) } },
+    );
+    act(() => result.current.setComposerText("complete before calibration"));
+
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.send(); });
+    await waitFor(() => expect(ports.timeline.calibrate).toHaveBeenCalledWith("repo", "conversation-a", "main-agent"));
+    rerender({ scope: conversationScope({ conversation: {
+      id: "conversation-b",
+      productMode: "harness",
+      state: "active",
+      selectedProviderId: "codex",
+    } }) });
+    await act(async () => {
+      rejectCalibration(new Error("stale calibration failed"));
+      await pending;
+    });
+
+    expect(ports.onError).not.toHaveBeenCalledWith("stale calibration failed");
+  });
+
   it("rejects a stale Conversation before Skill writes or message dispatch", async () => {
     const ports = composerPorts();
     const { result } = renderHook(() => useConversationComposerController(conversationScope({
