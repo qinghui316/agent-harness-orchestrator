@@ -358,8 +358,10 @@ export function useConversationComposerController(
     await applySkillOverrides(currentScope.projectId, currentScope.conversation.id, prepared.skillOverrides);
     if (Object.keys(prepared.skillOverrides).length > 0) await reloadSkills(currentScope.projectId);
     if (!prepared.text && attachmentIds.length === 0) {
-      setComposerText("");
-      setFileRefs([]);
+      if (composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) {
+        setComposerText("");
+        setFileRefs([]);
+      }
       return;
     }
     if (currentScope.running && attachmentIds.length > 0) {
@@ -373,13 +375,15 @@ export function useConversationComposerController(
         conversationId: currentScope.conversation!.id,
         prompt: outboundMessage,
       }), currentScope, draft.composerText, true);
-      setFileRefs([]);
+      if (composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) setFileRefs([]);
       return;
     }
 
     const token = portsRef.current.operation.begin("chat.ask");
-    setComposerText("");
-    portsRef.current.onError(null);
+    if (composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) {
+      setComposerText("");
+      portsRef.current.onError(null);
+    }
     try {
       const request: ComposerMessageRequest = {
         projectId: currentScope.projectId,
@@ -404,7 +408,7 @@ export function useConversationComposerController(
             portsRef.current.projection.routeEvent?.(projectId, event);
           }
         })))(request);
-      if (generation === scopeGenerationRef.current) {
+      if (composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) {
         setFileRefs([]);
         setAttachments([]);
       }
@@ -456,17 +460,22 @@ export function useConversationComposerController(
   ): Promise<void> {
     const token = portsRef.current.operation.begin(key);
     const generation = scopeGenerationRef.current;
-    portsRef.current.onError(null);
+    if (composerActionOwnsCurrentScope(generation, actionScope, scopeGenerationRef, scopeRef)) {
+      portsRef.current.onError(null);
+    }
     try {
       await action();
-      if (clearSubmittedText && generation === scopeGenerationRef.current) {
+      if (clearSubmittedText && composerActionOwnsCurrentScope(generation, actionScope, scopeGenerationRef, scopeRef)) {
         setComposerText((current) => current === submittedText ? "" : current);
       }
     } catch (cause) {
-      portsRef.current.onError(errorMessage(cause));
+      if (composerActionOwnsCurrentScope(generation, actionScope, scopeGenerationRef, scopeRef)) {
+        portsRef.current.onError(errorMessage(cause));
+      }
       throw cause;
     } finally {
-      if (actionScope.projectId && actionScope.conversation) {
+      if (actionScope.projectId && actionScope.conversation
+        && composerActionOwnsCurrentScope(generation, actionScope, scopeGenerationRef, scopeRef)) {
         await calibrateTimeline(actionScope.projectId, actionScope.conversation.id);
       }
       portsRef.current.operation.release(token);
@@ -662,6 +671,16 @@ function composerRequestOwnsCurrentScope(
     && currentScope.projectId !== null
     && projectIds.includes(currentScope.projectId)
     && composerProductMode(currentScope) === productMode;
+}
+
+function composerActionOwnsCurrentScope(
+  generation: number,
+  actionScope: ConversationComposerScope,
+  generationRef: { current: number },
+  currentScopeRef: { current: ConversationComposerScope },
+): boolean {
+  return generation === generationRef.current
+    && composerScopeIdentity(actionScope) === composerScopeIdentity(currentScopeRef.current);
 }
 
 const defaultComposerIds = {

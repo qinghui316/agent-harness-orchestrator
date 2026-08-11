@@ -17,6 +17,49 @@ afterEach(() => {
 });
 
 describe("Project conversation session owner", () => {
+  it("initializes an Agent empty Snapshot before auto-load runs", () => {
+    const fixture = ownerFixture();
+    const { result } = renderHook(() => useProjectConversationSession({
+      ...fixture.ports,
+      productMode: "agent",
+      autoLoad: false,
+    }));
+
+    expect(result.current.productMode).toBe("agent");
+    expect(result.current.snapshot.productMode).toBe("agent");
+    expect(result.current.snapshot.center.conversationInteractions.productMode).toBe("agent");
+  });
+
+  it("keeps the default initial empty Snapshot in Harness mode", () => {
+    const fixture = ownerFixture();
+    const { result } = renderHook(() => useProjectConversationSession({
+      ...fixture.ports,
+      autoLoad: false,
+    }));
+
+    expect(result.current.productMode).toBe("harness");
+    expect(result.current.snapshot.productMode).toBe("harness");
+    expect(result.current.snapshot.center.conversationInteractions.productMode).toBe("harness");
+  });
+
+  it("keeps an Agent empty Snapshot when app restore finds no project", async () => {
+    const fixture = ownerFixture();
+    fixture.api.loadProjects.mockResolvedValue([]);
+    fixture.api.loadAppStatus.mockResolvedValue({ mode: "app", directProjectId: null });
+    const { result } = renderHook(() => useProjectConversationSession({
+      ...fixture.ports,
+      productMode: "agent",
+      autoLoad: false,
+    }));
+
+    await act(async () => { await result.current.loadApp(); });
+
+    expect(result.current.selectedProjectId).toBeNull();
+    expect(result.current.selectedTopic).toBeNull();
+    expect(result.current.snapshot.productMode).toBe("agent");
+    expect(result.current.snapshot.center.conversationInteractions.productMode).toBe("agent");
+  });
+
   it("restores the selected managed project, conversation, snapshot, run, and stream", async () => {
     const fixture = ownerFixture({ restore: { projectId: "repo-1", topicId: "conv-1", orchestrationOpen: true, settingsOpen: false } });
     fixture.api.loadSnapshot.mockResolvedValue(snapshot("repo-1", "conv-1", "run-1"));
@@ -187,6 +230,7 @@ describe("Project conversation session owner", () => {
     act(() => {
       pendingId = result.current.beginPendingDemand({
         projectId: "repo-1",
+        clientRequestId: "pending-request",
         title: "需求",
         body: "实现功能",
         selectedProviderId: "codex",
@@ -200,6 +244,23 @@ describe("Project conversation session owner", () => {
 
     act(() => result.current.acceptCanonicalConversation({
       projectId: "repo-1",
+      productMode: "harness",
+      clientRequestId: "foreign-request",
+      conversationId: "conv-foreign",
+      title: "错误需求",
+    }));
+    act(() => result.current.acceptCanonicalConversation({
+      projectId: "repo-1",
+      conversationId: "conv-missing-identity",
+      title: "缺少身份",
+    }));
+
+    expect(result.current.selectedTopic).toBe("pending:test");
+
+    act(() => result.current.acceptCanonicalConversation({
+      projectId: "repo-1",
+      productMode: "harness",
+      clientRequestId: "pending-request",
       conversationId: "conv-canonical",
       title: "正式需求",
       selectedProviderId: "codex",
@@ -240,6 +301,72 @@ describe("Project conversation session owner", () => {
     expect(result.current.selectedTopic).toBe("conv-created");
     expect(result.current.pendingDemandConversation).toBeNull();
     expect(routed.map((event) => event.event)).toEqual(["topic.created"]);
+  });
+
+  it("binds topic.created only to the exact create request identity", async () => {
+    const fixture = ownerFixture();
+    const routed: WorkbenchLiveEvent[] = [];
+    let finishStream!: () => void;
+    const streamPending = new Promise<void>((resolve) => { finishStream = resolve; });
+    fixture.api.createDemandConversation.mockImplementation(async (_input, onEvent) => {
+      const emit = (data: Record<string, unknown>) => onEvent({
+        event: "topic.created",
+        data: {
+          projectId: "repo-1",
+          productMode: "agent",
+          conversationId: "conv-correct",
+          clientRequestId: "request-correct",
+          replayed: false,
+          topic: { id: "conv-correct", conversationId: "conv-correct", title: "Correct", state: "active", productMode: "agent" },
+          ...data,
+        },
+      } as WorkbenchLiveEvent);
+      emit({ clientRequestId: "foreign-request", conversationId: "conv-foreign", topic: { id: "conv-foreign", title: "Foreign", productMode: "agent" } });
+      emit({ clientRequestId: undefined, conversationId: "conv-missing", topic: { id: "conv-missing", title: "Missing", productMode: "agent" } });
+      emit({ productMode: "harness", conversationId: "conv-wrong-mode", topic: { id: "conv-wrong-mode", title: "Wrong mode", productMode: "harness" } });
+      emit({});
+      await streamPending;
+    });
+    const { result } = renderHook(() => useProjectConversationSession({
+      ...fixture.ports,
+      productMode: "agent",
+      autoLoad: false,
+    }));
+    await act(async () => { await result.current.loadApp(); });
+
+    let creation!: Promise<{ projectId: string; conversationId: string }>;
+    act(() => {
+      creation = result.current.createDemandConversation({
+        projectId: "repo-1",
+        productMode: "agent",
+        clientRequestId: "request-correct",
+        body: "Exact request",
+        contextRefs: [],
+        attachmentIds: [],
+        skillOverrides: [],
+        showPendingBeforeCreate: true,
+      }, (_projectId, event) => routed.push(event));
+    });
+
+    await waitFor(() => expect(result.current.selectedTopic).toBe("conv-correct"));
+    expect(result.current.pendingDemandConversation).toMatchObject({
+      id: "conv-correct",
+      clientRequestId: "request-correct",
+      canonical: true,
+    });
+    expect(routed).toHaveLength(1);
+    expect(routed[0]?.data.clientRequestId).toBe("request-correct");
+
+    await act(async () => {
+      finishStream();
+      await expect(creation).resolves.toEqual({
+        projectId: "repo-1",
+        conversationId: "conv-correct",
+      });
+    });
+
+    expect(result.current.selectedTopic).toBe("conv-correct");
+    expect(result.current.pendingDemandConversation).toBeNull();
   });
 
   it("reconciles title updates across the selected snapshot and project cache", async () => {
@@ -546,14 +673,14 @@ function ownerFixture(options: { restore?: WorkbenchRestoreParams } = {}) {
       conversation: { id: conversationId, productMode: "harness" as const, title, state: "active" },
     })),
     registerProject: vi.fn(async () => ({ project: { id: "repo-1" }, status: managedProject("repo-1") })),
-    createDemandConversation: vi.fn(async (_input, onEvent: (event: WorkbenchLiveEvent) => void) => {
+    createDemandConversation: vi.fn(async (input, onEvent: (event: WorkbenchLiveEvent) => void) => {
       onEvent({
         event: "topic.created",
         data: {
           projectId: "repo-1",
           productMode: "harness",
           conversationId: "conv-created",
-          clientRequestId: "create-request",
+          clientRequestId: input.clientRequestId,
           replayed: false,
           topic: { id: "conv-created", conversationId: "conv-created", title: "New demand", state: "active", productMode: "harness" },
         },

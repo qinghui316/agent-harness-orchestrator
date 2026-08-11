@@ -124,7 +124,61 @@ describe("provider configuration controller", () => {
 
     expect(onError).not.toHaveBeenCalled();
   });
+
+  it("hides the previous scope configuration while the target scope is unresolved", async () => {
+    let resolveHarness!: (response: Response) => void;
+    const harnessResponse = new Promise<Response>((resolve) => { resolveHarness = resolve; });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("capabilities?productMode=agent")) return json({ providers: [provider("agent-provider", "agent")] });
+      if (url.includes("capabilities?productMode=harness")) return harnessResponse;
+      if (url.includes("agent-provider/diagnostics")) return json(diagnostics("agent-provider"));
+      if (url.includes("agent-provider/models")) return json(models("agent-provider"));
+      if (url.includes("harness-provider/diagnostics")) return json(diagnostics("harness-provider"));
+      if (url.includes("harness-provider/models")) return json(models("harness-provider"));
+      return json({});
+    }));
+    const { result, rerender } = renderHook(
+      ({ productMode }: { productMode: ProductMode }) => useProviderConfigurationController({
+        projectId: "repo",
+        productMode,
+        projectDefaultProviderId: null,
+        conversationProviderId: null,
+        onError: vi.fn(),
+      }),
+      { initialProps: { productMode: "agent" as ProductMode } },
+    );
+    await waitFor(() => expect(result.current.selectedProviderId).toBe("agent-provider"));
+    expect(result.current.diagnostics?.providerId).toBe("agent-provider");
+    expect(result.current.modelSettings?.providerId).toBe("agent-provider");
+
+    rerender({ productMode: "harness" });
+
+    expect(result.current.capabilities).toEqual([]);
+    expect(result.current.selectedProviderId).toBeNull();
+    expect(result.current.diagnostics).toBeNull();
+    expect(result.current.modelSettings).toBeNull();
+
+    resolveHarness(json({ providers: [provider("harness-provider", "harness")] }));
+    await waitFor(() => expect(result.current.selectedProviderId).toBe("harness-provider"));
+    expect(result.current.diagnostics?.providerId).toBe("harness-provider");
+    expect(result.current.modelSettings?.providerId).toBe("harness-provider");
+  });
 });
+
+function diagnostics(providerId: string) {
+  return { providerId, displayName: providerId, installation: {}, models: {} };
+}
+
+function models(providerId: string) {
+  return {
+    providerId,
+    effectiveModel: null,
+    effectiveModelSource: "provider-default",
+    candidates: [],
+    available: true,
+  };
+}
 
 function json(value: unknown): Response {
   return new Response(JSON.stringify(value), { status: 200, headers: { "content-type": "application/json" } });

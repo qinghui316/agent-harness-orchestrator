@@ -19,6 +19,7 @@ export type PendingDemandConversation = {
   id: string;
   projectId: string;
   productMode: ProductMode;
+  clientRequestId: string;
   title: string;
   body: string;
   startedAt: string;
@@ -122,7 +123,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
   const [productMode, setProductMode] = useState<ProductMode>(requestedProductMode);
   const [projects, setProjects] = useState<ProjectStatus[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-  const [snapshot, setSnapshot] = useState<Snapshot>(emptyWorkbenchSnapshot);
+  const [snapshot, setSnapshot] = useState<Snapshot>(() => emptySnapshotForMode(requestedProductMode));
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
   const [selectedRun, setSelectedRun] = useState<string | null>(null);
   const [stream, setStream] = useState<StreamPacket | null>(null);
@@ -258,6 +259,14 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     });
     if (!projectId) {
       if (persistedProjectId) navigation(currentPorts).clearPersistedProjectId();
+      setSelectedProjectId(null);
+      setSelectedTopic(null);
+      setSelectedRun(null);
+      setStream(null);
+      setExpandedProjects(new Set());
+      setPendingDemandConversation(null);
+      pendingDemandRef.current = null;
+      setSnapshot(emptySnapshotForMode(requestProductMode));
       return;
     }
     const conversationId = restore.topicId && (restore.projectId || urlProjectStatus) ? restore.topicId : null;
@@ -459,6 +468,36 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     return saved.project.id;
   }, [reportError]);
 
+  const rekeyPendingDemand = useCallback((input: {
+    projectId: string;
+    productMode: ProductMode;
+    clientRequestId: string;
+    conversationId: string;
+    title: string;
+    selectedProviderId?: string;
+  }): boolean => {
+    const pending = pendingDemandRef.current;
+    if (!pending || pending.projectId !== input.projectId
+      || input.productMode !== pending.productMode
+      || input.productMode !== productModeRef.current
+      || input.clientRequestId !== pending.clientRequestId) return false;
+    ++requestGenerationRef.current;
+    setSelectedProjectId(input.projectId);
+    setSelectedTopic(input.conversationId);
+    navigation(portsRef.current).persistProjectId(input.projectId);
+    navigation(portsRef.current).syncLocation(input.projectId, input.conversationId);
+    const canonical = {
+      ...pending,
+      id: input.conversationId,
+      title: input.title,
+      canonical: true,
+      selectedProviderId: input.selectedProviderId ?? pending.selectedProviderId,
+    };
+    setPendingDemandConversation(canonical);
+    pendingDemandRef.current = canonical;
+    return true;
+  }, []);
+
   const createDemandConversation = useCallback(async (
     request: CreateDemandConversationInput,
     routeEvent: (projectId: string, event: WorkbenchLiveEvent) => void,
@@ -473,6 +512,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
       beginPendingDemand({
         projectId: request.projectId,
         productMode: request.productMode,
+        clientRequestId: request.clientRequestId,
         title: "新需求",
         body: request.body,
         selectedProviderId: request.providerId,
@@ -484,13 +524,21 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
       && stateRef.current.selectedProjectId === request.projectId;
     try {
       await sessionApi(portsRef.current).createDemandConversation(request, (event) => {
-          const matchesRequest = eventMatchesConversationScope(event, {
-            projectId: request.projectId,
-            productMode: request.productMode,
-            conversationId,
-          });
-          if (event.event === "topic.created" && matchesRequest) {
+          if (event.event === "topic.created") {
+            if (!topicCreatedMatchesRequest(event, request)) return;
             conversationId = event.data.topic.conversationId ?? event.data.topic.id ?? event.data.topic.changeId ?? null;
+            if (canApplyToCurrentSelection() && conversationId) {
+              if (rekeyPendingDemand({
+                projectId: request.projectId,
+                productMode: request.productMode,
+                clientRequestId: request.clientRequestId,
+                conversationId,
+                title: event.data.topic.title,
+                selectedProviderId: event.data.topic.selectedProviderId,
+              })) requestGeneration = requestGenerationRef.current;
+              routeEvent(request.projectId, event);
+            }
+            return;
           }
           if (canApplyToCurrentSelection() && eventMatchesConversationScope(event, {
             projectId: request.projectId,
@@ -531,42 +579,19 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
       navigation(portsRef.current).syncLocation(stateRef.current.selectedProjectId, previousConversationId);
       throw cause;
     }
-  }, [beginPendingDemand, reportError]);
+  }, [beginPendingDemand, rekeyPendingDemand, reportError]);
 
   const acceptCanonicalConversation = useCallback((input: {
     projectId: string;
     productMode?: ProductMode;
+    clientRequestId?: string;
     conversationId: string;
     title: string;
     selectedProviderId?: string;
   }): void => {
-    const pending = pendingDemandRef.current;
-    const inputProductMode = input.productMode ?? pending?.productMode;
-    if (!pending || pending.projectId !== input.projectId
-      || inputProductMode !== productModeRef.current
-      || pending.productMode !== productModeRef.current) return;
-    ++requestGenerationRef.current;
-    setSelectedProjectId(input.projectId);
-    setSelectedTopic(input.conversationId);
-    navigation(portsRef.current).persistProjectId(input.projectId);
-    navigation(portsRef.current).syncLocation(input.projectId, input.conversationId);
-    setPendingDemandConversation((current) => current && current.projectId === input.projectId
-      ? {
-        ...current,
-        id: input.conversationId,
-        title: input.title,
-        canonical: true,
-        selectedProviderId: input.selectedProviderId ?? current.selectedProviderId,
-      }
-      : null);
-    pendingDemandRef.current = {
-      ...pending,
-      id: input.conversationId,
-      title: input.title,
-      canonical: true,
-      selectedProviderId: input.selectedProviderId ?? pending.selectedProviderId,
-    };
-  }, []);
+    if (!input.productMode || !input.clientRequestId) return;
+    rekeyPendingDemand({ ...input, productMode: input.productMode, clientRequestId: input.clientRequestId });
+  }, [rekeyPendingDemand]);
 
   const reconcileConversationTitle = useCallback((projectId: string, conversation: Topic): void => {
     if (conversation.productMode !== productModeRef.current) return;
@@ -1165,4 +1190,15 @@ function eventMatchesConversationScope(event: WorkbenchLiveEvent, expected: {
     && eventProductMode === expected.productMode
     && Boolean(eventConversationId)
     && (!expected.conversationId || eventConversationId === expected.conversationId);
+}
+
+function topicCreatedMatchesRequest(
+  event: WorkbenchLiveEvent,
+  expected: Pick<CreateDemandConversationInput, "projectId" | "productMode" | "clientRequestId">,
+): boolean {
+  if (event.event !== "topic.created") return false;
+  const data = event.data as Record<string, unknown>;
+  return data.projectId === expected.projectId
+    && data.productMode === expected.productMode
+    && data.clientRequestId === expected.clientRequestId;
 }

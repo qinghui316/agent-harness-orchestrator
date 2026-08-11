@@ -17,6 +17,7 @@ export interface ProviderConfigurationInput {
 
 export function useProviderConfigurationController(input: ProviderConfigurationInput) {
   const productMode = input.productMode ?? "harness";
+  const scopeIdentity = providerConfigurationScopeIdentity(input.projectId, productMode);
   const [diagnostics, setDiagnostics] = useState<ProviderDiagnostics | null>(null);
   const [modelSettings, setModelSettings] = useState<ProviderModelSettingsSnapshot | null>(null);
   const [capabilities, setCapabilities] = useState<ProviderCapabilitySnapshot[]>([]);
@@ -24,9 +25,15 @@ export function useProviderConfigurationController(input: ProviderConfigurationI
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [modelSettingsBusy, setModelSettingsBusy] = useState(false);
   const [modelSettingsMessage, setModelSettingsMessage] = useState<string | null>(null);
+  const [resolvedScopeIdentity, setResolvedScopeIdentity] = useState<string | null>(null);
   const requestGenerationRef = useRef(0);
   const selectedProviderIdRef = useRef<string | null>(null);
-  selectedProviderIdRef.current = selectedProviderId;
+  const scopeResolved = resolvedScopeIdentity === scopeIdentity;
+  const visibleDiagnostics = scopeResolved ? diagnostics : null;
+  const visibleModelSettings = scopeResolved ? modelSettings : null;
+  const visibleCapabilities = scopeResolved ? capabilities : [];
+  const visibleSelectedProviderId = scopeResolved ? selectedProviderId : null;
+  selectedProviderIdRef.current = visibleSelectedProviderId;
 
   const providerPath = useCallback((providerId: string, leaf: "diagnostics" | "models") => (
     input.projectId
@@ -65,10 +72,12 @@ export function useProviderConfigurationController(input: ProviderConfigurationI
     if (!providerId) {
       setDiagnostics(null);
       setModelSettings(null);
+      setResolvedScopeIdentity(scopeIdentity);
       return;
     }
     await loadProviderDetails(providerId, generation);
-  }, [input.conversationProviderId, input.projectDefaultProviderId, input.projectId, loadProviderDetails, productMode]);
+    if (generation === requestGenerationRef.current) setResolvedScopeIdentity(scopeIdentity);
+  }, [input.conversationProviderId, input.projectDefaultProviderId, input.projectId, loadProviderDetails, productMode, scopeIdentity]);
 
   useEffect(() => {
     let active = true;
@@ -90,24 +99,24 @@ export function useProviderConfigurationController(input: ProviderConfigurationI
     const providerId = selectEffectiveProviderId({
       conversationProviderId: input.conversationProviderId,
       projectDefaultProviderId: input.projectDefaultProviderId,
-      selectedProviderId,
-      capabilities,
+      selectedProviderId: visibleSelectedProviderId,
+      capabilities: visibleCapabilities,
     });
-    if (providerId !== selectedProviderId) setSelectedProviderId(providerId);
-  }, [capabilities, input.conversationProviderId, input.projectDefaultProviderId, selectedProviderId]);
+    if (scopeResolved && providerId !== visibleSelectedProviderId) setSelectedProviderId(providerId);
+  }, [input.conversationProviderId, input.projectDefaultProviderId, scopeResolved, visibleCapabilities, visibleSelectedProviderId]);
 
   const selectProvider = useCallback(async (providerId: string): Promise<void> => {
-    if (providerId === selectedProviderId) return;
+    if (providerId === visibleSelectedProviderId) return;
     const generation = ++requestGenerationRef.current;
     setSelectedProviderId(providerId);
     await loadProviderDetails(providerId, generation);
-  }, [loadProviderDetails, selectedProviderId]);
+  }, [loadProviderDetails, visibleSelectedProviderId]);
 
   const openModelPicker = useCallback(async (): Promise<void> => {
     const generation = ++requestGenerationRef.current;
     setModelPickerOpen(true);
     setModelSettingsMessage(null);
-    const providerId = selectedProviderId ?? await resolveOnlyProviderId();
+    const providerId = visibleSelectedProviderId ?? await resolveOnlyProviderId();
     if (generation !== requestGenerationRef.current) return;
     try {
       await loadProviderDetails(providerId, generation);
@@ -116,14 +125,14 @@ export function useProviderConfigurationController(input: ProviderConfigurationI
         setModelSettingsMessage(cause instanceof Error ? cause.message : String(cause));
       }
     }
-  }, [loadProviderDetails, selectedProviderId]);
+  }, [loadProviderDetails, visibleSelectedProviderId]);
 
   const updateModelSettings = useCallback(async (body: unknown): Promise<void> => {
     const generation = ++requestGenerationRef.current;
     setModelSettingsBusy(true);
     setModelSettingsMessage(null);
     try {
-      const providerId = selectedProviderId ?? await resolveOnlyProviderId();
+      const providerId = visibleSelectedProviderId ?? await resolveOnlyProviderId();
       if (generation !== requestGenerationRef.current) return;
       const raw = await postJson<unknown>(providerPath(providerId, "models"), body);
       if (generation !== requestGenerationRef.current) return;
@@ -148,13 +157,13 @@ export function useProviderConfigurationController(input: ProviderConfigurationI
     } finally {
       if (generation === requestGenerationRef.current) setModelSettingsBusy(false);
     }
-  }, [input.projectId, productMode, providerPath, selectedProviderId]);
+  }, [input.projectId, productMode, providerPath, visibleSelectedProviderId]);
 
   return {
-    diagnostics,
-    modelSettings,
-    capabilities,
-    selectedProviderId,
+    diagnostics: visibleDiagnostics,
+    modelSettings: visibleModelSettings,
+    capabilities: visibleCapabilities,
+    selectedProviderId: visibleSelectedProviderId,
     modelPickerOpen,
     modelSettingsBusy,
     modelSettingsMessage,
@@ -213,6 +222,10 @@ export function isProviderCapabilitySnapshot(
     && typeof snapshot.snapshotHash === "string"
     && typeof snapshot.snapshotVersion === "number"
     && Array.isArray(snapshot.capabilities);
+}
+
+function providerConfigurationScopeIdentity(projectId: string | null, productMode: ProductMode): string {
+  return `${projectId ?? ""}\0${productMode}`;
 }
 
 export function providerCapabilitiesPath(projectId: string | null, productMode: ProductMode): string {

@@ -239,6 +239,46 @@ describe("Conversation composer controller", () => {
     }));
   });
 
+  it("does not clear the new mode refs or attachments when an old send completes", async () => {
+    let resolveSend!: () => void;
+    const ports = composerPorts();
+    ports.actions.sendMessage.mockImplementation(() => new Promise<void>((resolve) => { resolveSend = resolve; }));
+    const { result, rerender } = renderHook(
+      ({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
+      { initialProps: { scope: conversationScope({ productMode: "agent", conversation: {
+        id: "agent-conversation",
+        productMode: "agent",
+        state: "active",
+        selectedProviderId: "codex",
+      } }) } },
+    );
+    act(() => {
+      result.current.setComposerText("agent turn");
+      result.current.setFileRefs([fileRef("src/agent.ts")]);
+      result.current.setAttachments([attachment("agent-attachment")]);
+    });
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.send(); });
+    await waitFor(() => expect(ports.actions.sendMessage).toHaveBeenCalledOnce());
+
+    rerender({ scope: conversationScope({ productMode: "harness", conversation: {
+      id: "harness-conversation",
+      productMode: "harness",
+      state: "active",
+      selectedProviderId: "codex",
+    } }) });
+    act(() => {
+      result.current.setComposerText("harness draft");
+      result.current.setFileRefs([fileRef("src/harness.ts")]);
+      result.current.setAttachments([attachment("harness-attachment")]);
+    });
+    await act(async () => { resolveSend(); await pending; });
+
+    expect(result.current.composerText).toBe("harness draft");
+    expect(result.current.fileRefs).toEqual([fileRef("src/harness.ts")]);
+    expect(result.current.attachments).toEqual([attachment("harness-attachment")]);
+  });
+
   it("does not surface or calibrate a failed Turn after its mode becomes inactive", async () => {
     let rejectSend!: (cause: Error) => void;
     const ports = composerPorts();
@@ -354,6 +394,35 @@ describe("Conversation composer controller", () => {
       prompt: "stop context",
     });
     expect(ports.projection.refreshConversation).not.toHaveBeenCalled();
+  });
+
+  it.each(["steer", "stop"] as const)("does not leak a late %s failure into a new mode scope", async (action) => {
+    let rejectAction!: (cause: Error) => void;
+    const ports = composerPorts();
+    ports.actions[action].mockImplementation(() => new Promise<void>((_resolve, reject) => { rejectAction = reject; }));
+    const { result, rerender } = renderHook(
+      ({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
+      { initialProps: { scope: conversationScope({
+        productMode: "agent",
+        running: true,
+        conversation: { id: "agent-conversation", productMode: "agent", state: "active", selectedProviderId: "codex" },
+      }) } },
+    );
+    act(() => result.current.setComposerText("old action"));
+    let pending!: Promise<void>;
+    act(() => { pending = action === "steer" ? result.current.send() : result.current.stop(); });
+    await waitFor(() => expect(ports.actions[action]).toHaveBeenCalledOnce());
+
+    rerender({ scope: homeScope({ productMode: "harness", conversation: null }) });
+    act(() => result.current.setComposerText("new mode draft"));
+    await act(async () => {
+      rejectAction(new Error(`late ${action} failure`));
+      await expect(pending).rejects.toThrow(`late ${action} failure`);
+    });
+
+    expect(result.current.composerText).toBe("new mode draft");
+    expect(ports.onError).not.toHaveBeenCalledWith(`late ${action} failure`);
+    expect(ports.timeline.calibrate).not.toHaveBeenCalled();
   });
 });
 
