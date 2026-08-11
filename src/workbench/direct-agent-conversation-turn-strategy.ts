@@ -1,0 +1,659 @@
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import {
+  defaultProviderRegistry,
+  type ProviderRealtimeEvent,
+  type ProviderRegistry,
+  type ProviderTurnResult,
+} from "../provider-runtime/index.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
+import { defaultProjectRuntimeActivityRegistry } from "../project-runtime/activity.js";
+import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
+import { buildCanonicalCaptureWrites } from "./provider-capture-persistence.js";
+import { forwardProviderRealtimeEvent } from "./provider-live-events.js";
+import { createAssistantTranscriptCapture } from "./live-transcript.js";
+import { CanonicalTimelineDelivery, publishCommittedCanonicalTimelineRow } from "./canonical-timeline-delivery.js";
+import { toCanonicalTimelineMessage } from "./canonical-timeline-message.js";
+import { fromStoredThreadMessage } from "./conversation-thread-log.js";
+import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
+import type { StoredTopicMessage, StoredTopicMessageWrite } from "./persistence/contracts.js";
+import type { WorkbenchDatabase } from "./persistence/database.js";
+import type {
+  ConversationTurnExecutionPorts,
+  ConversationTurnStrategy,
+  ConversationTurnStrategyInput,
+  TurnSkillContextResolution,
+} from "./conversation-turn-contract.js";
+import type { TopicMessageResult, TopicThreadEntry } from "./types.js";
+
+type DirectAgentProviderRegistry = Pick<ProviderRegistry, "requireProfiles" | "findActiveTurn">;
+type OpenWorkbenchDatabase = typeof openProjectRuntimeWorkbenchDatabase;
+
+const activeDirectAgentConversations = new Set<string>();
+
+export interface DirectAgentConversationTurnStrategyOptions {
+  providerRegistry?: DirectAgentProviderRegistry;
+  openDatabase?: OpenWorkbenchDatabase;
+}
+
+export class DirectAgentConversationTurnStrategy implements ConversationTurnStrategy {
+  readonly productMode = "agent" as const;
+
+  private readonly providerRegistry: DirectAgentProviderRegistry;
+  private readonly openDatabase: OpenWorkbenchDatabase;
+
+  constructor(options: DirectAgentConversationTurnStrategyOptions = {}) {
+    this.providerRegistry = options.providerRegistry ?? defaultProviderRegistry;
+    this.openDatabase = options.openDatabase ?? openProjectRuntimeWorkbenchDatabase;
+  }
+
+  async execute(
+    input: ConversationTurnStrategyInput,
+    ports: ConversationTurnExecutionPorts,
+  ): Promise<TopicMessageResult> {
+    const activityKey = `${input.project.id}:${input.conversation.conversationId}`;
+    if (activeDirectAgentConversations.has(activityKey)) {
+      throw conflict("Direct Agent Conversation already has an active Turn.");
+    }
+    activeDirectAgentConversations.add(activityKey);
+    return defaultProjectRuntimeActivityRegistry
+      .run(input.project.id, () => this.executeActivity(input, ports))
+      .finally(() => activeDirectAgentConversations.delete(activityKey));
+  }
+
+  private async executeActivity(
+    input: ConversationTurnStrategyInput,
+    ports: ConversationTurnExecutionPorts,
+  ): Promise<TopicMessageResult> {
+    validateTurnIdentity(input);
+    const user = fromStoredThreadMessage(input.committedMessage);
+    if (input.attachments.length > 0) {
+      throw conflict("Direct Agent attachments are not supported in this increment.");
+    }
+
+    const runtimeState = await resolveProjectRuntimeState(input.project, {
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+    });
+    const paths = runtimeState.state === "onboarding" ? runtimeState.paths : runtimeState.resolution.paths;
+    if (paths.projectId !== input.project.id) {
+      throw new Error("Direct Agent runtime paths do not match the selected project identity.");
+    }
+
+    const skillContext = await ports.skillContext.resolve({
+      project: input.project,
+      conversation: input.conversation,
+      requiredSkillIds: [],
+    });
+    const resolvedProvider = await this.providerRegistry.requireProfiles(
+      input.providerId,
+      ["agent"],
+      "agent",
+      input.project,
+      input.project.path,
+    );
+
+    const graphScopeId = input.conversation.currentGraphScopeId;
+    if (!graphScopeId) throw new Error("Direct Agent Conversation requires a current graph scope.");
+    const runId = `agent-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
+    const attemptId = `attempt-${randomUUID()}`;
+    const runRoot = join(paths.runsRoot, "agent-conversations", input.conversation.conversationId, runId);
+    await mkdir(runRoot, { recursive: true });
+
+    const database = await this.openDatabase(paths);
+    let attemptCreated = false;
+    const terminalLifecycle: { state: "idle" | "committing" | "settled" } = { state: "idle" };
+    let canonicalPersistenceError: Error | null = null;
+    let liveMainThreadId: string | null = null;
+    let unsupportedInputError: Error | null = null;
+    let interruptWork: Promise<void> | null = null;
+    let terminalRecoveryWrites: StoredTopicMessageWrite[] = [];
+    const terminalRows: StoredTopicMessage[] = [];
+    const conversation = assertCurrentConversation(database, input);
+    const binding = database.providerAttempts.readConversationProviderBinding(
+      paths.projectId,
+      conversation.conversationId,
+      input.providerId,
+    );
+    const existingSessionId = binding?.bindingStatus === "ready" && binding.nativeSessionId
+      ? binding.nativeSessionId
+      : null;
+    const startedAt = new Date().toISOString();
+    const model = resolvedProvider.snapshot.effectiveModel
+      ? { providerId: input.providerId, modelId: resolvedProvider.snapshot.effectiveModel }
+      : null;
+    const skillInputs = [...skillContext.skillInputs];
+    const handoffHash = directAgentHandoffHash(input, skillContext);
+    const mainTimelineId = `assistant:${conversation.conversationId}:${input.providerId}:${runId}:main`;
+    const delivery = new CanonicalTimelineDelivery(database, "agent", input.live);
+    const capture = createAssistantTranscriptCapture(input.live, (snapshot) => {
+      try {
+        for (const write of buildCanonicalCaptureWrites({
+          projectId: paths.projectId,
+          conversationId: conversation.conversationId,
+          graphScopeId,
+          runId,
+          providerId: input.providerId,
+          attemptId,
+          mainTimelineId,
+          mainSessionId: liveMainThreadId ?? existingSessionId,
+          snapshot,
+        }).filter((write) => write.agentSurfaceId === "main-agent")) {
+          delivery.upsert(write);
+        }
+        return true;
+      } catch (error) {
+        canonicalPersistenceError = asError(error);
+        return false;
+      }
+    });
+
+    const terminalize = (result: ProviderTurnResult | null, status: "completed" | "interrupted" | "failed", failure?: Error): TopicThreadEntry | null => {
+      if (terminalLifecycle.state !== "idle") throw new Error(`Direct Agent attempt already entered terminalization: ${attemptId}.`);
+      terminalLifecycle.state = "committing";
+      const completedAt = new Date().toISOString();
+      const sessionId = result?.session?.sessionId ?? liveMainThreadId ?? existingSessionId;
+      if (sessionId && liveMainThreadId !== sessionId) {
+        bindMainThread(database, paths.projectId, attemptId, sessionId, runId);
+        liveMainThreadId = sessionId;
+      }
+      const writes = terminalCaptureWrites({
+        projectId: paths.projectId,
+        conversationId: conversation.conversationId,
+        graphScopeId,
+        runId,
+        providerId: input.providerId,
+        attemptId,
+        mainTimelineId,
+        sessionId,
+        capture,
+        result,
+        status,
+        failure,
+      });
+      terminalRecoveryWrites = writes;
+      const terminal = database.unitOfWork.commitProviderTurnTerminal({
+        projectId: paths.projectId,
+        conversationId: conversation.conversationId,
+        runId,
+        mainAttemptId: attemptId,
+        expectedGraphScopeId: graphScopeId,
+        mainStatus: status,
+        mainNativeSessionId: sessionId,
+        childAttempts: [],
+        expectedCompletedTurnSequence: conversation.completedTurnSequence,
+        advanceCompletedTurn: status === "completed",
+        binding: {
+          projectId: paths.projectId,
+          conversationId: conversation.conversationId,
+          providerId: input.providerId,
+          nativeSessionId: sessionId,
+          preferredModel: model,
+          lastUsedAt: completedAt,
+          bindingStatus: status === "completed" || (status === "interrupted" && Boolean(sessionId))
+            ? "ready"
+            : "stale",
+        },
+        updatedAt: completedAt,
+        timelineMessages: writes,
+      });
+      terminalLifecycle.state = "settled";
+      terminalRows.push(...terminal.timelineRows, ...terminal.interactionRows);
+      const assistantRow = [...terminal.timelineRows].reverse().find((row) => row.agentSurfaceId === "main-agent") ?? null;
+      return assistantRow ? fromStoredThreadMessage(assistantRow) : null;
+    };
+
+    try {
+      database.providerAttempts.createProviderAttempt({
+        projectId: paths.projectId,
+        conversationId: conversation.conversationId,
+        attemptId,
+        productMode: "agent",
+        graphScopeId,
+        changeId: null,
+        agentTaskId: null,
+        roleId: "main-agent",
+        parentAgentSurfaceId: null,
+        operationProfile: "agent",
+        providerId: input.providerId,
+        nativeSessionId: existingSessionId,
+        model,
+        capabilitySnapshot: resolvedProvider.snapshot,
+        effectiveSkillInputs: skillInputs,
+        handoffHash,
+        deliveredThroughCompletedTurn: conversation.completedTurnSequence,
+        worktreeId: null,
+        status: "running",
+        createdAt: startedAt,
+        updatedAt: startedAt,
+      });
+      attemptCreated = true;
+      if (existingSessionId) {
+        bindMainThread(database, paths.projectId, attemptId, existingSessionId, runId);
+        liveMainThreadId = existingSessionId;
+      }
+
+      input.live?.emit({
+        event: "run.started",
+        data: {
+          projectId: paths.projectId,
+          productMode: "agent",
+          conversationId: conversation.conversationId,
+          graphScopeId,
+          runId,
+          providerId: input.providerId,
+          attemptId,
+          actionType: "chat.ask",
+        },
+      });
+      input.live?.emit({
+        event: "run.status",
+        data: {
+          projectId: paths.projectId,
+          productMode: "agent",
+          conversationId: conversation.conversationId,
+          graphScopeId,
+          runId,
+          providerId: input.providerId,
+          attemptId,
+          status: "connecting",
+          label: "正在连接 Agent",
+        },
+      });
+
+      const result = await resolvedProvider.descriptor.conversation.runTurn({
+        providerId: input.providerId,
+        operationProfile: "agent",
+        projectId: paths.projectId,
+        conversationId: conversation.conversationId,
+        graphScopeId,
+        runtimeScopeId: conversation.conversationId,
+        roleId: "main-agent",
+        runId,
+        attemptId,
+        cwd: input.project.path,
+        prompt: user.text ?? "",
+        sandboxPolicy: "workspace-write",
+        paths: providerArtifactPaths(runRoot),
+        existingSession: existingSessionId
+          ? { providerId: input.providerId, sessionId: existingSessionId }
+          : null,
+        onRealtimeEvent: (event) => {
+          if (event.parentThreadId) return;
+          if (!isCurrentTopLevelEvent(event, paths.projectId, conversation.conversationId, runId, attemptId, input.providerId)) {
+            canonicalPersistenceError ??= new Error("Provider realtime event does not match the Direct Agent Turn identity.");
+            return;
+          }
+          if (event.threadId && liveMainThreadId !== event.threadId) {
+            try {
+              bindMainThread(database, paths.projectId, attemptId, event.threadId, runId, event.displayName);
+              liveMainThreadId = event.threadId;
+            } catch (error) {
+              canonicalPersistenceError ??= asError(error);
+              return;
+            }
+          }
+          forwardProviderRealtimeEvent(event, capture.sink, { productMode: "agent", graphScopeId });
+        },
+        onUserInputRequest: (request) => {
+          unsupportedInputError ??= conflict("Direct Agent provider input is not supported in this increment.");
+          input.live?.emit({
+            event: "error",
+            data: {
+              projectId: paths.projectId,
+              productMode: "agent",
+              conversationId: conversation.conversationId,
+              graphScopeId,
+              runId,
+              providerId: input.providerId,
+              attemptId,
+              sessionId: request.sessionId,
+              threadId: request.threadId,
+              turnId: request.turnId,
+              itemId: request.itemId,
+              message: unsupportedInputError.message,
+            },
+          });
+          interruptWork ??= Promise.resolve().then(async () => {
+            const active = this.providerRegistry.findActiveTurn(conversation.conversationId);
+            if (!active || active.attemptId !== attemptId) {
+              throw new Error("Direct Agent provider input could not locate the active Turn to interrupt.");
+            }
+            await active.interrupt("unsupported-provider-input");
+          });
+          void interruptWork.catch((error) => {
+            canonicalPersistenceError ??= asError(error);
+          });
+        },
+        onError: (error) => {
+          input.live?.emit({
+            event: "error",
+            data: {
+              projectId: paths.projectId,
+              productMode: "agent",
+              conversationId: conversation.conversationId,
+              graphScopeId,
+              runId,
+              providerId: input.providerId,
+              attemptId,
+              message: asError(error).message,
+            },
+          });
+        },
+        model,
+        skillInputs,
+        runtimeWorkspaceRoots: [input.project.path],
+        writableRoots: [input.project.path],
+      });
+      if (interruptWork) await interruptWork;
+      const persistenceFailure = canonicalPersistenceError ?? unsupportedInputError;
+      const status = persistenceFailure ? "failed" : result.status;
+      const assistant = terminalize(result, status, persistenceFailure ?? undefined);
+      for (const row of terminalRows) publishCommittedCanonicalTimelineRow(input.live, row, "agent");
+      input.live?.emit({
+        event: "run.status",
+        data: {
+          projectId: paths.projectId,
+          productMode: "agent",
+          conversationId: conversation.conversationId,
+          graphScopeId,
+          runId,
+          providerId: input.providerId,
+          attemptId,
+          status,
+        },
+      });
+      if (status === "failed") {
+        throw persistenceFailure ?? new Error(result.error || "Direct Agent provider Turn failed.");
+      }
+      return {
+        user,
+        assistant,
+        run: null,
+        providerSessionId: result.session?.sessionId ?? liveMainThreadId,
+        mode: "chat",
+        assistantMessage: assistant?.text ?? "",
+      };
+    } catch (error) {
+      const failure = asError(error);
+      let terminalFailure: Error | null = null;
+      if (attemptCreated && terminalLifecycle.state !== "settled") {
+        if (terminalLifecycle.state === "idle") {
+          try {
+            void terminalize(null, "failed", failure);
+          } catch (terminalError) {
+            terminalFailure = asError(terminalError);
+          }
+        }
+        if (terminalLifecycle.state === "committing") {
+          try {
+            const currentAttempt = database.providerAttempts.readProviderAttempt(paths.projectId, attemptId);
+            if (currentAttempt?.status === "running") {
+              const updatedAt = new Date().toISOString();
+              const terminal = {
+                status: "failed" as const,
+                nativeSessionId: liveMainThreadId ?? existingSessionId,
+              };
+              try {
+                const rows = database.unitOfWork.commitProviderCallback({
+                  projectId: paths.projectId,
+                  conversationId: conversation.conversationId,
+                  attemptId,
+                  expectedGraphScopeId: graphScopeId,
+                  updatedAt,
+                  terminal,
+                  timelineMessages: terminalRecoveryWrites.map((write) => updateCanonicalWrite(write, {
+                    status: "failed",
+                    error: failure.message,
+                  })),
+                });
+                terminalRows.push(...rows);
+              } catch (timelineRecoveryError) {
+                database.unitOfWork.commitProviderCallback({
+                  projectId: paths.projectId,
+                  conversationId: conversation.conversationId,
+                  attemptId,
+                  expectedGraphScopeId: graphScopeId,
+                  updatedAt,
+                  terminal,
+                });
+                terminalFailure = new AggregateError(
+                  [terminalFailure, asError(timelineRecoveryError)].filter((item): item is Error => Boolean(item)),
+                  `Direct Agent Timeline recovery failed before the Attempt-only fallback: ${attemptId}.`,
+                );
+              }
+            }
+            terminalLifecycle.state = "settled";
+          } catch (recoveryError) {
+            terminalFailure = new AggregateError(
+              [terminalFailure, asError(recoveryError)].filter((item): item is Error => Boolean(item)),
+              `Direct Agent attempt could not be recovered after terminal persistence failed: ${attemptId}.`,
+            );
+          }
+        }
+        for (const row of terminalRows) publishCommittedCanonicalTimelineRow(input.live, row, "agent");
+      }
+      if (terminalFailure) throw new AggregateError([failure, terminalFailure], "Direct Agent Turn and terminal recovery both failed.");
+      throw failure;
+    } finally {
+      database.close();
+    }
+  }
+}
+
+function validateTurnIdentity(input: ConversationTurnStrategyInput): void {
+  if (input.conversation.productMode !== "agent") throw conflict("Direct Agent Strategy requires an Agent Conversation.");
+  if (input.project.id !== input.conversation.projectId
+    || input.committedMessage.projectId !== input.conversation.projectId
+    || input.committedMessage.conversationId !== input.conversation.conversationId) {
+    throw conflict("Direct Agent Turn identity does not match the selected project and Conversation.");
+  }
+  if (input.providerId !== input.conversation.selectedProviderId) {
+    throw conflict("Direct Agent provider does not match the committed Conversation selection.");
+  }
+  if (input.harnessHandoff) throw conflict("Agent mode does not accept AHO planning handoffs.");
+}
+
+function assertCurrentConversation(database: WorkbenchDatabase, input: ConversationTurnStrategyInput) {
+  const stored = database.conversations.readConversation(input.project.id, input.conversation.conversationId);
+  if (!stored || stored.deletedAt || stored.state !== "active") throw conflict("Direct Agent Conversation is no longer active.");
+  if (stored.productMode !== "agent"
+    || stored.selectedProviderId !== input.providerId
+    || stored.currentGraphScopeId !== input.conversation.currentGraphScopeId
+    || stored.completedTurnSequence !== input.conversation.completedTurnSequence) {
+    throw conflict("Direct Agent Conversation identity changed before provider execution.");
+  }
+  const message = database.timeline.readMessage(stored.projectId, stored.conversationId, input.committedMessage.id);
+  if (!message || message.revision !== input.committedMessage.revision || message.type !== "user.message") {
+    throw conflict("Direct Agent committed user message no longer matches canonical Timeline state.");
+  }
+  return stored;
+}
+
+function directAgentHandoffHash(
+  input: ConversationTurnStrategyInput,
+  skills: TurnSkillContextResolution,
+): string {
+  return createHash("sha256").update(JSON.stringify({
+    version: 1,
+    projectId: input.project.id,
+    conversationId: input.conversation.conversationId,
+    graphScopeId: input.conversation.currentGraphScopeId,
+    messageId: input.committedMessage.id,
+    messageRevision: input.committedMessage.revision,
+    providerId: input.providerId,
+    skillInputs: skills.skillInputs.map((skill) => ({
+      id: skill.id,
+      path: skill.path,
+      source: skill.source,
+      contentHash: skill.contentHash,
+      required: skill.required,
+    })),
+  })).digest("hex");
+}
+
+function terminalCaptureWrites(input: {
+  projectId: string;
+  conversationId: string;
+  graphScopeId: string;
+  runId: string;
+  providerId: string;
+  attemptId: string;
+  mainTimelineId: string;
+  sessionId: string | null;
+  capture: ReturnType<typeof createAssistantTranscriptCapture>;
+  result: ProviderTurnResult | null;
+  status: "completed" | "interrupted" | "failed";
+  failure?: Error;
+}): StoredTopicMessageWrite[] {
+  const writes = buildCanonicalCaptureWrites({
+    projectId: input.projectId,
+    conversationId: input.conversationId,
+    graphScopeId: input.graphScopeId,
+    runId: input.runId,
+    providerId: input.providerId,
+    attemptId: input.attemptId,
+    mainTimelineId: input.mainTimelineId,
+    mainSessionId: input.sessionId,
+    snapshot: input.capture,
+  }).filter((write) => write.agentSurfaceId === "main-agent");
+  const fallbackText = input.capture.text.trim()
+    ? ""
+    : input.result?.lastMessage.trim() || input.failure?.message || input.result?.error?.trim() || "";
+  if (writes.length === 0 && (fallbackText || input.capture.blocks.length > 0 || input.capture.activity.length > 0)) {
+    writes.push(toCanonicalTimelineMessage(input.projectId, input.conversationId, {
+      id: input.mainTimelineId,
+      type: "assistant.message",
+      timestamp: new Date().toISOString(),
+      conversationId: input.conversationId,
+      graphScopeId: input.graphScopeId,
+      changeId: "",
+      text: fallbackText || undefined,
+      status: input.status,
+      runId: input.runId,
+      providerId: input.providerId,
+      sessionId: input.sessionId ?? undefined,
+      attemptId: input.attemptId,
+      threadId: input.sessionId ?? undefined,
+      turnId: input.result?.turnId ?? undefined,
+      agentRoleId: "main-agent",
+      agentSurfaceId: "main-agent",
+      activity: input.capture.activity,
+      blocks: input.capture.blocks,
+      error: input.status === "failed" ? input.failure?.message ?? input.result?.error : undefined,
+    }));
+  } else if (fallbackText) {
+    const last = writes.at(-1)!;
+    writes[writes.length - 1] = addFallbackProse(last, fallbackText);
+  }
+  return writes.map((write) => updateCanonicalWrite(write, {
+    status: input.status,
+    error: input.status === "failed" ? input.failure?.message ?? input.result?.error : undefined,
+  }));
+}
+
+function addFallbackProse(write: StoredTopicMessageWrite, text: string): StoredTopicMessageWrite {
+  let raw: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(write.rawJson) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) raw = parsed as Record<string, unknown>;
+  } catch {
+    // A typed fallback message remains recoverable even if diagnostic JSON was malformed.
+  }
+  const blocks = Array.isArray(raw.blocks)
+    ? raw.blocks.filter((block): block is Record<string, unknown> => Boolean(block) && typeof block === "object" && !Array.isArray(block))
+    : [];
+  const sequence = Math.max(0, ...blocks.map((block) => typeof block.sequence === "number" ? block.sequence : 0)) + 1;
+  const fallbackBlock = {
+    id: `${write.id}:fallback-prose`,
+    providerId: write.providerId ?? undefined,
+    attemptId: typeof raw.attemptId === "string" ? raw.attemptId : undefined,
+    runId: write.runId ?? undefined,
+    threadId: write.threadId ?? undefined,
+    turnId: write.turnId ?? undefined,
+    itemId: `${write.id}:fallback-prose`,
+    sequence,
+    kind: "prose",
+    timestamp: new Date().toISOString(),
+    source: "provider",
+    text,
+  };
+  return {
+    ...write,
+    text,
+    rawJson: JSON.stringify({ ...raw, text, blocks: [...blocks, fallbackBlock] }),
+  };
+}
+
+function updateCanonicalWrite(
+  write: StoredTopicMessageWrite,
+  patch: { text?: string; status?: string; error?: string },
+): StoredTopicMessageWrite {
+  let raw: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(write.rawJson) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) raw = parsed as Record<string, unknown>;
+  } catch {
+    // Preserve the typed columns when legacy diagnostic JSON cannot be parsed.
+  }
+  return {
+    ...write,
+    ...(patch.text !== undefined ? { text: patch.text } : {}),
+    ...(patch.status !== undefined ? { status: patch.status } : {}),
+    ...(patch.error !== undefined ? { error: patch.error } : {}),
+    rawJson: JSON.stringify({ ...raw, ...patch }),
+  };
+}
+
+function bindMainThread(
+  database: WorkbenchDatabase,
+  projectId: string,
+  attemptId: string,
+  threadId: string,
+  runId: string,
+  displayName?: string,
+): void {
+  database.providerAttempts.bindProviderAttemptThread(projectId, {
+    attemptId,
+    threadId,
+    parentThreadId: null,
+    parentAgentSurfaceId: null,
+    displayName,
+    runId,
+  }, new Date().toISOString());
+}
+
+function isCurrentTopLevelEvent(
+  event: ProviderRealtimeEvent,
+  projectId: string,
+  conversationId: string,
+  runId: string,
+  attemptId: string,
+  providerId: string,
+): boolean {
+  return event.projectId === projectId
+    && event.conversationId === conversationId
+    && event.runId === runId
+    && event.attemptId === attemptId
+    && event.providerId === providerId
+    && event.roleId === "main-agent";
+}
+
+function providerArtifactPaths(root: string) {
+  return {
+    events: join(root, "provider-events.jsonl"),
+    stderr: join(root, "provider-stderr.log"),
+    lastMessage: join(root, "last-message.md"),
+    session: join(root, "provider-session.json"),
+  };
+}
+
+function conflict(message: string): Error {
+  const error = new Error(message);
+  error.name = "Conflict";
+  return error;
+}
+
+function asError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}

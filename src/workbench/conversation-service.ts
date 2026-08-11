@@ -24,19 +24,19 @@ import type { StoredConversation, StoredTopicMessage } from "./persistence/contr
 import { createConversationGraphScopeId } from "./conversation-graph-scope.js";
 import { ConversationTurnRouter } from "./conversation-turn-router.js";
 import { HarnessConversationTurnStrategy } from "./harness-conversation-turn-strategy.js";
-import { FailClosedAgentTurnStrategy } from "./fail-closed-agent-turn-strategy.js";
+import { DirectAgentConversationTurnStrategy } from "./direct-agent-conversation-turn-strategy.js";
 import type { TurnSkillContextPort } from "./conversation-turn-contract.js";
 
-const unavailableTurnSkillContext: TurnSkillContextPort = {
-  resolve: () => Promise.reject(new Error("Turn Skill resolution is not enabled in the Conversation routing increment.")),
+const emptyTurnSkillContext: TurnSkillContextPort = {
+  resolve: () => Promise.resolve({ skillInputs: [], diagnostics: [] }),
 };
 
 const defaultConversationTurnRouter = new ConversationTurnRouter(
   {
-    agent: new FailClosedAgentTurnStrategy(),
+    agent: new DirectAgentConversationTurnStrategy(),
     harness: new HarnessConversationTurnStrategy(),
   },
-  { skillContext: unavailableTurnSkillContext },
+  { skillContext: emptyTurnSkillContext },
 );
 
 export type ConversationTurnRoutingPort = Pick<
@@ -277,6 +277,11 @@ export async function postConversationMessage(
     });
   }
   if (parsed.providerId && identity.conversation.productMode === "agent") {
+    if (parsed.providerId !== identity.conversation.selectedProviderId) {
+      const error = new Error("Direct Agent provider switching is not supported in this increment.");
+      error.name = "Conflict";
+      throw error;
+    }
     defaultProviderRegistry.get(parsed.providerId);
   }
   const committed = await commitTopLevelConversationMessage(identity, parsed, turnRouter, live);

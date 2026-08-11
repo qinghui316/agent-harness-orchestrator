@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ManagedProject } from "../../src/types/index.js";
 import { ConversationTurnRouter } from "../../src/workbench/conversation-turn-router.js";
-import { FailClosedAgentTurnStrategy } from "../../src/workbench/fail-closed-agent-turn-strategy.js";
 import { HarnessConversationTurnStrategy } from "../../src/workbench/harness-conversation-turn-strategy.js";
 import type {
   ConversationTurnExecutionPorts,
@@ -47,16 +46,6 @@ describe("ConversationTurnRouter", () => {
 });
 
 describe("Conversation Turn Strategies", () => {
-  it("keeps Agent execution fail-closed without resolving Skills", async () => {
-    const skillResolve = vi.fn();
-    const strategyUnderTest = new FailClosedAgentTurnStrategy();
-
-    await expect(strategyUnderTest.execute(turnInput("agent"), {
-      skillContext: { resolve: skillResolve },
-    })).rejects.toMatchObject({ name: "Conflict", message: "Direct Agent execution is not enabled yet." });
-    expect(skillResolve).not.toHaveBeenCalled();
-  });
-
   it("adapts a committed Harness message to the existing Main turn runner", async () => {
     const assistant: TopicThreadEntry = {
       id: "assistant-1",

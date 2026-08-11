@@ -121,7 +121,7 @@ describe("dual product-mode foundation", () => {
     expect(await conversationState(conversation.conversationId)).toEqual(before);
   });
 
-  it("retains the committed Agent Conversation when T002 execution fails closed", async () => {
+  it("retains the committed Agent Conversation when routed startup fails", async () => {
     const events: WorkbenchLiveEvent[] = [];
     const sink: WorkbenchLiveSink = { emit: (event) => events.push(event) };
 
@@ -129,7 +129,7 @@ describe("dual product-mode foundation", () => {
       body: "Persist before direct execution.",
       productMode: "agent",
       clientRequestId: "agent-fail-closed-retention",
-    }, sink)).rejects.toMatchObject({ name: "Conflict" });
+    }, sink, { turnRouter: failAfterCommitRouter() })).rejects.toMatchObject({ name: "Conflict" });
 
     const created = events.find((event) => event.event === "topic.created");
     expect(created).toMatchObject({
@@ -159,7 +159,7 @@ describe("dual product-mode foundation", () => {
     }
   });
 
-  it("retains a committed later Agent message when routed execution fails closed", async () => {
+  it("retains a committed later Agent message when routed startup fails", async () => {
     const conversation = await createWorkbenchConversation(project(), {
       body: "Initial Agent message",
       productMode: "agent",
@@ -169,7 +169,10 @@ describe("dual product-mode foundation", () => {
     await expect(postConversationMessage(project(), conversation.conversationId, {
       message: "Durable later Agent message",
       productMode: "agent",
-    })).rejects.toMatchObject({ name: "Conflict", message: "Direct Agent execution is not enabled yet." });
+    }, undefined, { turnRouter: failAfterCommitRouter() })).rejects.toMatchObject({
+      name: "Conflict",
+      message: "Injected post-commit startup failure.",
+    });
 
     const database = await openProjectRuntimeWorkbenchDatabase(fixture.resolution.paths);
     try {
@@ -261,7 +264,43 @@ describe("dual product-mode foundation", () => {
       "agent",
     );
   });
+
+  it("rejects an Agent provider mismatch before committing a message or starting a Turn", async () => {
+    const conversation = await createWorkbenchConversation(project(), {
+      body: "Provider mismatch boundary",
+      productMode: "agent",
+      clientRequestId: "agent-provider-mismatch-boundary",
+    }, undefined, { runMainAgent: false });
+    const before = await conversationState(conversation.conversationId);
+
+    await expect(postConversationMessage(project(), conversation.conversationId, {
+      message: "Do not silently use the stored Provider.",
+      productMode: "agent",
+      providerId: "other-provider",
+    })).rejects.toMatchObject({
+      name: "Conflict",
+      message: "Direct Agent provider switching is not supported in this increment.",
+    });
+
+    expect(await conversationState(conversation.conversationId)).toEqual(before);
+  });
 });
+
+function failAfterCommitRouter() {
+  return {
+    assertRequestedMode(conversation: { productMode: string }, requestedMode?: string): void {
+      if (requestedMode === undefined || requestedMode === conversation.productMode) return;
+      const error = new Error("Conversation productMode does not match the requested mode.");
+      error.name = "Conflict";
+      throw error;
+    },
+    route(): Promise<never> {
+      const error = new Error("Injected post-commit startup failure.");
+      error.name = "Conflict";
+      return Promise.reject(error);
+    },
+  };
+}
 
 async function conversationState(conversationId: string): Promise<{
   messages: string[];

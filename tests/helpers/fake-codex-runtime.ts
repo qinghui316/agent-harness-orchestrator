@@ -36,8 +36,10 @@ const readline = require("node:readline");
 const fs = require("node:fs");
 const path = require("node:path");
 const rl = readline.createInterface({ input: process.stdin });
-const threadId = "thread-server-test";
-const turnId = "turn-server-test";
+let threadSequence = 0;
+let turnSequence = 0;
+let threadId = "";
+let turnId = "";
 let extraRoots = [];
 const disabledSkillPaths = new Set();
 const reply = (id, result) => console.log(JSON.stringify({ id, result }));
@@ -85,10 +87,14 @@ rl.on("line", (line) => {
   } else if (request.method === "model/list") {
     reply(request.id, { data: [{ id: "fake-model", model: "fake-model", displayName: "Fake Model" }] });
   } else if (request.method === "thread/start" || request.method === "thread/resume") {
+    threadId = request.method === "thread/resume" && request.params?.threadId
+      ? request.params.threadId
+      : "thread-server-test-" + (++threadSequence);
     reply(request.id, { thread: { id: threadId } });
   } else if (request.method === "thread/goal/get") {
     reply(request.id, { goal: { id: "goal-server-test", objective: "Server test", status: "active", createdAt: "2026-07-16T00:00:00.000Z" } });
   } else if (request.method === "turn/start") {
+    turnId = "turn-server-test-" + (++turnSequence);
     reply(request.id, { turn: { id: turnId } });
     setImmediate(() => {
       console.log(JSON.stringify({ method: "turn/started", params: { threadId, turn: { id: turnId, status: "inProgress" } } }));

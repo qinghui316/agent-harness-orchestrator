@@ -338,12 +338,12 @@ describe("workbench server", () => {
     expect(userMessageIndex).toBeGreaterThan(createdIndex);
   });
 
-  it("keeps the committed Conversation identity when first-turn execution fails", async () => {
+  it("runs a first Direct Agent Turn with the committed Conversation identity", async () => {
     const live = await fetch(`${handle!.url}/api/projects/repo/workbench/topics/live`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        body: "Create the durable Agent conversation before execution fails.",
+        body: "Create the durable Agent conversation and run it directly.",
         productMode: "agent",
         clientRequestId: "server-live-agent-failure",
         confirm: true,
@@ -353,16 +353,11 @@ describe("workbench server", () => {
     expect(live.ok).toBe(true);
     const events = parseSseEvents(await live.text());
     const created = events.find((event) => event.event === "topic.created")?.data as { conversationId: string };
-    const error = events.find((event) => event.event === "error")?.data as { conversationId: string; productMode: string; message: string };
     const snapshot = events.find((event) => event.event === "snapshot")?.data as SnapshotResponse & { productMode: string };
     const done = events.find((event) => event.event === "done")?.data as { conversationId: string; productMode: string; status: string };
 
     expect(created.conversationId).toBeTruthy();
-    expect(error).toMatchObject({
-      conversationId: created.conversationId,
-      productMode: "agent",
-      message: "Direct Agent execution is not enabled yet.",
-    });
+    expect(events.some((event) => event.event === "error")).toBe(false);
     expect(snapshot).toMatchObject({
       productMode: "agent",
       center: { selectedTopic: { id: created.conversationId } },
@@ -370,7 +365,7 @@ describe("workbench server", () => {
     expect(done).toMatchObject({
       conversationId: created.conversationId,
       productMode: "agent",
-      status: "failed",
+      status: "completed",
     });
   });
 
@@ -1053,23 +1048,27 @@ describe("workbench server", () => {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            message: "Commit this later Agent message before execution fails closed.",
+            message: "Run this later Agent message in the same Conversation.",
             productMode: "agent",
           }),
         },
       );
       const laterEvents = parseSseEvents(await laterResponse.text());
-      expect(laterEvents.find((event) => event.event === "error")?.data).toMatchObject({
+      expect(laterEvents.find((event) => event.event === "done")?.data).toMatchObject({
         conversationId: created.conversationId,
         productMode: "agent",
-        message: "Direct Agent execution is not enabled yet.",
+        status: "completed",
       });
-      const timeline = await getJson<{ entries: Array<{ cells: Array<{ text?: string }> }> }>(
+      const timeline = await getJson<{ entries: Array<{ cells: Array<{ kind: string; text?: string }> }> }>(
         `${directHandle.url}/api/projects/missing-skill-repo/workbench/conversations/${created.conversationId}/timeline?productMode=agent&agentSurfaceId=main-agent&limit=100`,
       );
-      expect(timeline.entries.flatMap((entry) => entry.cells).map((cell) => cell.text)).toEqual([
+      expect(timeline.entries.flatMap((entry) => entry.cells)
+        .filter((cell) => cell.kind === "user-message" || cell.kind === "assistant-message")
+        .map((cell) => cell.text)).toEqual([
         "Create an Agent conversation without a project Harness.",
-        "Commit this later Agent message before execution fails closed.",
+        "主 Agent 已读取需求。",
+        "Run this later Agent message in the same Conversation.",
+        "主 Agent 已读取需求。",
       ]);
     } finally {
       await new Promise<void>((resolve) => directHandle.server.close(() => resolve()));
