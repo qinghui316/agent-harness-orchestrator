@@ -28,6 +28,8 @@ export type PendingDemandConversation = {
   selectedProviderId?: string;
 };
 
+type PendingDemandRekeyResult = "rekeyed" | "already-canonical" | "rejected";
+
 export type CreateDemandConversationInput = {
   projectId: string;
   productMode: ProductMode;
@@ -475,12 +477,15 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     conversationId: string;
     title: string;
     selectedProviderId?: string;
-  }): boolean => {
+  }): PendingDemandRekeyResult => {
     const pending = pendingDemandRef.current;
     if (!pending || pending.projectId !== input.projectId
       || input.productMode !== pending.productMode
       || input.productMode !== productModeRef.current
-      || input.clientRequestId !== pending.clientRequestId) return false;
+      || input.clientRequestId !== pending.clientRequestId) return "rejected";
+    if (pending.canonical) {
+      return pending.id === input.conversationId ? "already-canonical" : "rejected";
+    }
     ++requestGenerationRef.current;
     setSelectedProjectId(input.projectId);
     setSelectedTopic(input.conversationId);
@@ -495,7 +500,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     };
     setPendingDemandConversation(canonical);
     pendingDemandRef.current = canonical;
-    return true;
+    return "rekeyed";
   }, []);
 
   const createDemandConversation = useCallback(async (
@@ -528,14 +533,15 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
             if (!topicCreatedMatchesRequest(event, request)) return;
             conversationId = event.data.topic.conversationId ?? event.data.topic.id ?? event.data.topic.changeId ?? null;
             if (canApplyToCurrentSelection() && conversationId) {
-              if (rekeyPendingDemand({
+              const rekeyResult = rekeyPendingDemand({
                 projectId: request.projectId,
                 productMode: request.productMode,
                 clientRequestId: request.clientRequestId,
                 conversationId,
                 title: event.data.topic.title,
                 selectedProviderId: event.data.topic.selectedProviderId,
-              })) requestGeneration = requestGenerationRef.current;
+              });
+              if (rekeyResult !== "rejected") requestGeneration = requestGenerationRef.current;
               routeEvent(request.projectId, event);
             }
             return;

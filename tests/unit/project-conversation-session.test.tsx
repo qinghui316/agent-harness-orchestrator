@@ -357,7 +357,19 @@ describe("Project conversation session owner", () => {
         attachmentIds: [],
         skillOverrides: [],
         showPendingBeforeCreate: true,
-      }, (_projectId, event) => routed.push(event));
+      }, (_projectId, event) => {
+        routed.push(event);
+        if (event.event === "topic.created") {
+          result.current.acceptCanonicalConversation({
+            projectId: event.data.projectId,
+            productMode: event.data.productMode,
+            clientRequestId: event.data.clientRequestId,
+            conversationId: event.data.conversationId,
+            title: event.data.topic.title,
+            selectedProviderId: event.data.topic.selectedProviderId,
+          });
+        }
+      });
     });
 
     await waitFor(() => expect(result.current.selectedTopic).toBe("conv-correct"));
@@ -368,6 +380,20 @@ describe("Project conversation session owner", () => {
     });
     expect(routed.map((event) => event.event)).toEqual(["topic.created", "run.status"]);
     expect(routed[0]?.data.clientRequestId).toBe("request-correct");
+    expect(fixture.navigation.syncLocation.mock.calls.filter(([, conversationId]) => conversationId === "conv-correct")).toHaveLength(1);
+
+    act(() => result.current.acceptCanonicalConversation({
+      projectId: "repo-1",
+      productMode: "agent",
+      clientRequestId: "request-correct",
+      conversationId: "conv-same-request-wrong-conversation",
+      title: "Wrong Conversation",
+    }));
+    expect(result.current.selectedTopic).toBe("conv-correct");
+    expect(result.current.pendingDemandConversation?.id).toBe("conv-correct");
+    expect(fixture.navigation.syncLocation.mock.calls.some(([, conversationId]) => (
+      conversationId === "conv-same-request-wrong-conversation"
+    ))).toBe(false);
 
     await act(async () => {
       finishStream();
