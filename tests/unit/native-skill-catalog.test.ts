@@ -227,6 +227,51 @@ describe("native Skill catalog and sidecar selections", () => {
     })]);
   });
 
+  it("preserves same-name same-hash required Skills at distinct physical paths", async () => {
+    const projectPath = await directory("repo");
+    const paths = resolveProjectRuntimePaths("demo-project", join(root, "aho-home"));
+    await initializeProjectRuntimeSidecar(paths);
+    const firstPath = await createSkill(join(root, "required-one"), "shared-required-skill");
+    const secondPath = await createSkill(join(root, "required-two"), "shared-required-skill");
+    const firstHash = await hashNativeSkillPackageContent(dirname(firstPath));
+    const secondHash = await hashNativeSkillPackageContent(dirname(secondPath));
+    expect(firstHash).toBe(secondHash);
+    const snapshot = await snapshotFor(projectPath, [
+      { name: "shared-required-skill", path: firstPath, enabled: true, scope: "user" },
+      { name: "shared-required-skill", path: secondPath, enabled: true, scope: "user" },
+    ]);
+
+    const context = await getEnabledSkillContext(paths, snapshot, undefined, [
+      {
+        id: "shared-required-skill",
+        path: firstPath,
+        contentHash: firstHash,
+        source: "provider-native",
+        required: true,
+      },
+      {
+        id: "shared-required-skill",
+        path: secondPath,
+        contentHash: secondHash,
+        source: "provider-native",
+        required: true,
+      },
+    ]);
+
+    expect(context.inputs).toHaveLength(2);
+    expect(context.inputs.map((input) => input.path).sort()).toEqual([
+      await realpath(firstPath),
+      await realpath(secondPath),
+    ].sort());
+    for (const input of context.inputs) {
+      expect(input).toMatchObject({
+        id: "shared-required-skill",
+        contentHash: firstHash,
+        required: true,
+      });
+    }
+  });
+
   it("reads legacy alias ids and converges subsequent writes to the canonical physical id", async () => {
     const projectPath = await directory("repo");
     const paths = resolveProjectRuntimePaths("demo-project", join(root, "aho-home"));

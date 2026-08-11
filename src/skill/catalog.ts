@@ -233,14 +233,17 @@ export async function getEnabledSkillContext(
   }
   const inputs = new Map<string, ProviderSkillInput>();
   for (const input of requiredInputs) {
-    const item = catalog.skills.find((skill) =>
+    const inputPathIdentity = skillPathIdentity(input.path);
+    const matches = catalog.skills.filter((skill) =>
       skill.required
       && skill.name === input.id
-      && skill.contentHash === input.contentHash);
-    if (!item?.canonicalSourcePath) {
-      throw new Error(`Required Skill ${input.id} has no validated physical source identity.`);
+      && skill.contentHash === input.contentHash
+      && skill.sourcePathIdentity === inputPathIdentity);
+    const canonicalPath = matches[0]?.canonicalSourcePath;
+    if (matches.length !== 1 || !canonicalPath) {
+      throw new Error(`Required Skill ${input.id} must resolve to exactly one validated physical source identity.`);
     }
-    const canonicalInput = { ...input, path: item.canonicalSourcePath };
+    const canonicalInput = { ...input, path: canonicalPath };
     inputs.set(inputIdentity(canonicalInput), canonicalInput);
   }
   const warnings = catalog.errors.map((error) => `${error.path}: ${error.message}`);
