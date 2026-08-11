@@ -12,7 +12,7 @@ import type {
 import type { ProjectRuntimePaths } from "../project-runtime/paths.js";
 import { getSystemSkillsRoot } from "../template-source/paths.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../workbench/persistence/open-workbench-database.js";
-import type { StoredSkillRoot } from "../workbench/persistence/contracts.js";
+import type { StoredSkillEnablement, StoredSkillRoot } from "../workbench/persistence/contracts.js";
 
 export type SkillSourceKind = "custom" | "system-aho" | "provider-native" | "project-harness";
 
@@ -64,6 +64,11 @@ export interface EnabledSkillContext {
   warnings: string[];
 }
 
+export interface SkillCatalogState {
+  roots: readonly StoredSkillRoot[];
+  enablements: readonly StoredSkillEnablement[];
+}
+
 export async function addSkillRoot(
   paths: ProjectRuntimePaths,
   rootPathInput: string,
@@ -101,24 +106,36 @@ export async function listSkills(
   assertRequiredInputsDiscovered(snapshot, requiredInputs);
   const store = await openProjectRuntimeWorkbenchDatabase(paths);
   try {
-    const roots = store.skills.listSkillRoots(paths.projectId).map(mapSkillRoot);
-    const enablements = store.skills.listSkillEnablement(paths.projectId);
-    const skills = decorateSkills(snapshot, roots, requiredInputs).map((skill) => ({
-      ...skill,
-      enabledProject: enablements.some((item) => item.skillId === skill.skillId && item.scope === "project" && item.enabled),
-      enabledTopics: enablements
-        .filter((item) => item.skillId === skill.skillId && item.scope === "topic" && item.enabled && item.changeId)
-        .map((item) => item.changeId as string)
-        .sort(),
-      disabledTopics: enablements
-        .filter((item) => item.skillId === skill.skillId && item.scope === "topic" && !item.enabled && item.changeId)
-        .map((item) => item.changeId as string)
-        .sort(),
-    }));
-    return { roots, skills, errors: snapshot.errors };
+    return buildSkillCatalog(snapshot, {
+      roots: store.skills.listSkillRoots(paths.projectId),
+      enablements: store.skills.listSkillEnablement(paths.projectId),
+    }, requiredInputs, requiredInputs);
   } finally {
     store.close();
   }
+}
+
+export function buildSkillCatalog(
+  snapshot: ProviderSkillCatalogSnapshot,
+  state: SkillCatalogState,
+  identityInputs: readonly ProviderSkillInput[] = [],
+  requiredInputs: readonly ProviderSkillInput[] = [],
+): SkillCatalogResult {
+  const roots = state.roots.map(mapSkillRoot);
+  const skills = decorateSkills(snapshot, roots, identityInputs, requiredInputs).map((skill) => ({
+    ...skill,
+    enabledProject: state.enablements.some((item) =>
+      item.skillId === skill.skillId && item.scope === "project" && item.enabled),
+    enabledTopics: state.enablements
+      .filter((item) => item.skillId === skill.skillId && item.scope === "topic" && item.enabled && item.changeId)
+      .map((item) => item.changeId as string)
+      .sort(),
+    disabledTopics: state.enablements
+      .filter((item) => item.skillId === skill.skillId && item.scope === "topic" && !item.enabled && item.changeId)
+      .map((item) => item.changeId as string)
+      .sort(),
+  }));
+  return { roots, skills, errors: snapshot.errors };
 }
 
 export async function setSkillEnabled(
@@ -176,7 +193,7 @@ export async function getEnabledSkillContext(
       path: skill.sourcePath,
       contentHash: skill.contentHash,
       source: skill.sourceKind === "system-aho" ? "aho-system" : "provider-native",
-      required: true,
+      required: false,
     };
     inputs.set(inputIdentity(input), input);
   }
@@ -203,6 +220,7 @@ export function isRuntimeAssignedSkill(skillId: string): boolean {
 function decorateSkills(
   snapshot: ProviderSkillCatalogSnapshot,
   roots: readonly SkillRootListItem[],
+  identityInputs: readonly ProviderSkillInput[],
   requiredInputs: readonly ProviderSkillInput[],
 ): Array<Omit<SkillListItem, "enabledProject" | "enabledTopics" | "disabledTopics">> {
   const baseIds = snapshot.skills.map((skill) => slugify(skill.name));
@@ -211,12 +229,16 @@ function decorateSkills(
     const skillId = baseIds.filter((candidate) => candidate === baseId).length === 1
       ? baseId
       : `${baseId}-${hashText(normalizePath(skill.path)).slice(0, 8)}`;
+    const identityInput = identityInputs.find((input) =>
+      input.id === skill.name
+      && input.contentHash === skill.contentHash
+      && samePath(input.path, skill.path));
     const requiredInput = requiredInputs.find((input) =>
       input.id === skill.name
       && input.contentHash === skill.contentHash
       && samePath(input.path, skill.path));
-    const sourceKind = sourceKindFor(skill, roots, requiredInput);
-    const required = requiredInput?.source === "project-harness";
+    const sourceKind = sourceKindFor(skill, roots, identityInput);
+    const required = requiredInput?.required === true;
     const runtimeAssigned = isRuntimeAssignedSkill(skillId);
     return {
       skillId,

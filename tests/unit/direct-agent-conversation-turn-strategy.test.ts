@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ProviderRegistry,
@@ -8,6 +8,7 @@ import {
   type ProviderCapabilityKey,
   type ProviderCapabilitySnapshot,
   type ProviderDescriptor,
+  type ProviderNativeSkill,
   type ProviderRealtimeEvent,
   type ProviderTurnRequest,
   type ProviderTurnResult,
@@ -16,6 +17,8 @@ import { PROVIDER_OPERATION_CAPABILITIES } from "../../src/provider-runtime/type
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../src/provider-runtime/project-harness-discovery.js";
 import { ProjectRuntimeCoordinator } from "../../src/project-runtime/coordinator.js";
 import { ProjectRegistryStore } from "../../src/registry/store.js";
+import { hashNativeSkillPackageContent } from "../../src/skill/content-hash.js";
+import { TurnSkillContextResolver } from "../../src/skill/turn-skill-context-resolver.js";
 import { createWorkbenchConversation } from "../../src/workbench/conversation-service.js";
 import { DirectAgentConversationTurnStrategy } from "../../src/workbench/direct-agent-conversation-turn-strategy.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
@@ -42,22 +45,49 @@ afterEach(async () => {
 
 describe("DirectAgentConversationTurnStrategy", () => {
   it("runs from an onboarding project path with Agent readiness and persists no-delta output", async () => {
-    const harness = fakeProvider({ lastMessage: "Direct Agent completed without realtime text." });
-    const skillContext = skillResolution();
+    const skillPath = join(root, "ordinary-skill", "SKILL.md");
+    await mkdir(dirname(skillPath), { recursive: true });
+    await writeFile(skillPath, "---\nname: ordinary-skill\ndescription: Direct Agent test Skill.\n---\n", "utf8");
+    const skillContext = skillResolution({
+      path: skillPath,
+      contentHash: await hashNativeSkillPackageContent(dirname(skillPath)),
+    });
+    const harness = fakeProvider({
+      lastMessage: "Direct Agent completed without realtime text.",
+      skills: [{
+        name: "ordinary-skill",
+        description: "Direct Agent test Skill",
+        path: skillPath,
+        scope: "user",
+        enabled: true,
+        contentHash: skillContext.skillInputs[0]!.contentHash,
+      }],
+    });
     const { strategy, registry } = strategyFor(harness.descriptor);
     const input = await initialTurnInput(fixture, "Read the current project marker.");
-    const resolve = vi.fn(async () => skillContext);
+    const database = await openProjectRuntimeWorkbenchDatabase(fixture.paths);
+    try {
+      database.skills.setSkillEnablement({
+        projectId: fixture.project.id,
+        changeId: input.conversation.conversationId,
+        skillId: "ordinary-skill",
+        scope: "topic",
+        enabled: true,
+        updatedAt: new Date().toISOString(),
+      });
+    } finally {
+      database.close();
+    }
+    const resolver = new TurnSkillContextResolver({
+      providerRegistry: registry,
+      resolvePaths: () => fixture.paths,
+    });
 
-    const result = await strategy.execute(input, { skillContext: { resolve } });
+    const result = await strategy.execute(input, { skillContext: resolver });
 
     expect(result).toMatchObject({
       assistant: { text: "Direct Agent completed without realtime text.", status: "completed" },
       providerSessionId: "session-1",
-    });
-    expect(resolve).toHaveBeenCalledWith({
-      project: fixture.project,
-      conversation: input.conversation,
-      requiredSkillIds: [],
     });
     expect(harness.requests).toHaveLength(1);
     const request = harness.requests[0]!;
@@ -331,6 +361,7 @@ interface FakeProviderBehavior {
   userInput?: boolean;
   waitForRelease?: Promise<void>;
   onEntered?: () => void;
+  skills?: ProviderNativeSkill[];
 }
 
 function fakeProvider(behavior: FakeProviderBehavior = {}): {
@@ -381,7 +412,7 @@ function fakeProvider(behavior: FakeProviderBehavior = {}): {
     }),
     projectActions: { list: async () => [], execute: async () => { throw new Error("not supported"); } },
     skills: {
-      list: async ({ projectPath }) => ({ providerId, projectPath, skills: [], errors: [] }),
+      list: async ({ projectPath }) => ({ providerId, projectPath, skills: behavior.skills ?? [], errors: [] }),
       setEnabled: async ({ enabled }) => ({ effectiveEnabled: enabled }),
     },
     conversation: {
@@ -608,9 +639,16 @@ function emptyPorts() {
   return { skillContext: { resolve: async () => skillResolution() } };
 }
 
-function skillResolution(): TurnSkillContextResolution {
+function skillResolution(overrides: Partial<TurnSkillContextResolution["skillInputs"][number]> = {}): TurnSkillContextResolution {
   return {
-    skillInputs: [{ id: "ordinary-skill", path: join(root, "ordinary-skill", "SKILL.md"), contentHash: "skill-hash", source: "project", required: false }],
+    skillInputs: [{
+      id: "ordinary-skill",
+      path: join(root, "ordinary-skill", "SKILL.md"),
+      contentHash: "skill-hash",
+      source: "provider-native",
+      required: false,
+      ...overrides,
+    }],
     diagnostics: [],
   };
 }

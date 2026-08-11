@@ -145,7 +145,7 @@ describe("native Skill catalog and sidecar selections", () => {
     const context = await getEnabledSkillContext(paths, snapshot, undefined, [harnessInput]);
     expect(context.inputs).toEqual([
       expect.objectContaining({ id: "demo-project-harness", source: "project-harness", required: true }),
-      expect.objectContaining({ id: "portable-skill", source: "provider-native", required: true }),
+      expect.objectContaining({ id: "portable-skill", source: "provider-native", required: false }),
     ]);
     expect(context.promptSection).toContain("Native Skill Inputs");
 
