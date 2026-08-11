@@ -8,23 +8,27 @@
 
 ## Agent Judgment
 
-Choose the smallest coherent implementation that meets acceptance. Distinguish compatibility facts
-from preferences, and distinguish configured commands from adapter-derived candidates.
+Choose the smallest coherent implementation that meets acceptance. Describe task dependencies and
+which tasks may run in parallel, without assigning Workers or worktrees. Distinguish compatibility
+facts from preferences, and configured commands from adapter-derived candidates.
 
 ## Deterministic Commands
 
-- After publishing initial scope, run `change preflight` before finalizing the plan and again only
-  after materially changing path, contract, or baseline claims.
-- Run `change publish` with paths and a contract when high-impact boundaries change.
-- Run the project Harness `change publish` structural gate before requesting plan approval.
+The following lifecycle commands are Runtime-owned:
+
+- Runtime publishes initial scope, runs preflight, publishes high-impact contracts, and runs the
+  structural gate before exposing the plan for approval.
+- Planning reads those results and returns task dependency, owner, path, and validation proposals.
+- Planning does not create a child Change, Lane, AgentTask, or worktree.
 
 ## Actions
 
 1. Map each acceptance criterion to an owner, task, and validation command.
-2. Publish affected paths and dependencies.
-3. Publish API/schema/event/config/permission/module contracts when required.
+2. Propose affected paths, task dependencies, and safe parallelism for Runtime publication.
+3. Propose API/schema/event/config/permission/module contracts when required.
 4. Define compatibility, migration, rollback-at-code-level, risk, and test strategy.
-5. Resolve Registry conflicts and obtain the project-native plan approval.
+5. Resolve semantic questions surfaced by Registry conflicts; Runtime owns conflict checks and the
+   project-native plan transition.
 
 ## Outputs
 

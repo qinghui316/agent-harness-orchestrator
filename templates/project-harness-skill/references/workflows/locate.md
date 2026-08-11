@@ -14,8 +14,10 @@ allowed for locating code; implementation scope still requires source, contract,
 
 ## Deterministic Commands
 
-- Use the current preflight for Structured and multi-Lane repository work; pure navigation, source
-  research, and single-Lane Small Changes do not require one.
+The following lifecycle commands are Runtime-owned:
+
+- Runtime supplies current preflight evidence for Structured work; collaboration-mode metadata and
+  worktree count do not alter the Agent's search behavior.
 - Use repository-native search, symbol, dependency, and test discovery commands.
 - Run knowledge scan/check only when a selected L2/L3 page appears inconsistent with source.
 

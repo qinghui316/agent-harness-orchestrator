@@ -8,38 +8,43 @@
 
 ## Agent Judgment
 
-Classify work as small or structured. Resolve goal, observable acceptance, non-goals, dependencies,
-risk, and high-impact unknowns. Do not ask again for decisions already settled by an accepted plan
-unless repository evidence conflicts with it.
+Classify the user goal as Small or Structured. Resolve goal, observable acceptance, non-goals,
+dependencies, risk, and high-impact unknowns. One Structured goal has one Change even when Runtime
+later decomposes it into parallel AgentTasks. Do not ask again for decisions already settled by an
+accepted plan unless repository evidence conflicts with it.
 
 ## Deterministic Commands
 
-- Single-Lane Small work does not require `change preflight`; run its targeted project verification
-  after editing. Treat every multi-Lane repository mutation as Structured so path ownership is atomic.
-- Run `change new` only for structured work without an existing applicable Change, publish its
-  initial scope, then run `change preflight` before plan approval or editing.
-- Run the project Harness `change publish` structural gate after creating Change evidence.
+The following lifecycle commands are Runtime-owned:
+
+- Runtime decides whether the goal requires a Structured Change and owns `change new`, scope
+  publication, preflight, and the structural publication gate.
+- Collaboration-mode metadata and expected worktree count do not split one goal into multiple Changes.
+- Agents inspect the Runtime-provided Change and preflight evidence; internal Workers do not invoke
+  lifecycle commands.
 
 ## Actions
 
 1. Restate the intended outcome and evidence-backed constraints.
 2. Identify API, schema, event, config, permission, module, release, or multi-step validation impact.
-3. For structured work, publish initial paths/contracts and run preflight. If it reports
+3. For Structured work, propose initial paths/contracts for Runtime publication. If Runtime's preflight reports
    `refresh-needed`, reload related Registry events/contracts and current implementation evidence
    before relying on periodic L1/L2/L3 assertions.
 4. Record assumptions; ask at most three high-impact questions in one round, and only when their
    answers materially change implementation or safety.
-5. Create or reuse one Change for structured work and publish its initial scope. If the request
-   corrects or continues a terminal Change, read its archived summary, create a new Change, and
-   explain in the new spec or summary which accepted decisions still apply, which assumptions are
-   superseded, and what work remains. Recheck those facts against the current baseline, contracts,
-   and implementation; do not reopen or edit the archived evidence.
-6. Upgrade Small work to Structured before editing when the project is multi-Lane or inspection
-   reveals contract, cross-module, data, permission, architecture, release, or multi-step validation impact.
+5. Recommend whether Runtime should create or reuse one Change for the user goal. Workflow children
+   inherit the Runtime-supplied Change and never create sub-Changes. If the request corrects or
+   continues a terminal Change, read its archived summary and return a new-Change proposal that
+   explains which accepted decisions still apply, which assumptions are superseded, and what work
+   remains. Runtime creates and publishes that Change after rechecking those facts against the
+   current baseline, contracts, and implementation; never reopen or edit archived evidence.
+6. Recommend upgrading Small work to Structured when inspection reveals contract, cross-module,
+   data, permission, architecture, release, or multi-step validation impact; Runtime performs the
+   transition before implementation.
 
 ## Outputs
 
-- Small-work decision, or initialized Change id and Lane.
+- Small-work decision, or one Runtime-initialized Change id and accepted scope.
 - Observable acceptance, scope, non-goals, assumptions, risks, and unresolved blockers.
 
 ## Exit

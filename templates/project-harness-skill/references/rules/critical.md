@@ -4,21 +4,21 @@
 
 ## HR-01: Read Applicable Current State
 
-Read critical rules and relevant project knowledge for every task. Structured work and every multi-Lane repository mutation read the current workflow and run Registry preflight after publishing initial scope; pure explanation, source research, and single-Lane Small Changes do not require preflight.
+Read critical rules, relevant project knowledge, the Runtime-supplied identity packet, and the current workflow for every task. Structured work reads the accepted Change and Registry preflight evidence; explanation, navigation, and read-only source research do not require lifecycle mutation.
 
-**On violation:** Stop and load the applicable knowledge, workflow, and shared state before continuing.
+**On violation:** Stop and load the applicable knowledge, workflow, Runtime identity, and shared evidence before continuing.
 
-## HR-02: Structured Work Requires A Change
+## HR-02: Keep One User Goal In One Change
 
-Cross-file, contract, architecture, permission, data, release, or multi-step work requires one Change and approved plan before implementation.
+Cross-file, contract, architecture, permission, data, release, or multi-step work requires one accepted Change for the user goal. Runtime may create multiple WorkflowGraph tasks and assigned worktrees inside that Change; child Agents and Workers inherit it and never create child Changes.
 
-**On violation:** Return to intake or plan and obtain the project-native approval.
+**On violation:** Stop the child lifecycle mutation and return to the one Runtime-owned parent Change and accepted plan.
 
 ## HR-03: Publish High-Impact Contracts
 
-API, schema, event, config, permission, and module-boundary changes must publish an evidence-backed Registry contract.
+Runtime must publish an evidence-backed Registry contract for API, schema, event, config, permission, and module-boundary changes. Agents propose the contract and consume the resulting preflight evidence without publishing or rerunning lifecycle state.
 
-**On violation:** Stop implementation, publish the contract, and rerun preflight.
+**On violation:** Stop the Agent-owned lifecycle action, return the contract proposal to Runtime, and let Runtime publish it and rerun preflight.
 
 ## HR-04: Preserve Project Integrity
 
@@ -43,6 +43,12 @@ Evolution requires E1, one writer owner, a proposal, independent score at least 
 Workers and ordinary Integration publish evidence but do not rewrite shared L1/L2/L3 or global rules. Initialization, migration, and accepted Evolution own stable project Harness updates.
 
 **On violation:** Move provisional facts to Change or Registry evidence and restore the stable shared owner.
+
+## HR-14: Keep Execution Ownership In Runtime
+
+AHO Runtime exclusively owns multi-Agent scheduling, Lane and AgentTask transitions, worktree allocation and cleanup, Registry preflight, deterministic validation execution, Apply, Close, and Integration. Main, Planning, Coder, Rework, Auditor, and Spec-Test Agents consume Runtime-supplied identities and return bounded analysis, changes, or evidence without invoking those lifecycle operations.
+
+**On violation:** Stop the Agent-owned lifecycle action, preserve its bounded result, and return control to the authorized Runtime owner.
 
 ## HR-15: Integrate Only Selected Commit Ranges
 
@@ -80,8 +86,8 @@ Create greenfield source, project commands, documentation, Make or CI only after
 
 **On violation:** Stop business-project generation and return to bootstrap spec and plan review.
 
-## HR-25: Detach Shared Harness Links Before Worktree Removal
+## HR-25: Runtime Detaches Harness Links Before Worktree Removal
 
-Before removing a secondary worktree, verify that its Codex and Claude Skill links target the marked physical project Harness, then detach those link nodes without following their target.
+Runtime must verify that a secondary worktree's Codex and Claude Skill links target the marked physical project Harness, then detach only those link nodes before Runtime removes the worktree. Agents and Workers only inspect or report this evidence and never perform the cleanup.
 
-**On violation:** Stop worktree removal, preserve the worktree and physical project Harness, and report the unverifiable or conflicting path.
+**On violation:** Runtime stops worktree removal, preserves the worktree and physical project Harness, and records the unverifiable or conflicting path.

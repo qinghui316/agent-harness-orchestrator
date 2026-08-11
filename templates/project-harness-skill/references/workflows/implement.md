@@ -13,21 +13,27 @@ plan or contract, but they do not silently expand scope or rewrite stable shared
 
 ## Deterministic Commands
 
-- Use the plan's current preflight; rerun it after material path, contract, or baseline discoveries.
-- Run targeted format, compile, lint, or test commands listed in project knowledge.
-- Update Change task evidence after verified milestones.
+The following lifecycle commands are Runtime-owned:
+
+- Runtime supplies the accepted Change, graph, AgentTask, assigned worktree, scope, and current
+  preflight evidence.
+- Runtime owns preflight reruns, deterministic validation execution, and Change task-state updates.
+- Internal Workers do not invoke Change, Registry, worktree, Apply, Close, or Integration lifecycle
+  commands.
 
 ## Actions
 
-1. Read complete relevant implementations before editing.
-2. Implement in dependency order and preserve unrelated changes.
-3. Republish contract facts when implementation changes an accepted boundary.
-4. Record deviations, introduced risks, and exact validation evidence in the Change.
+1. Verify the Runtime-supplied Change, graph, task, worktree, and scope identities before editing.
+2. Read complete relevant implementations, modify only the assigned checkout and scope, and
+   preserve unrelated changes.
+3. Return discoveries that would alter scope or contract to Runtime instead of publishing or
+   transitioning shared evidence directly.
+4. Return the exact diff, results, deviations, risks, and suggested validation evidence to Runtime.
 
 ## Outputs
 
-- Scoped source/config/document changes and current task status.
-- Updated path/contract facts and implementation evidence.
+- Scoped changes in the assigned worktree and a bounded Worker result.
+- Proposed path/contract updates and implementation evidence for Runtime publication.
 
 ## Exit
 

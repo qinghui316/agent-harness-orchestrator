@@ -12,20 +12,21 @@ passing validation; Git state and Integration intent do not determine whether th
 
 ## Deterministic Commands
 
-- In multi-Lane mode, rerun `change preflight` for a Structured Change before close. Single-Lane
-  work reruns it only after material path, contract, or baseline changes.
-- Run the project Harness scoped preflight and close structural gate.
-- Run `change close` once to validate evidence and archive the terminal Change.
-- Rebuild the Skill-owned Change INDEX plus generated knowledge catalog/baseline after every
-  terminal close. Unchanged knowledge retains its existing source fingerprints.
-- Run `evolve check` after terminal close.
+The following lifecycle commands are Runtime-owned:
+
+- Runtime reruns scoped preflight and the close structural gate before Close.
+- Runtime executes `change close` exactly once, archives the terminal Change, rebuilds generated
+  indexes/catalog state, and runs `evolve check`.
+- Agents may assess evidence completeness and recommend a terminal result; internal Workers do not
+  execute Close or mutate shared lifecycle state.
 
 ## Actions
 
 1. Update summary/review with outcome, validation, risks, and handoff.
-2. Resolve or document every pending task.
-3. Close the Change without requiring a Git commit; optionally record an existing commit boundary.
-4. Publish the compact terminal Registry record and evolution eligibility.
+2. Identify every pending task and return its resolution or blocker to Runtime.
+3. Recommend completed, blocked, or abandoned from the evidence; Runtime performs the transition
+   without requiring a Git commit and may record an existing commit boundary.
+4. Runtime publishes the compact terminal Registry record and evolution eligibility.
 5. Record known follow-up as a next action. Later work uses a new Change whose spec or summary
    references this archived Change; do not mutate terminal evidence.
 

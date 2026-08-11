@@ -13,25 +13,24 @@ does not rewrite stable L1/L2/L3 or global rules.
 
 ## Deterministic Commands
 
-- Run `integrate start`, supplying `--completion-commit <change-id>=<sha>` for each selected Change
-  that did not record an optional boundary at close.
-- Use `integrate status --resume` after resolving a recorded cherry-pick conflict.
-- Run aggregate project verification and independent review against one exact candidate commit.
-- Have an independent reviewer write the `assets/templates/integration-review.json` shape, bound
-  to the exact candidate SHA, validation commands, findings, and reviewer identity.
-- Run `integrate complete --confirm-i2 --review-report <path>` only after explicit I2.
-- On a retry, read `landing_phase` and resume from `pre_merge`, `canonical_landed`,
-  `registry_committed`, or `cleanup_complete`; never repeat a completed landing phase.
+The following lifecycle commands are Runtime-owned:
+
+- Runtime executes Integration start/resume/complete, exact-range application, aggregate validation,
+  candidate creation, landing, Registry publication, connector detachment, and worktree cleanup.
+- Independent review returns the accepted review artifact bound to the exact candidate SHA.
+- Runtime cannot complete landing before explicit I2 and resumes only from its durable
+  `landing_phase`; Agents and Workers do not invoke Integration or worktree lifecycle commands.
 
 ## Actions
 
-1. Verify each selected linear `base_commit..completion_commit` range.
-2. Apply ranges in dependency order; never merge a long-lived Lane tip.
-3. Resolve conflicts, add compatibility edits, and update canonical business documents as needed.
-4. Record conflicts, human corrections, contract effects, documentation drift, and knowledge signals.
-5. Present combined diff, validation, review, and risks for I2.
-6. After Registry commit, verify and detach Codex/Claude project Harness links, reject unknown
-   directory Junctions, then remove the temporary worktree without `--force`.
+1. Inspect each Runtime-selected linear `base_commit..completion_commit` range.
+2. Recommend dependency order and conflict resolutions; Runtime applies exact ranges and never
+   merges a long-lived Lane tip.
+3. Return compatibility edits and review findings through the assigned Integration task.
+4. Interpret Runtime-recorded conflicts, human corrections, contract effects, documentation drift,
+   and knowledge signals.
+5. Present the Runtime-produced combined diff, validation, review, and risks for I2.
+6. Treat connector detachment and worktree removal as Runtime-owned cleanup evidence.
 
 ## Outputs
 

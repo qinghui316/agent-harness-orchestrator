@@ -15,23 +15,25 @@ endpoint, persistence model, authentication scheme, package manager, or CI provi
 
 ## Deterministic Commands
 
-- Run `change new` for the bootstrap Structured Change, record its scope and paths, then run
-  `change preflight` before plan approval and again only if paths, contracts, or baseline change.
-- Validate the approved plan and Change artifacts before implementation.
-- Use the existing AHO Worker workflow to create the one approved variant in its assigned worktree;
-  the project Harness Runtime never generates business source directly.
-- Run the new project's declared build, test, lint, typecheck, start, and scenario checks.
-- Close complete evidence after project verification; establish a commit boundary only if the user
-  requests Integration.
+The following lifecycle commands are Runtime-owned:
+
+- Runtime creates the one bootstrap Change for the user goal, publishes its scope, and runs
+  preflight before plan approval and after material paths, contracts, or baseline changes.
+- Runtime validates the approved plan and Change artifacts before implementation.
+- Runtime assigns the approved variant to an AHO Worker and its worktree; the Worker implements only
+  that assigned scope and does not create another Change, Lane, or worktree.
+- Runtime runs the new project's declared build, test, lint, typecheck, start, and scenario checks.
+- Runtime closes complete evidence after verification and establishes a commit boundary only when
+  the user requests Integration.
 
 ## Actions
 
-1. Write WHAT/WHY, observable acceptance, non-goals, and confirmed product decisions in spec.
-2. Write package layout, dependency direction, entrypoint, commands, environment, docs, tests, and CI in plan.
-3. Obtain plan approval and map each AC to owner/path/validation tasks.
-4. Implement source and project-owned files on the Worker branch.
-5. Verify the primary scenario and all declared gates; update review and summary.
-6. Close and integrate through the normal Lane/I2 workflow when applicable.
+1. Propose WHAT/WHY, observable acceptance, non-goals, and confirmed product decisions for the spec.
+2. Propose package layout, dependency direction, entrypoint, commands, environment, docs, tests, and CI for the plan.
+3. Return each AC mapped to owner/path/validation tasks for Runtime publication and approval.
+4. Implement source and project-owned files only in the assigned Worker worktree.
+5. Return the primary-scenario result, declared-gate observations, review findings, and summary evidence.
+6. Runtime performs Close and any explicitly authorized Integration through the normal I2 gate.
 
 ## Outputs
 

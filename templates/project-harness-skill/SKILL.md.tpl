@@ -1,12 +1,17 @@
 ---
 name: {{SKILL_NAME}}
-description: "Operate the local Harness for {{PROJECT_NAME}}. Use for project work that needs ECL Change planning, layered project knowledge, local worktree coordination, contract checks, Integration, or Harness Evolution."
+description: "Operate the local Harness for {{PROJECT_NAME}}. Use for project knowledge, ECL Change evidence, contract checks, Integration evidence, or Harness Evolution."
 ---
 
 # {{PROJECT_NAME}} Harness
 
-Use this project Harness when the current project id is `{{PROJECT_ID}}`. Its collaboration mode is
-`{{MODE}}`.
+Use this project Harness when the current project id is `{{PROJECT_ID}}`. Its persisted collaboration
+mode is `{{MODE}}`; this value is diagnostic metadata and does not assign Agents, Lanes, or worktrees.
+
+AHO Runtime is the only execution owner for multi-Agent coordination, WorkflowGraph and AgentTask
+scheduling, Lane state, worktree allocation and cleanup, validation execution, Apply, Close, and
+Integration. This Skill supplies project knowledge, accepted Change scope, contracts, rules, and
+durable evidence semantics. It does not orchestrate parallel development.
 
 ## Start
 
@@ -16,10 +21,9 @@ Use this project Harness when the current project id is `{{PROJECT_ID}}`. Its co
    only when the task crosses those boundaries.
 3. For explanation, navigation, or read-only source research, continue from project knowledge and
    cited implementation evidence without running Registry commands.
-4. Classify repository mutations before running commands. In single-Lane mode, Small Changes
-   proceed with targeted project verification. In multi-Lane mode, every repository mutation uses
-   a Structured Change so its paths are claimed before `{{CHANGE_COMMAND}} preflight
-   --project-root <cwd>` runs.
+4. Classify the user goal as Small or Structured. One Structured user goal maps to exactly one
+   Change. Runtime may decompose that Change into multiple AgentTasks and assigned worktrees, but a
+   Workflow child never creates a child Change.
 5. Read the current workflow and `references/rules/by-stage/<stage>.md` before making that stage's
    decisions.
 
@@ -27,12 +31,21 @@ If the detected project id differs, stop and locate the correct project Harness.
 
 ## Classify Work
 
-- **Small:** single-Lane, local, low-risk work without contract, architecture, cross-module, release,
-  permission, data, or multi-step validation impact. A formal Change and preflight are optional.
-- **Structured:** create one Change, publish scope and high-impact contracts, approve its plan,
-  implement, verify, and close with complete evidence.
+- **Small:** local, low-risk explanation, navigation, research, or mutation without contract,
+  architecture, cross-module, release, permission, data, or multi-step validation impact.
+- **Structured:** Runtime creates one Change for the user goal, publishes scope and high-impact
+  contracts, and supplies the accepted Change identity to every participating Agent.
 
-## Commands
+Main, Planning, Coder, Rework, Auditor, and Spec-Test Agents consume the Change, graph, task, and
+worktree identities supplied by Runtime. Internal Workers read the complete project knowledge and
+current accepted Change, modify only their assigned checkout and scope when authorized, and return
+results. They never create a Change or Lane, allocate or remove a worktree, run Registry preflight,
+or execute Apply, Close, or Integration lifecycle commands.
+
+## Runtime Lifecycle Interfaces
+
+These interfaces document canonical evidence and troubleshooting boundaries. A model Worker must
+not invoke them to advance lifecycle state; AHO Runtime calls them through its authorized owners.
 
 ```text
 {{PROJECT_COMMAND}} audit|doctor --project-root <path>
@@ -50,16 +63,16 @@ model, update the Markdown directly in the current Structured Change, and let `c
 overlap, while Runtime only validates metadata, links, fingerprints, and exact conflicts. Use
 `references/bootstrap/project.md` only for an approved empty-project bootstrap Change. Read
 `references/runtime-modules.md` only to maintain a helper or diagnose a traceback. Read the
-Integration workflow before creating, detaching, or removing a worktree.
+Integration workflow when interpreting Runtime-produced candidate, landing, or worktree cleanup
+evidence.
 
 Read `references/git-collaboration.md` only when creating, sharing, cloning, updating, reviewing, or
 diagnosing an independent Git repository for this project Skill. Ordinary project work does not load
 or run that Git workflow.
 
-Rerun preflight after material path, contract, or baseline changes, before closing multi-Lane
-Structured work, and before Integration. Run knowledge scan/check only for suspected drift, a
-related preflight signal, audit, migration, or E1; these commands report evidence and never rewrite
-project knowledge.
+Runtime reruns preflight after material path, contract, or baseline changes, before closing
+Structured work, and before Integration. Knowledge scan/check is read-only evidence for suspected
+drift, a related preflight signal, audit, migration, or E1.
 
 ## Stage Route
 

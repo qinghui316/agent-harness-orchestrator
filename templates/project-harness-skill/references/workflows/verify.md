@@ -13,15 +13,20 @@ environmental, or blocked; inspection alone is never completion evidence.
 
 ## Deterministic Commands
 
-- Run targeted checks first, then aggregate/full gates for shared or high-impact behavior.
-- Run project-specific mechanical checks only when they are accepted and listed in the profile.
-- Run the project Harness close preflight after recording validation evidence.
+The following lifecycle commands are Runtime-owned:
+
+- Runtime runs targeted checks first, then aggregate/full gates for shared or high-impact behavior.
+- Runtime runs accepted project-specific mechanical checks and the close preflight, and persists the
+  resulting validation evidence.
+- Auditor and Spec-Test Agents inspect Runtime-provided artifacts read-only and return findings;
+  internal Workers do not advance lifecycle state.
 
 ## Actions
 
-1. Verify each acceptance criterion with a command, test, runtime observation, or bounded review.
+1. Map each acceptance criterion to a command, test, runtime observation, or bounded review that
+   Runtime can execute or verify.
 2. Validate contracts, compatibility, documentation, encoding, and generated artifacts as applicable.
-3. Compare failures with the captured baseline and record residual risk.
+3. Compare failures with the captured baseline and return classification and residual risk to Runtime.
 
 ## Outputs
 
