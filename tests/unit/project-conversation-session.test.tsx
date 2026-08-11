@@ -333,6 +333,14 @@ describe("Project conversation session owner", () => {
       });
       emitCreated({ productMode: "harness", conversationId: "conv-wrong-mode", topic: { id: "conv-wrong-mode", title: "Wrong mode", productMode: "harness" } });
       emitCreated({});
+      emitCreated({
+        conversationId: "conv-conflict",
+        topic: { id: "conv-conflict", conversationId: "conv-conflict", title: "Conflict", state: "active", productMode: "agent" },
+      });
+      onEvent({
+        event: "run.status",
+        data: { projectId: "repo-1", productMode: "agent", conversationId: "conv-conflict", status: "running" },
+      });
       onEvent({
         event: "run.status",
         data: { projectId: "repo-1", productMode: "agent", conversationId: "conv-correct", status: "running" },
@@ -380,6 +388,7 @@ describe("Project conversation session owner", () => {
     });
     expect(routed.map((event) => event.event)).toEqual(["topic.created", "run.status"]);
     expect(routed[0]?.data.clientRequestId).toBe("request-correct");
+    expect(routed.every((event) => event.data.conversationId === "conv-correct")).toBe(true);
     expect(fixture.navigation.syncLocation.mock.calls.filter(([, conversationId]) => conversationId === "conv-correct")).toHaveLength(1);
 
     act(() => result.current.acceptCanonicalConversation({
@@ -392,7 +401,7 @@ describe("Project conversation session owner", () => {
     expect(result.current.selectedTopic).toBe("conv-correct");
     expect(result.current.pendingDemandConversation?.id).toBe("conv-correct");
     expect(fixture.navigation.syncLocation.mock.calls.some(([, conversationId]) => (
-      conversationId === "conv-same-request-wrong-conversation"
+      conversationId === "conv-conflict" || conversationId === "conv-same-request-wrong-conversation"
     ))).toBe(false);
 
     await act(async () => {
@@ -404,6 +413,37 @@ describe("Project conversation session owner", () => {
     });
 
     expect(result.current.selectedTopic).toBe("conv-correct");
+    expect(result.current.pendingDemandConversation).toBeNull();
+  });
+
+  it("binds the first valid created identity without a provisional pending Conversation", async () => {
+    const fixture = ownerFixture();
+    const routed: WorkbenchLiveEvent[] = [];
+    const { result } = renderHook(() => useProjectConversationSession({
+      ...fixture.ports,
+      productMode: "harness",
+      autoLoad: false,
+    }));
+    await act(async () => { await result.current.loadApp(); });
+
+    await act(async () => {
+      await expect(result.current.createDemandConversation({
+        projectId: "repo-1",
+        productMode: "harness",
+        clientRequestId: "without-pending",
+        body: "Create without provisional UI",
+        contextRefs: [],
+        attachmentIds: [],
+        skillOverrides: [],
+        showPendingBeforeCreate: false,
+      }, (_projectId, event) => routed.push(event))).resolves.toEqual({
+        projectId: "repo-1",
+        conversationId: "conv-created",
+      });
+    });
+
+    expect(routed.map((event) => event.event)).toEqual(["topic.created"]);
+    expect(result.current.selectedTopic).toBe("conv-created");
     expect(result.current.pendingDemandConversation).toBeNull();
   });
 

@@ -28,7 +28,7 @@ export type PendingDemandConversation = {
   selectedProviderId?: string;
 };
 
-type PendingDemandRekeyResult = "rekeyed" | "already-canonical" | "rejected";
+type PendingDemandRekeyResult = "rekeyed" | "already-canonical" | "not-pending" | "rejected";
 
 export type CreateDemandConversationInput = {
   projectId: string;
@@ -479,7 +479,8 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     selectedProviderId?: string;
   }): PendingDemandRekeyResult => {
     const pending = pendingDemandRef.current;
-    if (!pending || pending.projectId !== input.projectId
+    if (!pending) return "not-pending";
+    if (pending.projectId !== input.projectId
       || input.productMode !== pending.productMode
       || input.productMode !== productModeRef.current
       || input.clientRequestId !== pending.clientRequestId) return "rejected";
@@ -508,7 +509,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     routeEvent: (projectId: string, event: WorkbenchLiveEvent) => void,
   ): Promise<{ projectId: string; conversationId: string }> => {
     const previousConversationId = stateRef.current.selectedTopic;
-    let conversationId: string | null = null;
+    let boundConversationId: string | null = null;
     const requestOwnsCurrentSelection = request.productMode === productModeRef.current
       && stateRef.current.selectedProjectId === request.projectId;
     let requestGeneration = requestGenerationRef.current;
@@ -531,52 +532,61 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
       await sessionApi(portsRef.current).createDemandConversation(request, (event) => {
           if (event.event === "topic.created") {
             if (!topicCreatedMatchesRequest(event, request)) return;
-            conversationId = event.data.topic.conversationId ?? event.data.topic.id ?? event.data.topic.changeId ?? null;
-            if (canApplyToCurrentSelection() && conversationId) {
-              const rekeyResult = rekeyPendingDemand({
-                projectId: request.projectId,
-                productMode: request.productMode,
-                clientRequestId: request.clientRequestId,
-                conversationId,
-                title: event.data.topic.title,
-                selectedProviderId: event.data.topic.selectedProviderId,
-              });
-              if (rekeyResult !== "rejected") requestGeneration = requestGenerationRef.current;
-              routeEvent(request.projectId, event);
+            const eventConversationId = event.data.topic.conversationId
+              ?? event.data.topic.id
+              ?? event.data.topic.changeId
+              ?? null;
+            if (!eventConversationId
+              || (boundConversationId && boundConversationId !== eventConversationId)) return;
+            if (!boundConversationId) {
+              if (canApplyToCurrentSelection()) {
+                const rekeyResult = rekeyPendingDemand({
+                  projectId: request.projectId,
+                  productMode: request.productMode,
+                  clientRequestId: request.clientRequestId,
+                  conversationId: eventConversationId,
+                  title: event.data.topic.title,
+                  selectedProviderId: event.data.topic.selectedProviderId,
+                });
+                if (rekeyResult === "rejected") return;
+                if (rekeyResult !== "not-pending") requestGeneration = requestGenerationRef.current;
+              }
+              boundConversationId = eventConversationId;
             }
+            if (canApplyToCurrentSelection()) routeEvent(request.projectId, event);
             return;
           }
-          if (!conversationId) return;
+          if (!boundConversationId) return;
           if (canApplyToCurrentSelection() && eventMatchesConversationScope(event, {
             projectId: request.projectId,
             productMode: request.productMode,
-            conversationId,
+            conversationId: boundConversationId,
           })) routeEvent(request.projectId, event);
         });
-      if (!conversationId) throw new Error("Demand conversation was not created.");
-      if (!canApplyToCurrentSelection()) return { projectId: request.projectId, conversationId };
+      if (!boundConversationId) throw new Error("Demand conversation was not created.");
+      if (!canApplyToCurrentSelection()) return { projectId: request.projectId, conversationId: boundConversationId };
       ++requestGenerationRef.current;
       setSelectedProjectId(request.projectId);
       setProductMode(request.productMode);
       productModeRef.current = request.productMode;
-      setSelectedTopic(conversationId);
+      setSelectedTopic(boundConversationId);
       setPendingDemandConversation(null);
       pendingDemandRef.current = null;
       navigation(portsRef.current).persistProjectId(request.projectId);
-      navigation(portsRef.current).syncLocation(request.projectId, conversationId);
-      return { projectId: request.projectId, conversationId };
+      navigation(portsRef.current).syncLocation(request.projectId, boundConversationId);
+      return { projectId: request.projectId, conversationId: boundConversationId };
     } catch (cause) {
-      if (conversationId) {
+      if (boundConversationId) {
         if (canApplyToCurrentSelection()) {
           ++requestGenerationRef.current;
           setPendingDemandConversation(null);
           pendingDemandRef.current = null;
           setSelectedProjectId(request.projectId);
-          setSelectedTopic(conversationId);
-          navigation(portsRef.current).syncLocation(request.projectId, conversationId);
+          setSelectedTopic(boundConversationId);
+          navigation(portsRef.current).syncLocation(request.projectId, boundConversationId);
           reportError(cause);
         }
-        return { projectId: request.projectId, conversationId };
+        return { projectId: request.projectId, conversationId: boundConversationId };
       }
       if (!canApplyToCurrentSelection()) throw cause;
       ++requestGenerationRef.current;
