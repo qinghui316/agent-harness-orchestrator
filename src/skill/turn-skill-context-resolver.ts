@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { dirname } from "node:path";
 import { slugify } from "../fs/path.js";
 import type { ProviderSkillInput } from "../project-harness/contracts.js";
 import { resolveProjectRuntimePaths, type ProjectRuntimePaths } from "../project-runtime/paths.js";
@@ -19,11 +19,11 @@ import {
   type SkillSourceKind,
 } from "./catalog.js";
 import {
-  canonicalExistingSkillEntryPath,
   canonicalPathIdentity,
-  sameSkillPath,
+  resolveSkillPathIdentity,
   skillPathIdentity,
 } from "./path-identity.js";
+import { hashNativeSkillPackageContent } from "./content-hash.js";
 
 export interface TurnSkillContextResolverOptions {
   providerRegistry: Pick<ProviderRegistry, "get">;
@@ -78,17 +78,21 @@ export class TurnSkillContextResolver implements TurnSkillContextPort {
       code: "provider_catalog_error",
       message: error.path + ": " + error.message,
     }));
+    const catalog = buildSkillCatalog(snapshot, state);
     const sourceInputs = await this.resolveSourceSkillInputs(request, providerId);
-    const identity = validateSourceInputs(snapshot, sourceInputs, diagnostics);
-    const catalog = buildSkillCatalog(snapshot, state, identity.validInputs);
-    const requiredSkills = resolveRequiredSkills(catalog.skills, request.requiredSkillIds);
+    const identity = validateSourceInputs(catalog.skills, sourceInputs, diagnostics);
+    const skills = catalog.skills.map((skill) => ({
+      ...skill,
+      sourceKind: identity.sourceKinds.get(skill.skillId) ?? skill.sourceKind,
+    }));
+    const requiredSkills = resolveRequiredSkills(skills, request.requiredSkillIds);
     const requiredIds = new Set(requiredSkills.map((skill) => skill.skillId));
-    const selectedSkills = catalog.skills.filter((skill) =>
+    const selectedSkills = skills.filter((skill) =>
       isPersistedSelectionEnabled(skill, request.conversation.conversationId));
 
     addOrphanSelectionDiagnostics(
       state.enablements,
-      catalog.skills,
+      skills,
       request.conversation.conversationId,
       diagnostics,
     );
@@ -96,15 +100,15 @@ export class TurnSkillContextResolver implements TurnSkillContextPort {
     const validated: ValidatedSkill[] = [];
     for (const item of uniqueSkills([...selectedSkills, ...requiredSkills])) {
       const required = requiredIds.has(item.skillId);
-      const failure = validateCandidate(item, identity.invalidSkillIds);
-      if (failure) {
-        if (required) throw skillResolutionError(item.skillId, failure.code, failure.message);
-        diagnostics.push({ ...failure, skillId: item.skillId });
+      const validation = await validateCandidate(item, identity.invalidSkillIds);
+      if (!validation.ok) {
+        if (required) throw skillResolutionError(item.skillId, validation.code, validation.message);
+        diagnostics.push({ code: validation.code, message: validation.message, skillId: item.skillId });
         continue;
       }
       validated.push({
         item,
-        path: canonicalExistingSkillEntryPath(item.sourcePath),
+        path: validation.path,
         source: providerSource(item.sourceKind),
       });
     }
@@ -184,24 +188,27 @@ function assertSnapshotIdentity(
 }
 
 function validateSourceInputs(
-  snapshot: ProviderSkillCatalogSnapshot,
+  skills: readonly SkillListItem[],
   inputs: readonly ProviderSkillInput[],
   diagnostics: TurnSkillContextDiagnostic[],
-): { validInputs: ProviderSkillInput[]; invalidSkillIds: Set<string> } {
-  const validInputs: ProviderSkillInput[] = [];
+): { sourceKinds: Map<string, SkillSourceKind>; invalidSkillIds: Set<string> } {
+  const sourceKinds = new Map<string, SkillSourceKind>();
   const invalidSkillIds = new Set<string>();
   const identities = new Set<string>();
   for (const input of inputs) {
     const skillId = slugify(input.id);
-    const identity = input.id + "\0" + skillPathIdentity(input.path);
-    const sameName = snapshot.skills.filter((skill) => skill.name === input.id);
-    const matching = deduplicateSkillsByPhysicalIdentity(
-      sameName.filter((skill) => sameSkillPath(skill.path, input.path)),
-    );
+    const sourcePath = resolveSkillPathIdentity(input.path);
+    const sameName = skills.filter((skill) => skill.name === input.id);
+    const identity = input.id + "\0" + (sourcePath.ok ? sourcePath.value.identity : skillPathIdentity(input.path));
+    const matching = sourcePath.ok
+      ? sameName.filter((skill) => skill.sourcePathIdentity === sourcePath.value.identity)
+      : [];
     const match = matching.length === 1 ? matching[0] : undefined;
-    if (identities.has(identity) || !match || match.contentHash !== input.contentHash) {
+    if (identities.has(identity) || !sourcePath.ok || !match || match.contentHash !== input.contentHash) {
       const reason = identities.has(identity)
         ? "duplicate source identity"
+        : !sourcePath.ok
+          ? sourcePath.message
         : matching.length > 1
           ? "ambiguous Provider discovery identity"
           : !match
@@ -212,25 +219,17 @@ function validateSourceInputs(
         message: "Skill source identity " + input.id + " has " + reason + ".",
         skillId,
       });
-      for (const candidate of sameName) invalidSkillIds.add(skillIdFor(snapshot, candidate));
+      for (const candidate of sameName) invalidSkillIds.add(candidate.skillId);
       invalidSkillIds.add(skillId);
       identities.add(identity);
       continue;
     }
     identities.add(identity);
-    try {
-      validInputs.push({ ...input, path: canonicalExistingSkillEntryPath(match.path), required: false });
-    } catch (error) {
-      diagnostics.push({
-        code: "source_identity_mismatch",
-        message: error instanceof Error ? error.message : String(error),
-        skillId,
-      });
-      invalidSkillIds.add(skillIdFor(snapshot, match));
-      invalidSkillIds.add(skillId);
-    }
+    sourceKinds.set(match.skillId, input.source === "project-harness"
+      ? "project-harness"
+      : input.source === "aho-system" ? "system-aho" : "provider-native");
   }
-  return { validInputs, invalidSkillIds };
+  return { sourceKinds, invalidSkillIds };
 }
 
 function resolveRequiredSkills(
@@ -239,7 +238,7 @@ function resolveRequiredSkills(
 ): SkillListItem[] {
   const resolved: SkillListItem[] = [];
   for (const id of [...new Set(requiredSkillIds.map((value) => slugify(value)))].sort()) {
-    const exact = skills.filter((skill) => skill.skillId === id);
+    const exact = skills.filter((skill) => skill.selectionSkillIds.includes(id));
     const matches = exact.length > 0 ? exact : skills.filter((skill) => slugify(skill.name) === id);
     if (matches.length === 0) {
       throw skillResolutionError(
@@ -279,7 +278,7 @@ function addOrphanSelectionDiagnostics(
     if (!current || row.scope === "topic") effective.set(row.skillId, row);
   }
   for (const row of effective.values()) {
-    if (!row.enabled || skills.some((skill) => skill.skillId === row.skillId)) continue;
+    if (!row.enabled || skills.some((skill) => skill.selectionSkillIds.includes(row.skillId))) continue;
     const sameName = skills.filter((skill) => slugify(skill.name) === row.skillId);
     diagnostics.push({
       code: sameName.length > 1 ? "optional_skill_ambiguous" : "optional_skill_missing",
@@ -291,37 +290,64 @@ function addOrphanSelectionDiagnostics(
   }
 }
 
-function validateCandidate(
+async function validateCandidate(
   skill: SkillListItem,
   invalidSourceIds: ReadonlySet<string>,
-): { code: string; message: string } | null {
+): Promise<{ ok: true; path: string } | { ok: false; code: string; message: string }> {
+  if (skill.catalogConflict) {
+    return { ok: false, code: "skill_metadata_conflict", message: skill.catalogConflict };
+  }
   if (invalidSourceIds.has(skill.skillId)) {
-    return {
+    return { ok: false,
       code: "skill_identity_mismatch",
       message: "Skill " + skill.skillId + " does not match its registered source identity.",
     };
   }
   if (!skill.providerEnabled) {
-    return {
+    return { ok: false,
       code: "skill_provider_disabled",
       message: "Skill " + skill.skillId + " is disabled in the Provider configuration.",
     };
   }
-  try {
-    canonicalExistingSkillEntryPath(skill.sourcePath);
-  } catch (error) {
+  if (skill.pathDiagnostic || !skill.canonicalSourcePath) {
     return {
-      code: "skill_path_invalid",
-      message: error instanceof Error ? error.message : String(error),
+      ok: false,
+      code: skill.pathDiagnostic?.code ?? "skill_path_unavailable",
+      message: skill.pathDiagnostic?.message ?? "Skill physical path is unavailable: " + skill.sourcePath,
     };
   }
   if (!skill.contentHash.trim()) {
-    return {
+    return { ok: false,
       code: "skill_fingerprint_invalid",
       message: "Skill " + skill.skillId + " has an empty content fingerprint.",
     };
   }
-  return null;
+  const rebound = resolveSkillPathIdentity(skill.canonicalSourcePath);
+  if (!rebound.ok) return { ok: false, code: rebound.code, message: rebound.message };
+  if (rebound.value.identity !== skill.sourcePathIdentity) {
+    return {
+      ok: false,
+      code: "skill_identity_changed",
+      message: "Skill physical identity changed after Provider discovery: " + skill.skillId,
+    };
+  }
+  try {
+    const contentHash = await hashNativeSkillPackageContent(dirname(rebound.value.canonicalPath));
+    if (contentHash !== skill.contentHash) {
+      return {
+        ok: false,
+        code: "skill_fingerprint_changed",
+        message: "Skill content changed after Provider discovery: " + skill.skillId,
+      };
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      code: "skill_path_unavailable",
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+  return { ok: true, path: rebound.value.canonicalPath };
 }
 
 function providerSource(source: SkillSourceKind): ProviderSkillInput["source"] {
@@ -359,17 +385,6 @@ function skillResolutionError(skillId: string, code: string, message: string): E
   return error;
 }
 
-function skillIdFor(
-  snapshot: ProviderSkillCatalogSnapshot,
-  target: ProviderSkillCatalogSnapshot["skills"][number],
-): string {
-  const baseId = slugify(target.name);
-  return deduplicateSkillsByPhysicalIdentity(snapshot.skills)
-    .filter((skill) => slugify(skill.name) === baseId).length === 1
-    ? baseId
-    : baseId + "-" + createHash("sha256").update(canonicalPathIdentity(target.path)).digest("hex").slice(0, 8);
-}
-
 function assertCurrentConversation(
   stored: StoredConversation | null,
   requested: StoredConversation,
@@ -389,13 +404,4 @@ function assertCurrentConversation(
       "Turn Skill Conversation identity changed before Provider discovery.",
     );
   }
-}
-
-function deduplicateSkillsByPhysicalIdentity(
-  skills: readonly ProviderSkillCatalogSnapshot["skills"][number][],
-): ProviderSkillCatalogSnapshot["skills"][number][] {
-  return [...new Map(skills.map((skill) => [
-    [skill.name, skillPathIdentity(skill.path), skill.contentHash].join("\0"),
-    skill,
-  ])).values()];
 }

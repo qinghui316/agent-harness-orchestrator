@@ -11,6 +11,7 @@ import type {
 import { initializeProjectRuntimeSidecar } from "../../src/project-runtime/lifecycle.js";
 import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import { hashNativeSkillPackageContent } from "../../src/skill/content-hash.js";
+import { buildSkillCatalog } from "../../src/skill/catalog.js";
 import { TurnSkillContextResolver } from "../../src/skill/turn-skill-context-resolver.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import type { TurnSkillContextRequest } from "../../src/workbench/conversation-turn-contract.js";
@@ -138,6 +139,165 @@ describe("TurnSkillContextResolver", () => {
     expect(result.diagnostics).toEqual([]);
   });
 
+  it("keeps legacy alias-hashed project and Conversation selections effective", async () => {
+    const selected = await createNativeSkill("duplicate-selection", true, "selected-physical");
+    const other = await createNativeSkill("duplicate-selection", true, "other-physical");
+    const aliasRoot = join(root, "selection-alias");
+    await symlink(dirname(selected.entryPath), aliasRoot, process.platform === "win32" ? "junction" : "dir");
+    const aliasPath = join(aliasRoot, "SKILL.md");
+    const snapshot = await catalog([
+      { ...selected, path: selected.entryPath },
+      { ...selected, path: aliasPath },
+      other,
+    ]);
+    const legacyPhysicalId = legacySkillId("duplicate-selection", selected.entryPath);
+    const legacyAliasId = legacySkillId("duplicate-selection", aliasPath);
+
+    const projectConversation = storedConversation("conversation-legacy-project", "codex", "agent");
+    await seedConversation(projectConversation, [enablement(legacyAliasId, null, true)]);
+    await expect(resolverFor(snapshot).resolve(requestFor(projectConversation))).resolves.toMatchObject({
+      skillInputs: [expect.objectContaining({ id: "duplicate-selection", path: await realpath(selected.entryPath) })],
+    });
+
+    const topicConversation = storedConversation("conversation-legacy-topic", "codex", "agent");
+    await seedConversation(topicConversation, [enablement(legacyPhysicalId, topicConversation.conversationId, true)]);
+    await expect(resolverFor(snapshot).resolve(requestFor(topicConversation))).resolves.toMatchObject({
+      skillInputs: [expect.objectContaining({ id: "duplicate-selection", path: await realpath(selected.entryPath) })],
+    });
+  });
+
+  it("collapses conflicting aliases deterministically and fails according to requiredness", async () => {
+    const skill = await createNativeSkill("conflicted-skill");
+    const aliasRoot = join(root, "conflicted-alias");
+    await symlink(dirname(skill.entryPath), aliasRoot, process.platform === "win32" ? "junction" : "dir");
+    const alias = { ...skill, path: join(aliasRoot, "SKILL.md"), enabled: false, scope: "repo" as const };
+    const physical = { ...skill, path: skill.entryPath, enabled: true, scope: "user" as const };
+    const first = await catalog([alias, physical]);
+    const second = await catalog([physical, alias]);
+    const firstCatalog = buildSkillCatalog(first, { roots: [], enablements: [] });
+    const secondCatalog = buildSkillCatalog(second, { roots: [], enablements: [] });
+    expect(firstCatalog.skills).toHaveLength(1);
+    expect(firstCatalog.skills).toEqual(secondCatalog.skills);
+    expect(new Set(firstCatalog.skills.map((item) => item.skillId)).size).toBe(1);
+
+    const conversation = storedConversation("conversation-conflicted", "codex", "agent");
+    await seedConversation(conversation, [enablement("conflicted-skill", null, true)]);
+    const optionalFirst = await resolverFor(first).resolve(requestFor(conversation));
+    const optionalSecond = await resolverFor(second).resolve(requestFor(conversation));
+    expect(optionalFirst).toEqual(optionalSecond);
+    expect(optionalFirst).toMatchObject({
+      skillInputs: [],
+      diagnostics: [expect.objectContaining({ code: "skill_metadata_conflict", skillId: "conflicted-skill" })],
+    });
+    await expect(resolverFor(first).resolve(requestFor(conversation, ["conflicted-skill"]))).rejects.toMatchObject({
+      name: "TurnSkillContextError",
+      code: "skill_metadata_conflict",
+    });
+  });
+
+  it("keeps distinct same-name physical Skills stably separated across discovery order", async () => {
+    const first = await createNativeSkill("stable-duplicate", true, "stable-one");
+    const second = await createNativeSkill("stable-duplicate", true, "stable-two");
+    const forward = buildSkillCatalog(await catalog([first, second]), { roots: [], enablements: [] });
+    const reverse = buildSkillCatalog(await catalog([second, first]), { roots: [], enablements: [] });
+    expect(forward.skills.map((item) => item.skillId)).toEqual(reverse.skills.map((item) => item.skillId));
+    expect(new Set(forward.skills.map((item) => item.skillId)).size).toBe(2);
+  });
+
+  it.runIf(process.platform !== "win32")("accepts file-symlink discovery", async () => {
+    const skill = await createNativeSkill("path-forms-skill");
+    const linkRoot = join(root, "file-link");
+    await mkdir(linkRoot, { recursive: true });
+    const linkedEntry = join(linkRoot, "SKILL.md");
+    await symlink(skill.entryPath, linkedEntry, "file");
+    const snapshot = await catalog([{ ...skill, path: linkedEntry }]);
+    const conversation = storedConversation("conversation-path-forms", "codex", "harness");
+    await seedConversation(conversation);
+    const source = sourceInput(skill, "project-harness", false);
+
+    await expect(resolverFor(snapshot, [source]).resolve(requestFor(conversation, ["path-forms-skill"])))
+      .resolves.toEqual({
+        skillInputs: [{
+          id: "path-forms-skill",
+          path: await realpath(skill.entryPath),
+          contentHash: skill.contentHash,
+          source: "project-harness",
+          required: true,
+        }],
+        diagnostics: [],
+      });
+  });
+
+  it("accepts a directory-form source input", async () => {
+    const skill = await createNativeSkill("directory-source-skill");
+    const conversation = storedConversation("conversation-directory-source", "codex", "harness");
+    await seedConversation(conversation);
+    const source = { ...sourceInput(skill, "project-harness", false), path: dirname(skill.entryPath) };
+
+    await expect(resolverFor(await catalog([skill]), [source])
+      .resolve(requestFor(conversation, [skill.name]))).resolves.toMatchObject({
+        skillInputs: [expect.objectContaining({
+          id: skill.name,
+          path: await realpath(skill.entryPath),
+          source: "project-harness",
+          required: true,
+        })],
+        diagnostics: [],
+      });
+  });
+
+  it("keeps the validated physical binding when a Provider alias is retargeted", async () => {
+    const original = await createNativeSkill("retarget-skill", true, "retarget-original");
+    const replacement = await createNativeSkill("retarget-skill", true, "retarget-replacement");
+    const aliasRoot = join(root, "retarget-alias");
+    await symlink(dirname(original.entryPath), aliasRoot, process.platform === "win32" ? "junction" : "dir");
+    const snapshot = await catalog([{ ...original, path: join(aliasRoot, "SKILL.md") }]);
+    const conversation = storedConversation("conversation-retarget", "codex", "agent");
+    await seedConversation(conversation, [enablement("retarget-skill", null, true)]);
+    const resolver = resolverFor(snapshot, [], async () => {
+      await rm(aliasRoot, { recursive: true, force: true });
+      await symlink(dirname(replacement.entryPath), aliasRoot, process.platform === "win32" ? "junction" : "dir");
+    });
+
+    const result = await resolver.resolve(requestFor(conversation));
+    expect(result.skillInputs).toEqual([expect.objectContaining({
+      path: await realpath(original.entryPath),
+      contentHash: original.contentHash,
+    })]);
+    expect(result.skillInputs[0]!.path).not.toBe(await realpath(replacement.entryPath));
+  });
+
+  it("classifies bound path loss and content drift for optional and required Skills", async () => {
+    for (const change of ["remove", "rewrite"] as const) {
+      const skill = await createNativeSkill("changed-" + change, true, "changed-" + change);
+      const snapshot = await catalog([skill]);
+      const conversation = storedConversation("conversation-changed-" + change, "codex", "agent");
+      await seedConversation(conversation, [enablement(skill.name, null, true)]);
+      const resolver = resolverFor(snapshot, [], async () => {
+        if (change === "remove") await rm(dirname(skill.entryPath), { recursive: true, force: true });
+        else await writeFile(skill.entryPath, "---\nname: " + skill.name + "\ndescription: Changed.\n---\n", "utf8");
+      });
+      const expectedCode = change === "remove" ? "skill_path_unavailable" : "skill_fingerprint_changed";
+      await expect(resolver.resolve(requestFor(conversation))).resolves.toMatchObject({
+        skillInputs: [],
+        diagnostics: expect.arrayContaining([
+          expect.objectContaining({ code: expectedCode, skillId: skill.name }),
+        ]),
+      });
+    }
+
+    const required = await createNativeSkill("required-lost");
+    const requiredConversation = storedConversation("conversation-required-lost", "codex", "harness");
+    await seedConversation(requiredConversation);
+    const requiredResolver = resolverFor(await catalog([required]), [], async () => {
+      await rm(dirname(required.entryPath), { recursive: true, force: true });
+    });
+    await expect(requiredResolver.resolve(requestFor(requiredConversation, [required.name]))).rejects.toMatchObject({
+      name: "TurnSkillContextError",
+      code: "skill_path_unavailable",
+    });
+  });
+
   it("rejects a source identity that has the same name but a different physical target", async () => {
     const discovered = await createNativeSkill("resolver-project-harness", true, "discovered-target");
     const registered = await createNativeSkill("resolver-project-harness", true, "registered-target");
@@ -228,13 +388,13 @@ describe("TurnSkillContextResolver", () => {
     await expect(resolver.resolve(requestFor(conversation))).resolves.toMatchObject({
       skillInputs: [],
       diagnostics: [expect.objectContaining({
-        code: "skill_path_invalid",
+        code: "skill_path_unavailable",
         skillId: "invalid-path-skill",
       })],
     });
     await expect(resolver.resolve(requestFor(conversation, ["invalid-path-skill"]))).rejects.toMatchObject({
       name: "TurnSkillContextError",
-      code: "skill_path_invalid",
+      code: "skill_path_unavailable",
     });
   });
 
@@ -337,6 +497,7 @@ describe("TurnSkillContextResolver", () => {
 function resolverFor(
   snapshot: ProviderSkillCatalogSnapshot,
   sourceInputs: readonly ProviderSkillInput[] = [],
+  afterDiscovery?: () => Promise<void>,
 ): TurnSkillContextResolver {
   return new TurnSkillContextResolver({
     providerRegistry: {
@@ -346,7 +507,10 @@ function resolverFor(
       },
     },
     resolvePaths: () => paths,
-    resolveSourceSkillInputs: () => sourceInputs,
+    resolveSourceSkillInputs: async () => {
+      await afterDiscovery?.();
+      return sourceInputs;
+    },
   });
 }
 
@@ -487,4 +651,10 @@ function stableSkillId(snapshot: ProviderSkillCatalogSnapshot, target: ProviderN
   const absolute = resolve(target.path);
   const normalized = process.platform === "win32" ? absolute.toLowerCase() : absolute;
   return target.name + "-" + createHash("sha256").update(normalized).digest("hex").slice(0, 8);
+}
+
+function legacySkillId(name: string, path: string): string {
+  const absolute = resolve(path);
+  const normalized = process.platform === "win32" ? absolute.toLowerCase() : absolute;
+  return name + "-" + createHash("sha256").update(normalized).digest("hex").slice(0, 8);
 }

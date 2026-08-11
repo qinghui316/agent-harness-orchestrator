@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -8,11 +9,13 @@ import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import { initializeProjectRuntimeSidecar } from "../../src/project-runtime/lifecycle.js";
 import {
   addSkillRoot,
+  buildSkillCatalog,
   getEnabledSkillContext,
   listSkills,
   setSkillEnabled,
 } from "../../src/skill/catalog.js";
 import { hashNativeSkillPackageContent } from "../../src/skill/content-hash.js";
+import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 
 let root: string;
 
@@ -207,6 +210,78 @@ describe("native Skill catalog and sidecar selections", () => {
     })]);
   });
 
+  it("reads legacy alias ids and converges subsequent writes to the canonical physical id", async () => {
+    const projectPath = await directory("repo");
+    const paths = resolveProjectRuntimePaths("demo-project", join(root, "aho-home"));
+    await initializeProjectRuntimeSidecar(paths);
+    const firstPath = await createSkill(join(root, "physical-skills"), "duplicate-skill");
+    const secondPath = await createSkill(join(root, "other-skills"), "duplicate-skill");
+    const aliasRoot = join(root, "legacy-alias");
+    await symlink(dirname(firstPath), aliasRoot, process.platform === "win32" ? "junction" : "dir");
+    const aliasPath = join(aliasRoot, "SKILL.md");
+    const snapshot = await snapshotFor(projectPath, [
+      { name: "duplicate-skill", path: aliasPath, enabled: true, scope: "user" },
+      { name: "duplicate-skill", path: firstPath, enabled: true, scope: "user" },
+      { name: "duplicate-skill", path: secondPath, enabled: true, scope: "user" },
+    ]);
+    const legacyId = legacySkillId("duplicate-skill", aliasPath);
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      database.skills.setSkillEnablement({
+        projectId: paths.projectId,
+        changeId: null,
+        skillId: legacyId,
+        scope: "project",
+        enabled: true,
+        updatedAt: new Date().toISOString(),
+      });
+    } finally {
+      database.close();
+    }
+
+    const listed = await listSkills(paths, snapshot);
+    const selected = listed.skills.find((item) => item.selectionSkillIds.includes(legacyId));
+    expect(selected).toMatchObject({ enabledProject: true });
+    await setSkillEnabled(paths, snapshot, legacyId, { enabled: false });
+    const converged = await listSkills(paths, snapshot);
+    expect(converged.skills.find((item) => item.skillId === selected!.skillId)).toMatchObject({
+      enabledProject: false,
+    });
+    const reopened = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      expect(reopened.skills.listSkillEnablement(paths.projectId)).toContainEqual(expect.objectContaining({
+        skillId: selected!.skillId,
+        enabled: false,
+      }));
+    } finally {
+      reopened.close();
+    }
+  });
+
+  it("deduplicates same-physical metadata conflicts independently of Provider order", async () => {
+    const projectPath = await directory("repo");
+    const physicalPath = await createSkill(join(root, "physical-conflict"), "conflict-skill");
+    const aliasRoot = join(root, "conflict-alias");
+    await symlink(dirname(physicalPath), aliasRoot, process.platform === "win32" ? "junction" : "dir");
+    const aliasPath = join(aliasRoot, "SKILL.md");
+    const contentHash = await hashNativeSkillPackageContent(dirname(physicalPath));
+    const left = {
+      name: "conflict-skill",
+      description: "A",
+      path: physicalPath,
+      enabled: true,
+      scope: "user" as const,
+      contentHash,
+    };
+    const right = { ...left, description: "B", path: aliasPath, enabled: false, scope: "repo" as const };
+    const state = { roots: [], enablements: [] };
+    const forward = buildSkillCatalog({ providerId: "codex", projectPath, skills: [left, right], errors: [] }, state);
+    const reverse = buildSkillCatalog({ providerId: "codex", projectPath, skills: [right, left], errors: [] }, state);
+    expect(forward.skills).toHaveLength(1);
+    expect(forward.skills).toEqual(reverse.skills);
+    expect(forward.skills[0]).toMatchObject({ catalogConflict: expect.any(String) });
+  });
+
   it.each([
     {
       label: "missing",
@@ -276,4 +351,10 @@ async function snapshotFor(
     }))),
     errors: [],
   };
+}
+
+function legacySkillId(name: string, path: string): string {
+  const absolute = resolve(path);
+  const normalized = process.platform === "win32" ? absolute.toLowerCase() : absolute;
+  return name + "-" + createHash("sha256").update(normalized).digest("hex").slice(0, 8);
 }
