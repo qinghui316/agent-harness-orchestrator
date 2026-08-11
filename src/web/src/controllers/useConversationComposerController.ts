@@ -2,16 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { consumeWorkbenchLiveStream, fetchJson, postJson } from "../api.js";
 import { extractInlineFileMentions } from "../shell/file-mentions.js";
 import { extractInlineSkillMentions } from "../shell/skill-mentions.js";
-import type { SkillListItem, TopicAttachment, TopicFileReference, WorkbenchLiveEvent } from "../types.js";
+import type { ProductMode, SkillListItem, TopicAttachment, TopicFileReference, WorkbenchLiveEvent } from "../types.js";
 import type { WorkbenchOperationToken } from "./useGlobalOperationGate.js";
 
 export type ComposerTransition = "project-changed" | "conversation-changed" | "new-conversation";
 
 export interface ConversationComposerScope {
   projectId: string | null;
+  productMode?: ProductMode;
   conversation: {
     id: string;
     state: string;
+    productMode?: ProductMode;
     selectedProviderId?: string;
   } | null;
   managed: boolean;
@@ -28,11 +30,19 @@ export interface PreparedComposerInput {
 
 export interface ComposerCreateConversationRequest {
   projectId: string;
+  productMode: ProductMode;
+  clientRequestId: string;
   body: string;
   contextRefs: TopicFileReference[];
   attachmentIds: string[];
   providerId?: string;
+  skillOverrides: ComposerSkillOverride[];
   showPendingBeforeCreate: boolean;
+}
+
+export interface ComposerSkillOverride {
+  skillId: string;
+  enabled: boolean;
 }
 
 export interface ComposerCreatedConversation {
@@ -42,6 +52,7 @@ export interface ComposerCreatedConversation {
 
 export interface ComposerMessageRequest {
   projectId: string;
+  productMode: ProductMode;
   conversationId: string;
   message: string;
   contextRefs: TopicFileReference[];
@@ -91,6 +102,9 @@ export interface ConversationComposerPorts {
     upload(projectId: string, upload: ComposerAttachmentUpload): Promise<TopicAttachment>;
     remove(projectId: string, attachmentId: string): Promise<void>;
   };
+  ids?: {
+    createClientRequestId(): string;
+  };
   onError(message: string | null): void;
 }
 
@@ -112,7 +126,7 @@ export function useConversationComposerController(
   const [attachments, setAttachments] = useState<TopicAttachment[]>([]);
   const scopeGenerationRef = useRef(0);
   const skillRequestGenerationRef = useRef(0);
-  const scopeIdentityRef = useRef(`${scope.projectId ?? ""}\0${scope.conversation?.id ?? ""}`);
+  const scopeIdentityRef = useRef(composerScopeIdentity(scope));
   const stateRef = useRef({ composerText, skillItems, draftSkillOverrides, fileRefs, attachments });
   const scopeRef = useRef(scope);
   const portsRef = useRef(ports);
@@ -146,11 +160,11 @@ export function useConversationComposerController(
   }, [reloadSkills, scope.managed, scope.projectId, scope.conversation?.id]);
 
   useEffect(() => {
-    const identity = `${scope.projectId ?? ""}\0${scope.conversation?.id ?? ""}`;
+    const identity = composerScopeIdentity(scope);
     if (identity === scopeIdentityRef.current) return;
     scopeIdentityRef.current = identity;
     scopeGenerationRef.current += 1;
-  }, [scope.projectId, scope.conversation?.id]);
+  }, [scope.productMode, scope.projectId, scope.conversation?.id, scope.conversation?.productMode]);
 
   const cleanupTransition = useCallback((transition: ComposerTransition): void => {
     scopeGenerationRef.current += 1;
@@ -245,11 +259,15 @@ export function useConversationComposerController(
 
   const createConversation = useCallback(async (input: CreateConversationComposerInput = {}): Promise<ComposerCreatedConversation | null> => {
     const currentScope = scopeRef.current;
+    const generation = scopeGenerationRef.current;
+    const capturedProjectId = currentScope.projectId;
+    const capturedProductMode = composerProductMode(currentScope);
+    const clientRequestId = (portsRef.current.ids ?? defaultComposerIds).createClientRequestId();
     const body = input.body ?? stateRef.current.composerText;
     const selectedRefs = input.fileRefs ?? stateRef.current.fileRefs;
     const attachmentIds = input.attachmentIds ?? stateRef.current.attachments.map((attachment) => attachment.id);
     const attachmentFiles = input.attachmentFiles ?? [];
-    if (!currentScope.projectId || (!body.trim() && attachmentIds.length === 0 && attachmentFiles.length === 0)) return null;
+    if (!capturedProjectId || (!body.trim() && attachmentIds.length === 0 && attachmentFiles.length === 0)) return null;
     const prepared = prepareComposerInput({
       body,
       selectedRefs,
@@ -266,47 +284,66 @@ export function useConversationComposerController(
     const token = portsRef.current.operation.begin("topic.create");
     let uploadedDraft: TopicAttachment[] = [];
     let uploadProjectId: string | null = null;
+    let effectiveProjectId: string | null = null;
     let created: ComposerCreatedConversation | null = null;
     try {
       portsRef.current.onError(null);
-      const effectiveProjectId = await portsRef.current.session.ensureProjectRegistered(currentScope.projectId);
+      effectiveProjectId = await portsRef.current.session.ensureProjectRegistered(capturedProjectId);
       if (!effectiveProjectId) return null;
       uploadProjectId = effectiveProjectId;
       uploadedDraft = await uploadFilesForProject(effectiveProjectId, attachmentFiles);
       created = await portsRef.current.session.createConversation({
         projectId: effectiveProjectId,
+        productMode: capturedProductMode,
+        clientRequestId,
         body: demandBody,
         contextRefs: prepared.contextRefs,
         attachmentIds: [...attachmentIds, ...uploadedDraft.map((attachment) => attachment.id)],
         providerId: currentScope.selectedProviderId ?? undefined,
+        skillOverrides: normalizeSkillOverrideRecord(prepared.skillOverrides),
         showPendingBeforeCreate: attachmentFiles.length === 0,
       });
       uploadedDraft = [];
-      setComposerText("");
-      setFileRefs([]);
-      setAttachments([]);
-      setDraftSkillOverrides({});
-      await applySkillOverrides(created.projectId, created.conversationId, prepared.skillOverrides);
-      await reloadSkills(created.projectId);
-      await portsRef.current.projection.refreshConversation(created.projectId, created.conversationId);
+      const requestProjectIds = [capturedProjectId, effectiveProjectId];
+      if (composerRequestOwnsCurrentScope(generation, requestProjectIds, capturedProductMode, scopeGenerationRef, scopeRef, created.conversationId)) {
+        setComposerText("");
+        setFileRefs([]);
+        setAttachments([]);
+        setDraftSkillOverrides({});
+        await reloadSkills(created.projectId);
+        if (composerRequestOwnsCurrentScope(generation, requestProjectIds, capturedProductMode, scopeGenerationRef, scopeRef, created.conversationId)) {
+          await portsRef.current.projection.refreshConversation(created.projectId, created.conversationId);
+        }
+      }
       return created;
     } catch (cause) {
-      portsRef.current.onError(errorMessage(cause));
+      if (composerRequestOwnsCurrentScope(generation, [capturedProjectId, ...(effectiveProjectId ? [effectiveProjectId] : [])], capturedProductMode, scopeGenerationRef, scopeRef)) {
+        portsRef.current.onError(errorMessage(cause));
+      }
       throw cause;
     } finally {
       if (uploadedDraft.length > 0 && uploadProjectId) {
         await Promise.allSettled(uploadedDraft.map((attachment) => (portsRef.current.attachments ?? defaultAttachmentApi).remove(uploadProjectId!, attachment.id)));
       }
-      if (created) await calibrateTimeline(created.projectId, created.conversationId);
+      if (created && composerRequestOwnsCurrentScope(generation, [capturedProjectId, created.projectId], capturedProductMode, scopeGenerationRef, scopeRef, created.conversationId)) {
+        await calibrateTimeline(created.projectId, created.conversationId);
+      }
       portsRef.current.operation.release(token);
     }
   }, [reloadSkills, uploadFilesForProject]);
 
   const send = useCallback(async (): Promise<void> => {
     const currentScope = scopeRef.current;
+    const generation = scopeGenerationRef.current;
+    const capturedProductMode = composerProductMode(currentScope);
     const draft = stateRef.current;
     const attachmentIds = draft.attachments.map((attachment) => attachment.id);
     if (!currentScope.projectId || !currentScope.conversation || (!draft.composerText.trim() && attachmentIds.length === 0)) return;
+    if (currentScope.conversation.productMode
+      && currentScope.conversation.productMode !== capturedProductMode) {
+      portsRef.current.onError("Conversation productMode does not match the selected application mode.");
+      return;
+    }
     if (currentScope.conversation.state !== "active") {
       portsRef.current.onError("已完成或稍后处理的需求对话为只读，不能继续发送消息。");
       return;
@@ -341,12 +378,12 @@ export function useConversationComposerController(
     }
 
     const token = portsRef.current.operation.begin("chat.ask");
-    const generation = scopeGenerationRef.current;
     setComposerText("");
     portsRef.current.onError(null);
     try {
       const request: ComposerMessageRequest = {
         projectId: currentScope.projectId,
+        productMode: capturedProductMode,
         conversationId: currentScope.conversation.id,
         message: outboundMessage,
         contextRefs: prepared.contextRefs,
@@ -359,7 +396,11 @@ export function useConversationComposerController(
       await (portsRef.current.actions.sendMessage
         ?? ((input: ComposerMessageRequest) => sendComposerMessage(input, (projectId, event) => {
           const active = scopeRef.current;
-          if (active.projectId === projectId && active.conversation?.id === input.conversationId) {
+          if (active.projectId === projectId
+            && composerProductMode(active) === input.productMode
+            && active.conversation?.id === input.conversationId
+            && generation === scopeGenerationRef.current
+            && workbenchEventMatchesConversation(event, input)) {
             portsRef.current.projection.routeEvent?.(projectId, event);
           }
         })))(request);
@@ -368,13 +409,15 @@ export function useConversationComposerController(
         setAttachments([]);
       }
     } catch (cause) {
-      if (generation === scopeGenerationRef.current) {
+      if (composerRequestOwnsCurrentScope(generation, [currentScope.projectId], capturedProductMode, scopeGenerationRef, scopeRef)) {
         setComposerText((current) => current ? current : draft.composerText);
+        portsRef.current.onError(errorMessage(cause));
       }
-      portsRef.current.onError(errorMessage(cause));
       throw cause;
     } finally {
-      await calibrateTimeline(currentScope.projectId, currentScope.conversation.id);
+      if (composerRequestOwnsCurrentScope(generation, [currentScope.projectId], capturedProductMode, scopeGenerationRef, scopeRef)) {
+        await calibrateTimeline(currentScope.projectId, currentScope.conversation.id);
+      }
       portsRef.current.operation.release(token);
     }
   }, [reloadSkills]);
@@ -500,6 +543,13 @@ export function normalizeComposerRefs(refs: TopicFileReference[]): TopicFileRefe
   return result;
 }
 
+export function normalizeSkillOverrideRecord(overrides: Record<string, boolean>): ComposerSkillOverride[] {
+  return Object.entries(overrides)
+    .map(([skillId, enabled]) => ({ skillId: skillId.trim(), enabled }))
+    .filter((override) => override.skillId.length > 0)
+    .sort((left, right) => left.skillId.localeCompare(right.skillId));
+}
+
 export function defaultAttachmentPrompt(count: number): string {
   return count === 1
     ? "请先查看我附上的文件，然后根据附件内容继续。"
@@ -550,11 +600,76 @@ async function sendComposerMessage(
       attachmentIds: request.attachmentIds,
       providerId: request.providerId,
       providerSwitchIntent: request.providerSwitchIntent,
-      productMode: "harness",
+      productMode: request.productMode,
     },
     (event) => routeEvent?.(request.projectId, event),
   );
 }
+
+function composerProductMode(scope: ConversationComposerScope): ProductMode {
+  return scope.productMode ?? scope.conversation?.productMode ?? "harness";
+}
+
+function composerScopeIdentity(scope: ConversationComposerScope): string {
+  return `${scope.projectId ?? ""}\0${composerProductMode(scope)}\0${scope.conversation?.id ?? ""}`;
+}
+
+export function workbenchEventMatchesConversation(
+  event: WorkbenchLiveEvent,
+  expected: Pick<ComposerMessageRequest, "projectId" | "productMode" | "conversationId">,
+): boolean {
+  const data = event.data as Record<string, unknown>;
+  const nestedConversation = data.conversation && typeof data.conversation === "object"
+    ? data.conversation as Record<string, unknown>
+    : null;
+  const center = data.center && typeof data.center === "object"
+    ? data.center as Record<string, unknown>
+    : null;
+  const selectedTopic = center?.selectedTopic && typeof center.selectedTopic === "object"
+    ? center.selectedTopic as Record<string, unknown>
+    : null;
+  const projectId = typeof data.projectId === "string" ? data.projectId : expected.projectId;
+  const productMode = data.productMode === "agent" || data.productMode === "harness" ? data.productMode : undefined;
+  const effectiveProductMode = productMode
+    ?? (nestedConversation?.productMode === "agent" || nestedConversation?.productMode === "harness"
+      ? nestedConversation.productMode
+      : selectedTopic?.productMode === "agent" || selectedTopic?.productMode === "harness"
+        ? selectedTopic.productMode
+        : undefined);
+  const conversationId = typeof data.conversationId === "string"
+    ? data.conversationId
+    : typeof nestedConversation?.id === "string"
+      ? nestedConversation.id
+      : typeof selectedTopic?.id === "string"
+        ? selectedTopic.id
+        : undefined;
+  return projectId === expected.projectId
+    && effectiveProductMode === expected.productMode
+    && conversationId === expected.conversationId;
+}
+
+function composerRequestOwnsCurrentScope(
+  generation: number,
+  projectIds: readonly string[],
+  productMode: ProductMode,
+  generationRef: { current: number },
+  currentScopeRef: { current: ConversationComposerScope },
+  committedConversationId?: string,
+): boolean {
+  const currentScope = currentScopeRef.current;
+  return (generation === generationRef.current
+      || Boolean(committedConversationId && currentScope.conversation?.id === committedConversationId))
+    && currentScope.projectId !== null
+    && projectIds.includes(currentScope.projectId)
+    && composerProductMode(currentScope) === productMode;
+}
+
+const defaultComposerIds = {
+  createClientRequestId(): string {
+    return globalThis.crypto?.randomUUID?.()
+      ?? `web-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  },
+};
 
 function mergeTopicAttachments(current: TopicAttachment[], next: TopicAttachment[]): TopicAttachment[] {
   const seen = new Set(current.map((attachment) => attachment.id));

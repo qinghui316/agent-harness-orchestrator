@@ -6,6 +6,7 @@ import {
   activeComposerSkillIds,
   prepareComposerInput,
   useConversationComposerController,
+  workbenchEventMatchesConversation,
   type ConversationComposerPorts,
   type ConversationComposerScope,
 } from "../../src/web/src/controllers/useConversationComposerController.js";
@@ -17,6 +18,34 @@ afterEach(() => {
 });
 
 describe("Conversation composer controller", () => {
+  it("accepts realtime callbacks only for the captured project, mode, and Conversation", () => {
+    const event = {
+      event: "done",
+      data: { projectId: "repo", productMode: "agent", conversationId: "conversation-1", status: "completed" },
+    } as const;
+    expect(workbenchEventMatchesConversation(event, {
+      projectId: "repo",
+      productMode: "agent",
+      conversationId: "conversation-1",
+    })).toBe(true);
+    expect(workbenchEventMatchesConversation(event, {
+      projectId: "repo",
+      productMode: "harness",
+      conversationId: "conversation-1",
+    })).toBe(false);
+    expect(workbenchEventMatchesConversation({
+      event: "snapshot",
+      data: {
+        productMode: "agent",
+        center: { selectedTopic: { id: "conversation-1", productMode: "agent" } },
+      },
+    }, {
+      projectId: "repo",
+      productMode: "agent",
+      conversationId: "conversation-1",
+    })).toBe(true);
+  });
+
   it("prepares provider-neutral text, Skill overrides, and canonical file references", () => {
     const ref = fileRef("src/app.ts");
     expect(prepareComposerInput({
@@ -80,13 +109,16 @@ describe("Conversation composer controller", () => {
 
     expect(ports.session.createConversation).toHaveBeenCalledWith({
       projectId: "repo",
+      productMode: "harness",
+      clientRequestId: "request-1",
       body: "build feature",
       contextRefs: [fileRef("src/app.ts")],
       attachmentIds: ["existing"],
       providerId: "codex",
+      skillOverrides: [{ skillId: "reviewer", enabled: true }],
       showPendingBeforeCreate: true,
     });
-    expect(ports.skills.setEnabled).toHaveBeenCalledWith("repo", "reviewer", true, "conversation-new");
+    expect(ports.skills.setEnabled).not.toHaveBeenCalled();
     expect(ports.projection.refreshConversation).toHaveBeenCalledWith("repo", "conversation-new");
     expect(ports.timeline.calibrate).toHaveBeenCalledWith("repo", "conversation-new", "main-agent");
     expect(result.current.composerText).toBe("");
@@ -146,6 +178,118 @@ describe("Conversation composer controller", () => {
       providerSwitchIntent: "resume-workflow",
     }));
     expect(ports.timeline.calibrate).toHaveBeenCalledWith("repo", "conversation-1", "main-agent");
+  });
+
+  it("keeps a captured first send running after a mode switch without overwriting the new draft", async () => {
+    let resolveRegistration!: (projectId: string) => void;
+    const ports = composerPorts();
+    ports.session.ensureProjectRegistered.mockImplementation(() => new Promise<string>((resolve) => {
+      resolveRegistration = resolve;
+    }));
+    const { result, rerender } = renderHook(
+      ({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
+      { initialProps: { scope: homeScope({ productMode: "agent" }) } },
+    );
+    act(() => result.current.setComposerText("agent request"));
+
+    let creation!: Promise<{ projectId: string; conversationId: string } | null>;
+    act(() => { creation = result.current.createConversation(); });
+    await waitFor(() => expect(ports.session.ensureProjectRegistered).toHaveBeenCalledWith("repo"));
+    rerender({ scope: homeScope({ productMode: "harness" }) });
+    act(() => result.current.setComposerText("harness draft"));
+    await act(async () => { resolveRegistration("repo"); await creation; });
+
+    expect(ports.session.createConversation).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: "repo",
+      productMode: "agent",
+      clientRequestId: "request-1",
+      body: "agent request",
+    }));
+    expect(result.current.composerText).toBe("harness draft");
+    expect(ports.projection.refreshConversation).not.toHaveBeenCalled();
+    expect(ports.timeline.calibrate).not.toHaveBeenCalled();
+  });
+
+  it("captures mode for an existing send before an immediate mode switch", async () => {
+    let resolveSend!: () => void;
+    const ports = composerPorts();
+    ports.actions.sendMessage.mockImplementation(() => new Promise<void>((resolve) => { resolveSend = resolve; }));
+    const { result, rerender } = renderHook(
+      ({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
+      { initialProps: { scope: conversationScope({ productMode: "agent", conversation: {
+        id: "agent-conversation",
+        productMode: "agent",
+        state: "active",
+        selectedProviderId: "codex",
+      } }) } },
+    );
+    act(() => result.current.setComposerText("captured turn"));
+
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.send(); });
+    await waitFor(() => expect(ports.actions.sendMessage).toHaveBeenCalledOnce());
+    rerender({ scope: homeScope({ productMode: "harness", conversation: null }) });
+    await act(async () => { resolveSend(); await pending; });
+
+    expect(ports.actions.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: "repo",
+      productMode: "agent",
+      conversationId: "agent-conversation",
+      message: "captured turn",
+    }));
+  });
+
+  it("does not surface or calibrate a failed Turn after its mode becomes inactive", async () => {
+    let rejectSend!: (cause: Error) => void;
+    const ports = composerPorts();
+    ports.actions.sendMessage.mockImplementation(() => new Promise<void>((_resolve, reject) => { rejectSend = reject; }));
+    const { result, rerender } = renderHook(
+      ({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
+      { initialProps: { scope: conversationScope({ productMode: "agent", conversation: {
+        id: "agent-conversation",
+        productMode: "agent",
+        state: "active",
+        selectedProviderId: "codex",
+      } }) } },
+    );
+    act(() => result.current.setComposerText("agent turn"));
+
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.send(); });
+    await waitFor(() => expect(ports.actions.sendMessage).toHaveBeenCalledOnce());
+    rerender({ scope: homeScope({ productMode: "harness", conversation: null }) });
+    act(() => result.current.setComposerText("harness draft"));
+    await act(async () => {
+      rejectSend(new Error("inactive turn failed"));
+      await expect(pending).rejects.toThrow("inactive turn failed");
+    });
+
+    expect(result.current.composerText).toBe("harness draft");
+    expect(ports.onError).not.toHaveBeenCalledWith("inactive turn failed");
+    expect(ports.timeline.calibrate).not.toHaveBeenCalled();
+  });
+
+  it("rejects a stale Conversation before Skill writes or message dispatch", async () => {
+    const ports = composerPorts();
+    const { result } = renderHook(() => useConversationComposerController(conversationScope({
+      productMode: "agent",
+      conversation: {
+        id: "harness-conversation",
+        productMode: "harness",
+        state: "active",
+        selectedProviderId: "codex",
+      },
+    }), ports));
+    act(() => result.current.setComposerText("must not send"));
+
+    await act(async () => { await result.current.send(); });
+
+    expect(ports.skills.setEnabled).not.toHaveBeenCalled();
+    expect(ports.actions.sendMessage).not.toHaveBeenCalled();
+    expect(ports.onError).toHaveBeenLastCalledWith(
+      "Conversation productMode does not match the selected application mode.",
+    );
+    expect(result.current.composerText).toBe("must not send");
   });
 
   it("restores an unchanged failed draft and clears message context only after success", async () => {
@@ -221,6 +365,7 @@ function composerPorts(): ConversationComposerPorts & {
   skills: { load: ReturnType<typeof vi.fn>; setEnabled: ReturnType<typeof vi.fn> };
   attachments: { upload: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn> };
   operation: { begin: ReturnType<typeof vi.fn>; release: ReturnType<typeof vi.fn> };
+  ids: { createClientRequestId: ReturnType<typeof vi.fn> };
   onError: ReturnType<typeof vi.fn>;
 } {
   let operationId = 0;
@@ -248,6 +393,7 @@ function composerPorts(): ConversationComposerPorts & {
       upload: vi.fn(async () => attachment("uploaded")),
       remove: vi.fn(async () => undefined),
     },
+    ids: { createClientRequestId: vi.fn(() => "request-1") },
     onError: vi.fn(),
   };
 }

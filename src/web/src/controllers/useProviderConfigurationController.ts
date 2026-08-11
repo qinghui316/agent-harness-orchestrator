@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchJson, postJson } from "../api.js";
 import type {
+  ProductMode,
   ProviderCapabilitySnapshot,
   ProviderDiagnostics,
   ProviderModelSettingsSnapshot,
@@ -8,12 +9,14 @@ import type {
 
 export interface ProviderConfigurationInput {
   projectId: string | null;
+  productMode?: ProductMode;
   projectDefaultProviderId: string | null;
   conversationProviderId: string | null;
   onError(message: string): void;
 }
 
 export function useProviderConfigurationController(input: ProviderConfigurationInput) {
+  const productMode = input.productMode ?? "harness";
   const [diagnostics, setDiagnostics] = useState<ProviderDiagnostics | null>(null);
   const [modelSettings, setModelSettings] = useState<ProviderModelSettingsSnapshot | null>(null);
   const [capabilities, setCapabilities] = useState<ProviderCapabilitySnapshot[]>([]);
@@ -43,13 +46,13 @@ export function useProviderConfigurationController(input: ProviderConfigurationI
 
   const reload = useCallback(async (): Promise<void> => {
     const generation = ++requestGenerationRef.current;
-    const path = input.projectId
-      ? `/api/projects/${encodeURIComponent(input.projectId)}/providers/capabilities?productMode=harness`
-      : "/api/providers/capabilities?productMode=harness";
+    const path = providerCapabilitiesPath(input.projectId, productMode);
     const payload = await fetchJson<{ providers?: unknown[] }>(path);
     if (generation !== requestGenerationRef.current) return;
     const nextCapabilities = Array.isArray(payload.providers)
-      ? payload.providers.filter(isProviderCapabilitySnapshot)
+      ? payload.providers.filter((value): value is ProviderCapabilitySnapshot => (
+        isProviderCapabilitySnapshot(value, productMode)
+      ))
       : [];
     setCapabilities(nextCapabilities);
     const providerId = selectEffectiveProviderId({
@@ -65,17 +68,23 @@ export function useProviderConfigurationController(input: ProviderConfigurationI
       return;
     }
     await loadProviderDetails(providerId, generation);
-  }, [input.conversationProviderId, input.projectDefaultProviderId, input.projectId, loadProviderDetails]);
+  }, [input.conversationProviderId, input.projectDefaultProviderId, input.projectId, loadProviderDetails, productMode]);
 
   useEffect(() => {
-    reload().catch((cause: unknown) => input.onError(cause instanceof Error ? cause.message : String(cause)));
-    return () => { requestGenerationRef.current += 1; };
+    let active = true;
+    reload().catch((cause: unknown) => {
+      if (active) input.onError(cause instanceof Error ? cause.message : String(cause));
+    });
+    return () => {
+      active = false;
+      requestGenerationRef.current += 1;
+    };
   }, [reload, input.onError]);
 
   useEffect(() => {
     setModelSettingsBusy(false);
     setModelSettingsMessage(null);
-  }, [input.projectId]);
+  }, [input.projectId, productMode]);
 
   useEffect(() => {
     const providerId = selectEffectiveProviderId({
@@ -119,9 +128,7 @@ export function useProviderConfigurationController(input: ProviderConfigurationI
       const raw = await postJson<unknown>(providerPath(providerId, "models"), body);
       if (generation !== requestGenerationRef.current) return;
       setModelSettings(isProviderModelSettingsSnapshot(raw) ? raw : null);
-      const capabilitiesPath = input.projectId
-        ? `/api/projects/${encodeURIComponent(input.projectId)}/providers/capabilities?productMode=harness`
-        : "/api/providers/capabilities?productMode=harness";
+      const capabilitiesPath = providerCapabilitiesPath(input.projectId, productMode);
       const [rawDiagnostics, capabilityPayload] = await Promise.all([
         fetchJson<unknown>(providerPath(providerId, "diagnostics")),
         fetchJson<{ providers?: unknown[] }>(capabilitiesPath),
@@ -129,7 +136,9 @@ export function useProviderConfigurationController(input: ProviderConfigurationI
       if (generation === requestGenerationRef.current) {
         setDiagnostics(isProviderDiagnostics(rawDiagnostics) ? rawDiagnostics : null);
         setCapabilities(Array.isArray(capabilityPayload.providers)
-          ? capabilityPayload.providers.filter(isProviderCapabilitySnapshot)
+          ? capabilityPayload.providers.filter((value): value is ProviderCapabilitySnapshot => (
+            isProviderCapabilitySnapshot(value, productMode)
+          ))
           : []);
       }
     } catch (cause) {
@@ -139,7 +148,7 @@ export function useProviderConfigurationController(input: ProviderConfigurationI
     } finally {
       if (generation === requestGenerationRef.current) setModelSettingsBusy(false);
     }
-  }, [input.projectId, providerPath, selectedProviderId]);
+  }, [input.projectId, productMode, providerPath, selectedProviderId]);
 
   return {
     diagnostics,
@@ -191,16 +200,26 @@ export function isProviderModelSettingsSnapshot(value: unknown): value is Provid
     && typeof snapshot.available === "boolean";
 }
 
-export function isProviderCapabilitySnapshot(value: unknown): value is ProviderCapabilitySnapshot {
+export function isProviderCapabilitySnapshot(
+  value: unknown,
+  expectedProductMode: ProductMode = "harness",
+): value is ProviderCapabilitySnapshot {
   if (!value || typeof value !== "object") return false;
   const snapshot = value as Partial<ProviderCapabilitySnapshot>;
   return typeof snapshot.providerId === "string"
-    && snapshot.productMode === "harness"
+    && snapshot.productMode === expectedProductMode
     && (snapshot.status === "ready" || snapshot.status === "degraded" || snapshot.status === "unavailable")
     && typeof snapshot.runnable === "boolean"
     && typeof snapshot.snapshotHash === "string"
     && typeof snapshot.snapshotVersion === "number"
     && Array.isArray(snapshot.capabilities);
+}
+
+export function providerCapabilitiesPath(projectId: string | null, productMode: ProductMode): string {
+  const query = `productMode=${encodeURIComponent(productMode)}`;
+  return projectId
+    ? `/api/projects/${encodeURIComponent(projectId)}/providers/capabilities?${query}`
+    : `/api/providers/capabilities?${query}`;
 }
 
 async function resolveOnlyProviderId(): Promise<string> {
