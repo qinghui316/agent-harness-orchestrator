@@ -270,6 +270,39 @@ export class WorkbenchUnitOfWork {
     })();
   }
 
+  createProviderChildCallback(input: {
+    attempt: StoredProviderAttempt;
+    parentAttemptId: string;
+    requireRunningParent?: boolean;
+    thread: {
+      threadId: string;
+      parentThreadId: string;
+      parentAgentSurfaceId: string;
+      displayName?: string | null;
+      runId: string;
+    };
+    timelineMessages?: StoredTopicMessageWrite[];
+  }): StoredTopicMessage[] {
+    return this.db.transaction(() => {
+      if (!input.attempt.conversationId || !input.attempt.graphScopeId) {
+        throw new Error("Provider child callback requires Conversation and graph scope identity.");
+      }
+      this.providerAttempts[input.requireRunningParent === false ? "assertCurrentAttemptGraph" : "assertCurrentRunningAttemptGraph"](
+        input.attempt.projectId,
+        input.attempt.conversationId,
+        input.parentAttemptId,
+        input.attempt.graphScopeId,
+      );
+      this.providerAttempts.createProviderAttempt(input.attempt);
+      this.providerAttempts.bindProviderAttemptThread(
+        input.attempt.projectId,
+        { attemptId: input.attempt.attemptId, ...input.thread },
+        input.attempt.updatedAt,
+      );
+      return (input.timelineMessages ?? []).map((message) => this.timeline.appendMessage(message));
+    })();
+  }
+
   terminalizeConversationGraphScope(
     projectId: string,
     conversationId: string,
@@ -367,6 +400,65 @@ export class WorkbenchUnitOfWork {
         );
       }
       return rows;
+    })();
+  }
+
+  commitProviderTerminalSupplement(input: {
+    projectId: string;
+    conversationId: string;
+    attemptId: string;
+    expectedGraphScopeId: string;
+    timelineMessages: StoredTopicMessageWrite[];
+  }): StoredTopicMessage[] {
+    return this.db.transaction(() => {
+      this.providerAttempts.assertCurrentAttemptGraph(
+        input.projectId,
+        input.conversationId,
+        input.attemptId,
+        input.expectedGraphScopeId,
+        { allowTerminated: true },
+      );
+      const attempt = this.providerAttempts.readProviderAttempt(input.projectId, input.attemptId);
+      if (!attempt || attempt.status === "queued" || attempt.status === "running") {
+        throw new Error(`Provider terminal supplement requires a terminal Attempt: ${input.attemptId}.`);
+      }
+      if (new Set(input.timelineMessages.map((message) => message.id)).size !== input.timelineMessages.length) {
+        throw new Error("Provider terminal supplement requires one mutation per canonical message.");
+      }
+      return input.timelineMessages.map((message) =>
+        this.timeline.readMessage(message.projectId, message.conversationId, message.id)
+          ? this.timeline.updateMessage(message)
+          : this.timeline.appendMessage(message));
+    })();
+  }
+
+  commitProviderRecoveryTerminal(input: {
+    projectId: string;
+    conversationId: string;
+    attemptId: string;
+    expectedGraphScopeId: string;
+    nativeSessionId: string | null;
+    updatedAt: string;
+    timelineMessage: StoredTopicMessageWrite;
+  }): StoredTopicMessage {
+    return this.db.transaction(() => {
+      this.providerAttempts.assertCurrentAttemptGraph(
+        input.projectId,
+        input.conversationId,
+        input.attemptId,
+        input.expectedGraphScopeId,
+      );
+      const row = this.timeline.readMessage(input.timelineMessage.projectId, input.timelineMessage.conversationId, input.timelineMessage.id)
+        ? this.timeline.updateMessage(input.timelineMessage)
+        : this.timeline.appendMessage(input.timelineMessage);
+      this.providerAttempts.completeProviderAttempt(
+        input.projectId,
+        input.attemptId,
+        "failed",
+        input.nativeSessionId,
+        input.updatedAt,
+      );
+      return row;
     })();
   }
 

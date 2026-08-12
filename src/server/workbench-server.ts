@@ -15,6 +15,7 @@ import type { WorkbenchServeOptions, WorkbenchServerContext, WorkbenchServerHand
 import { ProjectRuntimeCoordinator, type ProjectRuntimeCoordinatorPort } from "../project-runtime/coordinator.js";
 import { WorkbenchProjectRemovalService } from "./workbench/project-removal.js";
 import { reconcileRecoveredApprovalDecisions } from "../workbench/actions/approval-decision-reconciliation.js";
+import { reconcileStaleAgentNativeChildren } from "../workbench/agent-native-child-lifecycle-service.js";
 
 export type { WorkbenchServeOptions, WorkbenchServerHandle } from "./workbench/types.js";
 export { executeWorkbenchAction } from "./workbench/actions.js";
@@ -35,7 +36,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
   const terminalRuntime = options.terminalRuntime ?? new TerminalRuntime();
   await projectRuntimeCoordinator.reconcileStartup();
   const restoredInput = await restoreDirectProjectInput(input, store);
-  await recoverWorkbenchProjects(store, restoredInput, projectRuntimeCoordinator);
+  await recoverWorkbenchProjects(store, restoredInput, projectRuntimeCoordinator, providerRegistry);
   const context: WorkbenchServerContext = {
     input: restoredInput,
     staticRoot,
@@ -78,12 +79,14 @@ export async function recoverWorkbenchProjects(
     store,
     discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
   }),
+  providerRegistry = defaultProviderRegistry,
 ): Promise<void> {
   const projects = await store.listProjects();
   if (directInput?.project && !projects.some((project) => project.id === directInput.project?.id || project.path === directInput.project?.path)) {
     projects.push(directInput.project);
   }
   for (const project of projects) {
+    await reconcileStaleAgentNativeChildren({ project, providerRegistry });
     if ((await projectRuntimeCoordinator.resolve(project)).state !== "ready") continue;
     const reconcileReceipt = (receipt: Parameters<typeof reconcileRecoveredApprovalDecisions>[1][number]) => (
       reconcileRecoveredApprovalDecisions(project, [receipt])

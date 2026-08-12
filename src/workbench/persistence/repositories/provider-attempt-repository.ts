@@ -301,7 +301,7 @@ completeProviderAttempt(projectId: string, attemptId: string, status: StoredProv
     conversationId: string,
     attemptId: string,
     graphScopeId: string,
-    options: { requireRunning?: boolean; failureMessage?: string } = {},
+    options: { requireRunning?: boolean; allowTerminated?: boolean; failureMessage?: string } = {},
   ): void {
     const lineage = this.db.prepare(`
       SELECT conversations.current_graph_scope_id AS currentGraphScopeId,
@@ -321,7 +321,7 @@ completeProviderAttempt(projectId: string, attemptId: string, status: StoredProv
       || nullableString(lineage.attemptGraphScopeId) !== graphScopeId
       || (options.requireRunning
         ? String(lineage.attemptStatus) !== "running"
-        : String(lineage.attemptStatus) === "terminated")) {
+        : !options.allowTerminated && String(lineage.attemptStatus) === "terminated")) {
       throw new Error(options.failureMessage ?? "Provider callback no longer owns the current conversation graph.");
     }
   }

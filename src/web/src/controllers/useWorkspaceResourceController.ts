@@ -6,6 +6,7 @@ import type {
   WorkspaceResourceTab,
   WorkspaceResourceTarget,
   WorkbenchLiveEvent,
+  ProductMode,
 } from "../types.js";
 import type { WorkbenchOperationToken } from "./useGlobalOperationGate.js";
 
@@ -18,6 +19,7 @@ export type WorkspaceResourceCleanupTransition =
 export type WorkspaceResourceControllerOptions = {
   projectId: string | null;
   conversationId: string | null;
+  productMode?: ProductMode;
   resolveResource?: (projectId: string, target: Exclude<WorkspaceResourceTarget, { kind: "agent" }>) => Promise<TextDocumentResource>;
   loadAgentTranscript?: (target: Extract<WorkspaceResourceTarget, { kind: "agent" }>) => void | Promise<void>;
   sendAgentMessage?: (agent: AgentSurfaceProjectionItem, message: string) => Promise<void>;
@@ -32,6 +34,7 @@ export type WorkspaceResourceControllerOptions = {
 export function useWorkspaceResourceController({
   projectId,
   conversationId,
+  productMode = "harness",
   resolveResource = resolveWorkspaceResource,
   loadAgentTranscript,
   sendAgentMessage,
@@ -172,7 +175,7 @@ export function useWorkspaceResourceController({
         try {
           await consumeWorkbenchLiveStream<WorkbenchLiveEvent>(
             `/api/projects/${encodeURIComponent(projectId)}/workbench/topics/${encodeURIComponent(conversationId)}/messages/live`,
-            { mode: "chat", message, agentSurfaceId: agent.agentSurfaceId, productMode: "harness" },
+            { mode: "chat", message, agentSurfaceId: agent.agentSurfaceId, productMode },
             (event) => {
               const active = scopeRef.current;
               if (active.projectId === projectId && active.conversationId === conversationId) {
@@ -199,7 +202,7 @@ export function useWorkspaceResourceController({
         setPendingAgentMessages((current) => current[key] === pendingId ? withoutKey(current, key) : current);
       }
     }
-  }, [agentDrafts, calibrateAgentTranscript, conversationId, operation, pendingAgentMessages, projectId, routeProjectionEvent, sendAgentMessage]);
+  }, [agentDrafts, calibrateAgentTranscript, conversationId, operation, pendingAgentMessages, productMode, projectId, routeProjectionEvent, sendAgentMessage]);
 
   const cleanupTransition = useCallback((transition: WorkspaceResourceCleanupTransition) => {
     const keepTab = (tab: WorkspaceResourceTab): boolean => {

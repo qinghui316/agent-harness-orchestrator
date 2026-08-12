@@ -47,6 +47,30 @@ describe("Workspace resource controller", () => {
     }
   });
 
+  it.each(["agent", "harness"] as const)("sends caller-captured %s product mode without role inference", async (productMode) => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(JSON.parse(String(init?.body))).toMatchObject({ productMode, agentSurfaceId: "agent:codex:thread:a" });
+      return new Response("event: done\ndata: {\"status\":\"completed\"}\n\n", {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      });
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+    try {
+      const { result } = renderHook(() => useWorkspaceResourceController({
+        projectId: "repo-1",
+        conversationId: "conversation-1",
+        productMode,
+      }));
+      const roleMustNotDecideMode = { ...planningAgent("agent:codex:thread:a"), roleId: "native-child-agent" };
+      act(() => result.current.setAgentDraft(roleMustNotDecideMode.agentSurfaceId, "feedback"));
+      await act(async () => result.current.submitAgentMessage(roleMustNotDecideMode));
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("owns stable tabs, selection, document loading, errors, and request generations", async () => {
     let resolveFirst!: (resource: TextDocumentResource) => void;
     const firstRequest = new Promise<TextDocumentResource>((resolve) => { resolveFirst = resolve; });

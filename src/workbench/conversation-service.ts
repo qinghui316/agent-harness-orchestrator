@@ -19,6 +19,7 @@ import { runWorkbenchWorkflowAction } from "./workflow-conversation-bridge.js";
 import type { NewConversationSkillOverride, TopicAttachment, TopicMessageInput, TopicMessageResult, TopicThreadEntry, ValidatedPlanHandoffIntent, WorkbenchLiveSink } from "./types.js";
 import { publishAgentSurfacesInvalidated, publishProjectLiveEvent } from "./project-live-events.js";
 import { runExactChildAgentTurn } from "./provider-child-turn-coordinator.js";
+import { runAgentNativeChildFollowup } from "./agent-native-child-lifecycle-service.js";
 import type { WorkbenchDatabase } from "./persistence/database.js";
 import type { StoredConversation, StoredTopicMessage } from "./persistence/contracts.js";
 import { createConversationGraphScopeId } from "./conversation-graph-scope.js";
@@ -237,12 +238,20 @@ export async function postConversationMessage(
   turnRouter.assertRequestedMode(identity.conversation, requestedMode);
   const parsed = await normalizeTopicMessageInput(project, input);
   const runtimeState = identity.runtimeState;
-  if (identity.conversation.productMode === "agent" && (parsed.agentSurfaceId || parsed.planHandoffIntent)) {
+  if (identity.conversation.productMode === "agent" && parsed.planHandoffIntent) {
     const error = new Error("Agent mode does not accept AHO child feedback or planning handoffs.");
     error.name = "Conflict";
     throw error;
   }
   if (parsed.agentSurfaceId) {
+    if (identity.conversation.productMode === "agent") {
+      if (parsed.contextRefs?.length || parsed.attachments?.length || parsed.planHandoffIntent || parsed.providerId) {
+        const error = new Error("Native child follow-up supports plain text only and cannot switch Providers or carry Main context.");
+        error.name = "BadRequest";
+        throw error;
+      }
+      return runAgentNativeChildFollowup({ project, conversationId, agentSurfaceId: parsed.agentSurfaceId, message: parsed.message, live });
+    }
     if (runtimeState.state === "onboarding") {
       const error = new Error("Project Harness onboarding accepts Main conversation text and attachments only.");
       error.name = "Conflict";

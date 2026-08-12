@@ -16,6 +16,7 @@ import { createAssistantTranscriptCapture } from "./live-transcript.js";
 import { CanonicalTimelineDelivery, publishCommittedCanonicalTimelineRow } from "./canonical-timeline-delivery.js";
 import { toCanonicalTimelineMessage } from "./canonical-timeline-message.js";
 import { fromStoredThreadMessage } from "./conversation-thread-log.js";
+import { AgentNativeChildLifecycleService, NATIVE_CHILD_AGENT_ROLE_ID } from "./agent-native-child-lifecycle-service.js";
 import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import type { StoredTopicMessage, StoredTopicMessageWrite } from "./persistence/contracts.js";
 import type { WorkbenchDatabase } from "./persistence/database.js";
@@ -138,14 +139,61 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
           mainTimelineId,
           mainSessionId: liveMainThreadId ?? existingSessionId,
           snapshot,
-        }).filter((write) => write.agentSurfaceId === "main-agent")) {
-          delivery.upsert(write);
+        })) {
+          if (write.agentSurfaceId === "main-agent") {
+            delivery.upsert(write);
+            continue;
+          }
+          if (!write.threadId) continue;
+          const childLink = database.providerAttempts.listProviderThreads(paths.projectId, conversation.conversationId)
+            .find((link) => link.providerId === input.providerId
+              && link.providerThreadId === write.threadId
+              && link.graphScopeId === graphScopeId
+              && link.roleId === NATIVE_CHILD_AGENT_ROLE_ID);
+          if (!childLink) continue;
+          const childAttempt = database.providerAttempts.readProviderAttempt(paths.projectId, childLink.attemptId);
+          if (!childAttempt) continue;
+          const rows = childAttempt.status === "queued" || childAttempt.status === "running"
+            ? database.unitOfWork.commitProviderCallback({
+              projectId: paths.projectId,
+              conversationId: conversation.conversationId,
+              attemptId: childLink.attemptId,
+              expectedGraphScopeId: graphScopeId,
+              updatedAt: new Date().toISOString(),
+              timelineMessages: [write],
+            })
+            : database.unitOfWork.commitProviderTerminalSupplement({
+              projectId: paths.projectId,
+              conversationId: conversation.conversationId,
+              attemptId: childLink.attemptId,
+              expectedGraphScopeId: graphScopeId,
+              timelineMessages: [write],
+            });
+          delivery.publishCommittedMany(rows);
         }
         return true;
       } catch (error) {
         canonicalPersistenceError = asError(error);
         return false;
       }
+    });
+    const childLifecycle = new AgentNativeChildLifecycleService({
+      database,
+      projectId: paths.projectId,
+      conversationId: conversation.conversationId,
+      graphScopeId,
+      runId,
+      parentAttemptId: attemptId,
+      providerId: input.providerId,
+      capabilitySnapshot: resolvedProvider.snapshot,
+      model,
+      parentHandoffHash: handoffHash,
+      deliveredThroughCompletedTurn: conversation.completedTurnSequence,
+      capture,
+      publish: (rows) => {
+        for (const row of rows) publishCommittedCanonicalTimelineRow(input.live, row, "agent");
+      },
+      onInvalidated: () => undefined,
     });
 
     const terminalize = (result: ProviderTurnResult | null, status: "completed" | "interrupted" | "failed", failure?: Error): TopicThreadEntry | null => {
@@ -180,7 +228,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
         expectedGraphScopeId: graphScopeId,
         mainStatus: status,
         mainNativeSessionId: sessionId,
-        childAttempts: [],
+        childAttempts: childLifecycle.terminalAttempts(status === "interrupted" ? "interrupted" : "failed"),
         expectedCompletedTurnSequence: conversation.completedTurnSequence,
         advanceCompletedTurn: status === "completed",
         binding: {
@@ -279,7 +327,20 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
           ? { providerId: input.providerId, sessionId: existingSessionId }
           : null,
         onRealtimeEvent: (event) => {
-          if (event.parentThreadId) return;
+          if (event.parentThreadId) {
+            try {
+              if (!liveMainThreadId) {
+                bindMainThread(database, paths.projectId, attemptId, event.parentThreadId, runId);
+                liveMainThreadId = event.parentThreadId;
+              }
+              const childEvent = childLifecycle.onRealtime(event);
+              if (!childEvent) return;
+              forwardProviderRealtimeEvent(childEvent, capture.sink, { productMode: "agent", graphScopeId });
+            } catch (error) {
+              canonicalPersistenceError ??= asError(error);
+            }
+            return;
+          }
           if (!isCurrentTopLevelEvent(event, paths.projectId, conversation.conversationId, runId, attemptId, input.providerId)) {
             canonicalPersistenceError ??= new Error("Provider realtime event does not match the Direct Agent Turn identity.");
             return;
@@ -294,6 +355,28 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
             }
           }
           forwardProviderRealtimeEvent(event, capture.sink, { productMode: "agent", graphScopeId });
+        },
+        onChildLifecycleEvent: (event) => {
+          try {
+            if (!liveMainThreadId) {
+              bindMainThread(database, paths.projectId, attemptId, event.parentSession.sessionId, runId);
+              liveMainThreadId = event.parentSession.sessionId;
+            }
+            childLifecycle.onLifecycle(event);
+          } catch (error) {
+            canonicalPersistenceError ??= asError(error);
+          }
+        },
+        onChildThreadResult: (child) => {
+          try {
+            if (!liveMainThreadId) {
+              bindMainThread(database, paths.projectId, attemptId, child.parentThreadId, runId);
+              liveMainThreadId = child.parentThreadId;
+            }
+            childLifecycle.onResult(child);
+          } catch (error) {
+            canonicalPersistenceError ??= asError(error);
+          }
         },
         onUserInputRequest: (request) => {
           unsupportedInputError ??= conflict("Direct Agent provider input is not supported in this increment.");
@@ -346,6 +429,17 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
         writableRoots: [input.project.path],
       });
       if (interruptWork) await interruptWork;
+      if (result.session && liveMainThreadId !== result.session.sessionId) {
+        bindMainThread(database, paths.projectId, attemptId, result.session.sessionId, runId);
+        liveMainThreadId = result.session.sessionId;
+      }
+      for (const child of result.childThreads) {
+        try {
+          childLifecycle.onResult(child);
+        } catch (error) {
+          canonicalPersistenceError ??= asError(error);
+        }
+      }
       const persistenceFailure = canonicalPersistenceError ?? unsupportedInputError;
       const status = persistenceFailure ? "failed" : result.status;
       const assistant = terminalize(result, status, persistenceFailure ?? undefined);
