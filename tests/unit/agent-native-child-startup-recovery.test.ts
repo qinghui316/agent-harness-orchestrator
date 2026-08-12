@@ -79,22 +79,45 @@ describe("Agent native child startup recovery", () => {
     const database = await openProjectRuntimeWorkbenchDatabase(paths);
     try {
       createAttempt(database, project.id, "agent-conversation", "malformed-attempt", "agent", "running", "native-child-agent", "agent", "malformed-child");
+      createAttempt(database, project.id, "agent-conversation", "graph-null-attempt", "agent", "running", "native-child-agent", "agent", "graph-null-child", "main-agent", null);
+      createAttempt(database, project.id, "agent-conversation", "session-null-attempt", "agent", "running", "native-child-agent", "agent", null);
+      createAttempt(database, project.id, "agent-conversation", "identity-null-attempt", "agent", "queued", "native-child-agent", "agent", null, "main-agent", null);
       database.conversations.activateGraphScope(project.id, "agent-conversation", "graph-current-new", "2026-08-12T00:01:00.000Z");
     } finally {
       database.close();
     }
     const registry = registryWithInspection((threadId) => threadId === "child-live" ? "available" : "stale");
 
-    await expect(reconcileStaleAgentNativeChildren({ project, providerRegistry: registry })).resolves.toBe(3);
+    await expect(reconcileStaleAgentNativeChildren({ project, providerRegistry: registry })).resolves.toBe(6);
     const restored = await openProjectRuntimeWorkbenchDatabase(paths, { providerRegistry: registry });
     try {
       expect(restored.conversations.readConversation(project.id, "agent-conversation")?.currentGraphScopeId).toBe("graph-current-new");
       expect(restored.providerAttempts.readProviderAttempt(project.id, "child-stale-attempt")?.status).toBe("failed");
       expect(restored.providerAttempts.readProviderAttempt(project.id, "malformed-attempt")?.status).toBe("failed");
+      for (const attemptId of ["graph-null-attempt", "session-null-attempt", "identity-null-attempt"]) {
+        expect(restored.providerAttempts.readProviderAttempt(project.id, attemptId)?.status).toBe("failed");
+      }
       const quarantine = restored.timeline.listConversationMessages(project.id, "agent-conversation")
         .find((message) => message.text?.includes("quarantined after malformed persisted lineage"));
       expect(quarantine).toMatchObject({ status: "failed" });
       expect(JSON.parse(quarantine!.rawJson)).toMatchObject({ attemptId: "malformed-attempt" });
+      const missingIdentityDiagnostics = restored.timeline.listConversationMessages(project.id, "agent-conversation")
+        .filter((message) => message.text?.includes("persisted Provider identity was incomplete"));
+      expect(missingIdentityDiagnostics).toHaveLength(3);
+      const rawDiagnostics = missingIdentityDiagnostics.map((message) => JSON.parse(message.rawJson) as {
+        attemptId: string;
+        graphScopeId?: string;
+        threadId?: string;
+      });
+      expect(rawDiagnostics).toEqual(expect.arrayContaining([
+        expect.objectContaining({ attemptId: "graph-null-attempt", threadId: "graph-null-child" }),
+        expect.objectContaining({ attemptId: "session-null-attempt", graphScopeId: "graph-agent-conversation" }),
+        expect.objectContaining({ attemptId: "identity-null-attempt" }),
+      ]));
+      expect(rawDiagnostics.find((entry) => entry.attemptId === "graph-null-attempt")).not.toHaveProperty("graphScopeId");
+      expect(rawDiagnostics.find((entry) => entry.attemptId === "session-null-attempt")).not.toHaveProperty("threadId");
+      expect(rawDiagnostics.find((entry) => entry.attemptId === "identity-null-attempt")).not.toHaveProperty("graphScopeId");
+      expect(rawDiagnostics.find((entry) => entry.attemptId === "identity-null-attempt")).not.toHaveProperty("threadId");
     } finally {
       restored.close();
     }
@@ -191,15 +214,16 @@ function createAttempt(
   status: "queued" | "running",
   roleId: string,
   operationProfile: string,
-  nativeSessionId: string,
+  nativeSessionId: string | null,
   parentAgentSurfaceId: string | null = "main-agent",
+  graphScopeId: string | null = `graph-${conversationId}`,
 ): void {
   database.providerAttempts.createProviderAttempt({
     projectId,
     conversationId,
     attemptId,
     productMode,
-    graphScopeId: `graph-${conversationId}`,
+    graphScopeId,
     changeId: null,
     agentTaskId: null,
     roleId,

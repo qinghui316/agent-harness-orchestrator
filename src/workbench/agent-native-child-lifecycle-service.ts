@@ -821,11 +821,44 @@ export async function reconcileStaleAgentNativeChildren(input: {
         if (attempt.productMode !== "agent"
           || attempt.roleId !== NATIVE_CHILD_AGENT_ROLE_ID
           || attempt.operationProfile !== NATIVE_CHILD_OPERATION_PROFILE
-          || (attempt.status !== "queued" && attempt.status !== "running")
-          || !attempt.graphScopeId
-          || !attempt.nativeSessionId) continue;
+          || (attempt.status !== "queued" && attempt.status !== "running")) continue;
         const link = database.providerAttempts.listProviderThreads(paths.projectId, conversation.conversationId)
           .find((candidate) => candidate.attemptId === attempt.attemptId && candidate.parentThreadId);
+        const recoveryIdentity = nativeChildRecoveryIdentity(attempt);
+        if (!attempt.graphScopeId || !attempt.nativeSessionId) {
+          const diagnostic = toCanonicalTimelineMessage(paths.projectId, conversation.conversationId, {
+            id: `status:${conversation.conversationId}:${attempt.providerId}:${stableHash(attempt.attemptId)}:restart-missing-identity`,
+            type: "assistant.message",
+            timestamp: new Date().toISOString(),
+            conversationId: conversation.conversationId,
+            ...(attempt.graphScopeId ? { graphScopeId: attempt.graphScopeId } : {}),
+            changeId: "",
+            text: "Native child activity was quarantined after Workbench restart because its persisted Provider identity was incomplete.",
+            status: "failed",
+            providerId: attempt.providerId,
+            attemptId: attempt.attemptId,
+            ...(attempt.nativeSessionId ? { threadId: attempt.nativeSessionId } : {}),
+            parentThreadId: link?.parentThreadId ?? undefined,
+            agentRoleId: NATIVE_CHILD_AGENT_ROLE_ID,
+            agentSurfaceId: recoveryIdentity.agentSurfaceId,
+          });
+          try {
+            database.unitOfWork.commitNativeChildRecoveryQuarantine({
+              projectId: paths.projectId,
+              conversationId: conversation.conversationId,
+              attemptId: attempt.attemptId,
+              providerId: attempt.providerId,
+              graphScopeId: attempt.graphScopeId,
+              nativeSessionId: attempt.nativeSessionId,
+              updatedAt: new Date().toISOString(),
+              timelineMessage: diagnostic,
+            });
+            reconciled += 1;
+          } catch {
+            // A corrupt row is isolated so recovery can continue with other Attempts and projects.
+          }
+          continue;
+        }
         let activeProof = false;
         try {
           if (!link?.parentThreadId) throw new Error("Native child lineage is missing.");
@@ -908,6 +941,14 @@ export async function reconcileStaleAgentNativeChildren(input: {
   } finally {
     database.close();
   }
+}
+
+function nativeChildRecoveryIdentity(attempt: StoredProviderAttempt): { agentSurfaceId: string } {
+  return {
+    agentSurfaceId: attempt.nativeSessionId
+      ? agentThreadSurfaceId(attempt.providerId, attempt.nativeSessionId)
+      : `agent:${encodeURIComponent(attempt.providerId)}:recovery-attempt:${encodeURIComponent(attempt.attemptId)}`,
+  };
 }
 
 function parseAgentThreadSurfaceId(surfaceId: string): { providerId: string; threadId: string } {

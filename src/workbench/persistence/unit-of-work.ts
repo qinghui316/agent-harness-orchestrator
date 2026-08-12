@@ -524,8 +524,8 @@ export class WorkbenchUnitOfWork {
     conversationId: string;
     attemptId: string;
     providerId: string;
-    graphScopeId: string;
-    nativeSessionId: string;
+    graphScopeId: string | null;
+    nativeSessionId: string | null;
     updatedAt: string;
     timelineMessage: StoredTopicMessageWrite;
   }): StoredTopicMessage {
