@@ -72,6 +72,29 @@ describe("Agent native child startup recovery", () => {
       expect(inspected.sort()).toEqual(["child-live", "child-stale"]);
     },
   );
+
+  it("terminalizes a historical-scope stale child while isolating malformed rows", async () => {
+    const { project, paths } = await createProject("onboarding");
+    await seedRecoveryFacts(project, paths);
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      createAttempt(database, project.id, "agent-conversation", "malformed-attempt", "agent", "running", "native-child-agent", "agent", "malformed-child");
+      database.conversations.activateGraphScope(project.id, "agent-conversation", "graph-current-new", "2026-08-12T00:01:00.000Z");
+    } finally {
+      database.close();
+    }
+    const registry = registryWithInspection((threadId) => threadId === "child-live" ? "available" : "stale");
+
+    await expect(reconcileStaleAgentNativeChildren({ project, providerRegistry: registry })).resolves.toBe(2);
+    const restored = await openProjectRuntimeWorkbenchDatabase(paths, { providerRegistry: registry });
+    try {
+      expect(restored.conversations.readConversation(project.id, "agent-conversation")?.currentGraphScopeId).toBe("graph-current-new");
+      expect(restored.providerAttempts.readProviderAttempt(project.id, "child-stale-attempt")?.status).toBe("failed");
+      expect(restored.providerAttempts.readProviderAttempt(project.id, "malformed-attempt")?.status).toBe("running");
+    } finally {
+      restored.close();
+    }
+  });
 });
 
 async function createProject(runtimeState: "onboarding" | "ready" | "repair-required"): Promise<{

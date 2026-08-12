@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import Database from "better-sqlite3";
 import {
   ProviderRegistry,
   type ActiveProviderTurn,
@@ -20,9 +21,11 @@ import { ProjectRegistryStore } from "../../src/registry/store.js";
 import { hashNativeSkillPackageContent } from "../../src/skill/content-hash.js";
 import { TurnSkillContextResolver } from "../../src/skill/turn-skill-context-resolver.js";
 import { createWorkbenchConversation } from "../../src/workbench/conversation-service.js";
-import { runAgentNativeChildFollowup } from "../../src/workbench/agent-native-child-lifecycle-service.js";
+import { AgentNativeChildLifecycleService, runAgentNativeChildFollowup } from "../../src/workbench/agent-native-child-lifecycle-service.js";
+import { createAssistantTranscriptCapture } from "../../src/workbench/live-transcript.js";
 import { DirectAgentConversationTurnStrategy } from "../../src/workbench/direct-agent-conversation-turn-strategy.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
+import { TimelineRepository } from "../../src/workbench/persistence/repositories/timeline-repository.js";
 import type { ProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import type { ConversationTurnStrategyInput, TurnSkillContextResolution } from "../../src/workbench/conversation-turn-contract.js";
 import type { WorkbenchLiveEvent } from "../../src/workbench/types.js";
@@ -229,6 +232,64 @@ describe("DirectAgentConversationTurnStrategy", () => {
     expect(state.messages.filter((message) => message.text === "child")).toHaveLength(1);
   });
 
+  it.each(["failed", "completed"] as const)("keeps repeated running child results non-terminal before %s", async (terminalStatus) => {
+    const observedStatuses: string[] = [];
+    const behavior: FakeProviderBehavior = {
+      realtime: true,
+      childResultCallbacks: ["running", "running", "provider-specific-pending", terminalStatus],
+    };
+    const provider = fakeProvider(behavior);
+    const { strategy } = strategyFor(provider.descriptor);
+    const input = await initialTurnInput(fixture, `Converge running child to ${terminalStatus}`);
+    behavior.onChildResult = async () => {
+      const state = await readState(fixture.paths, fixture.project.id, input.conversation.conversationId);
+      observedStatuses.push(state.attempts.find((attempt) => attempt.roleId === "native-child-agent")?.status ?? "missing");
+    };
+
+    await expect(strategy.execute(input, emptyPorts())).resolves.toMatchObject({ providerSessionId: "session-1" });
+    const state = await readState(fixture.paths, fixture.project.id, input.conversation.conversationId);
+    expect(observedStatuses).toEqual(["running", "running", "running", terminalStatus]);
+    expect(state.attempts.filter((attempt) => attempt.roleId === "native-child-agent")).toEqual([
+      expect.objectContaining({ status: terminalStatus }),
+    ]);
+    expect(state.messages.filter((message) => message.text === "child initial input")).toHaveLength(1);
+    expect(state.messages.filter((message) => message.id.endsWith(":result"))).toHaveLength(1);
+  });
+
+  it.each([
+    ["project", { projectId: "wrong-project" }],
+    ["conversation", { conversationId: "wrong-conversation" }],
+    ["graph", { graphScopeId: "wrong-graph" }],
+    ["run", { runId: "wrong-run" }],
+    ["provider", { providerId: "wrong-provider" }],
+    ["parent-child", { parentThreadId: "wrong-parent" }],
+  ] as const)("drops child realtime with mismatched %s identity without persistence", async (_label, override) => {
+    const provider = fakeProvider({ realtime: true, childRealtimeOverrides: [override] });
+    const { strategy } = strategyFor(provider.descriptor);
+    const input = await initialTurnInput(fixture, "Fence child realtime");
+    await strategy.execute(input, emptyPorts());
+    const state = await readState(fixture.paths, fixture.project.id, input.conversation.conversationId);
+    expect(state.messages.some((message) => message.text?.includes("must-not-persist"))).toBe(false);
+    expect(state.attempts.filter((attempt) => attempt.roleId === "native-child-agent")).toHaveLength(1);
+  });
+
+  it.each(["completed", "failed"] as const)("lets closed override %s and deduplicates repeated close", async (terminalStatus) => {
+    const provider = fakeProvider({
+      realtime: true,
+      childResultCallbacks: [terminalStatus],
+      childCloseAfterResult: true,
+      replayChildCallbacks: true,
+    });
+    const { strategy } = strategyFor(provider.descriptor);
+    const input = await initialTurnInput(fixture, `Close after ${terminalStatus}`);
+    await strategy.execute(input, emptyPorts());
+    const state = await readState(fixture.paths, fixture.project.id, input.conversation.conversationId);
+    expect(state.attempts.filter((attempt) => attempt.roleId === "native-child-agent")).toEqual([
+      expect.objectContaining({ status: "terminated" }),
+    ]);
+    expect(state.messages.filter((message) => message.text === "Provider closed native child.")).toHaveLength(1);
+  });
+
   it("runs the top-level Agent when native child capability is absent", async () => {
     const provider = fakeProvider({ childCapability: false });
     const { strategy } = strategyFor(provider.descriptor);
@@ -238,6 +299,17 @@ describe("DirectAgentConversationTurnStrategy", () => {
     expect((await readState(fixture.paths, fixture.project.id, input.conversation.conversationId)).attempts).toEqual([
       expect.objectContaining({ roleId: "main-agent", status: "completed" }),
     ]);
+  });
+
+  it("rejects a child callback whose parent Attempt ThreadLink is stale without child mutation", async () => {
+    const provider = fakeProvider({ realtime: true, childLifecycleParentOverride: "stale-parent", suppressChildSnapshot: true });
+    const { strategy } = strategyFor(provider.descriptor);
+    const input = await initialTurnInput(fixture, "Reject stale parent callback");
+    await expect(strategy.execute(input, emptyPorts())).rejects.toMatchObject({ name: "Conflict" });
+    const state = await readState(fixture.paths, fixture.project.id, input.conversation.conversationId);
+    expect(state.attempts.filter((attempt) => attempt.roleId === "native-child-agent")).toEqual([]);
+    expect(state.threads.filter((thread) => thread.roleId === "native-child-agent")).toEqual([]);
+    expect(state.messages.some((message) => message.text === "Provider started native child.")).toBe(false);
   });
 
   it("inspects exact lineage before sending plain-text follow-up only to the native child", async () => {
@@ -255,6 +327,55 @@ describe("DirectAgentConversationTurnStrategy", () => {
     })).resolves.toMatchObject({ providerSessionId: "session-1-child-1" });
     expect(provider.inspectedChildren).toEqual(["session-1-child-1"]);
     expect(provider.continuedChildren).toEqual(["session-1-child-1"]);
+  });
+
+  it("persists main to child to grandchild lineage and follows up on the exact nested child", async () => {
+    const provider = fakeProvider({ realtime: true, nestedChild: true });
+    const { strategy, registry } = strategyFor(provider.descriptor);
+    const input = await initialTurnInput(fixture, "Create nested child history");
+    await strategy.execute(input, emptyPorts());
+
+    const state = await readState(fixture.paths, fixture.project.id, input.conversation.conversationId);
+    expect(state.threads).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        providerThreadId: "session-1-child-1",
+        parentThreadId: "session-1",
+        parentAgentSurfaceId: "main-agent",
+      }),
+      expect.objectContaining({
+        providerThreadId: "session-1-grandchild-1",
+        parentThreadId: "session-1-child-1",
+        parentAgentSurfaceId: "agent:codex:thread:session-1-child-1",
+      }),
+    ]));
+
+    await expect(runAgentNativeChildFollowup({
+      project: fixture.project,
+      conversationId: input.conversation.conversationId,
+      agentSurfaceId: "agent:codex:thread:session-1-grandchild-1",
+      message: "Continue the grandchild",
+      providerRegistry: registry,
+    })).resolves.toMatchObject({ providerSessionId: "session-1-grandchild-1" });
+    expect(provider.inspectedLineages).toContainEqual({ parent: "session-1-child-1", target: "session-1-grandchild-1" });
+    expect(provider.continuedLineages).toContainEqual({ parent: "session-1-child-1", target: "session-1-grandchild-1" });
+  });
+
+  it.each(["orphan", "cycle", "mismatch"] as const)("rejects %s nested lineage before Provider inspection", async (damage) => {
+    const provider = fakeProvider({ realtime: true, nestedChild: true });
+    const { strategy, registry } = strategyFor(provider.descriptor);
+    const input = await initialTurnInput(fixture, `Create ${damage} nested lineage`);
+    await strategy.execute(input, emptyPorts());
+    await damageNestedLineage(fixture.paths, fixture.project.id, damage);
+
+    await expect(runAgentNativeChildFollowup({
+      project: fixture.project,
+      conversationId: input.conversation.conversationId,
+      agentSurfaceId: "agent:codex:thread:session-1-grandchild-1",
+      message: "Must fail closed",
+      providerRegistry: registry,
+    })).rejects.toMatchObject({ name: "Conflict" });
+    expect(provider.inspectedLineages).toEqual([]);
+    expect(provider.continuedLineages).toEqual([]);
   });
 
   it("returns Conflict for stale lineage without sending to child or main", async () => {
@@ -290,6 +411,149 @@ describe("DirectAgentConversationTurnStrategy", () => {
     const state = await readState(fixture.paths, fixture.project.id, input.conversation.conversationId);
     expect(state.attempts.filter((attempt) => attempt.roleId === "native-child-agent").at(-1)).toMatchObject({ status: "failed" });
     expect(state.attempts.every((attempt) => attempt.status !== "queued" && attempt.status !== "running")).toBe(true);
+  });
+
+  it("rejects a non-throwing failed follow-up result after persisting one failed terminal fact", async () => {
+    const provider = fakeProvider({ realtime: true, continueChildStatus: "failed" });
+    const { strategy, registry } = strategyFor(provider.descriptor);
+    const input = await initialTurnInput(fixture, "Create child for failed result");
+    await strategy.execute(input, emptyPorts());
+
+    await expect(runAgentNativeChildFollowup({
+      project: fixture.project,
+      conversationId: input.conversation.conversationId,
+      agentSurfaceId: "agent:codex:thread:session-1-child-1",
+      message: "Return failed",
+      providerRegistry: registry,
+    })).rejects.toThrow("Native child follow-up failed");
+    const state = await readState(fixture.paths, fixture.project.id, input.conversation.conversationId);
+    const children = state.attempts.filter((attempt) => attempt.roleId === "native-child-agent");
+    const latest = children.at(-1)!;
+    expect(children.filter((attempt) => attempt.attemptId === latest.attemptId)).toHaveLength(1);
+    expect(latest.status).toBe("failed");
+    expect(state.messages.filter((message) => {
+      const raw = JSON.parse(message.rawJson) as { attemptId?: string; status?: string };
+      return raw.attemptId === latest.attemptId && message.id.endsWith(":result");
+    }).length).toBeLessThanOrEqual(1);
+  });
+
+  it("preserves existing interrupted follow-up return semantics", async () => {
+    const provider = fakeProvider({ realtime: true, continueChildStatus: "interrupted" });
+    const { strategy, registry } = strategyFor(provider.descriptor);
+    const input = await initialTurnInput(fixture, "Create child for interrupted result");
+    await strategy.execute(input, emptyPorts());
+    await expect(runAgentNativeChildFollowup({
+      project: fixture.project,
+      conversationId: input.conversation.conversationId,
+      agentSurfaceId: "agent:codex:thread:session-1-child-1",
+      message: "Interrupt",
+      providerRegistry: registry,
+    })).resolves.toMatchObject({ providerSessionId: "session-1-child-1" });
+  });
+
+  it("atomically rolls back follow-up Attempt and ThreadLink when the user Timeline write fails", async () => {
+    const provider = fakeProvider({ realtime: true });
+    const { strategy, registry } = strategyFor(provider.descriptor);
+    const input = await initialTurnInput(fixture, "Create child before atomic failure");
+    await strategy.execute(input, emptyPorts());
+    const before = await readState(fixture.paths, fixture.project.id, input.conversation.conversationId);
+    const originalAppend = TimelineRepository.prototype.appendMessage;
+    const spy = vi.spyOn(TimelineRepository.prototype, "appendMessage").mockImplementation(function (message) {
+      if (message.id.startsWith(`user:${input.conversation.conversationId}:codex:agent-child-`)) throw new Error("Injected follow-up Timeline failure.");
+      return originalAppend.call(this, message);
+    });
+    try {
+      await expect(runAgentNativeChildFollowup({
+        project: fixture.project,
+        conversationId: input.conversation.conversationId,
+        agentSurfaceId: "agent:codex:thread:session-1-child-1",
+        message: "Must roll back",
+        providerRegistry: registry,
+      })).rejects.toThrow("Injected follow-up Timeline failure");
+    } finally {
+      spy.mockRestore();
+    }
+    const after = await readState(fixture.paths, fixture.project.id, input.conversation.conversationId);
+    expect(after.attempts).toHaveLength(before.attempts.length);
+    expect(after.threads).toHaveLength(before.threads.length);
+    expect(after.messages.filter((message) => message.text === "Must roll back")).toHaveLength(0);
+    expect(provider.continuedChildren).toEqual([]);
+  });
+
+  it("does not create follow-up activity when run artifact mkdir fails", async () => {
+    const provider = fakeProvider({ realtime: true });
+    const { strategy, registry } = strategyFor(provider.descriptor);
+    const input = await initialTurnInput(fixture, "Create child before mkdir failure");
+    await strategy.execute(input, emptyPorts());
+    const before = await readState(fixture.paths, fixture.project.id, input.conversation.conversationId);
+    await rm(fixture.paths.runsRoot, { recursive: true, force: true });
+    await writeFile(fixture.paths.runsRoot, "not-a-directory", "utf8");
+    await expect(runAgentNativeChildFollowup({
+      project: fixture.project,
+      conversationId: input.conversation.conversationId,
+      agentSurfaceId: "agent:codex:thread:session-1-child-1",
+      message: "Must fail before persistence",
+      providerRegistry: registry,
+    })).rejects.toThrow();
+    const after = await readState(fixture.paths, fixture.project.id, input.conversation.conversationId);
+    expect(after.attempts).toHaveLength(before.attempts.length);
+    expect(after.threads).toHaveLength(before.threads.length);
+    expect(provider.continuedChildren).toEqual([]);
+  });
+
+  it("keeps late activity A callbacks isolated after same-thread activity B and service restart", async () => {
+    const provider = fakeProvider({ realtime: true });
+    const { strategy, registry } = strategyFor(provider.descriptor);
+    const input = await initialTurnInput(fixture, "Create activity A");
+    await strategy.execute(input, emptyPorts());
+    await runAgentNativeChildFollowup({
+      project: fixture.project,
+      conversationId: input.conversation.conversationId,
+      agentSurfaceId: "agent:codex:thread:session-1-child-1",
+      message: "Create activity B",
+      providerRegistry: registry,
+    });
+    const before = await readState(fixture.paths, fixture.project.id, input.conversation.conversationId);
+    const children = before.attempts.filter((attempt) => attempt.roleId === "native-child-agent");
+    const activityA = children[0]!;
+    const activityB = children[1]!;
+    const main = before.attempts.find((attempt) => attempt.roleId === "main-agent")!;
+    const database = await openProjectRuntimeWorkbenchDatabase(fixture.paths);
+    try {
+      const restarted = new AgentNativeChildLifecycleService({
+        database,
+        projectId: fixture.project.id,
+        conversationId: input.conversation.conversationId,
+        graphScopeId: input.conversation.currentGraphScopeId!,
+        runId: main.attemptId,
+        parentAttemptId: main.attemptId,
+        providerId: "codex",
+        capabilitySnapshot: capabilitySnapshot("agent"),
+        model: null,
+        parentHandoffHash: main.handoffHash,
+        deliveredThroughCompletedTurn: 0,
+        capture: createAssistantTranscriptCapture(undefined),
+        publish: () => undefined,
+        onInvalidated: () => undefined,
+      });
+      restarted.onResult({
+        providerId: "codex", activityId: "activity-1", parentThreadId: "session-1", threadId: "session-1-child-1",
+        status: "failed", finalText: "late A failure", changedFiles: [],
+      });
+      restarted.onLifecycle({
+        providerId: "codex", kind: "closed", activityId: "activity-1",
+        parentSession: { providerId: "codex", sessionId: "session-1" },
+        childSession: { providerId: "codex", sessionId: "session-1-child-1" },
+      });
+    } finally {
+      database.close();
+    }
+    const after = await readState(fixture.paths, fixture.project.id, input.conversation.conversationId);
+    expect(after.attempts.find((attempt) => attempt.attemptId === activityA.attemptId)?.status).toBe("terminated");
+    expect(after.attempts.find((attempt) => attempt.attemptId === activityB.attemptId)?.status).toBe(activityB.status);
+    const late = after.messages.find((message) => message.text === "late A failure")!;
+    const raw = JSON.parse(late.rawJson) as { attemptId?: string; status?: string };
+    expect(raw).toMatchObject({ attemptId: activityA.attemptId, status: "completed" });
   });
 
   it("fails attachments before Skill resolution, readiness, or Attempt creation", async () => {
@@ -519,6 +783,14 @@ interface FakeProviderBehavior {
   closeBeforeStart?: boolean;
   childInspection?: "available" | "stale";
   continueChildError?: string;
+  childResultCallbacks?: Array<string>;
+  onChildResult?: (status: string) => void | Promise<void>;
+  nestedChild?: boolean;
+  continueChildStatus?: "completed" | "failed" | "interrupted";
+  childRealtimeOverrides?: Array<Partial<ProviderRealtimeEvent>>;
+  childCloseAfterResult?: boolean;
+  childLifecycleParentOverride?: string;
+  suppressChildSnapshot?: boolean;
 }
 
 function fakeProvider(behavior: FakeProviderBehavior = {}): {
@@ -527,6 +799,8 @@ function fakeProvider(behavior: FakeProviderBehavior = {}): {
   interrupts: number;
   inspectedChildren: string[];
   continuedChildren: string[];
+  inspectedLineages: Array<{ parent: string; target: string }>;
+  continuedLineages: Array<{ parent: string; target: string }>;
 } {
   const providerId = "codex";
   const requests: ProviderTurnRequest[] = [];
@@ -534,13 +808,15 @@ function fakeProvider(behavior: FakeProviderBehavior = {}): {
   let interrupts = 0;
   const inspectedChildren: string[] = [];
   const continuedChildren: string[] = [];
+  const inspectedLineages: Array<{ parent: string; target: string }> = [];
+  const continuedLineages: Array<{ parent: string; target: string }> = [];
   const result = (request: ProviderTurnRequest, status = behavior.status ?? "completed", sessionId = request.existingSession?.sessionId ?? "session-1"): ProviderTurnResult => ({
     providerId,
     status,
     session: { providerId, sessionId },
     turnId: "turn-1",
     lastMessage: behavior.lastMessage ?? (status === "failed" ? "" : "completed"),
-    childThreads: behavior.realtime ? [{ providerId, activityId: "activity-1", parentThreadId: sessionId, threadId: `${sessionId}-child-1`, status: "completed", finalText: "child", changedFiles: [] }] : [],
+    childThreads: behavior.realtime && !behavior.suppressChildSnapshot ? [{ providerId, activityId: "activity-1", parentThreadId: sessionId, threadId: `${sessionId}-child-1`, status: "completed", finalText: "child", changedFiles: [] }] : [],
     changedFiles: [],
     ...(behavior.error ? { error: behavior.error } : {}),
   });
@@ -612,7 +888,7 @@ function fakeProvider(behavior: FakeProviderBehavior = {}): {
             providerId,
             kind: "started" as const,
             activityId: "activity-1",
-            parentSession: { providerId, sessionId },
+            parentSession: { providerId, sessionId: behavior.childLifecycleParentOverride ?? sessionId },
             childSession: { providerId, sessionId: childThreadId },
             roleHint: "coder-agent",
             displayName: "Native coder",
@@ -621,13 +897,61 @@ function fakeProvider(behavior: FakeProviderBehavior = {}): {
           if (behavior.closeBeforeStart) request.onChildLifecycleEvent?.(closed);
           request.onChildLifecycleEvent?.(started);
           if (behavior.replayChildCallbacks) request.onChildLifecycleEvent?.(started);
+          if (behavior.nestedChild) {
+            const grandchildThreadId = `${sessionId}-grandchild-1`;
+            request.onChildLifecycleEvent?.({
+              ...started,
+              activityId: "activity-grandchild-1",
+              parentSession: { providerId, sessionId: childThreadId },
+              childSession: { providerId, sessionId: grandchildThreadId },
+              displayName: "Native grandchild",
+            });
+            request.onChildThreadResult?.({
+              providerId,
+              activityId: "activity-grandchild-1",
+              parentThreadId: childThreadId,
+              threadId: grandchildThreadId,
+              status: "completed",
+              displayName: "Native grandchild",
+              finalText: "grandchild completed",
+              changedFiles: [],
+            });
+          }
+          for (const status of behavior.childResultCallbacks ?? []) {
+            request.onChildThreadResult?.({
+              providerId,
+              activityId: "activity-1",
+              parentThreadId: sessionId,
+              threadId: childThreadId,
+              status,
+              displayName: "Native coder",
+              finalText: status === "running" ? "" : `child ${status}`,
+              changedFiles: [],
+              initialInput: {
+                turnId: "child-turn",
+                itemId: "child-input",
+                text: "child initial input",
+              },
+            });
+            await behavior.onChildResult?.(status);
+          }
           request.onRealtimeEvent?.(realtime(request, { type: "text_delta", delta: "child reply" }, {
             threadId: childThreadId,
             parentThreadId: sessionId,
             turnId: "child-turn",
             roleId: "coder-agent",
           }));
+          for (const override of behavior.childRealtimeOverrides ?? []) {
+            request.onRealtimeEvent?.(realtime(request, { type: "text_delta", delta: "must-not-persist" }, {
+              threadId: childThreadId,
+              parentThreadId: sessionId,
+              turnId: "child-turn-mismatch",
+              roleId: "coder-agent",
+              ...override,
+            }));
+          }
           if (behavior.replayChildCallbacks && !behavior.closeBeforeStart) request.onChildLifecycleEvent?.(closed);
+          if (behavior.childCloseAfterResult) request.onChildLifecycleEvent?.(closed);
         }
         if (behavior.userInput) {
           request.onUserInputRequest?.({
@@ -651,12 +975,14 @@ function fakeProvider(behavior: FakeProviderBehavior = {}): {
       },
       inspectChild: async (request) => {
         inspectedChildren.push(request.targetSession.sessionId);
+        inspectedLineages.push({ parent: request.parentSession.sessionId, target: request.targetSession.sessionId });
         return behavior.childInspection ?? "available";
       },
       continueChild: async (request) => {
         continuedChildren.push(request.targetSession.sessionId);
+        continuedLineages.push({ parent: request.parentSession.sessionId, target: request.targetSession.sessionId });
         if (behavior.continueChildError) throw new Error(behavior.continueChildError);
-        return result(request);
+        return result(request, behavior.continueChildStatus);
       },
       closeChild: async (request) => result(request),
       getActiveTurn: () => active,
@@ -669,6 +995,8 @@ function fakeProvider(behavior: FakeProviderBehavior = {}): {
     requests,
     inspectedChildren,
     continuedChildren,
+    inspectedLineages,
+    continuedLineages,
     get interrupts() { return interrupts; },
   };
 }
@@ -822,6 +1150,29 @@ async function appendCanonicalUserMessage(current: typeof fixture, conversationI
     database.close();
   }
   return storedTurnInput(current, conversationId);
+}
+
+async function damageNestedLineage(paths: ProjectRuntimePaths, projectId: string, damage: "orphan" | "cycle" | "mismatch"): Promise<void> {
+  const database = new Database(paths.workbenchDbPath);
+  try {
+    if (damage === "orphan") {
+      database.prepare(`UPDATE provider_thread_links SET parent_thread_id = ?
+        WHERE project_id = ? AND provider_thread_id = ?`).run("missing-parent", projectId, "session-1-child-1");
+    } else if (damage === "cycle") {
+      database.prepare(`UPDATE provider_thread_links SET parent_thread_id = ?, parent_agent_surface_id = ?
+        WHERE project_id = ? AND provider_thread_id = ?`).run(
+        "session-1-grandchild-1",
+        "agent:codex:thread:session-1-grandchild-1",
+        projectId,
+        "session-1-child-1",
+      );
+    } else {
+      database.prepare(`UPDATE provider_thread_links SET parent_agent_surface_id = ?
+        WHERE project_id = ? AND provider_thread_id = ?`).run("main-agent", projectId, "session-1-grandchild-1");
+    }
+  } finally {
+    database.close();
+  }
 }
 
 function emptyPorts() {

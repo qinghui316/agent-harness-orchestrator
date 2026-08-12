@@ -1171,7 +1171,7 @@ async function runCodexAppServerOperation(
   function queueChildThreadRead(call: ChildThreadReadContext, childThreadId: string): void {
     if (!threadId || readChildThreadIds.has(childThreadId)) return;
     readChildThreadIds.add(childThreadId);
-    const parentThreadId = threadId;
+    const parentThreadId = childThreadParents.get(childThreadId) ?? threadId;
     const read = sendRequest("thread/read", { threadId: childThreadId, includeTurns: true }).then((snapshot) => {
       const initialUserItem = extractCodexAppServerThreadInitialUserItem(snapshot);
       if (initialUserItem) deliveredInitialChildReads.add(childThreadId);
@@ -1205,7 +1205,7 @@ async function runCodexAppServerOperation(
   function queueChildInitialThreadRead(call: ChildThreadReadContext, childThreadId: string): void {
     if (!threadId || deliveredInitialChildReads.has(childThreadId) || pendingInitialChildReads.has(childThreadId)) return;
     pendingInitialChildReads.add(childThreadId);
-    const parentThreadId = threadId;
+    const parentThreadId = childThreadParents.get(childThreadId) ?? threadId;
     const read = (async () => {
       for (let attempt = 0; attempt < 20; attempt += 1) {
         if (deliveredInitialChildReads.has(childThreadId)) return;

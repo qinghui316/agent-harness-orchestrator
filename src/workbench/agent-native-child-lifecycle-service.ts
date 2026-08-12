@@ -17,7 +17,7 @@ import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
 import { createAssistantTranscriptCapture, type AssistantTranscriptCapture } from "./live-transcript.js";
 import { buildCanonicalCaptureWrites, childInitialInputMessage } from "./provider-capture-persistence.js";
 import type { WorkbenchDatabase } from "./persistence/database.js";
-import type { StoredProviderAttempt, StoredTopicMessage, StoredTopicMessageWrite } from "./persistence/contracts.js";
+import type { StoredProviderAttempt, StoredProviderThreadLink, StoredTopicMessage, StoredTopicMessageWrite } from "./persistence/contracts.js";
 import { toCanonicalTimelineMessage } from "./canonical-timeline-message.js";
 import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import { CanonicalTimelineDelivery } from "./canonical-timeline-delivery.js";
@@ -56,6 +56,7 @@ export class AgentNativeChildLifecycleService {
     deliveredThroughCompletedTurn: number;
     capture: AssistantTranscriptCapture;
     requireRunningParent?: boolean;
+    initialTimelineMessages?: (child: AgentNativeChildRecord) => StoredTopicMessageWrite[];
     publish(rows: StoredTopicMessage[]): void;
     onInvalidated(): void;
   }) {}
@@ -95,10 +96,15 @@ export class AgentNativeChildLifecycleService {
 
   onRealtime(event: ProviderRealtimeEvent): ProviderRealtimeEvent | null {
     if (!event.parentThreadId) return null;
-    this.assertProvider(event.providerId);
+    if (event.projectId !== this.input.projectId
+      || event.conversationId !== this.input.conversationId
+      || event.graphScopeId !== this.input.graphScopeId
+      || event.runId !== this.input.runId
+      || event.providerId !== this.input.providerId) return null;
     const child = this.byThread.get(event.threadId) ?? this.readLatestPersisted(event.threadId, event.parentThreadId);
     if (!child) return null;
-    this.assertLineage(child, event.parentThreadId, event.threadId);
+    if (child.parentThreadId !== event.parentThreadId || child.threadId !== event.threadId) return null;
+    if (!this.readPersistedActivity(child.activityId, child.threadId, child.parentThreadId)) return null;
     return {
       ...event,
       attemptId: child.attemptId,
@@ -113,10 +119,14 @@ export class AgentNativeChildLifecycleService {
     const activityId = result.activityId ?? `result:${result.threadId}`;
     const activityKey = this.callbackKey(result.parentThreadId, result.threadId, activityId);
     let child = this.byActivity.get(activityKey)
-      ?? (result.activityId ? this.readPersistedActivity(result.activityId, result.threadId, result.parentThreadId) : null)
-      ?? this.byThread.get(result.threadId)
-      ?? this.readLatestPersisted(result.threadId, result.parentThreadId);
+      ?? (result.activityId
+        ? this.readPersistedActivity(result.activityId, result.threadId, result.parentThreadId)
+        : this.byThread.get(result.threadId) ?? this.readLatestPersisted(result.threadId, result.parentThreadId));
     if (!child) {
+      if (result.activityId && this.input.database.providerAttempts.readProviderAttempt(
+        this.input.projectId,
+        nativeChildAttemptId(this.input.projectId, this.input.conversationId, this.input.providerId, result.parentThreadId, result.threadId, result.activityId),
+      )) throw conflict("Native child activity callback lineage is missing or mismatched.");
       child = this.createChild({
         activityId,
         parentThreadId: result.parentThreadId,
@@ -128,7 +138,7 @@ export class AgentNativeChildLifecycleService {
     this.assertLineage(child, result.parentThreadId, result.threadId);
     this.byActivity.set(activityKey, child);
     this.byThread.set(child.threadId, child);
-    const status = child.status === "running" ? childResultStatus(result.status) : child.status;
+    const terminalStatus = childResultStatus(result.status);
     const writes: StoredTopicMessageWrite[] = [];
     if (result.initialInput) {
       const entry = childInitialInputMessage({
@@ -147,7 +157,8 @@ export class AgentNativeChildLifecycleService {
       entry.agentSurfaceId = agentThreadSurfaceId(this.input.providerId, child.threadId);
       writes.push(toCanonicalTimelineMessage(this.input.projectId, this.input.conversationId, entry));
     }
-    if (result.finalText.trim()) writes.push(this.resultMessage(child, activityId, result, status));
+    const effectiveResultStatus = child.status === "running" ? terminalStatus : child.status;
+    if (result.finalText.trim() && effectiveResultStatus) writes.push(this.resultMessage(child, activityId, result, effectiveResultStatus));
     const updatedAt = new Date().toISOString();
     if (child.status !== "running") {
       if (writes.length > 0) {
@@ -162,23 +173,59 @@ export class AgentNativeChildLifecycleService {
       }
       return child;
     }
+    if (!terminalStatus) {
+      if (writes.length === 0 && !result.displayName) return child;
+      const lineage = resolveNativeChildLineage(this.input.database, {
+        projectId: this.input.projectId,
+        conversationId: this.input.conversationId,
+        providerId: this.input.providerId,
+        graphScopeId: this.input.graphScopeId,
+        parentThreadId: child.parentThreadId,
+      });
+      const rows = this.input.database.unitOfWork.commitProviderCallback({
+        projectId: this.input.projectId,
+        conversationId: this.input.conversationId,
+        attemptId: child.attemptId,
+        expectedGraphScopeId: this.input.graphScopeId,
+        updatedAt,
+        thread: {
+          threadId: child.threadId,
+          parentThreadId: child.parentThreadId,
+          parentAgentSurfaceId: lineage.parentAgentSurfaceId,
+          displayName: result.displayName ?? child.displayName,
+          runId: this.input.runId,
+        },
+        timelineMessages: writes,
+      });
+      child.displayName = result.displayName ?? child.displayName;
+      this.input.publish(rows);
+      this.input.onInvalidated();
+      return child;
+    }
+    const lineage = resolveNativeChildLineage(this.input.database, {
+      projectId: this.input.projectId,
+      conversationId: this.input.conversationId,
+      providerId: this.input.providerId,
+      graphScopeId: this.input.graphScopeId,
+      parentThreadId: child.parentThreadId,
+    });
     const rows = this.input.database.unitOfWork.commitProviderCallback({
       projectId: this.input.projectId,
       conversationId: this.input.conversationId,
       attemptId: child.attemptId,
       expectedGraphScopeId: this.input.graphScopeId,
       updatedAt,
-      terminal: { status, nativeSessionId: child.threadId },
+      terminal: { status: terminalStatus, nativeSessionId: child.threadId },
       thread: {
         threadId: child.threadId,
         parentThreadId: child.parentThreadId,
-        parentAgentSurfaceId: "main-agent",
+        parentAgentSurfaceId: lineage.parentAgentSurfaceId,
         displayName: result.displayName ?? child.displayName,
         runId: this.input.runId,
       },
       timelineMessages: writes,
     });
-    child.status = status;
+    child.status = terminalStatus;
     child.displayName = result.displayName ?? child.displayName;
     this.input.publish(rows);
     this.input.onInvalidated();
@@ -204,6 +251,13 @@ export class AgentNativeChildLifecycleService {
     displayName?: string;
     model: ProviderModelRef | null;
   }): AgentNativeChildRecord {
+    const lineage = resolveNativeChildLineage(this.input.database, {
+      projectId: this.input.projectId,
+      conversationId: this.input.conversationId,
+      providerId: this.input.providerId,
+      graphScopeId: this.input.graphScopeId,
+      parentThreadId: input.parentThreadId,
+    });
     const attemptId = nativeChildAttemptId(
       this.input.projectId,
       this.input.conversationId,
@@ -223,7 +277,7 @@ export class AgentNativeChildLifecycleService {
     };
     const statusMessage = this.statusMessage(child, input.activityId, "running", "Provider started native child.");
     const rows = this.input.database.unitOfWork.createProviderChildCallback({
-      parentAttemptId: this.input.parentAttemptId,
+      parentAttemptId: lineage.parentAttempt.attemptId,
       attempt: {
         projectId: this.input.projectId,
         conversationId: this.input.conversationId,
@@ -233,7 +287,7 @@ export class AgentNativeChildLifecycleService {
         changeId: null,
         agentTaskId: null,
         roleId: NATIVE_CHILD_AGENT_ROLE_ID,
-        parentAgentSurfaceId: "main-agent",
+        parentAgentSurfaceId: lineage.parentAgentSurfaceId,
         operationProfile: NATIVE_CHILD_OPERATION_PROFILE,
         providerId: this.input.providerId,
         nativeSessionId: input.childThreadId,
@@ -251,11 +305,11 @@ export class AgentNativeChildLifecycleService {
       thread: {
         threadId: input.childThreadId,
         parentThreadId: input.parentThreadId,
-        parentAgentSurfaceId: "main-agent",
+        parentAgentSurfaceId: lineage.parentAgentSurfaceId,
         displayName: input.displayName,
         runId: this.input.runId,
       },
-      timelineMessages: [statusMessage],
+      timelineMessages: [statusMessage, ...(this.input.initialTimelineMessages?.(child) ?? [])],
     });
     this.input.publish(rows);
     this.input.onInvalidated();
@@ -263,7 +317,7 @@ export class AgentNativeChildLifecycleService {
   }
 
   private complete(child: AgentNativeChildRecord, status: ChildTerminalStatus, activityId: string, diagnostic: string): void {
-    if (child.status !== "running") return;
+    if (child.status === "terminated" || (child.status !== "running" && status !== "terminated")) return;
     const rows = this.input.database.unitOfWork.commitProviderCallback({
       projectId: this.input.projectId,
       conversationId: this.input.conversationId,
@@ -289,7 +343,12 @@ export class AgentNativeChildLifecycleService {
     );
     const attempt = this.input.database.providerAttempts.readProviderAttempt(this.input.projectId, attemptId);
     if (!attempt) return null;
-    return this.readPersistedAttempt(attempt, childThreadId, parentThreadId, activityId);
+    const statusId = `status:${this.input.conversationId}:${this.input.providerId}:${childThreadId}:${stableHash(activityId)}`;
+    const lineage = this.input.database.timeline.readMessage(this.input.projectId, this.input.conversationId, statusId);
+    if (!lineage || lineage.threadId !== childThreadId) return null;
+    const raw = JSON.parse(lineage.rawJson) as { attemptId?: string; parentThreadId?: string };
+    if (raw.attemptId !== attemptId || raw.parentThreadId !== parentThreadId) return null;
+    return this.recordFromAttempt(attempt, childThreadId, parentThreadId, activityId);
   }
 
   private readLatestPersisted(childThreadId: string, parentThreadId: string): AgentNativeChildRecord | null {
@@ -323,12 +382,29 @@ export class AgentNativeChildLifecycleService {
         && candidate.providerThreadId === childThreadId
         && candidate.parentThreadId === parentThreadId);
     if (!link) return null;
+    return this.recordFromAttempt(attempt, childThreadId, parentThreadId, activityId, link.displayName);
+  }
+
+  private recordFromAttempt(
+    attempt: StoredProviderAttempt,
+    childThreadId: string,
+    parentThreadId: string,
+    activityId: string,
+    displayName?: string | null,
+  ): AgentNativeChildRecord | null {
+    if (attempt.productMode !== "agent"
+      || attempt.conversationId !== this.input.conversationId
+      || attempt.providerId !== this.input.providerId
+      || attempt.roleId !== NATIVE_CHILD_AGENT_ROLE_ID
+      || attempt.operationProfile !== NATIVE_CHILD_OPERATION_PROFILE
+      || attempt.graphScopeId !== this.input.graphScopeId
+      || attempt.nativeSessionId !== childThreadId) return null;
     const child: AgentNativeChildRecord = {
       activityId,
       attemptId: attempt.attemptId,
       threadId: childThreadId,
       parentThreadId,
-      ...(link.displayName ? { displayName: link.displayName } : {}),
+      ...(displayName ? { displayName } : {}),
       status: attempt.status === "queued" || attempt.status === "running" ? "running"
         : attempt.status === "blocked" ? "failed" : attempt.status,
     };
@@ -424,23 +500,29 @@ export async function runAgentNativeChildFollowup(input: {
       && link.graphScopeId === conversation.currentGraphScopeId
       && link.roleId === NATIVE_CHILD_AGENT_ROLE_ID
       && link.capabilityProfile === NATIVE_CHILD_OPERATION_PROFILE);
-    if (!childLink?.parentThreadId || childLink.parentAgentSurfaceId !== "main-agent") {
+    if (!childLink?.parentThreadId) {
       throw conflict("Native child lineage does not match the selected Agent Conversation.");
     }
-    const mainLink = links.find((link) => link.providerId === childLink.providerId
-      && link.providerThreadId === childLink.parentThreadId
-      && link.graphScopeId === conversation.currentGraphScopeId
-      && link.roleId === "main-agent"
-      && link.parentThreadId === null);
-    if (!mainLink) throw conflict("Native child parent Thread is not the canonical Main Agent Thread.");
+    const lineage = resolveNativeChildLineage(database, {
+      projectId: paths.projectId,
+      conversationId: conversation.conversationId,
+      providerId: conversation.selectedProviderId,
+      graphScopeId: conversation.currentGraphScopeId,
+      parentThreadId: childLink.parentThreadId,
+    });
+    if (childLink.parentAgentSurfaceId !== lineage.parentAgentSurfaceId) {
+      throw conflict("Native child persisted parent Agent surface is mismatched.");
+    }
     const previousAttempt = database.providerAttempts.readProviderAttempt(paths.projectId, childLink.attemptId);
-    const parentAttempt = database.providerAttempts.readProviderAttempt(paths.projectId, mainLink.attemptId);
+    const parentAttempt = lineage.parentAttempt;
     if (!previousAttempt || !parentAttempt
       || previousAttempt.productMode !== "agent"
       || previousAttempt.conversationId !== conversation.conversationId
       || previousAttempt.providerId !== conversation.selectedProviderId
       || previousAttempt.nativeSessionId !== childLink.providerThreadId
       || parentAttempt.conversationId !== conversation.conversationId
+      || parentAttempt.providerId !== conversation.selectedProviderId
+      || parentAttempt.graphScopeId !== conversation.currentGraphScopeId
       || parentAttempt.nativeSessionId !== childLink.parentThreadId) {
       throw conflict("Native child persisted lineage is incomplete or mismatched.");
     }
@@ -510,6 +592,23 @@ export async function runAgentNativeChildFollowup(input: {
       deliveredThroughCompletedTurn: conversation.completedTurnSequence,
       capture,
       requireRunningParent: false,
+      initialTimelineMessages: (createdChild) => [toCanonicalTimelineMessage(paths.projectId, conversation.conversationId, {
+        id: `user:${conversation.conversationId}:${conversation.selectedProviderId}:${runId}`,
+        type: "user.message",
+        timestamp: new Date().toISOString(),
+        conversationId: conversation.conversationId,
+        graphScopeId: conversation.currentGraphScopeId!,
+        changeId: "",
+        text: input.message,
+        runId,
+        providerId: conversation.selectedProviderId,
+        sessionId: createdChild.threadId,
+        attemptId: createdChild.attemptId,
+        threadId: createdChild.threadId,
+        parentThreadId: createdChild.parentThreadId,
+        agentRoleId: NATIVE_CHILD_AGENT_ROLE_ID,
+        agentSurfaceId: input.agentSurfaceId,
+      })],
       publish: (rows) => delivery.publishCommittedMany(rows),
       onInvalidated: () => undefined,
     });
@@ -539,7 +638,6 @@ export async function runAgentNativeChildFollowup(input: {
       agentRoleId: NATIVE_CHILD_AGENT_ROLE_ID,
       agentSurfaceId: input.agentSurfaceId,
     };
-    delivery.append(toCanonicalTimelineMessage(paths.projectId, conversation.conversationId, user));
     let result;
     try {
       result = await resolvedProvider.descriptor.conversation.continueChild({
@@ -605,6 +703,9 @@ export async function runAgentNativeChildFollowup(input: {
       finalText: result.lastMessage,
       changedFiles: result.changedFiles,
     });
+    if (result.status === "failed") {
+      throw new Error(`Native child follow-up failed: ${String(result.error ?? "Provider returned failed status.").slice(0, 240)}`);
+    }
     const assistant = result.lastMessage ? {
       id: `assistant:${conversation.conversationId}:${conversation.selectedProviderId}:${child.threadId}:${stableHash(activityId)}:result`,
       type: "assistant.message" as const,
@@ -678,16 +779,37 @@ export async function reconcileStaleAgentNativeChildren(input: {
           agentRoleId: NATIVE_CHILD_AGENT_ROLE_ID,
           agentSurfaceId: agentThreadSurfaceId(attempt.providerId, attempt.nativeSessionId),
         });
-        database.unitOfWork.commitProviderRecoveryTerminal({
-          projectId: paths.projectId,
-          conversationId: conversation.conversationId,
-          attemptId: attempt.attemptId,
-          expectedGraphScopeId: attempt.graphScopeId,
-          nativeSessionId: attempt.nativeSessionId,
-          updatedAt: new Date().toISOString(),
-          timelineMessage: diagnostic,
-        });
-        reconciled += 1;
+        try {
+          database.unitOfWork.commitHistoricalNativeChildRecovery({
+            projectId: paths.projectId,
+            conversationId: conversation.conversationId,
+            attemptId: attempt.attemptId,
+            providerId: attempt.providerId,
+            graphScopeId: attempt.graphScopeId,
+            nativeSessionId: attempt.nativeSessionId,
+            parentThreadId: link?.parentThreadId ?? null,
+            updatedAt: new Date().toISOString(),
+            timelineMessage: diagnostic,
+          });
+          reconciled += 1;
+        } catch (error) {
+          database.unitOfWork.commitRecoveryDiagnostic(toCanonicalTimelineMessage(paths.projectId, conversation.conversationId, {
+            id: `status:${conversation.conversationId}:${attempt.providerId}:${attempt.nativeSessionId}:restart-malformed`,
+            type: "assistant.message",
+            timestamp: new Date().toISOString(),
+            conversationId: conversation.conversationId,
+            graphScopeId: attempt.graphScopeId,
+            changeId: "",
+            text: `Native child recovery skipped malformed persisted lineage: ${boundedError(error)}`,
+            status: "failed",
+            providerId: attempt.providerId,
+            attemptId: attempt.attemptId,
+            threadId: attempt.nativeSessionId,
+            parentThreadId: link?.parentThreadId ?? undefined,
+            agentRoleId: NATIVE_CHILD_AGENT_ROLE_ID,
+            agentSurfaceId: agentThreadSurfaceId(attempt.providerId, attempt.nativeSessionId),
+          }));
+        }
       }
     }
     return reconciled;
@@ -744,9 +866,84 @@ function childHandoffHash(parentHandoffHash: string, child: AgentNativeChildReco
   })).digest("hex");
 }
 
-function childResultStatus(status: string | undefined): ChildTerminalStatus {
-  if (status === "failed" || status === "interrupted" || status === "terminated") return status;
-  return "completed";
+function resolveNativeChildLineage(database: WorkbenchDatabase, input: {
+  projectId: string;
+  conversationId: string;
+  providerId: string;
+  graphScopeId: string;
+  parentThreadId: string;
+}): { parentAttempt: StoredProviderAttempt; parentAgentSurfaceId: string; rootMainLink: StoredProviderThreadLink } {
+  const links = database.providerAttempts.listProviderThreads(input.projectId, input.conversationId);
+  const linksByThread = new Map<string, StoredProviderThreadLink>();
+  for (const link of links) {
+    if (link.providerId !== input.providerId || link.graphScopeId !== input.graphScopeId) continue;
+    if (linksByThread.has(link.providerThreadId)) throw conflict(`Native child lineage has duplicate ThreadLink identity: ${link.providerThreadId}.`);
+    linksByThread.set(link.providerThreadId, link);
+  }
+  const directParent = linksByThread.get(input.parentThreadId);
+  if (!directParent) throw conflict(`Native child parent Thread is orphaned: ${input.parentThreadId}.`);
+  const parentAttempt = assertNativeLineageAttempt(database, input, directParent);
+  const parentAgentSurfaceId = directParent.roleId === "main-agent"
+    ? "main-agent"
+    : agentThreadSurfaceId(input.providerId, directParent.providerThreadId);
+  const visited = new Set<string>();
+  let current = directParent;
+  for (;;) {
+    if (visited.has(current.providerThreadId)) throw conflict("Native child lineage contains a cycle.");
+    visited.add(current.providerThreadId);
+    assertNativeLineageAttempt(database, input, current);
+    if (current.roleId === "main-agent") {
+      if (current.parentThreadId !== null || current.parentAgentSurfaceId !== null) {
+        throw conflict("Native child lineage root Main Agent is malformed.");
+      }
+      return { parentAttempt, parentAgentSurfaceId, rootMainLink: current };
+    }
+    if (current.roleId !== NATIVE_CHILD_AGENT_ROLE_ID
+      || current.capabilityProfile !== NATIVE_CHILD_OPERATION_PROFILE
+      || !current.parentThreadId) {
+      throw conflict("Native child lineage contains a mismatched or orphaned ancestor.");
+    }
+    const ancestor = linksByThread.get(current.parentThreadId);
+    if (!ancestor) throw conflict(`Native child ancestor Thread is orphaned: ${current.parentThreadId}.`);
+    const canonicalSurface = ancestor.roleId === "main-agent"
+      ? "main-agent"
+      : agentThreadSurfaceId(input.providerId, ancestor.providerThreadId);
+    if (current.parentAgentSurfaceId !== canonicalSurface) {
+      throw conflict("Native child lineage has mismatched parent Agent surface identity.");
+    }
+    current = ancestor;
+  }
+}
+
+function assertNativeLineageAttempt(database: WorkbenchDatabase, input: {
+  projectId: string;
+  conversationId: string;
+  providerId: string;
+  graphScopeId: string;
+}, link: StoredProviderThreadLink): StoredProviderAttempt {
+  const attempt = database.providerAttempts.readProviderAttempt(input.projectId, link.attemptId);
+  if (!attempt
+    || link.conversationId !== input.conversationId
+    || link.providerId !== input.providerId
+    || link.graphScopeId !== input.graphScopeId
+    || attempt.conversationId !== input.conversationId
+    || attempt.providerId !== input.providerId
+    || attempt.graphScopeId !== input.graphScopeId
+    || attempt.nativeSessionId !== link.providerThreadId
+    || attempt.roleId !== link.roleId
+    || attempt.operationProfile !== link.capabilityProfile) {
+    throw conflict("Native child persisted lineage is incomplete or mismatched.");
+  }
+  return attempt;
+}
+
+function childResultStatus(status: string | undefined): ChildTerminalStatus | null {
+  if (status === "completed" || status === "failed" || status === "interrupted" || status === "terminated") return status;
+  return null;
+}
+
+function boundedError(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error)).slice(0, 160);
 }
 
 function stableHash(value: string): string {

@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import type { ProviderId } from "../../provider-runtime/index.js";
+import { agentThreadSurfaceId } from "../../provider-runtime/agent-surface-id.js";
 import type {
   StoredConversation,
   StoredConversationProviderBinding,
@@ -293,6 +294,24 @@ export class WorkbenchUnitOfWork {
         input.parentAttemptId,
         input.attempt.graphScopeId,
       );
+      const parentAttempt = this.providerAttempts.readProviderAttempt(input.attempt.projectId, input.parentAttemptId);
+      const parentLink = this.providerAttempts.listProviderThreads(input.attempt.projectId, input.attempt.conversationId)
+        .find((candidate) => candidate.attemptId === input.parentAttemptId);
+      const expectedParentSurface = parentLink?.roleId === "main-agent"
+        ? "main-agent"
+        : parentLink ? agentThreadSurfaceId(input.attempt.providerId, parentLink.providerThreadId) : null;
+      if (!parentAttempt || !parentLink
+        || parentAttempt.conversationId !== input.attempt.conversationId
+        || parentAttempt.providerId !== input.attempt.providerId
+        || parentAttempt.graphScopeId !== input.attempt.graphScopeId
+        || parentAttempt.nativeSessionId !== input.thread.parentThreadId
+        || parentLink.providerId !== input.attempt.providerId
+        || parentLink.providerThreadId !== input.thread.parentThreadId
+        || parentLink.graphScopeId !== input.attempt.graphScopeId
+        || input.thread.parentAgentSurfaceId !== expectedParentSurface
+        || input.attempt.parentAgentSurfaceId !== expectedParentSurface) {
+        throw new Error("Provider child callback parent Attempt and ThreadLink lineage do not match.");
+      }
       this.providerAttempts.createProviderAttempt(input.attempt);
       this.providerAttempts.bindProviderAttemptThread(
         input.attempt.projectId,
@@ -460,6 +479,50 @@ export class WorkbenchUnitOfWork {
       );
       return row;
     })();
+  }
+
+  commitHistoricalNativeChildRecovery(input: {
+    projectId: string;
+    conversationId: string;
+    attemptId: string;
+    providerId: string;
+    graphScopeId: string;
+    nativeSessionId: string;
+    parentThreadId: string | null;
+    updatedAt: string;
+    timelineMessage: StoredTopicMessageWrite;
+  }): StoredTopicMessage {
+    return this.db.transaction(() => {
+      const attempt = this.providerAttempts.readProviderAttempt(input.projectId, input.attemptId);
+      const link = this.providerAttempts.listProviderThreads(input.projectId, input.conversationId)
+        .find((candidate) => candidate.attemptId === input.attemptId);
+      if (!attempt
+        || attempt.conversationId !== input.conversationId
+        || attempt.productMode !== "agent"
+        || attempt.roleId !== "native-child-agent"
+        || attempt.operationProfile !== "agent"
+        || attempt.providerId !== input.providerId
+        || attempt.graphScopeId !== input.graphScopeId
+        || attempt.nativeSessionId !== input.nativeSessionId
+        || (link && (link.providerId !== input.providerId
+          || link.providerThreadId !== input.nativeSessionId
+          || link.parentThreadId !== input.parentThreadId
+          || link.graphScopeId !== input.graphScopeId))
+        || (!link && (input.parentThreadId !== null || attempt.status !== "queued"))) {
+        throw new Error("Restart recovery native child lineage is malformed.");
+      }
+      const row = this.timeline.readMessage(input.timelineMessage.projectId, input.timelineMessage.conversationId, input.timelineMessage.id)
+        ? this.timeline.updateMessage(input.timelineMessage)
+        : this.timeline.appendMessage(input.timelineMessage);
+      this.providerAttempts.completeProviderAttempt(input.projectId, input.attemptId, "failed", input.nativeSessionId, input.updatedAt);
+      return row;
+    })();
+  }
+
+  commitRecoveryDiagnostic(message: StoredTopicMessageWrite): StoredTopicMessage {
+    return this.db.transaction(() => this.timeline.readMessage(message.projectId, message.conversationId, message.id)
+      ? this.timeline.updateMessage(message)
+      : this.timeline.appendMessage(message))();
   }
 
   commitConversationProviderSwitch(
