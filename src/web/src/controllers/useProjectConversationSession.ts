@@ -1139,18 +1139,11 @@ async function loadSnapshotWithDeepLinkFallback(
   productMode: ProductMode,
   conversationId: string | null,
 ): Promise<Snapshot> {
-  try {
-    return await api.loadSnapshot(projectId, productMode, conversationId);
-  } catch (cause) {
-    if (!conversationId || !isConversationModeConflict(cause)) throw cause;
-    return api.loadSnapshot(projectId, productMode, null);
-  }
-}
-
-function isConversationModeConflict(cause: unknown): boolean {
-  return cause instanceof WorkbenchHttpError
-    ? cause.status === 409
-    : cause instanceof Error && cause.name === "Conflict";
+  if (!conversationId) return api.loadSnapshot(projectId, productMode, null);
+  const modeSnapshot = await api.loadSnapshot(projectId, productMode, null);
+  if (!modeSnapshot.left.topics.some((topic) => topic.id === conversationId)
+    || modeSnapshot.center.selectedTopic?.id === conversationId) return modeSnapshot;
+  return api.loadSnapshot(projectId, productMode, conversationId);
 }
 
 async function fetchSnapshot(url: string): Promise<Snapshot> {

@@ -174,8 +174,8 @@ describe("Workbench App owner composition", () => {
   it("keeps shared rail tools and removes Harness governance in Agent mode", async () => {
     window.localStorage.setItem("aho.workbench.productMode.v1", "agent");
     installApiFixture(createSnapshot(undefined, "agent"));
-    render(<App />);
-    expect(await screen.findByText("Owner convergence")).toBeTruthy();
+    const view = render(<App />);
+    await waitFor(() => expect(view.container.querySelector(".thread-header strong")?.textContent).toBe("Owner convergence"));
     expect(screen.getByRole("button", { name: "Agent" }).getAttribute("aria-pressed")).toBe("true");
 
     fireEvent.click(screen.getByRole("button", { name: "打开右侧工具" }));

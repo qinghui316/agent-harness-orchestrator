@@ -9,6 +9,15 @@ import type { ProjectStatus, Snapshot } from "../../src/web/src/types.js";
 afterEach(cleanup);
 
 describe("Conversation sidebar rename", () => {
+  it("falls back to topics when an Agent snapshot has no Harness workpads", () => {
+    const snapshot = sidebarSnapshot();
+    snapshot.left.workpads = [];
+    renderSidebar(vi.fn(async () => undefined), snapshot);
+
+    expect(screen.getByText("Old title")).toBeTruthy();
+    expect(screen.queryByText("暂无对话。")).toBeNull();
+  });
+
   it("saves once on Enter even when blur follows", async () => {
     const rename = vi.fn(async () => undefined);
     renderSidebar(rename);
@@ -56,26 +65,11 @@ describe("Conversation sidebar rename", () => {
   });
 });
 
-function renderSidebar(onRenameConversation: (projectId: string, conversationId: string, title: string) => Promise<void>): void {
+function renderSidebar(
+  onRenameConversation: (projectId: string, conversationId: string, title: string) => Promise<void>,
+  snapshot = sidebarSnapshot(),
+): void {
   const project = managedProject();
-  const snapshot: Snapshot = {
-    ...emptyWorkbenchSnapshot,
-    project: project.project!,
-    memory: { harnessReady: true },
-    left: {
-      ...emptyWorkbenchSnapshot.left,
-      topics: [{ id: "conv-1", title: "Old title", state: "active" }],
-      workpads: [{
-        id: "conv-1",
-        title: "Old title",
-        state: "active",
-        runtimeStatus: "active",
-        userStatusLabel: "进行中",
-        selected: true,
-        waitingDecisionCount: 0,
-      }],
-    },
-  };
   render(<ProjectConversationSidebar
     projects={[project]}
     selectedProjectId="repo-1"
@@ -100,6 +94,29 @@ function renderSidebar(onRenameConversation: (projectId: string, conversationId:
     onOpenSettings={vi.fn()}
     onOpenProjectSettings={vi.fn()}
   />);
+}
+
+function sidebarSnapshot(): Snapshot {
+  const project = managedProject();
+  const snapshot: Snapshot = {
+    ...emptyWorkbenchSnapshot,
+    project: project.project!,
+    memory: { harnessReady: true },
+    left: {
+      ...emptyWorkbenchSnapshot.left,
+      topics: [{ id: "conv-1", title: "Old title", state: "active" }],
+      workpads: [{
+        id: "conv-1",
+        title: "Old title",
+        state: "active",
+        runtimeStatus: "active",
+        userStatusLabel: "进行中",
+        selected: true,
+        waitingDecisionCount: 0,
+      }],
+    },
+  };
+  return snapshot;
 }
 
 function managedProject(): ProjectStatus {

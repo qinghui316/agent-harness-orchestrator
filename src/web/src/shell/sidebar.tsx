@@ -390,7 +390,9 @@ function harnessStatusIssue(project: ProjectStatus, snapshot?: Snapshot): { kind
 
 function conversationsForSidebar(snapshot: Snapshot | undefined, selectedTopicId: string | null): SidebarConversation[] {
   if (!snapshot) return [];
-  return (snapshot.left.workpads ?? snapshot.left.topics.map((topic) => ({
+  const workpads = snapshot.left.workpads?.length
+    ? snapshot.left.workpads
+    : snapshot.left.topics.map((topic) => ({
     id: topic.id,
     title: topic.title,
     state: topic.state,
@@ -400,7 +402,8 @@ function conversationsForSidebar(snapshot: Snapshot | undefined, selectedTopicId
     selected: selectedTopicId === topic.id,
     waitingDecisionCount: 0,
     blocker: undefined,
-  } satisfies WorkpadSummary))).map((workpad) => ({
+  } satisfies WorkpadSummary));
+  return workpads.map((workpad) => ({
     id: workpad.id,
     title: workpad.title,
     status: workpad.userStatusLabel ?? workpadStatusLabel(workpad.runtimeStatus),
