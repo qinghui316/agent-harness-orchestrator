@@ -507,6 +507,7 @@ export function App(): ReactElement {
   const selectedProjectDefaultProviderId = projects.find((item) => item.project?.id === selectedProjectId)?.project?.defaultProviderId ?? null;
   const providerConfiguration = useProviderConfigurationController({
     projectId: selectedProjectId,
+    productMode: appMode.productMode,
     projectDefaultProviderId: selectedProjectDefaultProviderId,
     conversationProviderId: activeTopic?.selectedProviderId ?? null,
     onError: setError,
@@ -524,8 +525,10 @@ export function App(): ReactElement {
   const selectedProjectStatus = useMemo(() => projects.find((item) => item.project?.id === selectedProjectId) ?? null, [projects, selectedProjectId]);
   const composer = useConversationComposerController({
     projectId: selectedProjectId,
+    productMode: appMode.productMode,
     conversation: activeTopic ? {
       id: activeTopic.id,
+      productMode: activeTopic.productMode,
       state: activeTopic.state,
       selectedProviderId: activeTopic.selectedProviderId,
     } : null,
@@ -550,7 +553,7 @@ export function App(): ReactElement {
       routeEvent: routeProjectionEventForProject,
     },
     timeline: {
-      calibrate: (projectId, conversationId, agentSurfaceId) => timeline.loadLatest({ projectId, productMode: "harness", conversationId, agentSurfaceId }),
+      calibrate: (projectId, conversationId, agentSurfaceId) => timeline.loadLatest({ projectId, productMode: appMode.productMode, conversationId, agentSurfaceId }),
     },
     onError: setError,
   });

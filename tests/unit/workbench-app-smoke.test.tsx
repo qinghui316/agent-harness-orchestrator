@@ -185,6 +185,49 @@ describe("Workbench App owner composition", () => {
     expect(screen.getByTestId("right-tool-launcher-git")).toBeTruthy();
     expect(screen.getByTestId("right-tool-launcher-diagnostics")).toBeTruthy();
   });
+
+  it("threads Agent mode through provider readiness, existing messages, and timeline calibration", async () => {
+    window.localStorage.setItem("aho.workbench.productMode.v1", "agent");
+    installApiFixture(createSnapshot(undefined, "agent"));
+    render(<App />);
+
+    const composer = await screen.findByPlaceholderText("输入问题或下一步需求");
+    await waitFor(() => expect(requestUrls("/providers/capabilities?")).toContain(
+      "/api/projects/repo/providers/capabilities?productMode=agent",
+    ));
+    fireEvent.change(composer, { target: { value: "Agent follow-up" } });
+    fireEvent.click(screen.getByTitle("发送"));
+
+    await waitFor(() => {
+      const call = requestCall("/workbench/topics/conv-1/messages/live");
+      expect(call).toBeDefined();
+      expect(requestBody(call)).toEqual(expect.objectContaining({
+        message: "Agent follow-up",
+        productMode: "agent",
+      }));
+    });
+    expect(requestUrls("/timeline?").every((url) => url.includes("productMode=agent"))).toBe(true);
+  });
+
+  it("creates an Agent conversation from the empty shell with the captured mode", async () => {
+    window.history.replaceState({}, "", "/?project=repo");
+    window.localStorage.setItem("aho.workbench.productMode.v1", "agent");
+    installApiFixture(createEmptySnapshot("agent"));
+    render(<App />);
+
+    const composer = await screen.findByLabelText("新建需求输入框");
+    fireEvent.change(composer, { target: { value: "Start an Agent conversation" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+
+    await waitFor(() => {
+      const call = requestCall("/workbench/topics/live");
+      expect(call).toBeDefined();
+      expect(requestBody(call)).toEqual(expect.objectContaining({
+        body: "Start an Agent conversation",
+        productMode: "agent",
+      }));
+    });
+  });
 });
 
 function createSnapshot(interaction?: ConversationInteraction, productMode: "agent" | "harness" = "harness"): Snapshot {
@@ -217,6 +260,18 @@ function createSnapshot(interaction?: ConversationInteraction, productMode: "age
       conversationInteractions: { productMode, conversationId: topic.id, items: interaction ? [interaction] : [] },
     },
     right: { ...emptyWorkbenchSnapshot.right },
+  };
+}
+
+function createEmptySnapshot(productMode: "agent" | "harness"): Snapshot {
+  const snapshot = createSnapshot(undefined, productMode);
+  return {
+    ...snapshot,
+    left: { topics: [], workpads: [] },
+    center: {
+      ...emptyWorkbenchSnapshot.center,
+      conversationInteractions: { productMode, conversationId: null, items: [] },
+    },
   };
 }
 
@@ -339,7 +394,20 @@ function installApiFixture(snapshot: Snapshot): void {
       return json(timelinePage(parsed.searchParams.get("agentSurfaceId") ?? "main-agent", productMode));
     }
     if (url.includes("/providers/capabilities?")) {
-      return json({ providers: [{ providerId: "codex", displayName: "Codex", capabilities: {} }] });
+      return json({ providers: [{
+        providerId: "codex",
+        displayName: "Codex",
+        productMode,
+        status: "ready",
+        runnable: true,
+        checkedAt: "2026-08-13T00:00:00.000Z",
+        snapshotHash: `codex-${productMode}`,
+        snapshotVersion: 1,
+        effectiveModel: null,
+        effectiveModelSource: "provider-default",
+        degradedReasons: [],
+        capabilities: [],
+      }] });
     }
     if (url.endsWith("/providers/codex/diagnostics")) return json({ providerId: "codex", displayName: "Codex", models: {} });
     if (url.endsWith("/providers/codex/model-settings")) return json({ providerId: "codex" });
@@ -351,8 +419,48 @@ function installApiFixture(snapshot: Snapshot): void {
       expiresAt: "2026-08-03T12:00:00.000Z",
     });
     if (url.endsWith("/remove")) return json({ removal: { projectId: "repo" } });
+    if (url.includes("/workbench/topics/conv-1/messages/live")) return sse();
+    if (url.endsWith("/workbench/topics/live")) return sse({
+      event: "topic.created",
+      data: {
+        projectId: "repo",
+        productMode,
+        conversationId: "conv-agent-new",
+        clientRequestId: requestBody(vi.mocked(fetch).mock.calls.at(-1))?.clientRequestId,
+        replayed: false,
+        topic: {
+          id: "conv-agent-new",
+          conversationId: "conv-agent-new",
+          productMode,
+          title: "Start an Agent conversation",
+          state: "active",
+          kind: "conversation",
+          selectedProviderId: "codex",
+        },
+      },
+    });
     return json({});
   }));
+}
+
+function requestUrls(fragment: string): string[] {
+  return vi.mocked(fetch).mock.calls
+    .map(([input]) => String(input))
+    .filter((url) => url.includes(fragment));
+}
+
+function requestCall(fragment: string): [RequestInfo | URL, RequestInit?] | undefined {
+  return vi.mocked(fetch).mock.calls.find(([input]) => String(input).includes(fragment));
+}
+
+function requestBody(call: [RequestInfo | URL, RequestInit?] | undefined): Record<string, unknown> | undefined {
+  const body = call?.[1]?.body;
+  return typeof body === "string" ? JSON.parse(body) as Record<string, unknown> : undefined;
+}
+
+function sse(event?: unknown): Response {
+  const payload = event ? `event: ${(event as { event: string }).event}\ndata: ${JSON.stringify((event as { data: unknown }).data)}\n\n` : "";
+  return new Response(payload, { status: 200, headers: { "content-type": "text/event-stream" } });
 }
 
 function json(value: unknown): Response {
