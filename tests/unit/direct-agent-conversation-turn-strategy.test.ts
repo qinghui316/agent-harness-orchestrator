@@ -25,6 +25,7 @@ import { AgentNativeChildLifecycleService, runAgentNativeChildFollowup } from ".
 import { createAssistantTranscriptCapture } from "../../src/workbench/live-transcript.js";
 import { DirectAgentConversationTurnStrategy } from "../../src/workbench/direct-agent-conversation-turn-strategy.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
+import { WorkbenchUnitOfWork } from "../../src/workbench/persistence/unit-of-work.js";
 import { TimelineRepository } from "../../src/workbench/persistence/repositories/timeline-repository.js";
 import type { ProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import type { ConversationTurnStrategyInput, TurnSkillContextResolution } from "../../src/workbench/conversation-turn-contract.js";
@@ -229,7 +230,10 @@ describe("DirectAgentConversationTurnStrategy", () => {
       expect.objectContaining({ status: "terminated" }),
     ]);
     expect(state.threads.filter((thread) => thread.roleId === "native-child-agent")).toHaveLength(1);
-    expect(state.messages.filter((message) => message.text === "child")).toHaveLength(1);
+    expect(state.messages.filter((message) => message.text === "child")).toHaveLength(0);
+    expect(state.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ text: expect.stringContaining("Ignored conflicting native child terminal result") }),
+    ]));
   });
 
   it.each(["failed", "completed"] as const)("keeps repeated running child results non-terminal before %s", async (terminalStatus) => {
@@ -501,6 +505,45 @@ describe("DirectAgentConversationTurnStrategy", () => {
     expect(provider.continuedChildren).toEqual([]);
   });
 
+  it("fails a follow-up once when child capture persistence fails even with an empty Provider result", async () => {
+    const provider = fakeProvider({
+      realtime: true,
+      continueChildRealtime: true,
+      continueChildLastMessage: "",
+      continueChildResultCallback: "completed",
+    });
+    const { strategy, registry } = strategyFor(provider.descriptor);
+    const input = await initialTurnInput(fixture, "Create child before capture failure");
+    await strategy.execute(input, emptyPorts());
+    const originalCommit = WorkbenchUnitOfWork.prototype.commitProviderCallback;
+    let injected = false;
+    const spy = vi.spyOn(WorkbenchUnitOfWork.prototype, "commitProviderCallback").mockImplementation(function (callback) {
+      if (!injected && callback.attemptId.startsWith("native-child:")) {
+        injected = true;
+        throw new Error("Injected follow-up capture persistence failure.");
+      }
+      return originalCommit.call(this, callback);
+    });
+    try {
+      await expect(runAgentNativeChildFollowup({
+        project: fixture.project,
+        conversationId: input.conversation.conversationId,
+        agentSurfaceId: "agent:codex:thread:session-1-child-1",
+        message: "Persist this exactly",
+        providerRegistry: registry,
+      })).rejects.toThrow("Injected follow-up capture persistence failure");
+    } finally {
+      spy.mockRestore();
+    }
+    expect(injected).toBe(true);
+    const state = await readState(fixture.paths, fixture.project.id, input.conversation.conversationId);
+    const childAttempts = state.attempts.filter((attempt) => attempt.roleId === "native-child-agent");
+    const followup = childAttempts.at(-1)!;
+    expect(childAttempts.filter((attempt) => attempt.attemptId === followup.attemptId)).toHaveLength(1);
+    expect(followup.status).toBe("failed");
+    expect(childAttempts.every((attempt) => attempt.status !== "queued" && attempt.status !== "running")).toBe(true);
+  });
+
   it("keeps late activity A callbacks isolated after same-thread activity B and service restart", async () => {
     const provider = fakeProvider({ realtime: true });
     const { strategy, registry } = strategyFor(provider.descriptor);
@@ -551,9 +594,15 @@ describe("DirectAgentConversationTurnStrategy", () => {
     const after = await readState(fixture.paths, fixture.project.id, input.conversation.conversationId);
     expect(after.attempts.find((attempt) => attempt.attemptId === activityA.attemptId)?.status).toBe("terminated");
     expect(after.attempts.find((attempt) => attempt.attemptId === activityB.attemptId)?.status).toBe(activityB.status);
-    const late = after.messages.find((message) => message.text === "late A failure")!;
-    const raw = JSON.parse(late.rawJson) as { attemptId?: string; status?: string };
-    expect(raw).toMatchObject({ attemptId: activityA.attemptId, status: "completed" });
+    expect(after.messages.find((message) => message.text === "late A failure")).toBeUndefined();
+    const activityAMessages = after.messages.filter((message) => {
+      const raw = JSON.parse(message.rawJson) as { attemptId?: string };
+      return raw.attemptId === activityA.attemptId;
+    });
+    expect(activityAMessages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ text: "child", status: "completed" }),
+      expect.objectContaining({ text: expect.stringContaining("Ignored conflicting native child terminal result") }),
+    ]));
   });
 
   it("fails attachments before Skill resolution, readiness, or Attempt creation", async () => {
@@ -787,6 +836,9 @@ interface FakeProviderBehavior {
   onChildResult?: (status: string) => void | Promise<void>;
   nestedChild?: boolean;
   continueChildStatus?: "completed" | "failed" | "interrupted";
+  continueChildRealtime?: boolean;
+  continueChildLastMessage?: string;
+  continueChildResultCallback?: "completed" | "failed" | "interrupted";
   childRealtimeOverrides?: Array<Partial<ProviderRealtimeEvent>>;
   childCloseAfterResult?: boolean;
   childLifecycleParentOverride?: string;
@@ -982,7 +1034,31 @@ function fakeProvider(behavior: FakeProviderBehavior = {}): {
         continuedChildren.push(request.targetSession.sessionId);
         continuedLineages.push({ parent: request.parentSession.sessionId, target: request.targetSession.sessionId });
         if (behavior.continueChildError) throw new Error(behavior.continueChildError);
-        return result(request, behavior.continueChildStatus);
+        if (behavior.continueChildRealtime) {
+          request.onRealtimeEvent?.(realtime(request, { type: "text_delta", delta: "follow-up realtime" }, {
+            sessionId: request.targetSession.sessionId,
+            threadId: request.targetSession.sessionId,
+            parentThreadId: request.parentSession.sessionId,
+            turnId: "follow-up-turn",
+            itemId: "follow-up-message",
+            roleId: "native-child-agent",
+          }));
+        }
+        if (behavior.continueChildResultCallback) {
+          request.onChildThreadResult?.({
+            providerId,
+            activityId: request.runId.startsWith("agent-child-") ? `followup:${request.runId}` : request.runId,
+            parentThreadId: request.parentSession.sessionId,
+            threadId: request.targetSession.sessionId,
+            status: behavior.continueChildResultCallback,
+            finalText: "provider callback after capture failure",
+            changedFiles: [],
+          });
+        }
+        const followupResult = result(request, behavior.continueChildStatus);
+        return behavior.continueChildLastMessage === undefined
+          ? followupResult
+          : { ...followupResult, lastMessage: behavior.continueChildLastMessage };
       },
       closeChild: async (request) => result(request),
       getActiveTurn: () => active,

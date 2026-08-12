@@ -157,10 +157,28 @@ export class AgentNativeChildLifecycleService {
       entry.agentSurfaceId = agentThreadSurfaceId(this.input.providerId, child.threadId);
       writes.push(toCanonicalTimelineMessage(this.input.projectId, this.input.conversationId, entry));
     }
-    const effectiveResultStatus = child.status === "running" ? terminalStatus : child.status;
-    if (result.finalText.trim() && effectiveResultStatus) writes.push(this.resultMessage(child, activityId, result, effectiveResultStatus));
+    const resultStatus = terminalStatus ?? (child.status === "running" ? null : child.status);
+    const resultMessage = resultStatus ? this.resultMessage(child, activityId, result, resultStatus) : null;
+    const persistedResult = resultMessage ? this.input.database.timeline.readMessage(
+      this.input.projectId,
+      this.input.conversationId,
+      resultMessage.id,
+    ) : null;
+    const terminalConflict = child.status !== "running"
+      && terminalStatus !== null
+      && terminalStatus !== child.status
+      && terminalStatus !== "terminated";
+    const maySupplementResult = !persistedResult && !terminalConflict;
+    if (result.finalText.trim() && terminalStatus && maySupplementResult && resultMessage) writes.push(resultMessage);
     const updatedAt = new Date().toISOString();
     if (child.status !== "running") {
+      if (terminalConflict) {
+        writes.push(this.terminalConflictMessage(child, activityId, child.status, terminalStatus));
+      }
+      if (terminalStatus === "terminated" && child.status !== "terminated") {
+        this.complete(child, "terminated", activityId, "Provider closed native child.", writes);
+        return child;
+      }
       if (writes.length > 0) {
         const rows = this.input.database.unitOfWork.commitProviderTerminalSupplement({
           projectId: this.input.projectId,
@@ -244,6 +262,27 @@ export class AgentNativeChildLifecycleService {
     return this.byThread.get(threadId) ?? null;
   }
 
+  failCanonicalPersistence(child: AgentNativeChildRecord, activityId: string, error: Error): void {
+    const row = this.input.database.unitOfWork.commitNativeChildPersistenceFailure({
+      projectId: this.input.projectId,
+      conversationId: this.input.conversationId,
+      attemptId: child.attemptId,
+      providerId: this.input.providerId,
+      graphScopeId: this.input.graphScopeId,
+      nativeSessionId: child.threadId,
+      updatedAt: new Date().toISOString(),
+      timelineMessage: this.statusMessage(
+        child,
+        `${activityId}:persistence-failure`,
+        "failed",
+        `Native child canonical persistence failed: ${boundedError(error)}`,
+      ),
+    });
+    child.status = "failed";
+    this.input.publish([row]);
+    this.input.onInvalidated();
+  }
+
   private createChild(input: {
     activityId: string;
     parentThreadId: string;
@@ -316,7 +355,13 @@ export class AgentNativeChildLifecycleService {
     return child;
   }
 
-  private complete(child: AgentNativeChildRecord, status: ChildTerminalStatus, activityId: string, diagnostic: string): void {
+  private complete(
+    child: AgentNativeChildRecord,
+    status: ChildTerminalStatus,
+    activityId: string,
+    diagnostic: string,
+    additionalTimelineMessages: StoredTopicMessageWrite[] = [],
+  ): void {
     if (child.status === "terminated" || (child.status !== "running" && status !== "terminated")) return;
     const rows = this.input.database.unitOfWork.commitProviderCallback({
       projectId: this.input.projectId,
@@ -325,7 +370,7 @@ export class AgentNativeChildLifecycleService {
       expectedGraphScopeId: this.input.graphScopeId,
       updatedAt: new Date().toISOString(),
       terminal: { status, nativeSessionId: child.threadId },
-      timelineMessages: [this.statusMessage(child, activityId, status, diagnostic)],
+      timelineMessages: [this.statusMessage(child, activityId, status, diagnostic), ...additionalTimelineMessages],
     });
     child.status = status;
     this.input.publish(rows);
@@ -425,6 +470,31 @@ export class AgentNativeChildLifecycleService {
       runId: this.input.runId,
       providerId: this.input.providerId,
       sessionId: child.threadId,
+      attemptId: child.attemptId,
+      threadId: child.threadId,
+      parentThreadId: child.parentThreadId,
+      agentRoleId: NATIVE_CHILD_AGENT_ROLE_ID,
+      agentSurfaceId: agentThreadSurfaceId(this.input.providerId, child.threadId),
+    });
+  }
+
+  private terminalConflictMessage(
+    child: AgentNativeChildRecord,
+    activityId: string,
+    canonicalStatus: ChildTerminalStatus,
+    receivedStatus: ChildTerminalStatus,
+  ): StoredTopicMessageWrite {
+    return toCanonicalTimelineMessage(this.input.projectId, this.input.conversationId, {
+      id: `status:${this.input.conversationId}:${this.input.providerId}:${child.threadId}:${stableHash(activityId)}:terminal-conflict`,
+      type: "assistant.message",
+      timestamp: new Date().toISOString(),
+      conversationId: this.input.conversationId,
+      graphScopeId: this.input.graphScopeId,
+      changeId: "",
+      text: `Ignored conflicting native child terminal result (${receivedStatus}); canonical status remains ${canonicalStatus}.`.slice(0, 240),
+      status: canonicalStatus,
+      runId: this.input.runId,
+      providerId: this.input.providerId,
       attemptId: child.attemptId,
       threadId: child.threadId,
       parentThreadId: child.parentThreadId,
@@ -552,7 +622,9 @@ export async function runAgentNativeChildFollowup(input: {
     const runRoot = join(paths.runsRoot, "agent-conversations", conversation.conversationId, runId);
     await mkdir(runRoot, { recursive: true });
     let lifecycle: AgentNativeChildLifecycleService | null = null;
+    let canonicalPersistenceError: Error | null = null;
     const capture = createAssistantTranscriptCapture(input.live, (snapshot) => {
+      if (canonicalPersistenceError) return false;
       try {
         const writes = buildCanonicalCaptureWrites({
           projectId: paths.projectId,
@@ -574,7 +646,8 @@ export async function runAgentNativeChildFollowup(input: {
           timelineMessages: writes,
         }));
         return true;
-      } catch {
+      } catch (error) {
+        canonicalPersistenceError ??= asError(error);
         return false;
       }
     });
@@ -693,6 +766,10 @@ export async function runAgentNativeChildFollowup(input: {
       });
       throw error;
     }
+    if (canonicalPersistenceError) {
+      lifecycle.failCanonicalPersistence(child, activityId, canonicalPersistenceError);
+      throw canonicalPersistenceError;
+    }
     lifecycle.onResult({
       providerId: conversation.selectedProviderId,
       activityId,
@@ -793,14 +870,14 @@ export async function reconcileStaleAgentNativeChildren(input: {
           });
           reconciled += 1;
         } catch (error) {
-          database.unitOfWork.commitRecoveryDiagnostic(toCanonicalTimelineMessage(paths.projectId, conversation.conversationId, {
+          const quarantineDiagnostic = toCanonicalTimelineMessage(paths.projectId, conversation.conversationId, {
             id: `status:${conversation.conversationId}:${attempt.providerId}:${attempt.nativeSessionId}:restart-malformed`,
             type: "assistant.message",
             timestamp: new Date().toISOString(),
             conversationId: conversation.conversationId,
             graphScopeId: attempt.graphScopeId,
             changeId: "",
-            text: `Native child recovery skipped malformed persisted lineage: ${boundedError(error)}`,
+            text: `Native child activity was quarantined after malformed persisted lineage: ${boundedError(error)}`,
             status: "failed",
             providerId: attempt.providerId,
             attemptId: attempt.attemptId,
@@ -808,7 +885,22 @@ export async function reconcileStaleAgentNativeChildren(input: {
             parentThreadId: link?.parentThreadId ?? undefined,
             agentRoleId: NATIVE_CHILD_AGENT_ROLE_ID,
             agentSurfaceId: agentThreadSurfaceId(attempt.providerId, attempt.nativeSessionId),
-          }));
+          });
+          try {
+            database.unitOfWork.commitNativeChildRecoveryQuarantine({
+              projectId: paths.projectId,
+              conversationId: conversation.conversationId,
+              attemptId: attempt.attemptId,
+              providerId: attempt.providerId,
+              graphScopeId: attempt.graphScopeId,
+              nativeSessionId: attempt.nativeSessionId,
+              updatedAt: new Date().toISOString(),
+              timelineMessage: quarantineDiagnostic,
+            });
+            reconciled += 1;
+          } catch {
+            // A corrupt row is isolated so recovery can continue with other Attempts and projects.
+          }
         }
       }
     }
@@ -944,6 +1036,10 @@ function childResultStatus(status: string | undefined): ChildTerminalStatus | nu
 
 function boundedError(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).slice(0, 160);
+}
+
+function asError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
 }
 
 function stableHash(value: string): string {

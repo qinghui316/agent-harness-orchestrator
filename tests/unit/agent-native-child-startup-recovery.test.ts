@@ -85,12 +85,16 @@ describe("Agent native child startup recovery", () => {
     }
     const registry = registryWithInspection((threadId) => threadId === "child-live" ? "available" : "stale");
 
-    await expect(reconcileStaleAgentNativeChildren({ project, providerRegistry: registry })).resolves.toBe(2);
+    await expect(reconcileStaleAgentNativeChildren({ project, providerRegistry: registry })).resolves.toBe(3);
     const restored = await openProjectRuntimeWorkbenchDatabase(paths, { providerRegistry: registry });
     try {
       expect(restored.conversations.readConversation(project.id, "agent-conversation")?.currentGraphScopeId).toBe("graph-current-new");
       expect(restored.providerAttempts.readProviderAttempt(project.id, "child-stale-attempt")?.status).toBe("failed");
-      expect(restored.providerAttempts.readProviderAttempt(project.id, "malformed-attempt")?.status).toBe("running");
+      expect(restored.providerAttempts.readProviderAttempt(project.id, "malformed-attempt")?.status).toBe("failed");
+      const quarantine = restored.timeline.listConversationMessages(project.id, "agent-conversation")
+        .find((message) => message.text?.includes("quarantined after malformed persisted lineage"));
+      expect(quarantine).toMatchObject({ status: "failed" });
+      expect(JSON.parse(quarantine!.rawJson)).toMatchObject({ attemptId: "malformed-attempt" });
     } finally {
       restored.close();
     }

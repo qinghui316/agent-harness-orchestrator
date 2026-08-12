@@ -519,6 +519,72 @@ export class WorkbenchUnitOfWork {
     })();
   }
 
+  commitNativeChildRecoveryQuarantine(input: {
+    projectId: string;
+    conversationId: string;
+    attemptId: string;
+    providerId: string;
+    graphScopeId: string;
+    nativeSessionId: string;
+    updatedAt: string;
+    timelineMessage: StoredTopicMessageWrite;
+  }): StoredTopicMessage {
+    return this.db.transaction(() => {
+      const attempt = this.providerAttempts.readProviderAttempt(input.projectId, input.attemptId);
+      if (!attempt
+        || attempt.conversationId !== input.conversationId
+        || attempt.productMode !== "agent"
+        || attempt.roleId !== "native-child-agent"
+        || attempt.operationProfile !== "agent"
+        || attempt.providerId !== input.providerId
+        || attempt.graphScopeId !== input.graphScopeId
+        || attempt.nativeSessionId !== input.nativeSessionId
+        || (attempt.status !== "queued" && attempt.status !== "running")
+        || input.timelineMessage.projectId !== input.projectId
+        || input.timelineMessage.conversationId !== input.conversationId) {
+        throw new Error("Restart recovery quarantine Attempt identity is mismatched.");
+      }
+      const row = this.timeline.readMessage(input.timelineMessage.projectId, input.timelineMessage.conversationId, input.timelineMessage.id)
+        ? this.timeline.updateMessage(input.timelineMessage)
+        : this.timeline.appendMessage(input.timelineMessage);
+      this.providerAttempts.completeProviderAttempt(input.projectId, input.attemptId, "failed", input.nativeSessionId, input.updatedAt);
+      return row;
+    })();
+  }
+
+  commitNativeChildPersistenceFailure(input: {
+    projectId: string;
+    conversationId: string;
+    attemptId: string;
+    providerId: string;
+    graphScopeId: string;
+    nativeSessionId: string;
+    updatedAt: string;
+    timelineMessage: StoredTopicMessageWrite;
+  }): StoredTopicMessage {
+    return this.db.transaction(() => {
+      const attempt = this.providerAttempts.readProviderAttempt(input.projectId, input.attemptId);
+      if (!attempt
+        || attempt.conversationId !== input.conversationId
+        || attempt.productMode !== "agent"
+        || attempt.roleId !== "native-child-agent"
+        || attempt.operationProfile !== "agent"
+        || attempt.providerId !== input.providerId
+        || attempt.graphScopeId !== input.graphScopeId
+        || attempt.nativeSessionId !== input.nativeSessionId
+        || attempt.status === "terminated"
+        || input.timelineMessage.projectId !== input.projectId
+        || input.timelineMessage.conversationId !== input.conversationId) {
+        throw new Error("Native child persistence failure Attempt identity is mismatched.");
+      }
+      const row = this.timeline.readMessage(input.timelineMessage.projectId, input.timelineMessage.conversationId, input.timelineMessage.id)
+        ? this.timeline.updateMessage(input.timelineMessage)
+        : this.timeline.appendMessage(input.timelineMessage);
+      this.providerAttempts.completeProviderAttempt(input.projectId, input.attemptId, "failed", input.nativeSessionId, input.updatedAt);
+      return row;
+    })();
+  }
+
   commitRecoveryDiagnostic(message: StoredTopicMessageWrite): StoredTopicMessage {
     return this.db.transaction(() => this.timeline.readMessage(message.projectId, message.conversationId, message.id)
       ? this.timeline.updateMessage(message)
