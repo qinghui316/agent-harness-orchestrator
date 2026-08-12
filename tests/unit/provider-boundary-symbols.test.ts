@@ -8,12 +8,16 @@ describe("provider boundary retired symbols", () => {
 
   it("accepts the provider-neutral native-child-agent role", () => {
     expect(containsRetiredProviderSymbol('roleId: "native-child-agent"', "child-agent")).toBe(false);
+    expect(containsRetiredProviderSymbol("roleId: 'native-child-agent'", "child-agent")).toBe(false);
   });
 
   it.each([
     "not-native-child-agent",
     "xnative-child-agent",
     "native-child-agent-extra",
+    "native-child-agent.extra",
+    "native-child-agent/foo",
+    "native-child-agent:extra",
   ])("rejects malformed native child role token %s", (roleId) => {
     expect(containsRetiredProviderSymbol(`roleId: "${roleId}"`, "child-agent")).toBe(true);
   });

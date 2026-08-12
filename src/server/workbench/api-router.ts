@@ -385,7 +385,7 @@ async function handleApiRequest(context: WorkbenchServerContext, request: Incomi
     return;
   }
 
-  if (await handleDirectWorkbenchApi(context.input, request, response, url)) return;
+  if (await handleDirectWorkbenchApi(context, request, response, url)) return;
   sendJson(response, 404, { error: "Not found." });
 }
 

@@ -11,11 +11,11 @@ import {
   getWorkbenchTopic,
   listWorkbenchApprovals,
   listWorkbenchTopics,
-  type WorkbenchProjectInput,
 } from "../../workbench/projections/read-model/implementation.js";
-import type { IntakeRequest, WorkbenchActionRequest } from "./types.js";
+import type { IntakeRequest, WorkbenchActionRequest, WorkbenchServerContext } from "./types.js";
 
-export async function handleDirectWorkbenchApi(input: WorkbenchProjectInput | null, request: IncomingMessage, response: ServerResponse, url: URL): Promise<boolean> {
+export async function handleDirectWorkbenchApi(context: WorkbenchServerContext, request: IncomingMessage, response: ServerResponse, url: URL): Promise<boolean> {
+  const input = context.input;
   if (request.method === "GET" && url.pathname === "/api/workbench/snapshot") {
     assertDirectProjectInput(input);
     const productMode = requireProductMode(url.searchParams.get("productMode"));
@@ -45,7 +45,7 @@ export async function handleDirectWorkbenchApi(input: WorkbenchProjectInput | nu
   if (request.method === "POST" && directTopicMessagesLiveMatch?.[1]) {
     assertDirectProjectInput(input);
     assertRegisteredProject(input);
-    await sendConversationMessageLive(input, decodeURIComponent(directTopicMessagesLiveMatch[1]), request, response);
+    await sendConversationMessageLive(input, decodeURIComponent(directTopicMessagesLiveMatch[1]), request, response, context.providerRegistry);
     return true;
   }
   if (request.method === "GET" && url.pathname.startsWith("/api/workbench/stream/")) {

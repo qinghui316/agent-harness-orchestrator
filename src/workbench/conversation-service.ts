@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { assertProductMode, defaultProviderRegistry, type ProductMode } from "../provider-runtime/index.js";
+import { assertProductMode, defaultProviderRegistry, type ProductMode, type ProviderRegistry } from "../provider-runtime/index.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import { readProjectHarnessChangeContext } from "../project-harness/change.js";
 import { resolveProjectRuntimeState, type ProjectRuntimeState } from "../project-runtime/coordinator.js";
@@ -229,7 +229,7 @@ export async function postConversationMessage(
   conversationId: string,
   input: string | TopicMessageInput,
   live?: WorkbenchLiveSink,
-  options: { turnRouter?: ConversationTurnRoutingPort } = {},
+  options: { turnRouter?: ConversationTurnRoutingPort; providerRegistry?: ProviderRegistry } = {},
 ): Promise<TopicMessageResult> {
   const turnRouter = options.turnRouter ?? defaultConversationTurnRouter;
   const identity = await resolveStoredConversationIdentity(project, conversationId);
@@ -250,7 +250,14 @@ export async function postConversationMessage(
         error.name = "BadRequest";
         throw error;
       }
-      return runAgentNativeChildFollowup({ project, conversationId, agentSurfaceId: parsed.agentSurfaceId, message: parsed.message, live });
+      return runAgentNativeChildFollowup({
+        project,
+        conversationId,
+        agentSurfaceId: parsed.agentSurfaceId,
+        message: parsed.message,
+        live,
+        providerRegistry: options.providerRegistry,
+      });
     }
     if (runtimeState.state === "onboarding") {
       const error = new Error("Project Harness onboarding accepts Main conversation text and attachments only.");

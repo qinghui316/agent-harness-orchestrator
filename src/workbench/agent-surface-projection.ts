@@ -23,14 +23,16 @@ export async function getAgentSurfaceProjection(
   const state = await resolveProjectRuntimeState(input.project, {
     discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
   });
-  if (state.state !== "ready") throw notFound("Agent surfaces are unavailable for this project.");
-  const { paths } = state.resolution;
+  const paths = state.state === "onboarding" ? state.paths : state.resolution.paths;
   const catalog = readBundledAgentCatalog();
   const store = await openProjectRuntimeWorkbenchDatabase(paths);
   try {
     return store.transaction(() => {
       const conversation = store.conversations.readConversation(paths.projectId, conversationId);
       if (!conversation) throw notFound("Agent surface conversation was not found.");
+      if (conversation.productMode === "harness" && state.state !== "ready") {
+        throw notFound("Agent surfaces are unavailable for this project.");
+      }
       if (assertedProductMode && conversation.productMode !== assertedProductMode) {
         throw badRequest("Conversation productMode does not match the requested Agent surface mode.");
       }

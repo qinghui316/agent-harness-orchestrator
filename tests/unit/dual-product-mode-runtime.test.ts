@@ -191,7 +191,7 @@ describe("dual product-mode foundation", () => {
     }
   });
 
-  it("rejects Harness-only Agent inputs before canonical or runtime side effects", async () => {
+  it("rejects missing native-child lineage and Harness plan handoff before side effects", async () => {
     const conversation = await createWorkbenchConversation(project(), {
       body: "Agent boundary",
       productMode: "agent",
@@ -203,7 +203,10 @@ describe("dual product-mode foundation", () => {
       message: "Must not target a child Agent.",
       productMode: "agent",
       agentSurfaceId: "agent:codex:thread:child",
-    })).rejects.toMatchObject({ name: "Conflict" });
+    })).rejects.toMatchObject({
+      name: "Conflict",
+      message: "Native child lineage does not match the selected Agent Conversation.",
+    });
     await expect(postConversationMessage(project(), conversation.conversationId, {
       message: "Must not hand off an AHO plan.",
       productMode: "agent",

@@ -17,6 +17,7 @@ import { resolveProjectRuntimePaths, type ProjectRuntimePaths } from "../../src/
 import { ProjectRegistryStore } from "../../src/registry/store.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import { reconcileStaleAgentNativeChildren } from "../../src/workbench/agent-native-child-lifecycle-service.js";
+import { getAgentSurfaceProjection } from "../../src/workbench/agent-surface-projection.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
 
@@ -43,6 +44,19 @@ describe("Agent native child startup recovery", () => {
     async (runtimeState) => {
       const { project, paths } = await createProject(runtimeState);
       await seedRecoveryFacts(project, paths);
+      await expect(getAgentSurfaceProjection({ project }, "agent-conversation", "agent")).resolves.toMatchObject({
+        projectId: project.id,
+        productMode: "agent",
+        conversationId: "agent-conversation",
+      });
+      if (runtimeState === "ready") {
+        await expect(getAgentSurfaceProjection({ project }, "harness-conversation", "harness")).resolves.toMatchObject({
+          productMode: "harness",
+        });
+      } else {
+        await expect(getAgentSurfaceProjection({ project }, "harness-conversation", "harness"))
+          .rejects.toThrow("Agent surfaces are unavailable for this project.");
+      }
       const inspected: string[] = [];
       const registry = registryWithInspection((threadId) => {
         inspected.push(threadId);

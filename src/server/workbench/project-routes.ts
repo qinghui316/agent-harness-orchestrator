@@ -139,7 +139,7 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
   if (request.method === "POST" && topicMessagesLiveMatch?.[1]) {
     assertRegisteredProject(input);
     const id = decodeURIComponent(topicMessagesLiveMatch[1]);
-    await sendConversationMessageLive(input, id, request, response);
+    await sendConversationMessageLive(input, id, request, response, context.providerRegistry);
     return;
   }
   if (request.method === "GET" && /^topics\/[^/]+\/messages(?:\/stream)?$/.test(rest)) {

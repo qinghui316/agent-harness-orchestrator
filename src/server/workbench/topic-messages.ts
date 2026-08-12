@@ -1,5 +1,6 @@
 ﻿import type { IncomingMessage, ServerResponse } from "node:http";
 import { createSseResponse } from "../sse.js";
+import type { ProviderRegistry } from "../../provider-runtime/index.js";
 import { createWorkbenchConversation, postConversationMessage } from "../../workbench/conversation-service.js";
 import { resolveConversationId } from "../../workbench/conversation-identity.js";
 import { getWorkbenchSnapshot, type WorkbenchProjectInput } from "../../workbench/projections/read-model/implementation.js";
@@ -97,14 +98,20 @@ export async function sendCreateTopicLive(
   }
 }
 
-export async function sendConversationMessageLive(input: WorkbenchProjectInput & { project: ManagedProject }, conversationId: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
+export async function sendConversationMessageLive(
+  input: WorkbenchProjectInput & { project: ManagedProject },
+  conversationId: string,
+  request: IncomingMessage,
+  response: ServerResponse,
+  providerRegistry?: ProviderRegistry,
+): Promise<void> {
   const message = await readTopicMessageBody(request);
   const sse = createSseResponse(response);
   const sink = createLiveSink(sse, input.project.id);
   let resolvedConversationId = conversationId;
   try {
     resolvedConversationId = await resolveConversationId(input.project, conversationId);
-    await postConversationMessage(input.project, resolvedConversationId, message, sink);
+    await postConversationMessage(input.project, resolvedConversationId, message, sink, { providerRegistry });
     sink.emit({ event: "snapshot", data: await getWorkbenchSnapshot(input, { topicId: resolvedConversationId, productMode: message.productMode }) });
     sink.emit({ event: "done", data: { projectId: input.project.id, productMode: message.productMode, conversationId: resolvedConversationId, status: "completed" } });
   } catch (cause) {
