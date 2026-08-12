@@ -768,10 +768,12 @@ describe("workbench server", () => {
     expect(retired.status).toBe(400);
 
     const surfaces = await getJson<{ conversationId: string; projectionHash: string; surfaces: Array<{ agentSurfaceId: string }> }>(
-      `${handle!.url}/api/projects/repo/workbench/projections/agent-surfaces/${serverConversationId}`,
+      `${handle!.url}/api/projects/repo/workbench/projections/agent-surfaces/${serverConversationId}?productMode=harness`,
     );
     expect(surfaces).toMatchObject({ conversationId: serverConversationId, projectionHash: expect.any(String) });
     expect(surfaces.surfaces.some((surface) => surface.agentSurfaceId === "main-agent")).toBe(true);
+    expect((await fetch(`${handle!.url}/api/projects/repo/workbench/projections/agent-surfaces/${serverConversationId}`)).status).toBe(400);
+    expect((await fetch(`${handle!.url}/api/projects/repo/workbench/projections/agent-surfaces/${serverConversationId}?productMode=agent`)).status).toBe(400);
     expect((await fetch(`${handle!.url}/api/workbench/projections/agent-graph/${serverConversationId}`)).status).toBe(400);
   });
 

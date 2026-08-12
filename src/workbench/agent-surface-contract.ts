@@ -1,3 +1,5 @@
+import type { ProductMode } from "../provider-runtime/index.js";
+
 export type AgentSurfaceStatus =
   | "idle"
   | "queued"
@@ -26,11 +28,19 @@ export interface AgentSurfaceProjectionItem {
 }
 
 export interface AgentSurfaceProjection {
+  projectId: string;
+  productMode: ProductMode;
   conversationId: string;
   graphScopeId: string;
   scopeStatus: "active" | "terminal";
   projectionHash: string;
   surfaces: AgentSurfaceProjectionItem[];
+  diagnostics: AgentSurfaceProjectionDiagnostic[];
+}
+
+export interface AgentSurfaceProjectionDiagnostic {
+  code: "malformed-lineage" | "orphan-lineage" | "cyclic-lineage" | "mismatched-fact";
+  agentSurfaceId?: string;
 }
 
 export type AgentSurfacesInvalidationReason =

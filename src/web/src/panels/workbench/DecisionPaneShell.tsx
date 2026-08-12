@@ -19,6 +19,7 @@ export function RightToolRailShell({
   state,
   pendingCount,
   hasPrimary,
+  showGovernance = true,
   onCollapse,
   onToolOpen,
   onBackToLauncher,
@@ -36,6 +37,7 @@ export function RightToolRailShell({
   state: Exclude<RightToolRailState, { mode: "closed" }>;
   pendingCount: number;
   hasPrimary: boolean;
+  showGovernance?: boolean;
   onCollapse: () => void;
   onToolOpen: (tab: RightToolRailTab) => void;
   onBackToLauncher: () => void;
@@ -54,7 +56,7 @@ export function RightToolRailShell({
   const panelTitle = activeView === "launcher" ? "工具" : toolLabels[activeView];
   const panelContent =
     activeView === "launcher" ? (
-      <RightToolLauncher pendingCount={pendingCount} hasPrimary={hasPrimary} onToolOpen={onToolOpen} />
+      <RightToolLauncher pendingCount={pendingCount} hasPrimary={hasPrimary} showGovernance={showGovernance} onToolOpen={onToolOpen} />
     ) : activeView === "agent" ? (
       agentPanel
     ) : activeView === "confirm" ? (
@@ -116,10 +118,12 @@ export function RightToolRailShell({
 function RightToolLauncher({
   pendingCount,
   hasPrimary,
+  showGovernance,
   onToolOpen,
 }: {
   pendingCount: number;
   hasPrimary: boolean;
+  showGovernance: boolean;
   onToolOpen: (tab: RightToolRailTab) => void;
 }): ReactElement {
   return (
@@ -134,7 +138,7 @@ function RightToolLauncher({
           <Bot size={17} aria-hidden="true" />
           <span>Agent</span>
         </button>
-        <button
+        {showGovernance ? <button
           type="button"
           className={`right-tool-launcher-item${hasPrimary ? " has-primary" : ""}`}
           data-testid="right-tool-launcher-confirm"
@@ -143,7 +147,7 @@ function RightToolLauncher({
           <ListChecks size={17} aria-hidden="true" />
           <span>确认</span>
           {pendingCount > 0 ? <span className="right-tool-launcher-badge">{pendingCount}</span> : null}
-        </button>
+        </button> : null}
         <button
           type="button"
           className="right-tool-launcher-item"

@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import process from "node:process";
+import { containsRetiredProviderSymbol } from "./provider-boundary-symbols.mjs";
 
 const root = resolve(process.cwd());
 const sourceRoot = resolve(root, "src");
@@ -48,7 +49,7 @@ for (const file of files) {
     violations.push(`${relativePath}: generic production code contains a Codex-specific identifier`);
   }
   for (const symbol of retiredSymbols) {
-    if (text.includes(symbol)) violations.push(`${relativePath}: retired symbol ${symbol}`);
+    if (containsRetiredProviderSymbol(text, symbol)) violations.push(`${relativePath}: retired symbol ${symbol}`);
   }
 }
 

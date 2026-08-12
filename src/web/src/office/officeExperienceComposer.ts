@@ -57,7 +57,7 @@ export class OfficeExperienceComposer {
     const workers = source.actors
       .filter((actor) => actor.actorKind === "worker")
       .sort(stableActorOrder);
-    const residentRoles = officeResidentRoles(this.catalog);
+    const residentRoles = source.residentPolicy === "none" ? [] : officeResidentRoles(this.catalog);
     const allocation = this.occupancy.assign(
       { projectId: this.projectId, conversationId: source.conversationId, graphScopeId: source.contextId },
       stations,
@@ -105,7 +105,7 @@ export class OfficeExperienceComposer {
   }
 
   private experienceRevision(source: OfficeActorSourceSnapshot): string {
-    return `${source.revision}:${this.catalog?.catalogHash ?? "catalog-unavailable"}`;
+    return `${source.revision}:${source.residentPolicy ?? "harness-catalog"}:${this.catalog?.catalogHash ?? "catalog-unavailable"}`;
   }
 }
 

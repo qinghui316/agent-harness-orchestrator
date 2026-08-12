@@ -37,6 +37,14 @@ describe("Office experience boundary", () => {
     expect(snapshot.residents.every((resident) => !("navigationId" in resident))).toBe(true);
   });
 
+  it("does not add Harness residents to Agent mode Office", () => {
+    const agent = projection([]);
+    agent.productMode = "agent";
+    const snapshot = adapter(undefined, residentCatalog()).hydrate(agent);
+    expect(snapshot.participants.map((participant) => participant.participantId)).toEqual(["main-agent"]);
+    expect(snapshot.residents).toEqual([]);
+  });
+
   it("suppresses the Evolution resident when a real Evolution Agent is visible", () => {
     const unrelated = adapter(undefined, residentCatalog()).hydrate(projection([child("coder-1", "coder-agent", "completed", 1)]));
     expect(unrelated.residents.map((resident) => resident.roleId)).toEqual(["harness-evolution-agent"]);
@@ -332,11 +340,14 @@ function residentCatalog(): AgentCatalogDisplayProjection {
 
 function projection(children: AgentSurfaceProjection["surfaces"], graphScopeId = "scope-1"): AgentSurfaceProjection {
   return {
+    projectId: "project-1",
+    productMode: "harness",
     conversationId: "conversation-1",
     graphScopeId,
     scopeStatus: "active",
     projectionHash: `${graphScopeId}:${children.map((surface) => `${surface.agentSurfaceId}:${surface.status}`).join("|")}`,
     surfaces: [main(graphScopeId), ...children],
+    diagnostics: [],
   };
 }
 

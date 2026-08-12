@@ -60,6 +60,7 @@ import type {
   CanonicalDocumentReference,
   ConversationInteractionSettlement,
   WorkspaceResourceTarget,
+  ProductMode,
 } from "./types.js";
 import { ConversationInteractionDock } from "./panels/workbench/ConversationInteractionDock.js";
 import { useGlobalOperationGate } from "./controllers/useGlobalOperationGate.js";
@@ -74,6 +75,8 @@ import {
   type ComposerActionRequest,
 } from "./controllers/useConversationComposerController.js";
 import { removalConfirmationMessage, useProjectConversationSession } from "./controllers/useProjectConversationSession.js";
+import { useAppModeController } from "./controllers/AppModeController.js";
+import { modePresentationPolicy } from "./presentation/ModePresentationPolicy.js";
 
 const LEFT_SIDEBAR_DEFAULT_WIDTH = 280;
 const LEFT_SIDEBAR_MIN_WIDTH = 220;
@@ -96,6 +99,8 @@ function pointerClientX(event: { clientX?: number; pageX?: number; screenX?: num
 }
 
 export function App(): ReactElement {
+  const appMode = useAppModeController();
+  const presentation = useMemo(() => modePresentationPolicy(appMode.productMode), [appMode.productMode]);
   const [orchestrationOpen, setOrchestrationOpen] = useState(false);
   const [sidebarSearch, setSidebarSearch] = useState("");
   const [projectMenuMode, setProjectMenuMode] = useState<"closed" | "add" | "new">("closed");
@@ -125,6 +130,7 @@ export function App(): ReactElement {
   const selectedProjectIdRef = useRef<string | null>(null);
   const projectionEventRouterRef = useRef<(projectId: string, event: WorkbenchLiveEvent) => void>(() => undefined);
   const session = useProjectConversationSession({
+    productMode: appMode.productMode,
     timeline: {
       invalidateProjection: invalidateProjectionCache,
       clearProject: timeline.clearProject,
@@ -159,6 +165,14 @@ export function App(): ReactElement {
   const expandedProjects = session.expandedProjects;
   const projectSnapshots = session.projectSnapshots;
   const pendingDemandConversation = session.pendingDemandConversation;
+
+  useEffect(() => {
+    if (!presentation.harness["governance-approvals"]
+      && rightToolRailState.mode === "tool"
+      && rightToolRailState.tool === "confirm") {
+      setRightToolRailState({ mode: "launcher" });
+    }
+  }, [presentation.harness, rightToolRailState]);
 
   const appShellStyle = !settingsOpen ? ({
     "--left-sidebar-width": `${leftSidebarWidth}px`,
@@ -463,6 +477,7 @@ export function App(): ReactElement {
     }
     : snapshot.center.selectedTopic;
   const workspaceResources = useWorkspaceResourceController({
+    productMode: snapshot.productMode,
     projectId: selectedProjectId,
     conversationId: activeTopic?.id ?? null,
     loadAgentTranscript: (target) => {
@@ -482,7 +497,7 @@ export function App(): ReactElement {
       conversationId,
       agentSurfaceId,
     }),
-  });
+  } as Parameters<typeof useWorkspaceResourceController>[0] & { productMode: ProductMode });
   const workspaceResourceTabs = workspaceResources.tabs;
   const selectedWorkspaceResourceId = workspaceResources.selectedResourceId;
   const workspaceDocuments = workspaceResources.documents;
@@ -588,6 +603,7 @@ export function App(): ReactElement {
   const activeConfirmationQueue = snapshot.right.confirmationQueue ?? { primary: null, current: [], otherDemands: [], maintenance: [], history: [] };
   const agentSurfaces = useAgentSurfaceController({
     projectId: selectedProjectId,
+    productMode: snapshot.productMode,
     conversationId: activeTopic?.id ?? null,
     officeViewOpen: orchestrationOpen,
     ports: {
@@ -704,6 +720,7 @@ export function App(): ReactElement {
   const pendingConfirmationCount = (activeConfirmationQueue.primary ? 1 : 0)
     + activeConfirmationQueue.otherDemands.length
     + activeConfirmationQueue.maintenance.length;
+  const visiblePendingConfirmationCount = presentation.harness["governance-approvals"] ? pendingConfirmationCount : 0;
   const officeSurfaceProjection = agentSurfaces.projection;
   const providerModelLabel = providerModelSettings?.effectiveModel?.modelId
     || providerDiagnostics?.models.effectiveModel?.modelId
@@ -721,6 +738,7 @@ export function App(): ReactElement {
   }
 
   function openRightToolPanel(tab: RightToolRailTab): void {
+    if (tab === "confirm" && !presentation.harness["governance-approvals"]) return;
     setRightToolRailState({ mode: "tool", tool: tab });
     if (tab === "agent") {
       if (!selectedWorkspaceResourceId && workspaceResourceTabs.length === 0) {
@@ -778,11 +796,25 @@ export function App(): ReactElement {
       className={`app-shell ${settingsOpen ? "settings-open" : rightToolRailState.mode === "closed" ? "right-rail-closed" : "right-rail-open"} sidebar-expanded${orchestrationOpen ? " orchestration-open" : ""}`}
       style={appShellStyle}
     >
+      {!settingsOpen ? <div className="product-mode-shell-control">
+        <div className="product-mode-segment" role="group" aria-label="工作模式" data-testid="product-mode-control">
+          <button
+            type="button"
+            className={appMode.productMode === "agent" ? "active" : ""}
+            aria-pressed={appMode.productMode === "agent"}
+            onClick={() => appMode.selectMode("agent")}
+          >Agent</button>
+          <button
+            type="button"
+            className={appMode.productMode === "harness" ? "active" : ""}
+            aria-pressed={appMode.productMode === "harness"}
+            onClick={() => appMode.selectMode("harness")}
+          >AHO</button>
+        </div>
+      </div> : null}
       {!settingsOpen ? (
         <aside className="sidebar sidebar-expanded" aria-label="左侧项目栏">
-          <div className="brand compact-brand">
-            <div className="brand-title">AHO</div>
-          </div>
+          <div className="brand compact-brand" aria-hidden="true" />
               <ProjectConversationSidebar
                 projects={projects}
           selectedProjectId={selectedProjectId}
@@ -990,7 +1022,7 @@ export function App(): ReactElement {
           terminalDisabled={!selectedProjectId}
           onToggleTerminal={toggleTerminalDock}
           rightRailOpen={rightToolRailState.mode !== "closed"}
-          rightRailPendingCount={pendingConfirmationCount}
+          rightRailPendingCount={visiblePendingConfirmationCount}
           onToggleRightRail={toggleRightToolRail}
         /> : null}
         {!settingsOpen ? <TerminalDock
@@ -1013,8 +1045,9 @@ export function App(): ReactElement {
 
       {!settingsOpen && rightToolRailState.mode !== "closed" ? <RightToolRailShell
         state={rightToolRailState}
-        pendingCount={pendingConfirmationCount}
-        hasPrimary={Boolean(activeConfirmationQueue.primary)}
+        pendingCount={visiblePendingConfirmationCount}
+        hasPrimary={presentation.harness["governance-approvals"] && Boolean(activeConfirmationQueue.primary)}
+        showGovernance={presentation.harness["governance-approvals"]}
         onCollapse={() => setRightToolRailState({ mode: "closed" })}
         onToolOpen={openRightToolPanel}
         onBackToLauncher={() => setRightToolRailState({ mode: "launcher" })}

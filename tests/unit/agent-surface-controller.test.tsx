@@ -11,6 +11,8 @@ import type { AgentSurfaceProjection } from "../../src/web/src/types.js";
 
 function projection(scope = "scope-1", hash = "hash-1"): AgentSurfaceProjection {
   return {
+    projectId: "project-1",
+    productMode: "harness",
     conversationId: "conversation-1",
     graphScopeId: scope,
     scopeStatus: "active",
@@ -19,7 +21,12 @@ function projection(scope = "scope-1", hash = "hash-1"): AgentSurfaceProjection 
       { agentSurfaceId: "main-agent", kind: "main-agent", roleId: "main-agent", roleDisplayName: "Main Agent", label: "主 Agent", description: "", skills: [], parentAgentSurfaceId: null, graphScopeId: scope, scopeRange: "current", status: "running", readOnly: false, createdAt: "2026-07-18T00:00:00Z" },
       { agentSurfaceId: "agent:child", kind: "agent", roleId: "planning-agent", roleDisplayName: "Planning Agent", label: "Plan Agent", description: "", skills: ["planning"], parentAgentSurfaceId: "main-agent", graphScopeId: scope, scopeRange: "current", status: "running", readOnly: false, createdAt: "2026-07-18T00:00:01Z" },
     ],
+    diagnostics: [],
   };
+}
+
+function agentProjection(scope = "agent-scope", hash = "agent-hash"): AgentSurfaceProjection {
+  return { ...projection(scope, hash), productMode: "agent" };
 }
 
 function ports(overrides: Partial<AgentSurfaceControllerPorts> = {}): AgentSurfaceControllerPorts {
@@ -37,7 +44,7 @@ afterEach(() => vi.useRealTimers());
 describe("AgentSurfaceController", () => {
   it("loads one projection and navigates by exact agentSurfaceId", async () => {
     const ownerPorts = ports();
-    const { result } = renderHook(() => useAgentSurfaceController({ projectId: "project-1", conversationId: "conversation-1", officeViewOpen: true, ports: ownerPorts }));
+    const { result } = renderHook(() => useAgentSurfaceController({ projectId: "project-1", productMode: "harness", conversationId: "conversation-1", officeViewOpen: true, ports: ownerPorts }));
     await waitFor(() => expect(result.current.loadState).toBe("ready"));
     act(() => result.current.selectSurface("agent:child"));
     expect(ownerPorts.openAgentSurface).toHaveBeenCalledWith({ conversationId: "conversation-1", agentSurfaceId: "agent:child" });
@@ -49,7 +56,7 @@ describe("AgentSurfaceController", () => {
     const first = { ...projection(), projectionHash: "main-only", surfaces: [projection().surfaces[0]!] };
     const loadProjection = vi.fn(async () => first);
     const ownerPorts = ports({ loadProjection });
-    const { result } = renderHook(() => useAgentSurfaceController({ projectId: "project-1", conversationId: "conversation-1", officeViewOpen: true, ports: ownerPorts }));
+    const { result } = renderHook(() => useAgentSurfaceController({ projectId: "project-1", productMode: "harness", conversationId: "conversation-1", officeViewOpen: true, ports: ownerPorts }));
     await waitFor(() => expect(result.current.projection?.projectionHash).toBe("main-only"));
     loadProjection.mockResolvedValueOnce(projection("scope-1", "with-child"));
     let outcome: "opened" | "stale" | "error" | undefined;
@@ -62,7 +69,7 @@ describe("AgentSurfaceController", () => {
   it("does not open a tab when the exact surface remains missing or the scope is stale", async () => {
     const mainOnly = { ...projection(), projectionHash: "main-only", surfaces: [projection().surfaces[0]!] };
     const ownerPorts = ports({ loadProjection: vi.fn(async () => mainOnly) });
-    const { result } = renderHook(() => useAgentSurfaceController({ projectId: "project-1", conversationId: "conversation-1", officeViewOpen: true, ports: ownerPorts }));
+    const { result } = renderHook(() => useAgentSurfaceController({ projectId: "project-1", productMode: "harness", conversationId: "conversation-1", officeViewOpen: true, ports: ownerPorts }));
     await waitFor(() => expect(result.current.loadState).toBe("ready"));
     await expect(result.current.openExactSurface("agent:missing", "scope-1")).resolves.toBe("stale");
     await expect(result.current.openExactSurface("main-agent", "scope-old")).resolves.toBe("stale");
@@ -74,7 +81,7 @@ describe("AgentSurfaceController", () => {
     vi.useFakeTimers();
     const loadProjection = vi.fn(async () => projection());
     const ownerPorts = ports({ loadProjection });
-    const { result } = renderHook(() => useAgentSurfaceController({ projectId: "project-1", conversationId: "conversation-1", officeViewOpen: false, ports: ownerPorts }));
+    const { result } = renderHook(() => useAgentSurfaceController({ projectId: "project-1", productMode: "harness", conversationId: "conversation-1", officeViewOpen: false, ports: ownerPorts }));
     await act(async () => Promise.resolve());
     act(() => {
       result.current.invalidate({ conversationId: "conversation-2" });
@@ -90,7 +97,7 @@ describe("AgentSurfaceController", () => {
     const first = new Promise<AgentSurfaceProjection>((resolve) => { resolveFirst = resolve; });
     const loadProjection = vi.fn().mockReturnValueOnce(first).mockResolvedValueOnce({ ...projection("scope-2", "hash-2"), conversationId: "conversation-2" });
     const ownerPorts = ports({ loadProjection });
-    const { result, rerender } = renderHook(({ conversationId }) => useAgentSurfaceController({ projectId: "project-1", conversationId, officeViewOpen: true, ports: ownerPorts }), { initialProps: { conversationId: "conversation-1" } });
+    const { result, rerender } = renderHook(({ conversationId }) => useAgentSurfaceController({ projectId: "project-1", productMode: "harness", conversationId, officeViewOpen: true, ports: ownerPorts }), { initialProps: { conversationId: "conversation-1" } });
     rerender({ conversationId: "conversation-2" });
     await waitFor(() => expect(result.current.projection?.graphScopeId).toBe("scope-2"));
     act(() => resolveFirst(projection("stale", "stale")));
@@ -98,10 +105,33 @@ describe("AgentSurfaceController", () => {
     expect(result.current.projection?.graphScopeId).toBe("scope-2");
   });
 
+  it("drops a late response after the product mode changes", async () => {
+    let resolveAgent!: (value: AgentSurfaceProjection) => void;
+    const agent = new Promise<AgentSurfaceProjection>((resolve) => { resolveAgent = resolve; });
+    const loadProjection = vi.fn()
+      .mockReturnValueOnce(agent)
+      .mockResolvedValueOnce(projection("harness-scope", "harness-hash"));
+    const ownerPorts = ports({ loadProjection });
+    const { result, rerender } = renderHook(({ productMode }: { productMode: "agent" | "harness" }) => useAgentSurfaceController({
+      projectId: "project-1",
+      productMode,
+      conversationId: "conversation-1",
+      officeViewOpen: true,
+      ports: ownerPorts,
+    }), { initialProps: { productMode: "agent" as const } });
+    rerender({ productMode: "harness" });
+    await waitFor(() => expect(result.current.projection?.projectionHash).toBe("harness-hash"));
+    act(() => resolveAgent(agentProjection("stale-agent", "stale-agent")));
+    await act(async () => Promise.resolve());
+    expect(result.current.projection?.productMode).toBe("harness");
+    expect(result.current.projection?.projectionHash).toBe("harness-hash");
+  });
+
   it("does not request a projection for a provisional conversation", async () => {
     const ownerPorts = ports();
     const { result } = renderHook(() => useAgentSurfaceController({
       projectId: "project-1",
+      productMode: "harness",
       conversationId: "pending:test",
       officeViewOpen: true,
       ports: ownerPorts,
@@ -117,6 +147,7 @@ describe("AgentSurfaceController", () => {
     const ownerPorts = ports({ loadProjection: vi.fn(async () => terminated) });
     const { result } = renderHook(() => useAgentSurfaceController({
       projectId: "project-1",
+      productMode: "harness",
       conversationId: "conversation-1",
       officeViewOpen: true,
       ports: ownerPorts,

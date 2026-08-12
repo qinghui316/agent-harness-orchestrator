@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readBundledAgentCatalog, type AgentCatalog } from "../agent/catalog.js";
 import { agentThreadSurfaceId } from "../provider-runtime/agent-surface-id.js";
+import type { ProductMode } from "../provider-runtime/index.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
 import { resolveRegisteredAgentExecutionProfile } from "./agent-execution-profile-resolver.js";
@@ -9,13 +10,14 @@ import { fromStoredThreadMessage } from "./conversation-thread-log.js";
 import type { StoredProviderAttempt, StoredProviderThreadLink, StoredTopicMessage } from "./persistence/contracts.js";
 import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import type { WorkbenchProjectInput } from "./read-model-types.js";
-import type { AgentSurfaceProjection, AgentSurfaceProjectionItem, AgentSurfaceStatus } from "./agent-surface-contract.js";
+import type { AgentSurfaceProjection, AgentSurfaceProjectionDiagnostic, AgentSurfaceProjectionItem, AgentSurfaceStatus } from "./agent-surface-contract.js";
 
 const TERMINAL_PLAN_STATUSES = new Set(["accepted", "revision-requested", "skipped", "superseded", "planner-proposal-invalid"]);
 
 export async function getAgentSurfaceProjection(
   input: WorkbenchProjectInput,
   conversationId: string,
+  assertedProductMode?: ProductMode,
 ): Promise<AgentSurfaceProjection> {
   if (!input.project) throw notFound("Agent surfaces are unavailable for this project.");
   const state = await resolveProjectRuntimeState(input.project, {
@@ -29,6 +31,9 @@ export async function getAgentSurfaceProjection(
     return store.transaction(() => {
       const conversation = store.conversations.readConversation(paths.projectId, conversationId);
       if (!conversation) throw notFound("Agent surface conversation was not found.");
+      if (assertedProductMode && conversation.productMode !== assertedProductMode) {
+        throw badRequest("Conversation productMode does not match the requested Agent surface mode.");
+      }
       const graphScopeId = conversation.currentGraphScopeId ?? "";
       const scopeStatus = graphScopeId && store.conversations.isConversationGraphScopeTerminal(paths.projectId, graphScopeId)
         ? "terminal" as const
@@ -37,6 +42,8 @@ export async function getAgentSurfaceProjection(
       const attempts = store.providerAttempts.listProviderAttempts(paths.projectId, conversationId);
       const messages = store.timeline.listConversationMessages(paths.projectId, conversationId);
       return buildAgentSurfaceProjection({
+        projectId: paths.projectId,
+        productMode: conversation.productMode,
         conversationId,
         graphScopeId,
         scopeStatus,
@@ -53,6 +60,8 @@ export async function getAgentSurfaceProjection(
 }
 
 export function buildAgentSurfaceProjection(input: {
+  projectId?: string;
+  productMode?: ProductMode;
   conversationId: string;
   graphScopeId: string;
   scopeStatus: "active" | "terminal";
@@ -62,6 +71,7 @@ export function buildAgentSurfaceProjection(input: {
   messages: StoredTopicMessage[];
   catalog: AgentCatalog;
 }): AgentSurfaceProjection {
+  if (input.productMode === "agent") return buildDirectAgentSurfaceProjection(input);
   const catalogByRole = new Map(input.catalog.agents.map((entry) => [entry.roleId, entry]));
   const attemptsById = new Map(input.attempts.map((attempt) => [attempt.attemptId, attempt]));
   const validLinks = input.links.filter((link) => {
@@ -127,15 +137,186 @@ export function buildAgentSurfaceProjection(input: {
     left.createdAt.localeCompare(right.createdAt) || left.agentSurfaceId.localeCompare(right.agentSurfaceId)
   )));
   const canonical = {
+    projectId: input.projectId ?? input.links[0]?.projectId ?? input.attempts[0]?.projectId ?? "",
+    productMode: "harness" as const,
     conversationId: input.conversationId,
     graphScopeId: input.graphScopeId,
     scopeStatus: input.scopeStatus,
     surfaces,
+    diagnostics: [] as AgentSurfaceProjectionDiagnostic[],
   };
   return {
     ...canonical,
     projectionHash: createHash("sha256").update(JSON.stringify(canonical)).digest("hex"),
   };
+}
+
+function buildDirectAgentSurfaceProjection(input: {
+  projectId?: string;
+  conversationId: string;
+  graphScopeId: string;
+  scopeStatus: "active" | "terminal";
+  conversationCreatedAt: string;
+  links: StoredProviderThreadLink[];
+  attempts: StoredProviderAttempt[];
+  messages: StoredTopicMessage[];
+}): AgentSurfaceProjection {
+  const projectId = input.projectId ?? input.links[0]?.projectId ?? input.attempts[0]?.projectId ?? "";
+  const attemptsById = new Map(input.attempts.map((attempt) => [attempt.attemptId, attempt]));
+  const diagnostics: AgentSurfaceProjectionDiagnostic[] = [];
+  const mainAttempt = input.attempts
+    .filter((attempt) => attempt.productMode === "agent" && attempt.roleId === "main-agent")
+    .sort(compareAttempts)
+    .at(-1);
+  const graphScopeId = input.graphScopeId || mainAttempt?.graphScopeId || `conversation:${input.conversationId}`;
+  const mainSurface: AgentSurfaceProjectionItem = {
+    agentSurfaceId: "main-agent",
+    kind: "main-agent",
+    roleId: "main-agent",
+    roleDisplayName: "Agent",
+    label: "Agent",
+    description: "在当前项目中直接处理对话。",
+    skills: [],
+    parentAgentSurfaceId: null,
+    graphScopeId,
+    scopeRange: "current",
+    status: mainAttempt ? mapAttemptStatus(mainAttempt.status) : "idle",
+    readOnly: input.scopeStatus === "terminal",
+    createdAt: mainAttempt?.createdAt ?? input.conversationCreatedAt,
+  };
+
+  const candidates = new Map<string, { link: StoredProviderThreadLink; attempt: StoredProviderAttempt }>();
+  for (const link of [...input.links].sort(compareLinks)) {
+    if (link.roleId === "main-agent") continue;
+    const surfaceId = safeSurfaceIdForLink(link);
+    const attempt = attemptsById.get(link.attemptId);
+    if (!surfaceId || !attempt || !agentAttemptMatchesLink(attempt, link, projectId, graphScopeId)) {
+      diagnostics.push({ code: "mismatched-fact", ...(surfaceId ? { agentSurfaceId: surfaceId } : {}) });
+      continue;
+    }
+    if (link.roleId !== "native-child-agent" || !link.parentAgentSurfaceId) {
+      diagnostics.push({ code: "malformed-lineage", agentSurfaceId: surfaceId });
+      continue;
+    }
+    candidates.set(surfaceId, { link, attempt });
+  }
+
+  const accepted = new Set(["main-agent"]);
+  const children: AgentSurfaceProjectionItem[] = [];
+  let progressed = true;
+  while (progressed) {
+    progressed = false;
+    for (const [surfaceId, candidate] of [...candidates].sort(([left], [right]) => left.localeCompare(right))) {
+      if (!accepted.has(candidate.link.parentAgentSurfaceId!)) continue;
+      accepted.add(surfaceId);
+      candidates.delete(surfaceId);
+      children.push(nativeChildSurface(surfaceId, candidate.link, candidate.attempt, graphScopeId, input.scopeStatus));
+      progressed = true;
+    }
+  }
+  for (const [surfaceId] of [...candidates].sort(([left], [right]) => left.localeCompare(right))) {
+    diagnostics.push({
+      code: unresolvedLineageCode(surfaceId, candidates),
+      agentSurfaceId: surfaceId,
+    });
+  }
+
+  const surfaces = [mainSurface, ...numberDuplicateLabels(children).sort(compareSurfaces)];
+  const canonical = {
+    projectId,
+    productMode: "agent" as const,
+    conversationId: input.conversationId,
+    graphScopeId,
+    scopeStatus: input.scopeStatus,
+    surfaces,
+    diagnostics: diagnostics.sort(compareDiagnostics),
+  };
+  return { ...canonical, projectionHash: createHash("sha256").update(JSON.stringify(canonical)).digest("hex") };
+}
+
+function unresolvedLineageCode(
+  surfaceId: string,
+  candidates: ReadonlyMap<string, { link: StoredProviderThreadLink }>,
+): "cyclic-lineage" | "orphan-lineage" {
+  const visited = new Set<string>();
+  let current: string | undefined = surfaceId;
+  while (current) {
+    if (visited.has(current)) return "cyclic-lineage";
+    visited.add(current);
+    const candidate = candidates.get(current);
+    if (!candidate) return "orphan-lineage";
+    current = candidate.link.parentAgentSurfaceId ?? undefined;
+  }
+  return "orphan-lineage";
+}
+
+function nativeChildSurface(
+  agentSurfaceId: string,
+  link: StoredProviderThreadLink,
+  attempt: StoredProviderAttempt,
+  graphScopeId: string,
+  scopeStatus: "active" | "terminal",
+): AgentSurfaceProjectionItem {
+  const status = mapAttemptStatus(attempt.status);
+  return {
+    agentSurfaceId,
+    kind: "agent",
+    roleId: "native-child-agent",
+    roleDisplayName: "子 Agent",
+    label: composeDisplayLabel("子 Agent", link.displayName),
+    description: "由当前 Agent 调用的原生子 Agent。",
+    skills: [],
+    parentAgentSurfaceId: link.parentAgentSurfaceId,
+    graphScopeId,
+    scopeRange: "current",
+    status,
+    readOnly: scopeStatus === "terminal" || status === "terminated",
+    createdAt: attempt.createdAt,
+  };
+}
+
+function agentAttemptMatchesLink(
+  attempt: StoredProviderAttempt,
+  link: StoredProviderThreadLink,
+  projectId: string,
+  graphScopeId: string,
+): boolean {
+  return attempt.productMode === "agent"
+    && attempt.projectId === projectId
+    && link.projectId === projectId
+    && attempt.conversationId === link.conversationId
+    && (!attempt.graphScopeId || attempt.graphScopeId === graphScopeId)
+    && (!link.graphScopeId || link.graphScopeId === graphScopeId)
+    && attempt.providerId === link.providerId
+    && attempt.roleId === "native-child-agent"
+    && attempt.roleId === link.roleId
+    && attempt.nativeSessionId === link.providerThreadId;
+}
+
+function safeSurfaceIdForLink(link: StoredProviderThreadLink): string | null {
+  try {
+    return surfaceIdForLink(link);
+  } catch {
+    return null;
+  }
+}
+
+function compareLinks(left: StoredProviderThreadLink, right: StoredProviderThreadLink): number {
+  return left.updatedAt.localeCompare(right.updatedAt)
+    || left.providerId.localeCompare(right.providerId)
+    || left.providerThreadId.localeCompare(right.providerThreadId)
+    || left.attemptId.localeCompare(right.attemptId)
+    || left.roleId.localeCompare(right.roleId)
+    || (left.parentAgentSurfaceId ?? "").localeCompare(right.parentAgentSurfaceId ?? "")
+    || (left.displayName ?? "").localeCompare(right.displayName ?? "");
+}
+
+function compareSurfaces(left: AgentSurfaceProjectionItem, right: AgentSurfaceProjectionItem): number {
+  return left.createdAt.localeCompare(right.createdAt) || left.agentSurfaceId.localeCompare(right.agentSurfaceId);
+}
+
+function compareDiagnostics(left: AgentSurfaceProjectionDiagnostic, right: AgentSurfaceProjectionDiagnostic): number {
+  return left.code.localeCompare(right.code) || (left.agentSurfaceId ?? "").localeCompare(right.agentSurfaceId ?? "");
 }
 
 function interactionAttention(
@@ -236,5 +417,11 @@ function normalizedLabel(value: string): string {
 function notFound(message: string): Error {
   const error = new Error(message);
   error.name = "NotFound";
+  return error;
+}
+
+function badRequest(message: string): Error {
+  const error = new Error(message);
+  error.name = "BadRequest";
   return error;
 }

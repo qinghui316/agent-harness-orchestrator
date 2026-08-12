@@ -29,15 +29,22 @@ import {
 } from "../../workbench/projections/read-model/implementation.js";
 import { getAgentSurfaceProjection } from "../../workbench/agent-surface-projection.js";
 import { getAgentCatalogDisplayProjection } from "../../workbench/agent-catalog-display-projection.js";
+import { assertProductMode } from "../../provider-runtime/index.js";
 
-export async function getWorkbenchProjection(input: WorkbenchProjectInput, rest: string, _searchParams = new URLSearchParams()): Promise<unknown> {
+export async function getWorkbenchProjection(input: WorkbenchProjectInput, rest: string, searchParams = new URLSearchParams()): Promise<unknown> {
   const [kind, encodedChangeId, encodedId, encodedExtraId] = rest.split("/");
   const changeId = encodedChangeId ? decodeURIComponent(encodedChangeId) : undefined;
   const id = encodedId ? decodeURIComponent(encodedId) : undefined;
   const extraId = encodedExtraId ? decodeURIComponent(encodedExtraId) : undefined;
   if (kind === "agent-surfaces") {
     if (!changeId) throw badRequest("agent-surfaces projection requires conversationId.");
-    return getAgentSurfaceProjection(input, changeId);
+    let productMode;
+    try {
+      productMode = assertProductMode(searchParams.get("productMode"));
+    } catch (cause) {
+      throw badRequest(cause instanceof Error ? cause.message : "productMode must be agent or harness.");
+    }
+    return getAgentSurfaceProjection(input, changeId, productMode);
   }
   if (kind === "agent-catalog") {
     if (changeId) throw badRequest("agent-catalog projection does not accept an id.");

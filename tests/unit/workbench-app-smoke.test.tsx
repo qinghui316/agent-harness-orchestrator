@@ -170,13 +170,28 @@ describe("Workbench App owner composition", () => {
     fireEvent.click(screen.getByRole("button", { name: "关闭右侧工具" }));
     expect(screen.queryByTestId("decision-pane-shell")).toBeNull();
   });
+
+  it("keeps shared rail tools and removes Harness governance in Agent mode", async () => {
+    window.localStorage.setItem("aho.workbench.productMode.v1", "agent");
+    installApiFixture(createSnapshot(undefined, "agent"));
+    render(<App />);
+    expect(await screen.findByText("Owner convergence")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Agent" }).getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.click(screen.getByRole("button", { name: "打开右侧工具" }));
+    expect(screen.getByTestId("right-tool-launcher-agent")).toBeTruthy();
+    expect(screen.queryByTestId("right-tool-launcher-confirm")).toBeNull();
+    expect(screen.getByTestId("right-tool-launcher-files")).toBeTruthy();
+    expect(screen.getByTestId("right-tool-launcher-git")).toBeTruthy();
+    expect(screen.getByTestId("right-tool-launcher-diagnostics")).toBeTruthy();
+  });
 });
 
-function createSnapshot(interaction?: ConversationInteraction): Snapshot {
+function createSnapshot(interaction?: ConversationInteraction, productMode: "agent" | "harness" = "harness"): Snapshot {
   const project = { id: "repo", name: "Repo", path: "E:/repo" };
   const topic = {
     id: "conv-1",
-    productMode: "harness" as const,
+    productMode,
     title: "Owner convergence",
     state: "active",
     kind: "conversation" as const,
@@ -185,6 +200,7 @@ function createSnapshot(interaction?: ConversationInteraction): Snapshot {
   };
   return {
     ...emptyWorkbenchSnapshot,
+    productMode,
     project,
     memory: { harnessReady: true },
     left: { topics: [topic], workpads: [] },
@@ -198,7 +214,7 @@ function createSnapshot(interaction?: ConversationInteraction): Snapshot {
         state: "active",
         conversationLifecycle: "active",
       },
-      conversationInteractions: { productMode: "harness", conversationId: topic.id, items: interaction ? [interaction] : [] },
+      conversationInteractions: { productMode, conversationId: topic.id, items: interaction ? [interaction] : [] },
     },
     right: { ...emptyWorkbenchSnapshot.right },
   };
@@ -223,18 +239,18 @@ function createInteraction(): ConversationInteraction {
   } as ConversationInteraction;
 }
 
-function timelinePage(agentSurfaceId: string): CanonicalTimelinePage {
+function timelinePage(agentSurfaceId: string, productMode: "agent" | "harness" = "harness"): CanonicalTimelinePage {
   const text = agentSurfaceId === "main-agent" ? "Canonical Main reply" : "Canonical child reply";
   return {
     projectId: "repo",
-    productMode: "harness",
+    productMode,
     conversationId: "conv-1",
     agentSurfaceId,
     watermark: 1,
     pinned: [],
     entries: [{
       projectId: "repo",
-      productMode: "harness",
+      productMode,
       conversationId: "conv-1",
       agentSurfaceId,
       messageId: `message:${agentSurfaceId}`,
@@ -254,6 +270,7 @@ function timelinePage(agentSurfaceId: string): CanonicalTimelinePage {
 }
 
 function installApiFixture(snapshot: Snapshot): void {
+  const productMode = snapshot.center.selectedTopic?.productMode ?? "harness";
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
     if (url === "/agent-office/config/office-calibration.json") return json(officeCalibration);
@@ -277,10 +294,13 @@ function installApiFixture(snapshot: Snapshot): void {
     }
     if (url.includes("/workbench/snapshot")) return json(snapshot);
     if (url.includes("/workbench/projections/agent-surfaces/")) return json({
+      projectId: "repo",
+      productMode,
       conversationId: "conv-1",
       graphScopeId: "scope-1",
       scopeStatus: "active",
       projectionHash: "surface-hash-1",
+      diagnostics: [],
       surfaces: [
         {
           agentSurfaceId: "main-agent",
@@ -316,7 +336,7 @@ function installApiFixture(snapshot: Snapshot): void {
     });
     if (url.includes("/workbench/conversations/") && url.includes("/timeline?")) {
       const parsed = new URL(url, "http://localhost");
-      return json(timelinePage(parsed.searchParams.get("agentSurfaceId") ?? "main-agent"));
+      return json(timelinePage(parsed.searchParams.get("agentSurfaceId") ?? "main-agent", productMode));
     }
     if (url.includes("/providers/capabilities?")) {
       return json({ providers: [{ providerId: "codex", displayName: "Codex", capabilities: {} }] });

@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchJson } from "../api.js";
-import type { AgentSurfaceProjection, AgentSurfaceProjectionItem, AgentSurfacesInvalidationReason } from "../types.js";
+import type { AgentSurfaceProjection, AgentSurfaceProjectionItem, AgentSurfacesInvalidationReason, ProductMode } from "../types.js";
 
 export const AGENT_SURFACE_REFRESH_DELAY_MS = 120;
 
 export type AgentSurfaceLoadState = "idle" | "loading" | "ready" | "error";
 
 export interface AgentSurfaceControllerPorts {
-  loadProjection?: (projectId: string, conversationId: string) => Promise<AgentSurfaceProjection>;
+  loadProjection?: (projectId: string, productMode: ProductMode, conversationId: string) => Promise<AgentSurfaceProjection>;
   cleanupResources: (transition: "graph-scope-changed") => void;
   openAgentSurface: (target: { conversationId: string; agentSurfaceId: string }) => void;
   closeOfficeView: () => void;
@@ -15,6 +15,7 @@ export interface AgentSurfaceControllerPorts {
 
 export interface AgentSurfaceControllerInput {
   projectId: string | null;
+  productMode: ProductMode;
   conversationId: string | null;
   officeViewOpen: boolean;
   invalidationToken?: unknown;
@@ -38,15 +39,19 @@ export function isAgentSurfaceProjection(value: unknown): value is AgentSurfaceP
   if (!value || typeof value !== "object") return false;
   const projection = value as Partial<AgentSurfaceProjection>;
   return typeof projection.conversationId === "string"
+    && typeof projection.projectId === "string"
+    && (projection.productMode === "agent" || projection.productMode === "harness")
     && typeof projection.graphScopeId === "string"
     && (projection.scopeStatus === "active" || projection.scopeStatus === "terminal")
     && typeof projection.projectionHash === "string"
     && Array.isArray(projection.surfaces)
-    && projection.surfaces.every(isAgentSurface);
+    && projection.surfaces.every(isAgentSurface)
+    && Array.isArray(projection.diagnostics);
 }
 
 export function useAgentSurfaceController({
   projectId,
+  productMode,
   conversationId,
   officeViewOpen,
   invalidationToken,
@@ -68,7 +73,7 @@ export function useAgentSurfaceController({
   const graphScopeRef = useRef<string | null>(null);
   const projectionRef = useRef<AgentSurfaceProjection | null>(null);
   portsRef.current = ports;
-  contextRef.current = projectId && canonicalConversationId ? `${projectId}:${canonicalConversationId}` : null;
+  contextRef.current = projectId && canonicalConversationId ? selectionContext(projectId, productMode, canonicalConversationId) : null;
 
   const readProjection = useCallback(async (foreground: boolean): Promise<void> => {
     if (!projectId || !canonicalConversationId || inFlightRef.current) {
@@ -76,15 +81,16 @@ export function useAgentSurfaceController({
       return;
     }
     const generation = generationRef.current;
-    const context = `${projectId}:${canonicalConversationId}`;
+    const context = selectionContext(projectId, productMode, canonicalConversationId);
     const request = ++requestRef.current;
     inFlightRef.current = true;
     if (foreground) setLoadState("loading");
     setLoadError(null);
     try {
-      const next = await (portsRef.current.loadProjection ?? loadAgentSurfaceProjection)(projectId, canonicalConversationId);
+      const next = await (portsRef.current.loadProjection ?? loadAgentSurfaceProjection)(projectId, productMode, canonicalConversationId);
       if (generationRef.current !== generation || contextRef.current !== context || requestRef.current !== request) return;
-      if (!isAgentSurfaceProjection(next) || next.conversationId !== canonicalConversationId || !next.surfaces.some((surface) => surface.kind === "main-agent")) {
+      if (!projectionMatchesSelection(next, projectId, productMode, canonicalConversationId)
+        || !next.surfaces.some((surface) => surface.kind === "main-agent")) {
         throw new Error("invalid-agent-surface-projection");
       }
       projectionRef.current = next;
@@ -104,7 +110,7 @@ export function useAgentSurfaceController({
         }
       }
     }
-  }, [canonicalConversationId, projectId, projection]);
+  }, [canonicalConversationId, productMode, projectId, projection]);
 
   const invalidate = useCallback((input?: { conversationId?: string; graphScopeId?: string; reason?: AgentSurfacesInvalidationReason }): void => {
     if (!projectId || !canonicalConversationId || (input?.conversationId && input.conversationId !== canonicalConversationId)) return;
@@ -134,7 +140,7 @@ export function useAgentSurfaceController({
     setLoadError(null);
     setLoadState(projectId && canonicalConversationId ? "loading" : "idle");
     if (projectId && canonicalConversationId) void readProjection(true);
-  }, [canonicalConversationId, projectId, reloadVersion]);
+  }, [canonicalConversationId, productMode, projectId, reloadVersion]);
 
   useEffect(() => {
     if (invalidationToken === undefined) return;
@@ -185,14 +191,14 @@ export function useAgentSurfaceController({
   ): Promise<"opened" | "stale" | "error"> => {
     if (!projectId || !canonicalConversationId) return "stale";
     const generation = generationRef.current;
-    const context = `${projectId}:${canonicalConversationId}`;
+    const context = selectionContext(projectId, productMode, canonicalConversationId);
     let candidate = projectionRef.current;
     if (candidate?.graphScopeId !== expectedGraphScopeId
       || !candidate.surfaces.some((surface) => surface.agentSurfaceId === agentSurfaceId)) {
       try {
-        const refreshed = await (portsRef.current.loadProjection ?? loadAgentSurfaceProjection)(projectId, canonicalConversationId);
+        const refreshed = await (portsRef.current.loadProjection ?? loadAgentSurfaceProjection)(projectId, productMode, canonicalConversationId);
         if (generationRef.current !== generation || contextRef.current !== context) return "stale";
-        if (!isAgentSurfaceProjection(refreshed) || refreshed.conversationId !== canonicalConversationId) return "error";
+        if (!projectionMatchesSelection(refreshed, projectId, productMode, canonicalConversationId)) return "error";
         projectionRef.current = refreshed;
         graphScopeRef.current = refreshed.graphScopeId;
         setProjection((current) => current?.projectionHash === refreshed.projectionHash ? current : refreshed);
@@ -213,7 +219,7 @@ export function useAgentSurfaceController({
     if (surface.kind === "main-agent") portsRef.current.closeOfficeView();
     else portsRef.current.openAgentSurface({ conversationId: canonicalConversationId, agentSurfaceId });
     return "opened";
-  }, [canonicalConversationId, projectId]);
+  }, [canonicalConversationId, productMode, projectId]);
 
   return {
     projection,
@@ -248,8 +254,24 @@ function isAgentSurface(value: unknown): value is AgentSurfaceProjectionItem {
     && typeof surface.createdAt === "string";
 }
 
-function loadAgentSurfaceProjection(projectId: string, conversationId: string): Promise<AgentSurfaceProjection> {
+function loadAgentSurfaceProjection(projectId: string, productMode: ProductMode, conversationId: string): Promise<AgentSurfaceProjection> {
   return fetchJson<AgentSurfaceProjection>(
-    `/api/projects/${encodeURIComponent(projectId)}/workbench/projections/agent-surfaces/${encodeURIComponent(conversationId)}`,
+    `/api/projects/${encodeURIComponent(projectId)}/workbench/projections/agent-surfaces/${encodeURIComponent(conversationId)}?productMode=${encodeURIComponent(productMode)}`,
   );
+}
+
+function selectionContext(projectId: string, productMode: ProductMode, conversationId: string): string {
+  return `${projectId}\0${productMode}\0${conversationId}`;
+}
+
+function projectionMatchesSelection(
+  projection: unknown,
+  projectId: string,
+  productMode: ProductMode,
+  conversationId: string,
+): projection is AgentSurfaceProjection {
+  return isAgentSurfaceProjection(projection)
+    && projection.projectId === projectId
+    && projection.productMode === productMode
+    && projection.conversationId === conversationId;
 }

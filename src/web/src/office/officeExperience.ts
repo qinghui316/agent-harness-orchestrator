@@ -109,6 +109,7 @@ export type OfficeActorSourceSnapshot = {
   contextId: string;
   revision: string;
   lifecycle: "active" | "terminal";
+  residentPolicy?: "harness-catalog" | "none";
   actors: OfficeActorSourceItem[];
 };
 

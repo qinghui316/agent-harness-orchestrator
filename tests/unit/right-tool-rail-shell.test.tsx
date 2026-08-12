@@ -41,6 +41,15 @@ describe("Right tool rail shell", () => {
     expect(onCollapse).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps shared tools and omits the governance entry when policy hides it", () => {
+    renderShell({ showGovernance: false });
+    expect(screen.getByTestId("right-tool-launcher-agent")).toBeTruthy();
+    expect(screen.queryByTestId("right-tool-launcher-confirm")).toBeNull();
+    expect(screen.getByTestId("right-tool-launcher-files")).toBeTruthy();
+    expect(screen.getByTestId("right-tool-launcher-git")).toBeTruthy();
+    expect(screen.getByTestId("right-tool-launcher-diagnostics")).toBeTruthy();
+  });
+
   it("renders a tool panel and returns to the launcher", () => {
     const onBackToLauncher = vi.fn();
     renderShell({ state: { mode: "tool", tool: "diagnostics" }, onBackToLauncher });
@@ -65,11 +74,13 @@ function renderShell(overrides: Partial<{
   onCollapse: () => void;
   onToolOpen: (tool: "agent" | "confirm" | "files" | "git" | "diagnostics") => void;
   onBackToLauncher: () => void;
+  showGovernance: boolean;
 }> = {}) {
   return render(<RightToolRailShell
     state={overrides.state ?? { mode: "launcher" }}
     pendingCount={overrides.pendingCount ?? 1}
     hasPrimary={overrides.hasPrimary ?? false}
+    showGovernance={overrides.showGovernance ?? true}
     onCollapse={overrides.onCollapse ?? vi.fn()}
     onToolOpen={overrides.onToolOpen ?? vi.fn()}
     onBackToLauncher={overrides.onBackToLauncher ?? vi.fn()}

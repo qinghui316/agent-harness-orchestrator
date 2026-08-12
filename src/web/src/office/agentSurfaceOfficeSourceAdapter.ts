@@ -12,6 +12,7 @@ export class AgentSurfaceOfficeSourceAdapter implements OfficeActorSourceAdapter
       contextId: projection.graphScopeId,
       revision: projection.projectionHash,
       lifecycle: projection.scopeStatus,
+      residentPolicy: projection.productMode === "agent" ? "none" : "harness-catalog",
       actors: projection.surfaces
         .filter((surface) => (
           surface.scopeRange === "current"

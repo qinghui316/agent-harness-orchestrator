@@ -2,6 +2,18 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 describe("Workbench shell layout contract", () => {
+  it("passes the selected Conversation mode to child workspace resources", async () => {
+    const source = await readFile("src/web/src/App.tsx", "utf8");
+    expect(source).toMatch(/useWorkspaceResourceController\(\{\s*productMode: snapshot\.productMode,/);
+    expect(source).not.toMatch(/native-child-agent[\s\S]{0,160}productMode/);
+  });
+
+  it("recalibrates Office from canonical projection on reconnect without using Timeline deltas", async () => {
+    const source = await readFile("src/web/src/App.tsx", "utf8");
+    expect(source).toMatch(/onConnected:[\s\S]*agentSurfaces\.invalidate\(\{ conversationId, reason: "snapshot" \}\)/);
+    expect(source).toMatch(/timeline:\s*\{[\s\S]*patch:[\s\S]*timeline\.ingestEnvelope/);
+    expect(source).not.toMatch(/timeline:\s*\{[\s\S]{0,240}patch:[\s\S]{0,240}agentSurfaces\.invalidate/);
+  });
   it("uses two columns when closed and mounts the right rail only while open", async () => {
     const [app, shellCss, sidebarCss, workspaceCss] = await Promise.all([
       readFile("src/web/src/App.tsx", "utf8"),

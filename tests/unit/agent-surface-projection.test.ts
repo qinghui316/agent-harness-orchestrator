@@ -154,7 +154,140 @@ describe("Agent Surface projection", () => {
     await expect(getWorkbenchProjection({} as WorkbenchProjectInput, "agent-office/conversation-1"))
       .rejects.toThrow("Unknown Workbench projection: agent-office");
   });
+
+  it("projects provider-neutral Agent children with stable ordering beyond Office capacity", () => {
+    const children = Array.from({ length: 24 }, (_, index) => {
+      const id = `child-${String(index).padStart(2, "0")}`;
+      return {
+        link: nativeLink(`attempt-${id}`, id, "main-agent", "neutral-provider"),
+        attempt: nativeAttempt(`attempt-${id}`, id, "completed", "neutral-provider"),
+      };
+    });
+    const input = {
+      projectId: "project-1",
+      productMode: "agent" as const,
+      conversationId: "conversation-1",
+      graphScopeId: "",
+      scopeStatus: "active" as const,
+      conversationCreatedAt: "2026-07-18T00:00:00.000Z",
+      links: children.map((item) => item.link),
+      attempts: children.map((item) => item.attempt),
+      messages: [],
+      catalog: catalog(),
+    };
+    const first = buildAgentSurfaceProjection(input);
+    const reordered = buildAgentSurfaceProjection({
+      ...input,
+      links: [...input.links].reverse(),
+      attempts: [...input.attempts].reverse(),
+    });
+    expect(first).toMatchObject({ projectId: "project-1", productMode: "agent", diagnostics: [] });
+    expect(first.surfaces).toHaveLength(25);
+    expect(first.surfaces.slice(1).every((surface) => surface.roleId === "native-child-agent")).toBe(true);
+    expect(reordered.projectionHash).toBe(first.projectionHash);
+    expect(reordered.surfaces).toEqual(first.surfaces);
+    expect(JSON.stringify(first)).not.toMatch(/providerThreadId|nativeSessionId/);
+  });
+
+  it("omits malformed, orphaned, and cyclic Agent lineage with stable diagnostics", () => {
+    const parentSurfaceId = "agent:neutral-provider:thread:parent";
+    const cycleASurfaceId = "agent:codex:thread:cycle-a";
+    const cycleBSurfaceId = "agent:codex:thread:cycle-b";
+    const projection = buildAgentSurfaceProjection({
+      projectId: "project-1",
+      productMode: "agent",
+      conversationId: "conversation-1",
+      graphScopeId: "",
+      scopeStatus: "active",
+      conversationCreatedAt: "2026-07-18T00:00:00.000Z",
+      links: [
+        nativeLink("attempt-valid", "valid", "main-agent"),
+        nativeLink("attempt-orphan", "orphan", parentSurfaceId),
+        nativeLink("attempt-orphan-child", "orphan-child", "agent:codex:thread:orphan"),
+        nativeLink("attempt-cycle-a", "cycle-a", cycleBSurfaceId),
+        nativeLink("attempt-cycle-b", "cycle-b", cycleASurfaceId),
+        nativeLink("attempt-malformed", "malformed", null),
+        { ...nativeLink("attempt-other-project", "other-project", "main-agent"), projectId: "project-2" },
+        { ...nativeLink("attempt-other-scope", "other-scope", "main-agent"), graphScopeId: "scope-2" },
+      ],
+      attempts: [
+        nativeAttempt("attempt-valid", "valid", "running"),
+        nativeAttempt("attempt-orphan", "orphan", "running"),
+        nativeAttempt("attempt-orphan-child", "orphan-child", "running"),
+        nativeAttempt("attempt-cycle-a", "cycle-a", "running"),
+        nativeAttempt("attempt-cycle-b", "cycle-b", "running"),
+        nativeAttempt("attempt-malformed", "malformed", "running"),
+        nativeAttempt("attempt-other-project", "other-project", "running"),
+        nativeAttempt("attempt-other-scope", "other-scope", "running"),
+      ],
+      messages: [],
+      catalog: catalog(),
+    });
+    expect(projection.surfaces.map((surface) => surface.agentSurfaceId)).toEqual([
+      "main-agent",
+      "agent:codex:thread:valid",
+    ]);
+    expect(projection.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
+      "cyclic-lineage",
+      "cyclic-lineage",
+      "malformed-lineage",
+      "mismatched-fact",
+      "mismatched-fact",
+      "orphan-lineage",
+      "orphan-lineage",
+    ]);
+  });
+
+  it("keeps duplicate conflicting child facts deterministic across arrival order", () => {
+    const firstLink = nativeLink("attempt-a", "duplicate", "main-agent");
+    const secondLink = { ...nativeLink("attempt-b", "duplicate", "missing-parent"), updatedAt: firstLink.updatedAt };
+    const input = {
+      projectId: "project-1",
+      productMode: "agent" as const,
+      conversationId: "conversation-1",
+      graphScopeId: "",
+      scopeStatus: "active" as const,
+      conversationCreatedAt: "2026-07-18T00:00:00.000Z",
+      links: [firstLink, secondLink],
+      attempts: [
+        nativeAttempt("attempt-a", "duplicate", "running"),
+        nativeAttempt("attempt-b", "duplicate", "running"),
+      ],
+      messages: [],
+      catalog: catalog(),
+    };
+    const forward = buildAgentSurfaceProjection(input);
+    const reverse = buildAgentSurfaceProjection({ ...input, links: [...input.links].reverse() });
+    expect(reverse.projectionHash).toBe(forward.projectionHash);
+    expect(reverse).toEqual(forward);
+  });
 });
+
+function nativeLink(
+  attemptId: string,
+  providerThreadId: string,
+  parentAgentSurfaceId: string | null,
+  providerId = "codex",
+): StoredProviderThreadLink {
+  return {
+    ...link(attemptId, providerThreadId, "native-child-agent", parentAgentSurfaceId, ""),
+    providerId,
+    parentThreadId: parentAgentSurfaceId === "main-agent" ? "main-thread" : "parent-thread",
+  };
+}
+
+function nativeAttempt(
+  attemptId: string,
+  nativeSessionId: string,
+  status: StoredProviderAttempt["status"],
+  providerId = "codex",
+): StoredProviderAttempt {
+  return {
+    ...attempt(attemptId, nativeSessionId, "native-child-agent", status, "", "agent"),
+    productMode: "agent",
+    providerId,
+  };
+}
 
 function catalog(): AgentCatalog {
   return {
@@ -194,6 +327,7 @@ function link(
     projectId: "project-1",
     conversationId: "conversation-1",
     attemptId,
+    productMode: "harness",
     providerId: "codex",
     providerThreadId,
     roleId,
@@ -229,6 +363,7 @@ function attempt(
     nativeSessionId,
     model: null,
     capabilitySnapshot: {} as StoredProviderAttempt["capabilitySnapshot"],
+    effectiveSkillInputs: [],
     handoffHash: "handoff",
     deliveredThroughCompletedTurn: 0,
     worktreeId: null,
