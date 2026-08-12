@@ -69,6 +69,32 @@ describe("AgentSurfaceController", () => {
     expect(outcome).toBe("opened");
     expect(ownerPorts.openAgentSurface).toHaveBeenCalledWith({ conversationId: "conversation-1", agentSurfaceId: "agent:child" });
     expect(loadProjection).toHaveBeenCalled();
+    expect(ownerPorts.cleanupResources).not.toHaveBeenCalled();
+  });
+
+  it("cleans resources once and refuses navigation when exact refresh advances the graph scope", async () => {
+    const first = { ...projection(), projectionHash: "main-only", surfaces: [projection().surfaces[0]!] };
+    const loadProjection = vi.fn()
+      .mockResolvedValueOnce(first)
+      .mockResolvedValueOnce(projection("scope-2", "scope-2-with-child"));
+    const ownerPorts = ports({ loadProjection });
+    const { result } = renderHook(() => useAgentSurfaceController({
+      projectId: "project-1",
+      productMode: "harness",
+      conversationId: "conversation-1",
+      officeViewOpen: true,
+      ports: ownerPorts,
+    }));
+    await waitFor(() => expect(result.current.projection?.projectionHash).toBe("main-only"));
+
+    let outcome: "opened" | "stale" | "error" | undefined;
+    await act(async () => { outcome = await result.current.openExactSurface("agent:child", "scope-1"); });
+
+    expect(outcome).toBe("stale");
+    await waitFor(() => expect(ownerPorts.cleanupResources).toHaveBeenCalledTimes(1));
+    expect(ownerPorts.cleanupResources).toHaveBeenCalledWith("graph-scope-changed");
+    expect(ownerPorts.openAgentSurface).not.toHaveBeenCalled();
+    expect(ownerPorts.closeOfficeView).not.toHaveBeenCalled();
   });
 
   it("does not open a tab when the exact surface remains missing or the scope is stale", async () => {

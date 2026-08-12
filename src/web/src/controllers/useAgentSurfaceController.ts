@@ -194,7 +194,6 @@ export function useAgentSurfaceController({
         if (generationRef.current !== generation || contextRef.current !== context) return "stale";
         if (!projectionMatchesSelection(refreshed, projectId, productMode, canonicalConversationId)) return "error";
         projectionRef.current = refreshed;
-        graphScopeRef.current = refreshed.graphScopeId;
         setProjection((current) => current?.projectionHash === refreshed.projectionHash ? current : refreshed);
         setLoadState("ready");
         setLoadError(null);

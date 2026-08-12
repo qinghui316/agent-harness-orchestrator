@@ -3,9 +3,14 @@ import { describe, expect, it } from "vitest";
 
 describe("Workbench shell layout contract", () => {
   it("passes the selected Conversation mode to child workspace resources", async () => {
-    const source = await readFile("src/web/src/App.tsx", "utf8");
-    expect(source).toMatch(/useWorkspaceResourceController\(\{\s*productMode: snapshot\.productMode,/);
-    expect(source).not.toMatch(/native-child-agent[\s\S]{0,160}productMode/);
+    const [appSource, handoffSource] = await Promise.all([
+      readFile("src/web/src/App.tsx", "utf8"),
+      readFile("src/web/src/controllers/workspaceResourceModeHandoff.ts", "utf8"),
+    ]);
+    expect(appSource).toMatch(/useWorkspaceResourceController\(workspaceResourceModeHandoff\(snapshot, \{/);
+    expect(handoffSource).toMatch(/productMode: snapshot\.productMode/);
+    expect(appSource).not.toMatch(/native-child-agent[\s\S]{0,160}productMode/);
+    expect(appSource).not.toMatch(/Parameters<typeof useWorkspaceResourceController>/);
   });
 
   it("recalibrates Office from canonical projection on reconnect without using Timeline deltas", async () => {
