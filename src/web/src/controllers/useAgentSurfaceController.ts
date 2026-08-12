@@ -53,7 +53,6 @@ export function useAgentSurfaceController({
   projectId,
   productMode,
   conversationId,
-  officeViewOpen,
   invalidationToken,
   ports,
 }: AgentSurfaceControllerInput): AgentSurfaceController {
@@ -98,7 +97,7 @@ export function useAgentSurfaceController({
       setLoadState("ready");
     } catch {
       if (generationRef.current !== generation || contextRef.current !== context || requestRef.current !== request) return;
-      if (foreground || !projection) setLoadState("error");
+      if (foreground || !projectionRef.current) setLoadState("error");
       setLoadError("暂时无法读取 Agent 工作区，请重试。");
     } finally {
       const requestIsCurrent = generationRef.current === generation && contextRef.current === context && requestRef.current === request;
@@ -110,7 +109,7 @@ export function useAgentSurfaceController({
         }
       }
     }
-  }, [canonicalConversationId, productMode, projectId, projection]);
+  }, [canonicalConversationId, productMode, projectId]);
 
   const invalidate = useCallback((input?: { conversationId?: string; graphScopeId?: string; reason?: AgentSurfacesInvalidationReason }): void => {
     if (!projectId || !canonicalConversationId || (input?.conversationId && input.conversationId !== canonicalConversationId)) return;
@@ -133,7 +132,6 @@ export function useAgentSurfaceController({
     timerRef.current = null;
     inFlightRef.current = false;
     queuedRef.current = false;
-    graphScopeRef.current = null;
     projectionRef.current = null;
     setProjection(null);
     setSelectedSurfaceId(null);
@@ -161,10 +159,6 @@ export function useAgentSurfaceController({
     setSelectedSurfaceId(null);
     portsRef.current.cleanupResources("graph-scope-changed");
   }, [projection?.graphScopeId]);
-
-  useEffect(() => {
-    if (officeViewOpen && loadState === "idle" && projectId && canonicalConversationId) void readProjection(true);
-  }, [canonicalConversationId, loadState, officeViewOpen, projectId, readProjection]);
 
   const surfaces = projection?.surfaces ?? [];
   const selectedSurface = useMemo(() => (

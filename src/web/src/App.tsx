@@ -60,12 +60,12 @@ import type {
   CanonicalDocumentReference,
   ConversationInteractionSettlement,
   WorkspaceResourceTarget,
-  ProductMode,
 } from "./types.js";
 import { ConversationInteractionDock } from "./panels/workbench/ConversationInteractionDock.js";
 import { useGlobalOperationGate } from "./controllers/useGlobalOperationGate.js";
 import { useMainConversationViewport } from "./controllers/useMainConversationViewport.js";
 import { useWorkspaceResourceController } from "./controllers/useWorkspaceResourceController.js";
+import { workspaceResourceModeHandoff } from "./controllers/workspaceResourceModeHandoff.js";
 import { useProviderConfigurationController } from "./controllers/useProviderConfigurationController.js";
 import { useConversationActionController } from "./controllers/useConversationActionController.js";
 import { useAgentSurfaceController } from "./controllers/useAgentSurfaceController.js";
@@ -476,8 +476,7 @@ export function App(): ReactElement {
       selectedProviderId: activePendingConversation.selectedProviderId,
     }
     : snapshot.center.selectedTopic;
-  const workspaceResources = useWorkspaceResourceController({
-    productMode: snapshot.productMode,
+  const workspaceResources = useWorkspaceResourceController(workspaceResourceModeHandoff(snapshot, {
     projectId: selectedProjectId,
     conversationId: activeTopic?.id ?? null,
     loadAgentTranscript: (target) => {
@@ -497,7 +496,7 @@ export function App(): ReactElement {
       conversationId,
       agentSurfaceId,
     }),
-  } as Parameters<typeof useWorkspaceResourceController>[0] & { productMode: ProductMode });
+  }));
   const workspaceResourceTabs = workspaceResources.tabs;
   const selectedWorkspaceResourceId = workspaceResources.selectedResourceId;
   const workspaceDocuments = workspaceResources.documents;

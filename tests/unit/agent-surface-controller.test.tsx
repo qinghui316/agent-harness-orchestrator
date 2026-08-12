@@ -44,8 +44,13 @@ afterEach(() => vi.useRealTimers());
 describe("AgentSurfaceController", () => {
   it("loads one projection and navigates by exact agentSurfaceId", async () => {
     const ownerPorts = ports();
-    const { result } = renderHook(() => useAgentSurfaceController({ projectId: "project-1", productMode: "harness", conversationId: "conversation-1", officeViewOpen: true, ports: ownerPorts }));
+    const { result, rerender } = renderHook(() => useAgentSurfaceController({ projectId: "project-1", productMode: "harness", conversationId: "conversation-1", officeViewOpen: true, ports: ownerPorts }));
     await waitFor(() => expect(result.current.loadState).toBe("ready"));
+    expect(ownerPorts.loadProjection).toHaveBeenCalledTimes(1);
+    rerender();
+    await act(async () => Promise.resolve());
+    expect(ownerPorts.loadProjection).toHaveBeenCalledTimes(1);
+    expect(result.current.projection?.projectionHash).toBe("hash-1");
     act(() => result.current.selectSurface("agent:child"));
     expect(ownerPorts.openAgentSurface).toHaveBeenCalledWith({ conversationId: "conversation-1", agentSurfaceId: "agent:child" });
     act(() => result.current.selectSurface("main-agent"));
@@ -90,6 +95,26 @@ describe("AgentSurfaceController", () => {
     });
     await act(async () => vi.advanceTimersByTimeAsync(AGENT_SURFACE_REFRESH_DELAY_MS));
     expect(loadProjection).toHaveBeenCalledTimes(2);
+  });
+
+  it("cleans resources once when a newly loaded projection changes graph scope", async () => {
+    const loadProjection = vi.fn()
+      .mockResolvedValueOnce(projection("scope-1", "hash-1"))
+      .mockResolvedValueOnce({ ...projection("scope-2", "hash-2"), conversationId: "conversation-2" });
+    const ownerPorts = ports({ loadProjection });
+    const { result, rerender } = renderHook(({ conversationId }) => useAgentSurfaceController({
+      projectId: "project-1",
+      productMode: "harness",
+      conversationId,
+      officeViewOpen: true,
+      ports: ownerPorts,
+    }), { initialProps: { conversationId: "conversation-1" } });
+    await waitFor(() => expect(result.current.projection?.graphScopeId).toBe("scope-1"));
+
+    rerender({ conversationId: "conversation-2" });
+    await waitFor(() => expect(result.current.projection?.graphScopeId).toBe("scope-2"));
+    expect(ownerPorts.cleanupResources).toHaveBeenCalledTimes(1);
+    expect(ownerPorts.cleanupResources).toHaveBeenCalledWith("graph-scope-changed");
   });
 
   it("drops a late response after the conversation changes", async () => {
