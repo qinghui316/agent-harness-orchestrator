@@ -77,8 +77,8 @@ describe("Workbench Skill-native project Harness onboarding", () => {
       registered,
       conversationId,
       "Create a verified empty project Harness.",
-      undefined,
       { providerRegistry },
+      undefined,
     );
 
     expect(assistant.text).toContain("onboarding complete");
@@ -121,8 +121,8 @@ describe("Workbench Skill-native project Harness onboarding", () => {
       fixture.registered,
       fixture.conversationId,
       "Create a verified empty project Harness.",
-      undefined,
       { providerRegistry },
+      undefined,
     );
 
     expect(assistant.status).toBe("failed");
@@ -160,8 +160,8 @@ describe("Workbench Skill-native project Harness onboarding", () => {
       fixture.registered,
       fixture.conversationId,
       "Create a verified empty project Harness.",
-      undefined,
       { providerRegistry },
+      undefined,
     );
     expect(first.status).toBe("failed");
     await expect(recoverProjectHarnessOnboarding(
@@ -176,8 +176,8 @@ describe("Workbench Skill-native project Harness onboarding", () => {
       fixture.registered,
       fixture.conversationId,
       "Retry the reviewed publication from the current source.",
-      undefined,
       { providerRegistry },
+      undefined,
     );
 
     expect(second.status).toBe("completed");

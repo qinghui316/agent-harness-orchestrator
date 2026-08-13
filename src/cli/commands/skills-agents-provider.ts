@@ -98,7 +98,7 @@ export function installSkillAgentProviderCommands(program: Command, context: Cli
     .action(async (query: string, skillId: string, options: { topic?: string; json?: boolean }) => {
       const project = await resolveRegisteredSkillProject(query);
       const catalog = await nativeCatalog(project);
-      const result = await setSkillEnabled(catalog.runtime.paths, catalog.snapshot, skillId, { topic: options.topic, enabled: true }, [catalog.runtime.providerInput]);
+      const result = await setSkillEnabled(catalog.runtime.paths, catalog.snapshot, skillId, { conversationId: options.topic, enabled: true }, [catalog.runtime.providerInput]);
       if (options.json) printJson(result);
       else console.log(`Enabled skill ${skillId}${options.topic ? ` for Topic ${options.topic}` : " for project"}.`);
     });
@@ -112,7 +112,7 @@ export function installSkillAgentProviderCommands(program: Command, context: Cli
     .action(async (query: string, skillId: string, options: { topic?: string; json?: boolean }) => {
       const project = await resolveRegisteredSkillProject(query);
       const catalog = await nativeCatalog(project);
-      const result = await setSkillEnabled(catalog.runtime.paths, catalog.snapshot, skillId, { topic: options.topic, enabled: false }, [catalog.runtime.providerInput]);
+      const result = await setSkillEnabled(catalog.runtime.paths, catalog.snapshot, skillId, { conversationId: options.topic, enabled: false }, [catalog.runtime.providerInput]);
       if (options.json) printJson(result);
       else console.log(`Disabled skill ${skillId}${options.topic ? ` for Topic ${options.topic}` : " for project"}.`);
     });

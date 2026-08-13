@@ -2,14 +2,12 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import {
-  defaultProviderRegistry,
   type ProviderRealtimeEvent,
   type ProviderRegistry,
   type ProviderTurnResult,
 } from "../provider-runtime/index.js";
-import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import { defaultProjectRuntimeActivityRegistry } from "../project-runtime/activity.js";
-import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
+import { resolveProjectRuntimePaths, type ProjectRuntimePaths } from "../project-runtime/paths.js";
 import { buildCanonicalCaptureWrites } from "./provider-capture-persistence.js";
 import { forwardProviderRealtimeEvent } from "./provider-live-events.js";
 import { createAssistantTranscriptCapture } from "./live-transcript.js";
@@ -34,8 +32,9 @@ type OpenWorkbenchDatabase = typeof openProjectRuntimeWorkbenchDatabase;
 const activeDirectAgentConversations = new Set<string>();
 
 export interface DirectAgentConversationTurnStrategyOptions {
-  providerRegistry?: DirectAgentProviderRegistry;
+  providerRegistry: DirectAgentProviderRegistry;
   openDatabase?: OpenWorkbenchDatabase;
+  resolveRuntimePaths?: (projectId: string) => ProjectRuntimePaths;
 }
 
 export class DirectAgentConversationTurnStrategy implements ConversationTurnStrategy {
@@ -43,10 +42,12 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
 
   private readonly providerRegistry: DirectAgentProviderRegistry;
   private readonly openDatabase: OpenWorkbenchDatabase;
+  private readonly resolveRuntimePaths: (projectId: string) => ProjectRuntimePaths;
 
-  constructor(options: DirectAgentConversationTurnStrategyOptions = {}) {
-    this.providerRegistry = options.providerRegistry ?? defaultProviderRegistry;
+  constructor(options: DirectAgentConversationTurnStrategyOptions) {
+    this.providerRegistry = options.providerRegistry;
     this.openDatabase = options.openDatabase ?? openProjectRuntimeWorkbenchDatabase;
+    this.resolveRuntimePaths = options.resolveRuntimePaths ?? ((projectId) => resolveProjectRuntimePaths(projectId));
   }
 
   async execute(
@@ -65,7 +66,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
 
   private async executeActivity(
     input: ConversationTurnStrategyInput,
-    ports: ConversationTurnExecutionPorts,
+    _ports: ConversationTurnExecutionPorts,
   ): Promise<TopicMessageResult> {
     validateTurnIdentity(input);
     const user = fromStoredThreadMessage(input.committedMessage);
@@ -73,19 +74,12 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
       throw conflict("Direct Agent attachments are not supported in this increment.");
     }
 
-    const runtimeState = await resolveProjectRuntimeState(input.project, {
-      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
-    });
-    const paths = runtimeState.state === "onboarding" ? runtimeState.paths : runtimeState.resolution.paths;
+    const skillContext = input.turnSkillResolution;
+    if (!skillContext) throw new Error("Direct Agent Turn Skill resolution is not composed.");
+    const paths = this.resolveRuntimePaths(input.project.id);
     if (paths.projectId !== input.project.id) {
       throw new Error("Direct Agent runtime paths do not match the selected project identity.");
     }
-
-    const skillContext = await ports.skillContext.resolve({
-      project: input.project,
-      conversation: input.conversation,
-      requiredSkillIds: [],
-    });
     const resolvedProvider = await this.providerRegistry.requireProfiles(
       input.providerId,
       ["agent"],

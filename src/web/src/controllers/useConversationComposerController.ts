@@ -45,6 +45,13 @@ export interface ComposerSkillOverride {
   enabled: boolean;
 }
 
+export interface SkillRequestIdentity {
+  projectId: string;
+  productMode: ProductMode;
+  conversationId: string | null;
+  providerId: string | null;
+}
+
 export interface ComposerCreatedConversation {
   projectId: string;
   conversationId: string;
@@ -95,8 +102,8 @@ export interface ConversationComposerPorts {
     calibrate(projectId: string, conversationId: string, agentSurfaceId: "main-agent"): Promise<void>;
   };
   skills?: {
-    load(projectId: string): Promise<SkillListItem[]>;
-    setEnabled(projectId: string, skillId: string, enabled: boolean, conversationId: string): Promise<void>;
+    load(identity: SkillRequestIdentity): Promise<SkillListItem[]>;
+    setEnabled(identity: SkillRequestIdentity, skillId: string, enabled: boolean): Promise<void>;
   };
   attachments?: {
     upload(projectId: string, upload: ComposerAttachmentUpload): Promise<TopicAttachment>;
@@ -146,8 +153,10 @@ export function useConversationComposerController(
       return;
     }
     try {
-      const next = await (portsRef.current.skills ?? defaultSkillApi).load(projectId);
-      if (generation !== skillRequestGenerationRef.current || projectId !== scopeRef.current.projectId) return;
+      const identity = skillRequestIdentity({ ...scopeRef.current, projectId });
+      const next = await (portsRef.current.skills ?? defaultSkillApi).load(identity);
+      if (generation !== skillRequestGenerationRef.current
+        || skillRequestIdentityKey(identity) !== skillRequestIdentityKey(skillRequestIdentity(scopeRef.current))) return;
       setSkillItems(next);
     } catch (cause) {
       if (generation === skillRequestGenerationRef.current) portsRef.current.onError(errorMessage(cause));
@@ -157,14 +166,14 @@ export function useConversationComposerController(
   useEffect(() => {
     void reloadSkills(scope.projectId);
     return () => { skillRequestGenerationRef.current += 1; };
-  }, [reloadSkills, scope.managed, scope.projectId, scope.conversation?.id]);
+  }, [reloadSkills, scope.managed, scope.productMode, scope.projectId, scope.conversation?.id, scope.conversation?.productMode, scope.conversation?.selectedProviderId, scope.selectedProviderId]);
 
   useEffect(() => {
     const identity = composerScopeIdentity(scope);
     if (identity === scopeIdentityRef.current) return;
     scopeIdentityRef.current = identity;
     scopeGenerationRef.current += 1;
-  }, [scope.productMode, scope.projectId, scope.conversation?.id, scope.conversation?.productMode]);
+  }, [scope.productMode, scope.projectId, scope.conversation?.id, scope.conversation?.productMode, scope.conversation?.selectedProviderId, scope.selectedProviderId]);
 
   const cleanupTransition = useCallback((transition: ComposerTransition): void => {
     scopeGenerationRef.current += 1;
@@ -197,10 +206,9 @@ export function useConversationComposerController(
     }
     try {
       await (portsRef.current.skills ?? defaultSkillApi).setEnabled(
-        currentScope.projectId,
+        skillRequestIdentity(currentScope),
         skillId,
         !currentlyActive,
-        currentScope.conversation.id,
       );
       await reloadSkills(currentScope.projectId);
     } catch (cause) {
@@ -262,6 +270,7 @@ export function useConversationComposerController(
     const generation = scopeGenerationRef.current;
     const capturedProjectId = currentScope.projectId;
     const capturedProductMode = composerProductMode(currentScope);
+    const capturedProviderId = currentScope.selectedProviderId ?? currentScope.conversation?.selectedProviderId ?? null;
     const clientRequestId = (portsRef.current.ids ?? defaultComposerIds).createClientRequestId();
     const body = input.body ?? stateRef.current.composerText;
     const selectedRefs = input.fileRefs ?? stateRef.current.fileRefs;
@@ -299,25 +308,25 @@ export function useConversationComposerController(
         body: demandBody,
         contextRefs: prepared.contextRefs,
         attachmentIds: [...attachmentIds, ...uploadedDraft.map((attachment) => attachment.id)],
-        providerId: currentScope.selectedProviderId ?? undefined,
+        providerId: capturedProviderId ?? undefined,
         skillOverrides: normalizeSkillOverrideRecord(prepared.skillOverrides),
         showPendingBeforeCreate: attachmentFiles.length === 0,
       });
       uploadedDraft = [];
       const requestProjectIds = [capturedProjectId, effectiveProjectId];
-      if (composerRequestOwnsCurrentScope(generation, requestProjectIds, capturedProductMode, scopeGenerationRef, scopeRef, created.conversationId)) {
+      if (composerRequestOwnsCurrentScope(generation, requestProjectIds, capturedProductMode, capturedProviderId, scopeGenerationRef, scopeRef, created.conversationId)) {
         setComposerText("");
         setFileRefs([]);
         setAttachments([]);
         setDraftSkillOverrides({});
         await reloadSkills(created.projectId);
-        if (composerRequestOwnsCurrentScope(generation, requestProjectIds, capturedProductMode, scopeGenerationRef, scopeRef, created.conversationId)) {
+        if (composerRequestOwnsCurrentScope(generation, requestProjectIds, capturedProductMode, capturedProviderId, scopeGenerationRef, scopeRef, created.conversationId)) {
           await portsRef.current.projection.refreshConversation(created.projectId, created.conversationId);
         }
       }
       return created;
     } catch (cause) {
-      if (composerRequestOwnsCurrentScope(generation, [capturedProjectId, ...(effectiveProjectId ? [effectiveProjectId] : [])], capturedProductMode, scopeGenerationRef, scopeRef)) {
+      if (composerRequestOwnsCurrentScope(generation, [capturedProjectId, ...(effectiveProjectId ? [effectiveProjectId] : [])], capturedProductMode, capturedProviderId, scopeGenerationRef, scopeRef)) {
         portsRef.current.onError(errorMessage(cause));
       }
       throw cause;
@@ -326,7 +335,7 @@ export function useConversationComposerController(
         await Promise.allSettled(uploadedDraft.map((attachment) => (portsRef.current.attachments ?? defaultAttachmentApi).remove(uploadProjectId!, attachment.id)));
       }
       const completedCreation = created;
-      if (completedCreation && composerRequestOwnsCurrentScope(generation, [capturedProjectId, completedCreation.projectId], capturedProductMode, scopeGenerationRef, scopeRef, completedCreation.conversationId)) {
+      if (completedCreation && composerRequestOwnsCurrentScope(generation, [capturedProjectId, completedCreation.projectId], capturedProductMode, capturedProviderId, scopeGenerationRef, scopeRef, completedCreation.conversationId)) {
         await calibrateTimeline(
           completedCreation.projectId,
           completedCreation.conversationId,
@@ -334,6 +343,7 @@ export function useConversationComposerController(
             generation,
             [capturedProjectId, completedCreation.projectId],
             capturedProductMode,
+            capturedProviderId,
             scopeGenerationRef,
             scopeRef,
             completedCreation.conversationId,
@@ -455,7 +465,12 @@ export function useConversationComposerController(
 
   async function applySkillOverrides(projectId: string, conversationId: string, overrides: Record<string, boolean>): Promise<void> {
     for (const [skillId, enabled] of Object.entries(overrides)) {
-      await (portsRef.current.skills ?? defaultSkillApi).setEnabled(projectId, skillId, enabled, conversationId);
+      const current = scopeRef.current;
+      await (portsRef.current.skills ?? defaultSkillApi).setEnabled({
+        ...skillRequestIdentity(current),
+        projectId,
+        conversationId,
+      }, skillId, enabled);
     }
   }
 
@@ -590,17 +605,40 @@ export function defaultAttachmentPrompt(count: number): string {
 }
 
 const defaultSkillApi = {
-  async load(projectId: string): Promise<SkillListItem[]> {
-    const payload = await fetchJson<{ skills?: SkillListItem[] }>(`/api/projects/${encodeURIComponent(projectId)}/skills`);
+  async load(identity: SkillRequestIdentity): Promise<SkillListItem[]> {
+    const params = skillRequestSearchParams(identity);
+    const payload = await fetchJson<{ skills?: SkillListItem[] }>(`/api/projects/${encodeURIComponent(identity.projectId)}/skills?${params.toString()}`);
     return Array.isArray(payload.skills) ? payload.skills : [];
   },
-  async setEnabled(projectId: string, skillId: string, enabled: boolean, conversationId: string): Promise<void> {
-    await postJson(`/api/projects/${encodeURIComponent(projectId)}/skills/${encodeURIComponent(skillId)}/enable`, {
+  async setEnabled(identity: SkillRequestIdentity, skillId: string, enabled: boolean): Promise<void> {
+    await postJson(`/api/projects/${encodeURIComponent(identity.projectId)}/skills/${encodeURIComponent(skillId)}/enable`, {
       enabled,
-      topic: conversationId,
+      productMode: identity.productMode,
+      conversationId: identity.conversationId ?? undefined,
+      providerId: identity.providerId ?? undefined,
     });
   },
 };
+
+export function skillRequestIdentity(scope: ConversationComposerScope): SkillRequestIdentity {
+  return {
+    projectId: scope.projectId ?? "",
+    productMode: composerProductMode(scope),
+    conversationId: scope.conversation?.id ?? null,
+    providerId: scope.conversation?.selectedProviderId ?? scope.selectedProviderId,
+  };
+}
+
+export function skillRequestIdentityKey(identity: SkillRequestIdentity): string {
+  return [identity.projectId, identity.productMode, identity.conversationId ?? "", identity.providerId ?? ""].join("\0");
+}
+
+function skillRequestSearchParams(identity: SkillRequestIdentity): URLSearchParams {
+  const params = new URLSearchParams({ productMode: identity.productMode });
+  if (identity.conversationId) params.set("conversationId", identity.conversationId);
+  if (identity.providerId) params.set("providerId", identity.providerId);
+  return params;
+}
 
 const defaultAttachmentApi = {
   async upload(projectId: string, upload: ComposerAttachmentUpload): Promise<TopicAttachment> {
@@ -644,7 +682,7 @@ function composerProductMode(scope: ConversationComposerScope): ProductMode {
 }
 
 function composerScopeIdentity(scope: ConversationComposerScope): string {
-  return `${scope.projectId ?? ""}\0${composerProductMode(scope)}\0${scope.conversation?.id ?? ""}`;
+  return skillRequestIdentityKey(skillRequestIdentity(scope));
 }
 
 export function workbenchEventMatchesConversation(
@@ -685,6 +723,7 @@ function composerRequestOwnsCurrentScope(
   generation: number,
   projectIds: readonly string[],
   productMode: ProductMode,
+  providerId: string | null,
   generationRef: { current: number },
   currentScopeRef: { current: ConversationComposerScope },
   committedConversationId?: string,
@@ -694,7 +733,8 @@ function composerRequestOwnsCurrentScope(
       || Boolean(committedConversationId && currentScope.conversation?.id === committedConversationId))
     && currentScope.projectId !== null
     && projectIds.includes(currentScope.projectId)
-    && composerProductMode(currentScope) === productMode;
+    && composerProductMode(currentScope) === productMode
+    && (currentScope.conversation?.selectedProviderId ?? currentScope.selectedProviderId ?? null) === providerId;
 }
 
 function composerActionOwnsCurrentScope(

@@ -9,7 +9,6 @@ import type {
   ProviderRealtimeEvent,
   ProviderRegistry,
 } from "../provider-runtime/index.js";
-import { defaultProviderRegistry } from "../provider-runtime/index.js";
 import { agentThreadSurfaceId } from "../provider-runtime/agent-surface-id.js";
 import type { ManagedProject } from "../types/index.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
@@ -544,7 +543,8 @@ export async function runAgentNativeChildFollowup(input: {
   live?: WorkbenchLiveSink;
   providerRegistry?: ProviderRegistry;
 }): Promise<TopicMessageResult> {
-  const providerRegistry = input.providerRegistry ?? defaultProviderRegistry;
+  const providerRegistry = input.providerRegistry;
+  if (!providerRegistry) throw new Error("Workbench Native Child follow-up requires an explicitly composed Provider Registry.");
   const runtimeState = await resolveProjectRuntimeState(input.project, {
     discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
   });
@@ -862,7 +862,8 @@ export async function reconcileStaleAgentNativeChildren(input: {
         let activeProof = false;
         try {
           if (!link?.parentThreadId) throw new Error("Native child lineage is missing.");
-          activeProof = await (input.providerRegistry ?? defaultProviderRegistry).get(attempt.providerId).conversation.inspectChild({
+          if (!input.providerRegistry) throw new Error("Native child recovery requires an explicitly composed Provider Registry.");
+          activeProof = await input.providerRegistry.get(attempt.providerId).conversation.inspectChild({
             providerId: attempt.providerId,
             projectId: paths.projectId,
             cwd: input.project.path,

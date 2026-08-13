@@ -972,3 +972,30 @@ Conversation coordination is split among `conversation-service.ts`,
 import the exact owner. `chat.ts`, `manager.ts`, `canonical-timeline.ts`,
 `conversation-thread.ts`, caller-owned identity sets, direct patch emitters,
 and compatibility re-exports are retired.
+
+## 23. Turn Skill Resolution And Router Composition
+
+The Workbench server composition root owns one provider-neutral
+`ProjectSkillRuntimeContextResolver` and one `ConversationTurnRouter`. The
+Router resolves a non-onboarding turn's runtime state and Skill context before
+dispatching to the Agent or ready Harness strategy. Strategies and the Main
+coordinator consume the required resolution; they do not create a production
+fallback resolver or use a global empty context. Provider request inputs,
+required-native Skill evidence, and handoff hashes are derived from that same
+immutable resolution.
+
+Agent mode does not require Harness readiness. It can load ordinary Skills in
+onboarding or repair-required runtime states, may select the physical project
+Harness as an optional Skill, and hides the three AHO orchestration Skills.
+Ready Harness Main adds the project Harness and `aho-main-orchestration` as
+required inputs. Harness onboarding remains on its dedicated path with zero
+ready-turn Skill resolution. Missing or invalid required Skills fail before
+Attempt or Provider effects; optional discovery errors are bounded diagnostics.
+
+Skill list, reload, enable, and root APIs require `productMode`. Optional
+`conversationId` and `providerId` values are assertions when a Conversation is
+present; stored mode and Provider are authoritative, and mismatches return
+Conflict before catalog or mutation side effects. The only uncomposed
+Conversation compatibility path is `runMainAgent: false` persistence setup; a
+real create-after-send, follow-up, continuation, child follow-up, or plan
+settlement without an explicit composed Router fails closed.

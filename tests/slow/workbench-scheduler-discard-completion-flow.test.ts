@@ -1,7 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
+import { executeWorkbenchAction as executeWorkbenchActionRaw } from "../../src/server/workbench-server.js";
+import { createTestConversationTurnRouter } from "../helpers/conversation-change-fixture.js";
 import { getWorkbenchSchedulerRunCompletionProjection, getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
 import { listAgentTasks } from "../../src/agent-task/manager.js";
 import { markWorktreeApplied } from "../../src/worktree/manager.js";
@@ -23,6 +24,15 @@ import {
   resolveFixtureSchedulerArtifacts,
   unwrapWorkflowActionResult,
 } from "../unit/workbench/fixtures.js";
+
+const turnRouter = createTestConversationTurnRouter();
+
+function executeWorkbenchAction(
+  input: Parameters<typeof executeWorkbenchActionRaw>[0],
+  body: Parameters<typeof executeWorkbenchActionRaw>[1],
+): ReturnType<typeof executeWorkbenchActionRaw> {
+  return executeWorkbenchActionRaw(input, body, undefined, turnRouter);
+}
 
 describe("workbench scheduler discard completion slow flow", () => {
   it("records discarded SchedulerRun completion after existing IntegrationCheck discard without mutating source", async () => {

@@ -3,7 +3,7 @@ import { ArrowLeft, Bot, Folder, Settings, Sparkles } from "lucide-react";
 import { InfoRow } from "./ProjectPanels.js";
 import { SkillsSettingsView } from "./SkillsSettingsView.js";
 import { projectDisplayName } from "../formatters.js";
-import type { ProviderDiagnostics, ProviderModelSettingsSnapshot, ProjectStatus, ProviderCapabilityItem, ProviderCapabilitySnapshot } from "../types.js";
+import type { ProductMode, ProviderDiagnostics, ProviderModelSettingsSnapshot, ProjectStatus, ProviderCapabilityItem, ProviderCapabilitySnapshot } from "../types.js";
 
 export type SettingsSection = "basic" | "project" | "provider" | "skills";
 
@@ -18,6 +18,9 @@ export function SettingsSurface({
   section,
   onSectionChange,
   project,
+  productMode,
+  conversationId,
+  selectedProviderId,
   diagnostics,
   modelSettings,
   providerCapabilities,
@@ -30,6 +33,9 @@ export function SettingsSurface({
   section: SettingsSection;
   onSectionChange: (section: SettingsSection) => void;
   project: ProjectStatus | null;
+  productMode: ProductMode;
+  conversationId: string | null;
+  selectedProviderId: string | null;
   diagnostics: ProviderDiagnostics | null;
   modelSettings: ProviderModelSettingsSnapshot | null;
   providerCapabilities?: ProviderCapabilitySnapshot[];
@@ -130,7 +136,13 @@ export function SettingsSurface({
           </section>
         ) : null}
 
-        {section === "skills" ? <SkillsSettingsView projectId={selectedProjectId} onRefresh={onRefresh} /> : null}
+        {section === "skills" ? <SkillsSettingsView
+          projectId={selectedProjectId}
+          productMode={productMode}
+          conversationId={conversationId}
+          providerId={selectedProviderId}
+          onRefresh={onRefresh}
+        /> : null}
 
         {message ? <p className="diagnostic-errors">{message}</p> : null}
       </div>

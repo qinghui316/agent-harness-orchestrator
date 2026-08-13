@@ -9,11 +9,34 @@ import {
   resolveProjectHarnessRegistryContext,
 } from "../../src/project-harness/registry.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../src/provider-runtime/project-harness-discovery.js";
+import { defaultProviderRegistry } from "../../src/provider-runtime/index.js";
 import { resolveProjectRuntimeState } from "../../src/project-runtime/coordinator.js";
+import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
+import { ProjectSkillRuntimeContextResolver } from "../../src/skill/project-skill-runtime-context-resolver.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import { appendCanonicalTimelineEntry } from "../../src/workbench/canonical-timeline-command.js";
 import { createWorkbenchConversation } from "../../src/workbench/conversation-service.js";
+import { createConversationTurnRouter } from "../../src/workbench/conversation-turn-router.js";
+import type { ConversationTurnRoutingPort } from "../../src/workbench/conversation-turn-contract.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
+
+export function createTestConversationTurnRouter(): ConversationTurnRoutingPort {
+  const projectRuntimeCoordinator = {
+    resolve: (project: ManagedProject) => resolveProjectRuntimeState(project, {
+      ahoHome: process.env.AHO_HOME,
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+    }),
+    runtimePaths: (projectId: string) => resolveProjectRuntimePaths(projectId, process.env.AHO_HOME),
+  };
+  return createConversationTurnRouter({
+    skillContext: new ProjectSkillRuntimeContextResolver({
+      providerRegistry: defaultProviderRegistry,
+      projectRuntimeCoordinator,
+    }),
+    providerRegistry: defaultProviderRegistry,
+    projectRuntimeCoordinator,
+  });
+}
 
 export function createHarnessWorkbenchConversation(
   project: ManagedProject,

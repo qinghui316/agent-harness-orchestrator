@@ -45,6 +45,7 @@ import { resolveProjectRuntimePaths, type ProjectRuntimePaths } from "../../src/
 import type { ManagedProject } from "../../src/types/index.js";
 import { createHarnessWorkbenchConversation as createWorkbenchConversation } from "../helpers/conversation-change-fixture.js";
 import { settleConversationInteraction } from "../../src/workbench/conversation-interaction-service.js";
+import type { ConversationTurnRoutingPort } from "../../src/workbench/conversation-turn-contract.js";
 import { buildConversationInteractionQueue } from "../../src/workbench/conversation-interactions.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
@@ -222,18 +223,58 @@ describe("conversation interaction settlement", () => {
       },
     };
     domainSettlement.postConversationMessage.mockResolvedValue({ status: "completed" });
+    const turnRouter = testTurnRouter();
 
-    await settleConversationInteraction(project(), "conversation-plan", "interaction-plan", { action: "execute-plan" });
-    await settleConversationInteraction(project(), "conversation-plan", "interaction-plan", { action: "revise-plan", feedback: "补充回滚验证" });
-    await settleConversationInteraction(project(), "conversation-plan", "interaction-plan", { action: "skip" });
+    await settleConversationInteraction(project(), "conversation-plan", "interaction-plan", { action: "execute-plan" }, undefined, turnRouter);
+    await settleConversationInteraction(project(), "conversation-plan", "interaction-plan", { action: "revise-plan", feedback: "补充回滚验证" }, undefined, turnRouter);
+    await settleConversationInteraction(project(), "conversation-plan", "interaction-plan", { action: "skip" }, undefined, turnRouter);
 
     expect(domainSettlement.postConversationMessage.mock.calls.map((call) => call[2].planHandoffIntent)).toEqual([
       expect.objectContaining({ kind: "execute-plan", sourceRunId: "run-plan", sourceDocumentId: "plan-document-1", sourceProposalHash: "proposal-hash" }),
       expect.objectContaining({ kind: "revise-plan", feedback: "补充回滚验证", sourceCanonicalItemId: "prose:codex:attempt:thread:turn:item" }),
       expect.objectContaining({ kind: "skip-plan", feedback: undefined, sourceDocumentId: "plan-document-1" }),
     ]);
+    expect(domainSettlement.postConversationMessage.mock.calls.map((call) => call[4])).toEqual([
+      { turnRouter },
+      { turnRouter },
+      { turnRouter },
+    ]);
+  });
+
+  it("fails closed for Plan settlement without the composed Router", async () => {
+    domainSettlement.resolved = {
+      kind: "plan",
+      public: { questions: [] },
+      source: {
+        proposal: { runId: "run-plan", artifact: "proposals/run-plan/plan.md" },
+        document: {
+          documentId: "plan-document-1",
+          sourceCanonicalItemId: "prose:codex:attempt:thread:turn:item",
+          proposalHash: "proposal-hash",
+        },
+      },
+    };
+
+    await expect(settleConversationInteraction(project(), "conversation-plan", "interaction-plan", { action: "execute-plan" }))
+      .rejects.toThrow("turn routing is not composed");
+    expect(domainSettlement.postConversationMessage).not.toHaveBeenCalled();
   });
 });
+
+function testTurnRouter(): ConversationTurnRoutingPort {
+  return {
+    assertRequestedMode: vi.fn(),
+    route: vi.fn(),
+    resolveProviderId: (_project, requestedProviderId) => requestedProviderId ?? "codex",
+    resolveRuntimeState: async (selectedProject) => ({
+      state: "onboarding",
+      project: selectedProject,
+      projectRoot: selectedProject.path,
+      paths: resolveProjectRuntimePaths(selectedProject.id, process.env.AHO_HOME ?? "C:\\aho-test"),
+      reservedProjectId: selectedProject.id,
+    }),
+  };
+}
 
 async function providerInteraction(status: "pending" | "submitting" = "pending"): Promise<{ conversationId: string; interactionId: string }> {
   const conversation = await createWorkbenchConversation(project(), {
@@ -301,5 +342,5 @@ async function providerInteraction(status: "pending" | "submitting" = "pending")
 }
 
 function project(): ManagedProject {
-  return { id: "repo", name: "Repo", path: root, addedAt: "2026-07-16T00:00:00.000Z", lastSeenAt: "2026-07-16T00:00:00.000Z" };
+  return { id: "repo", name: "Repo", path: root, addedAt: "2026-07-16T00:00:00.000Z", lastSeenAt: "2026-07-16T00:00:00.000Z", defaultProviderId: "codex" };
 }

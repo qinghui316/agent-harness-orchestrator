@@ -4,6 +4,7 @@ import { recoverApplyApprovalReceipts, recoverDiscardApprovalReceipts } from "..
 import { recoverIntegrationCheckApprovalReceipts } from "../integration-check/manager.js";
 import { recoverSpecTestApprovalReceipts } from "../spec-test/proposal.js";
 import type { WorkbenchProjectInput } from "../workbench/read-model-types.js";
+import type { ManagedProject } from "../types/index.js";
 import { TerminalRuntime } from "./terminal/terminal-runtime.js";
 import { handleApi } from "./workbench/api-router.js";
 import { restoreDirectProjectInput } from "./workbench/direct-project.js";
@@ -16,6 +17,8 @@ import { ProjectRuntimeCoordinator, type ProjectRuntimeCoordinatorPort } from ".
 import { WorkbenchProjectRemovalService } from "./workbench/project-removal.js";
 import { reconcileRecoveredApprovalDecisions } from "../workbench/actions/approval-decision-reconciliation.js";
 import { reconcileStaleAgentNativeChildren } from "../workbench/agent-native-child-lifecycle-service.js";
+import { ProjectSkillRuntimeContextResolver } from "../skill/project-skill-runtime-context-resolver.js";
+import { createConversationTurnRouter } from "../workbench/conversation-turn-router.js";
 
 export type { WorkbenchServeOptions, WorkbenchServerHandle } from "./workbench/types.js";
 export { executeWorkbenchAction } from "./workbench/actions.js";
@@ -34,17 +37,30 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
   const projectRemoval = options.projectRemoval ?? new WorkbenchProjectRemovalService({ store, providerRegistry });
   for (const project of await store.listProjects()) projectRemoval.activateAfterRegistration(project.id);
   const terminalRuntime = options.terminalRuntime ?? new TerminalRuntime();
+  const skillContext = new ProjectSkillRuntimeContextResolver({
+    providerRegistry,
+    projectRuntimeCoordinator,
+  });
+  const turnRouter = createConversationTurnRouter({
+    skillContext,
+    providerRegistry,
+    projectRuntimeCoordinator,
+  });
   await projectRuntimeCoordinator.reconcileStartup();
   const restoredInput = await restoreDirectProjectInput(input, store);
-  await recoverWorkbenchProjects(store, restoredInput, projectRuntimeCoordinator, providerRegistry);
+  const composedInput = restoredInput
+    ? { ...restoredInput, runtimeStateResolver: (project: ManagedProject) => projectRuntimeCoordinator.resolve(project) }
+    : restoredInput;
+  await recoverWorkbenchProjects(store, composedInput, projectRuntimeCoordinator, providerRegistry);
   const context: WorkbenchServerContext = {
-    input: restoredInput,
+    input: composedInput,
     staticRoot,
     store,
     projectRuntimeCoordinator,
     providerRegistry,
     projectRemoval,
     terminalRuntime,
+    turnRouter,
   };
   const server = createServer((request, response) => {
     handleRequest(context, request, response).catch((error: unknown) => {

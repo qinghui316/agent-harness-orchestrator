@@ -699,6 +699,7 @@ describe.sequential("Skill-native Project Harness Change abandonment", () => {
         conversationId: topic.conversationId,
         agentSurfaceId: agentThreadSurfaceId("codex", "thread-late-continuation-child"),
         message: "continue",
+        providerRegistry: defaultProviderRegistry,
       });
       await providerStarted;
       await abandonSkillNativeProjectHarnessChange(project(), fixture.resolution, {

@@ -122,6 +122,7 @@ export async function listSkills(
   paths: ProjectRuntimePaths,
   snapshot: ProviderSkillCatalogSnapshot,
   requiredInputs: readonly ProviderSkillInput[] = [],
+  identityInputs: readonly ProviderSkillInput[] = requiredInputs,
 ): Promise<SkillCatalogResult> {
   assertSnapshotIdentity(paths, snapshot);
   assertRequiredInputsDiscovered(snapshot, requiredInputs);
@@ -130,7 +131,7 @@ export async function listSkills(
     return buildSkillCatalog(snapshot, {
       roots: store.skills.listSkillRoots(paths.projectId),
       enablements: store.skills.listSkillEnablement(paths.projectId),
-    }, requiredInputs, requiredInputs);
+    }, identityInputs, requiredInputs);
   } finally {
     store.close();
   }
@@ -180,8 +181,9 @@ export async function setSkillEnabled(
   paths: ProjectRuntimePaths,
   snapshot: ProviderSkillCatalogSnapshot,
   skillIdInput: string,
-  options: { topic?: string; enabled: boolean },
+  options: { conversationId?: string; enabled: boolean },
   requiredInputs: readonly ProviderSkillInput[] = [],
+  identityInputs: readonly ProviderSkillInput[] = requiredInputs,
 ): Promise<SkillCatalogResult> {
   assertSnapshotIdentity(paths, snapshot);
   assertRequiredInputsDiscovered(snapshot, requiredInputs);
@@ -191,7 +193,7 @@ export async function setSkillEnabled(
     const catalog = buildSkillResolutionCatalog(snapshot, {
       roots: store.skills.listSkillRoots(paths.projectId),
       enablements: store.skills.listSkillEnablement(paths.projectId),
-    }, requiredInputs, requiredInputs);
+    }, identityInputs, requiredInputs);
     const matches = catalog.skills.filter((item) => item.selectionSkillIds.includes(skillId));
     if (matches.length === 0) throw new Error(`Unknown native Skill: ${skillId}`);
     if (matches.length !== 1) throw new Error(`Ambiguous native Skill identity: ${skillId}`);
@@ -201,16 +203,16 @@ export async function setSkillEnabled(
     }
     store.skills.setSkillEnablement({
       projectId: paths.projectId,
-      changeId: options.topic ?? null,
+      changeId: options.conversationId ?? null,
       skillId: skill.skillId,
-      scope: options.topic ? "topic" : "project",
+      scope: options.conversationId ? "topic" : "project",
       enabled: options.enabled,
       updatedAt: new Date().toISOString(),
     });
   } finally {
     store.close();
   }
-  return listSkills(paths, snapshot, requiredInputs);
+  return listSkills(paths, snapshot, requiredInputs, identityInputs);
 }
 
 export async function getEnabledSkillContext(
@@ -291,7 +293,9 @@ export async function getEnabledSkillContext(
 }
 
 export function isRuntimeAssignedSkill(skillId: string): boolean {
-  return skillId === "aho-main-orchestration" || skillId === "aho-harness-engineering";
+  return skillId === "aho-main-orchestration"
+    || skillId === "aho-harness-engineering"
+    || skillId === "aho-workflow-authoring";
 }
 
 function decorateSkills(

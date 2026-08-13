@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
-import { createConversationChangeFixture } from "./conversation-change-fixture.js";
+import { createConversationChangeFixture, createTestConversationTurnRouter } from "./conversation-change-fixture.js";
 import { createReadyProjectHarnessFixture } from "./project-harness-fixture.js";
 import { writeJsonFile } from "../../src/fs/json.js";
 import {
@@ -13,7 +13,7 @@ import { publishProjectRuntimePlanningPackage } from "../../src/project-runtime/
 import { getGitCommit, getGitStatusShort } from "../../src/project/git.js";
 import type { ProviderCapabilitySnapshot } from "../../src/provider-runtime/index.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../src/provider-runtime/project-harness-discovery.js";
-import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
+import { executeWorkbenchAction as executeWorkbenchActionRaw } from "../../src/server/workbench-server.js";
 import type { ProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import type { ReadySetWorkflowGraphPlan } from "../../src/types/index.js";
 import {
@@ -75,6 +75,11 @@ export async function prepareSkillNativeSchedulerFirstWorkerThroughResult(option
   const projectRoot = getTempDir();
   const ahoHome = join(projectRoot, ".aho-home");
   process.env.AHO_HOME = ahoHome;
+  const turnRouter = createTestConversationTurnRouter();
+  const executeWorkbenchAction = (
+    input: Parameters<typeof executeWorkbenchActionRaw>[0],
+    body: Parameters<typeof executeWorkbenchActionRaw>[1],
+  ) => executeWorkbenchActionRaw(input, body, undefined, turnRouter);
 
   await initGitRepository(projectRoot);
   await mkdir(join(projectRoot, "src"), { recursive: true });

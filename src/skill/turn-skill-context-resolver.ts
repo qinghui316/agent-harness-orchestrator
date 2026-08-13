@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { dirname } from "node:path";
 import { slugify } from "../fs/path.js";
 import type { ProviderSkillInput } from "../project-harness/contracts.js";
@@ -6,6 +7,7 @@ import type { ProviderSkillCatalogSnapshot } from "../provider-runtime/contracts
 import type { ProviderRegistry } from "../provider-runtime/registry.js";
 import type {
   TurnSkillContextDiagnostic,
+  TurnSkillContextPreparation,
   TurnSkillContextPort,
   TurnSkillContextRequest,
   TurnSkillContextResolution,
@@ -29,6 +31,7 @@ export interface TurnSkillContextResolverOptions {
   providerRegistry: Pick<ProviderRegistry, "get">;
   resolvePaths?: (projectId: string) => ProjectRuntimePaths;
   openDatabase?: (paths: ProjectRuntimePaths) => Promise<WorkbenchDatabase>;
+  prepareRequest?: (request: TurnSkillContextRequest) => Promise<TurnSkillContextPreparation> | TurnSkillContextPreparation;
   resolveSourceSkillInputs?: (
     request: TurnSkillContextRequest,
     providerId: string,
@@ -50,19 +53,22 @@ export class TurnSkillContextResolver implements TurnSkillContextPort {
   private readonly providerRegistry: Pick<ProviderRegistry, "get">;
   private readonly resolvePaths: (projectId: string) => ProjectRuntimePaths;
   private readonly openDatabase: (paths: ProjectRuntimePaths) => Promise<WorkbenchDatabase>;
+  private readonly prepareRequest: TurnSkillContextResolverOptions["prepareRequest"];
   private readonly resolveSourceSkillInputs: NonNullable<TurnSkillContextResolverOptions["resolveSourceSkillInputs"]>;
 
   constructor(options: TurnSkillContextResolverOptions) {
     this.providerRegistry = options.providerRegistry;
     this.resolvePaths = options.resolvePaths ?? ((projectId) => resolveProjectRuntimePaths(projectId));
     this.openDatabase = options.openDatabase ?? openProjectRuntimeWorkbenchDatabase;
+    this.prepareRequest = options.prepareRequest;
     this.resolveSourceSkillInputs = options.resolveSourceSkillInputs ?? (() => []);
   }
 
   async resolve(request: TurnSkillContextRequest): Promise<TurnSkillContextResolution> {
     assertRequestIdentity(request);
     const providerId = request.conversation.selectedProviderId;
-    const paths = this.resolvePaths(request.project.id);
+    const prepared = this.prepareRequest ? await this.prepareRequest(request) : undefined;
+    const paths = prepared?.paths ?? this.resolvePaths(request.project.id);
     if (paths.projectId !== request.project.id) {
       throw new Error("Turn Skill Runtime paths do not match the selected project identity.");
     }
@@ -70,7 +76,7 @@ export class TurnSkillContextResolver implements TurnSkillContextPort {
     const state = await this.readSelectionState(paths, request.conversation);
     const snapshot = await this.providerRegistry.get(providerId).skills.list({
       projectPath: request.project.path,
-      extraRoots: state.roots.map((root) => root.rootPath),
+      extraRoots: [...state.roots.map((root) => root.rootPath), ...(prepared?.extraRoots ?? [])],
     });
     assertSnapshotIdentity(snapshot, request.project.path, providerId);
 
@@ -78,14 +84,17 @@ export class TurnSkillContextResolver implements TurnSkillContextPort {
       code: "provider_catalog_error",
       message: error.path + ": " + error.message,
     }));
-    const catalog = buildSkillResolutionCatalog(snapshot, state);
-    const sourceInputs = await this.resolveSourceSkillInputs(request, providerId);
-    const identity = validateSourceInputs(catalog.skills, sourceInputs, diagnostics);
-    const skills = catalog.skills.map((skill) => ({
+    const catalog = buildSkillResolutionCatalog(snapshot, state, prepared?.identityInputs ?? []);
+    const visibleSkills = prepared?.isSkillVisible
+      ? catalog.skills.filter((skill) => prepared.isSkillVisible?.(skill) ?? true)
+      : catalog.skills;
+    const sourceInputs = prepared?.identityInputs ?? await this.resolveSourceSkillInputs(request, providerId);
+    const identity = validateSourceInputs(visibleSkills, sourceInputs, diagnostics);
+    const skills = visibleSkills.map((skill) => ({
       ...skill,
       sourceKind: identity.sourceKinds.get(skill.skillId) ?? skill.sourceKind,
     }));
-    const requiredSkills = resolveRequiredSkills(skills, request.requiredSkillIds);
+    const requiredSkills = resolveRequiredSkills(skills, prepared?.requiredSkillIds ?? request.requiredSkillIds);
     const requiredIds = new Set(requiredSkills.map((skill) => skill.skillId));
     const selectedSkills = skills.filter((skill) =>
       isPersistedSelectionEnabled(skill, request.conversation.conversationId));
@@ -141,7 +150,30 @@ export class TurnSkillContextResolver implements TurnSkillContextPort {
       }))
       .sort(compareSkillInputs);
 
-    return { skillInputs: deduplicateInputs(skillInputs), diagnostics };
+    const resolvedInputs = deduplicateInputs(skillInputs);
+    const resolution: TurnSkillContextResolution = {
+      skillInputs: resolvedInputs,
+      diagnostics: diagnostics.slice(0, 32),
+    };
+    if (prepared) {
+      const nativeSkillRoots = [...new Set(prepared.nativeSkillRoots ?? [])].sort();
+      const requiredNativeSkills = [...new Set(
+        prepared.requiredSkillIds ?? request.requiredSkillIds,
+      )].sort();
+      resolution.nativeSkillRoots = nativeSkillRoots;
+      resolution.requiredNativeSkills = requiredNativeSkills;
+      resolution.resolutionHash = createHash("sha256").update(JSON.stringify({
+        projectId: request.project.id,
+        conversationId: request.conversation.conversationId,
+        productMode: request.conversation.productMode,
+        providerId,
+        skillInputs: resolvedInputs,
+        diagnostics: resolution.diagnostics,
+        nativeSkillRoots,
+        requiredNativeSkills,
+      })).digest("hex");
+    }
+    return freezeResolution(resolution);
   }
 
   private async readSelectionState(
@@ -164,6 +196,14 @@ export class TurnSkillContextResolver implements TurnSkillContextPort {
       database.close();
     }
   }
+}
+
+function freezeResolution(resolution: TurnSkillContextResolution): TurnSkillContextResolution {
+  Object.freeze(resolution.skillInputs);
+  Object.freeze(resolution.diagnostics);
+  if (resolution.nativeSkillRoots) Object.freeze(resolution.nativeSkillRoots);
+  if (resolution.requiredNativeSkills) Object.freeze(resolution.requiredNativeSkills);
+  return Object.freeze(resolution);
 }
 
 function assertRequestIdentity(request: TurnSkillContextRequest): void {

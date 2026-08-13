@@ -12,6 +12,7 @@ import { CanonicalTimelineDelivery } from "./canonical-timeline-delivery.js";
 import type { ConversationInteractionQuestion, ConversationInteractionSettlement } from "./conversation-interaction-contract.js";
 import type { PlanHandoffIntentKind, WorkbenchLiveSink } from "./types.js";
 import { publishAgentSurfacesInvalidated } from "./project-live-events.js";
+import type { ConversationTurnRoutingPort } from "./conversation-turn-contract.js";
 
 const activeSettlements = new Set<string>();
 
@@ -21,6 +22,7 @@ export async function settleConversationInteraction(
   interactionId: string,
   settlement: ConversationInteractionSettlement,
   live?: WorkbenchLiveSink,
+  turnRouter?: ConversationTurnRoutingPort,
 ): Promise<unknown> {
   const runtime = await requireReadyProjectRuntime(project);
   const resolved = await resolveConversationInteraction(runtime.paths, conversationId, interactionId);
@@ -36,7 +38,7 @@ export async function settleConversationInteraction(
     });
     return result;
   }
-  return settlePlan(project, conversationId, resolved, settlement, live);
+  return settlePlan(project, conversationId, resolved, settlement, live, turnRouter);
 }
 
 async function settleProviderInput(
@@ -110,6 +112,7 @@ async function settlePlan(
   resolved: Extract<Awaited<ReturnType<typeof resolveConversationInteraction>>, { kind: "plan" }>,
   settlement: ConversationInteractionSettlement,
   live?: WorkbenchLiveSink,
+  turnRouter?: ConversationTurnRoutingPort,
 ): Promise<unknown> {
   const kind: PlanHandoffIntentKind | null = settlement.action === "execute-plan"
     ? "execute-plan"
@@ -131,11 +134,12 @@ async function settlePlan(
     kind,
     feedback,
   };
+  if (!turnRouter) throw new Error("Workbench Conversation turn routing is not composed for interaction settlement.");
   return postConversationMessage(project, conversationId, {
     mode: "chat",
     message: planHandoffUserMessage(intent),
     planHandoffIntent: intent,
-  }, live);
+  }, live, { turnRouter });
 }
 
 function normalizeQuestionSettlement(

@@ -486,11 +486,13 @@ describe("TurnSkillContextResolver", () => {
     expect(providerListCalls).toBe(0);
   });
 
-  it("leaves default production composition on the explicit empty port", async () => {
-    const source = await readFile(join(process.cwd(), "src", "workbench", "conversation-service.ts"), "utf8");
-    expect(source).toContain("const emptyTurnSkillContext: TurnSkillContextPort");
-    expect(source).toContain("{ skillContext: emptyTurnSkillContext }");
-    expect(source).not.toContain("TurnSkillContextResolver");
+  it("keeps production Skill and Router composition outside Conversation Service", async () => {
+    const serviceSource = await readFile(join(process.cwd(), "src", "workbench", "conversation-service.ts"), "utf8");
+    const serverSource = await readFile(join(process.cwd(), "src", "server", "workbench-server.ts"), "utf8");
+    expect(serviceSource).not.toContain("emptyTurnSkillContext");
+    expect(serviceSource).not.toContain("defaultConversationTurnRouter");
+    expect(serverSource).toContain("new ProjectSkillRuntimeContextResolver");
+    expect(serverSource).toContain("createConversationTurnRouter");
   });
 });
 

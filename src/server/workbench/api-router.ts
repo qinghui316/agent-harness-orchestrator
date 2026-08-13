@@ -1,16 +1,18 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { join } from "node:path";
 import { openNativeFolderDialog } from "./native-dialog.js";
 import { matchProjectWorkbenchRoute } from "./routes.js";
 import { resolveProjectInputWithDirect } from "./direct-project.js";
 import { getRuntimeDiagnostics } from "./runtime-diagnostics.js";
 import { getRuntimeActivityLog } from "./runtime-activity-log.js";
-import { defaultProviderRegistry } from "../../provider-runtime/index.js";
+import { defaultProviderRegistry, type ProductMode } from "../../provider-runtime/index.js";
 import type { ProviderRegistry } from "../../provider-runtime/registry.js";
 import { listProjectFileChildren, readProjectFilePreview, searchProjectFiles } from "../../workbench/file-references.js";
 import { resolveWorkspaceResource, type WorkspaceResourceTarget } from "../../workbench/workspace-resources.js";
 import { createTopicAttachment, deleteTopicAttachment } from "../../workbench/attachments.js";
 import { getProjectGitCommitDetail, getProjectGitCommitDiff, getProjectGitDiff, getProjectGitHistory, getProjectGitStatus } from "../../workbench/git-panel.js";
 import { addSkillRoot, listSkillRoots, listSkills, setSkillEnabled, type SkillCatalogResult } from "../../skill/catalog.js";
+import { hashNativeSkillPackageContent } from "../../skill/content-hash.js";
 import { getSystemSkillsRoot } from "../../template-source/paths.js";
 import type { ManagedProject } from "../../types/index.js";
 import { addExistingProject, createNewProject, listProjectStatuses, prepareRegisteredProjectRemoval, removeRegisteredProject } from "./project-admin.js";
@@ -19,6 +21,15 @@ import { handleProjectWorkbenchApi } from "./project-routes.js";
 import { handleTerminalApi } from "./terminal-routes.js";
 import { assertConfirmed, assertLocalWorkbenchRequest, assertRegisteredProject, readJsonBody, requireProductMode, sendJson } from "./http.js";
 import type { AddExistingProjectRequest, CreateNewProjectRequest, RemoveProjectRequest, WorkbenchServerContext } from "./types.js";
+import type { ProviderSkillInput } from "../../project-harness/contracts.js";
+import { openProjectRuntimeWorkbenchDatabase } from "../../workbench/persistence/open-workbench-database.js";
+import type { ProjectRuntimePaths } from "../../project-runtime/paths.js";
+
+const AGENT_HIDDEN_SKILL_NAMES = new Set([
+  "aho-main-orchestration",
+  "aho-harness-engineering",
+  "aho-workflow-authoring",
+]);
 
 export async function handleApi(context: WorkbenchServerContext, request: IncomingMessage, response: ServerResponse, url: URL): Promise<void> {
   const trackedProjectId = projectIdForTrackedRequest(url.pathname)
@@ -42,7 +53,11 @@ async function handleApiRequest(context: WorkbenchServerContext, request: Incomi
 
   const projectWorkbench = matchProjectWorkbenchRoute(url.pathname);
   if (projectWorkbench) {
-    const input = await resolveProjectInputWithDirect(context.store, context.input, projectWorkbench.projectId);
+    const resolvedInput = await resolveProjectInputWithDirect(context.store, context.input, projectWorkbench.projectId);
+    const input = {
+      ...resolvedInput,
+      runtimeStateResolver: (project: ManagedProject) => context.projectRuntimeCoordinator.resolve(project),
+    };
     await handleProjectWorkbenchApi(context, input, request, response, projectWorkbench.rest, url);
     return;
   }
@@ -320,18 +335,26 @@ async function handleApiRequest(context: WorkbenchServerContext, request: Incomi
     const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(skillRootsMatch[1]));
     assertRegisteredProject(input);
     if (request.method === "GET") {
-      const runtime = await context.projectRuntimeCoordinator.requireReady(input.project);
-      sendJson(response, 200, { roots: await listSkillRoots(runtime.paths) });
+      const skillContext = await resolveSkillApiContext(context, input.project, {
+        productMode: requireProductMode(url.searchParams.get("productMode")),
+        conversationId: url.searchParams.get("conversationId"),
+        providerId: url.searchParams.get("providerId"),
+      });
+      sendJson(response, 200, { roots: await listSkillRoots(skillContext.paths) });
       return;
     }
     if (request.method === "POST") {
-      const body = await readJsonBody<{ rootPath?: string }>(request);
+      const body = await readJsonBody<{ rootPath?: string; productMode?: ProductMode; conversationId?: string; providerId?: string }>(request);
       if (!body.rootPath) {
         sendJson(response, 400, { error: "rootPath is required." });
         return;
       }
-      const runtime = await context.projectRuntimeCoordinator.requireReady(input.project);
-      sendJson(response, 200, { roots: await addSkillRoot(runtime.paths, body.rootPath) });
+      const skillContext = await resolveSkillApiContext(context, input.project, {
+        productMode: requireProductMode(body.productMode),
+        conversationId: body.conversationId,
+        providerId: body.providerId,
+      });
+      sendJson(response, 200, { roots: await addSkillRoot(skillContext.paths, body.rootPath) });
       return;
     }
   }
@@ -340,13 +363,18 @@ async function handleApiRequest(context: WorkbenchServerContext, request: Incomi
     const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(skillsMatch[1]));
     assertRegisteredProject(input);
     if (request.method === "GET") {
-      const provider = resolveProjectSkillProvider(input.project, url.searchParams.get("providerId"), context.providerRegistry);
-      sendJson(response, 200, catalogResponse(await loadNativeSkillCatalog(context, input.project, provider, false)));
+      const skillContext = await resolveSkillApiContext(context, input.project, skillApiQuery(url));
+      sendJson(response, 200, catalogResponse(await loadNativeSkillCatalog(input.project, skillContext, false)));
       return;
     }
     if (request.method === "POST") {
-      const provider = resolveProjectSkillProvider(input.project, url.searchParams.get("providerId"), context.providerRegistry);
-      sendJson(response, 200, catalogResponse(await loadNativeSkillCatalog(context, input.project, provider, true)));
+      const body = await readJsonBody<{ productMode?: ProductMode; conversationId?: string; providerId?: string }>(request);
+      const skillContext = await resolveSkillApiContext(context, input.project, {
+        productMode: requireProductMode(body.productMode),
+        conversationId: body.conversationId,
+        providerId: body.providerId,
+      });
+      sendJson(response, 200, catalogResponse(await loadNativeSkillCatalog(input.project, skillContext, true)));
       return;
     }
   }
@@ -354,34 +382,42 @@ async function handleApiRequest(context: WorkbenchServerContext, request: Incomi
   if (request.method === "POST" && skillEnableMatch?.[1] && skillEnableMatch?.[2]) {
     const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(skillEnableMatch[1]));
     assertRegisteredProject(input);
-    const body = await readJsonBody<{ enabled?: boolean; topic?: string }>(request);
-    const provider = resolveProjectSkillProvider(input.project, url.searchParams.get("providerId"), context.providerRegistry);
-    const runtime = await context.projectRuntimeCoordinator.requireReady(input.project);
-    const catalog = await loadNativeSkillCatalog(context, input.project, provider, false);
-    sendJson(response, 200, await setSkillEnabled(
-      runtime.paths,
+    const body = await readJsonBody<{ enabled?: boolean; conversationId?: string; productMode?: ProductMode; providerId?: string }>(request);
+    const skillContext = await resolveSkillApiContext(context, input.project, {
+      productMode: requireProductMode(body.productMode),
+      conversationId: body.conversationId,
+      providerId: body.providerId,
+    });
+    const catalog = await loadNativeSkillCatalog(input.project, skillContext, false);
+    sendJson(response, 200, catalogResponseForMode(await setSkillEnabled(
+      skillContext.paths,
       catalog.snapshot,
       decodeURIComponent(skillEnableMatch[2]),
-      { enabled: Boolean(body.enabled), topic: body.topic },
-      [runtime.providerInput],
-    ));
+      { enabled: Boolean(body.enabled), conversationId: skillContext.conversationId ?? undefined },
+      skillContext.requiredInputs,
+      skillContext.identityInputs,
+    ), skillContext.productMode));
     return;
   }
   const providerSkillEnableMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/skills\/([^/]+)\/provider-enable$/);
   if (request.method === "POST" && providerSkillEnableMatch?.[1] && providerSkillEnableMatch[2]) {
     const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(providerSkillEnableMatch[1]));
     assertRegisteredProject(input);
-    const body = await readJsonBody<{ providerId?: string; enabled?: boolean }>(request);
-    const provider = resolveProjectSkillProvider(input.project, body.providerId, context.providerRegistry);
-    const before = await loadNativeSkillCatalog(context, input.project, provider, false);
+    const body = await readJsonBody<{ productMode?: ProductMode; conversationId?: string; providerId?: string; enabled?: boolean }>(request);
+    const skillContext = await resolveSkillApiContext(context, input.project, {
+      productMode: requireProductMode(body.productMode),
+      conversationId: body.conversationId,
+      providerId: body.providerId,
+    });
+    const before = await loadNativeSkillCatalog(input.project, skillContext, false);
     const skillId = decodeURIComponent(providerSkillEnableMatch[2]);
     const skill = before.skills.find((item) => item.skillId === skillId);
     if (!skill) throw new Error(`Unknown native Skill: ${skillId}`);
-    if (skill.required || skill.runtimeAssigned) {
+    if (skill.required || skill.runtimeAssigned || skill.sourceKind === "project-harness") {
       throw new Error(`Skill ${skillId} is assigned by the Runtime and cannot be disabled.`);
     }
-    await provider.skills.setEnabled({ projectPath: input.project.path, path: skill.sourcePath, enabled: Boolean(body.enabled) });
-    sendJson(response, 200, catalogResponse(await loadNativeSkillCatalog(context, input.project, provider, true)));
+    await skillContext.provider.skills.setEnabled({ projectPath: input.project.path, path: skill.sourcePath, enabled: Boolean(body.enabled) });
+    sendJson(response, 200, catalogResponse(await loadNativeSkillCatalog(input.project, skillContext, true)));
     return;
   }
 
@@ -396,26 +432,106 @@ export function resolveProjectSkillProvider(project: { defaultProviderId?: strin
 }
 
 async function loadNativeSkillCatalog(
-  context: WorkbenchServerContext,
   project: ManagedProject,
-  provider: ReturnType<typeof resolveProjectSkillProvider>,
+  context: SkillApiContext,
   forceReload: boolean,
 ) {
-  const runtime = await context.projectRuntimeCoordinator.requireReady(project);
-  const roots = await listSkillRoots(runtime.paths);
-  const snapshot = await provider.skills.list({
+  const roots = await listSkillRoots(context.paths);
+  const snapshot = await context.provider.skills.list({
     projectPath: project.path,
     extraRoots: [getSystemSkillsRoot(), ...roots.map((root) => root.rootPath)],
     forceReload,
   });
+  const catalog = await listSkills(context.paths, snapshot, context.requiredInputs, context.identityInputs);
   return {
-    ...await listSkills(runtime.paths, snapshot, [runtime.providerInput]),
+    ...catalog,
+    skills: catalogResponseForMode(catalog, context.productMode).skills,
     snapshot,
   };
 }
 
+
+interface SkillApiContext {
+  productMode: ProductMode;
+  conversationId: string | null;
+  paths: ProjectRuntimePaths;
+  provider: ReturnType<typeof resolveProjectSkillProvider>;
+  identityInputs: ProviderSkillInput[];
+  requiredInputs: ProviderSkillInput[];
+}
+
+function skillApiQuery(url: URL): { productMode: ProductMode; conversationId: string | null; providerId: string | null } {
+  return {
+    productMode: requireProductMode(url.searchParams.get("productMode")),
+    conversationId: url.searchParams.get("conversationId"),
+    providerId: url.searchParams.get("providerId"),
+  };
+}
+
+async function resolveSkillApiContext(
+  context: WorkbenchServerContext,
+  project: ManagedProject,
+  request: { productMode: ProductMode; conversationId?: string | null; providerId?: string | null },
+): Promise<SkillApiContext> {
+  const state = await context.projectRuntimeCoordinator.resolve(project);
+  if (request.productMode === "harness" && state.state !== "ready") {
+    throw new Error(`Project Harness onboarding is incomplete for ${project.id}.`);
+  }
+  const paths = state.state === "onboarding" ? state.paths : state.resolution.paths;
+  const identityInputs = state.state === "onboarding" ? [] : [state.resolution.providerInput];
+  let conversationId = request.conversationId?.trim() || null;
+  let authoritativeProviderId = request.providerId?.trim() || null;
+  if (conversationId) {
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      const conversation = database.conversations.readConversation(paths.projectId, conversationId);
+      if (!conversation || conversation.deletedAt || conversation.state !== "active") {
+        const error = new Error(`Conversation not found: ${conversationId}.`);
+        error.name = "NotFound";
+        throw error;
+      }
+      if (conversation.productMode !== request.productMode) throw skillApiConflict("Conversation productMode does not match the Skill request mode.");
+      if (authoritativeProviderId && authoritativeProviderId !== conversation.selectedProviderId) {
+        throw skillApiConflict("Conversation Provider does not match the Skill request Provider.");
+      }
+      conversationId = conversation.conversationId;
+      authoritativeProviderId = conversation.selectedProviderId;
+    } finally {
+      database.close();
+    }
+  }
+  const provider = resolveProjectSkillProvider(project, authoritativeProviderId, context.providerRegistry);
+  const requiredInputs = request.productMode === "harness"
+    ? [...identityInputs, await mainOrchestrationSkillInput()]
+    : [];
+  return { productMode: request.productMode, conversationId, paths, provider, identityInputs, requiredInputs };
+}
+
+async function mainOrchestrationSkillInput(): Promise<ProviderSkillInput> {
+  const root = join(getSystemSkillsRoot(), "aho-main-orchestration");
+  return {
+    id: "aho-main-orchestration",
+    path: join(root, "SKILL.md"),
+    contentHash: await hashNativeSkillPackageContent(root),
+    source: "aho-system",
+    required: true,
+  };
+}
+
+function skillApiConflict(message: string): Error {
+  const error = new Error(message);
+  error.name = "Conflict";
+  return error;
+}
+
 function catalogResponse(result: SkillCatalogResult & { snapshot: unknown }): SkillCatalogResult {
   return { roots: result.roots, skills: result.skills, errors: result.errors };
+}
+
+function catalogResponseForMode(result: SkillCatalogResult, productMode: ProductMode): SkillCatalogResult {
+  return productMode === "agent"
+    ? { ...result, skills: result.skills.filter((skill) => !AGENT_HIDDEN_SKILL_NAMES.has(skill.name)) }
+    : result;
 }
 
 function projectIdForTrackedRequest(pathname: string): string | null {

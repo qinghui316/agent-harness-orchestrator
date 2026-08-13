@@ -3,7 +3,6 @@ import { createSseResponse } from "../sse.js";
 import type { ManagedProject } from "../../types/index.js";
 import { runWorkbenchWorkflowAction } from "../../workbench/workflow-conversation-bridge.js";
 import { postConversationMessage } from "../../workbench/conversation-service.js";
-import { runProjectScopedMainAgentTurn } from "../../workbench/main-agent-turn-coordinator.js";
 import type { WorkbenchWorkflowActionRequest } from "../../workbench/types.js";
 import { getWorkbenchSnapshot, type WorkbenchProjectInput } from "../../workbench/projections/read-model/implementation.js";
 import { isLiveWorkflowActionType } from "../../workflow-actions/registry.js";
@@ -12,8 +11,9 @@ import { executeWorkbenchAction } from "./actions.js";
 import { createLiveSink } from "./live.js";
 import { readJsonBody } from "./http.js";
 import type { WorkbenchActionRequest } from "./types.js";
+import type { ConversationTurnRoutingPort } from "../../workbench/conversation-turn-contract.js";
 
-export async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { project: ManagedProject }, request: IncomingMessage, response: ServerResponse): Promise<void> {
+export async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { project: ManagedProject }, request: IncomingMessage, response: ServerResponse, turnRouter: ConversationTurnRoutingPort): Promise<void> {
   const body = await readJsonBody<WorkbenchActionRequest>(request);
   const changeId = body.changeId;
   const sse = createSseResponse(response);
@@ -79,12 +79,12 @@ export async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { p
         reworkValidationRunId: body.reworkValidationRunId,
         auditRunId: body.auditRunId,
       }, sink, {
-        postConversationMessage,
-        continueMainAgentTurn: runProjectScopedMainAgentTurn,
+        postConversationMessage: (ownerProject, ownerConversationId, ownerInput, ownerLive) => postConversationMessage(ownerProject, ownerConversationId, ownerInput, ownerLive, { turnRouter }),
+        continueMainAgentTurn: turnRouter.continueMainAgentTurn,
       });
       terminalStatus = result.status;
     } else {
-      await executeWorkbenchAction(input, body);
+      await executeWorkbenchAction(input, body, undefined, turnRouter);
     }
     sink.emit({ event: "snapshot", data: await getWorkbenchSnapshot(input, { topicId: changeId }) });
     sink.emit({ event: "done", data: { status: terminalStatus } });

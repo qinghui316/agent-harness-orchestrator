@@ -1,8 +1,6 @@
 ﻿import type { IncomingMessage, ServerResponse } from "node:http";
 import { createSseResponse } from "../sse.js";
-import type { ProviderRegistry } from "../../provider-runtime/index.js";
 import { createWorkbenchConversation, postConversationMessage } from "../../workbench/conversation-service.js";
-import { resolveConversationId } from "../../workbench/conversation-identity.js";
 import { getWorkbenchSnapshot, type WorkbenchProjectInput } from "../../workbench/projections/read-model/implementation.js";
 import type { WorkbenchLiveSink } from "../../workbench/types.js";
 import type { ManagedProject } from "../../types/index.js";
@@ -12,6 +10,7 @@ import type {
   CreateTopicRequest,
   TopicMessageRequest,
 } from "./types.js";
+import type { ConversationTurnRoutingPort } from "../../workbench/conversation-turn-contract.js";
 
 export async function readCreateTopicBody(request: IncomingMessage): Promise<{
   body?: string;
@@ -72,6 +71,7 @@ export async function sendCreateTopicLive(
   input: WorkbenchProjectInput & { project: ManagedProject },
   request: IncomingMessage,
   response: ServerResponse,
+  turnRouter: ConversationTurnRoutingPort,
 ): Promise<void> {
   const body = await readCreateTopicBody(request);
   const sse = createSseResponse(response);
@@ -85,7 +85,7 @@ export async function sendCreateTopicLive(
     isClosed: () => downstream.isClosed?.() ?? false,
   };
   try {
-    const topic = await createWorkbenchConversation(input.project, body, sink);
+    const topic = await createWorkbenchConversation(input.project, body, sink, { turnRouter });
     conversationId = topic.conversationId;
     sink.emit({ event: "snapshot", data: await getWorkbenchSnapshot(input, { topicId: topic.conversationId, productMode: topic.productMode }) });
     sink.emit({ event: "done", data: { projectId: input.project.id, productMode: topic.productMode, conversationId: topic.conversationId, status: "completed" } });
@@ -103,15 +103,15 @@ export async function sendConversationMessageLive(
   conversationId: string,
   request: IncomingMessage,
   response: ServerResponse,
-  providerRegistry?: ProviderRegistry,
+  turnRouter: ConversationTurnRoutingPort,
 ): Promise<void> {
   const message = await readTopicMessageBody(request);
   const sse = createSseResponse(response);
   const sink = createLiveSink(sse, input.project.id);
   let resolvedConversationId = conversationId;
   try {
-    resolvedConversationId = await resolveConversationId(input.project, conversationId);
-    await postConversationMessage(input.project, resolvedConversationId, message, sink, { providerRegistry });
+    const result = await postConversationMessage(input.project, resolvedConversationId, message, sink, { turnRouter });
+    resolvedConversationId = result.user.conversationId ?? resolvedConversationId;
     sink.emit({ event: "snapshot", data: await getWorkbenchSnapshot(input, { topicId: resolvedConversationId, productMode: message.productMode }) });
     sink.emit({ event: "done", data: { projectId: input.project.id, productMode: message.productMode, conversationId: resolvedConversationId, status: "completed" } });
   } catch (cause) {

@@ -1,13 +1,19 @@
-import { useEffect, useMemo, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { FileText, Folder, RefreshCw, Sparkles } from "lucide-react";
 import { fetchJson, postJson } from "../api.js";
-import type { SkillListItem, SkillRootListItem } from "../types.js";
+import type { ProductMode, SkillListItem, SkillRootListItem } from "../types.js";
 
 export function SkillsSettingsView({
   projectId,
+  productMode,
+  conversationId,
+  providerId,
   onRefresh,
 }: {
   projectId: string | null;
+  productMode: ProductMode;
+  conversationId: string | null;
+  providerId: string | null;
   onRefresh: () => Promise<void>;
 }): ReactElement {
   const [skills, setSkills] = useState<SkillListItem[]>([]);
@@ -18,6 +24,11 @@ export function SkillsSettingsView({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [catalogErrors, setCatalogErrors] = useState<Array<{ path: string; message: string }>>([]);
+  const requestGenerationRef = useRef(0);
+  const actionGenerationRef = useRef(0);
+  const identityKey = skillSettingsIdentityKey(projectId, productMode, conversationId, providerId);
+  const identityKeyRef = useRef(identityKey);
+  identityKeyRef.current = identityKey;
 
   const filteredSkills = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -34,14 +45,20 @@ export function SkillsSettingsView({
   const selectedTarget = selectedSkill?.providerBindings[0];
 
   async function load(): Promise<void> {
+    const generation = ++requestGenerationRef.current;
+    const requestIdentityKey = identityKey;
     if (!projectId) {
-      setSkills([]);
-      setRoots([]);
-      setSelectedSkillId(null);
-      setCatalogErrors([]);
+      if (generation === requestGenerationRef.current && requestIdentityKey === identityKeyRef.current) {
+        setSkills([]);
+        setRoots([]);
+        setSelectedSkillId(null);
+        setCatalogErrors([]);
+      }
       return;
     }
-    const payload = await fetchJson<{ roots?: SkillRootListItem[]; skills?: SkillListItem[]; errors?: Array<{ path: string; message: string }> }>(`/api/projects/${encodeURIComponent(projectId)}/skills`);
+    const params = skillSearchParams(productMode, conversationId, providerId);
+    const payload = await fetchJson<{ roots?: SkillRootListItem[]; skills?: SkillListItem[]; errors?: Array<{ path: string; message: string }> }>(`/api/projects/${encodeURIComponent(projectId)}/skills?${params.toString()}`);
+    if (generation !== requestGenerationRef.current || requestIdentityKey !== identityKeyRef.current) return;
     const nextSkills = Array.isArray(payload.skills) ? payload.skills : [];
     setRoots(Array.isArray(payload.roots) ? payload.roots : []);
     setSkills(nextSkills);
@@ -50,21 +67,36 @@ export function SkillsSettingsView({
   }
 
   useEffect(() => {
-    load().catch((cause: unknown) => setMessage(cause instanceof Error ? cause.message : String(cause)));
-  }, [projectId]);
+    const requestIdentityKey = identityKey;
+    load().catch((cause: unknown) => {
+      if (requestIdentityKey === identityKeyRef.current) setMessage(cause instanceof Error ? cause.message : String(cause));
+    });
+    return () => {
+      requestGenerationRef.current += 1;
+      actionGenerationRef.current += 1;
+    };
+  }, [projectId, productMode, conversationId, providerId]);
 
-  async function run(action: () => Promise<void>): Promise<void> {
-    if (!projectId) return;
+  async function run(action: () => Promise<void>): Promise<boolean> {
+    if (!projectId) return false;
+    const generation = ++actionGenerationRef.current;
+    const actionIdentityKey = identityKey;
     setBusy(true);
     setMessage(null);
     try {
       await action();
+      if (generation !== actionGenerationRef.current || actionIdentityKey !== identityKeyRef.current) return false;
       await load();
+      if (generation !== actionGenerationRef.current || actionIdentityKey !== identityKeyRef.current) return false;
       await onRefresh();
+      return generation === actionGenerationRef.current && actionIdentityKey === identityKeyRef.current;
     } catch (cause) {
-      setMessage(cause instanceof Error ? cause.message : String(cause));
+      if (generation === actionGenerationRef.current && actionIdentityKey === identityKeyRef.current) {
+        setMessage(cause instanceof Error ? cause.message : String(cause));
+      }
+      return false;
     } finally {
-      setBusy(false);
+      if (generation === actionGenerationRef.current && actionIdentityKey === identityKeyRef.current) setBusy(false);
     }
   }
 
@@ -86,7 +118,7 @@ export function SkillsSettingsView({
             <h3>技能</h3>
             <p>{skills.length} 个可用 Skill</p>
           </div>
-          <button className="outline-button" disabled={busy} onClick={() => run(async () => { await postJson(`/api/projects/${encodeURIComponent(projectId)}/skills`, {}); })}>
+          <button className="outline-button" disabled={busy} onClick={() => run(async () => { await postJson(`/api/projects/${encodeURIComponent(projectId)}/skills`, skillRequestBody(productMode, conversationId, providerId)); })}>
             <RefreshCw size={14} />刷新
           </button>
         </header>
@@ -111,10 +143,12 @@ export function SkillsSettingsView({
             <button
               className="outline-button"
               disabled={busy || !rootPath.trim()}
-              onClick={() => run(async () => {
-                await postJson(`/api/projects/${encodeURIComponent(projectId)}/skill-roots`, { rootPath: rootPath.trim(), sourceKind: "custom" });
-                setRootPath("");
-              })}
+              onClick={async () => {
+                const added = await run(async () => {
+                  await postJson(`/api/projects/${encodeURIComponent(projectId)}/skill-roots`, { rootPath: rootPath.trim(), sourceKind: "custom", ...skillRequestBody(productMode, conversationId, providerId) });
+                });
+                if (added) setRootPath("");
+              }}
             >添加</button>
           </div>
 
@@ -167,9 +201,9 @@ export function SkillsSettingsView({
                     <input
                       type="checkbox"
                       checked={selectedSkill.providerEnabled}
-                      disabled={busy}
+                      disabled={busy || selectedSkill.sourceKind === "project-harness"}
                       onChange={(event) => run(async () => {
-                        await postJson(`/api/projects/${encodeURIComponent(projectId)}/skills/${encodeURIComponent(selectedSkill.skillId)}/provider-enable`, { enabled: event.target.checked });
+                        await postJson(`/api/projects/${encodeURIComponent(projectId)}/skills/${encodeURIComponent(selectedSkill.skillId)}/provider-enable`, { enabled: event.target.checked, ...skillRequestBody(productMode, conversationId, providerId) });
                       })}
                     />
                     <span>Provider 全局启用</span>
@@ -206,6 +240,30 @@ export function SkillsSettingsView({
       </section>
     </section>
   );
+}
+
+function skillRequestBody(productMode: ProductMode, conversationId: string | null, providerId: string | null) {
+  return {
+    productMode,
+    conversationId: conversationId ?? undefined,
+    providerId: providerId ?? undefined,
+  };
+}
+
+export function skillSettingsIdentityKey(
+  projectId: string | null,
+  productMode: ProductMode,
+  conversationId: string | null,
+  providerId: string | null,
+): string {
+  return [projectId ?? "", productMode, conversationId ?? "", providerId ?? ""].join("\0");
+}
+
+function skillSearchParams(productMode: ProductMode, conversationId: string | null, providerId: string | null): URLSearchParams {
+  const params = new URLSearchParams({ productMode });
+  if (conversationId) params.set("conversationId", conversationId);
+  if (providerId) params.set("providerId", providerId);
+  return params;
 }
 
 function Info({ label, value }: { label: string; value: string }): ReactElement {

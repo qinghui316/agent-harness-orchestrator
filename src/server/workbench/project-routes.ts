@@ -43,13 +43,13 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
   }
   if (request.method === "POST" && rest === "topics/live") {
     assertRegisteredProject(input);
-    await sendCreateTopicLive(input, request, response);
+    await sendCreateTopicLive(input, request, response, context.turnRouter);
     return;
   }
   if (request.method === "POST" && rest === "topics") {
     assertRegisteredProject(input);
     const body = await readCreateTopicBody(request);
-    const topic = await createWorkbenchConversation(input.project, body, undefined, { runMainAgent: false });
+    const topic = await createWorkbenchConversation(input.project, body, undefined, { runMainAgent: false, turnRouter: context.turnRouter });
     sendJson(response, 200, {
       topic: {
         id: topic.conversationId,
@@ -119,7 +119,9 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
       error.name = "BadRequest";
       throw error;
     }
-    const conversation = await updateWorkbenchConversationTitle(input.project, decodeURIComponent(topicTitleMatch[1]), { title: body.title });
+    const conversation = await updateWorkbenchConversationTitle(input.project, decodeURIComponent(topicTitleMatch[1]), { title: body.title }, {
+      runtimeStateResolver: input.runtimeStateResolver,
+    });
     sendJson(response, 200, { conversation });
     return;
   }
@@ -132,6 +134,7 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
       decodeURIComponent(interactionSettlementMatch[2]),
       request,
       response,
+      context.turnRouter,
     );
     return;
   }
@@ -139,7 +142,7 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
   if (request.method === "POST" && topicMessagesLiveMatch?.[1]) {
     assertRegisteredProject(input);
     const id = decodeURIComponent(topicMessagesLiveMatch[1]);
-    await sendConversationMessageLive(input, id, request, response, context.providerRegistry);
+    await sendConversationMessageLive(input, id, request, response, context.turnRouter);
     return;
   }
   if (request.method === "GET" && /^topics\/[^/]+\/messages(?:\/stream)?$/.test(rest)) {
@@ -166,12 +169,12 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
     return;
   }
   if (request.method === "POST" && rest === "actions") {
-    sendJson(response, 200, await executeWorkbenchAction(input, await readJsonBody<WorkbenchActionRequest>(request)));
+    sendJson(response, 200, await executeWorkbenchAction(input, await readJsonBody<WorkbenchActionRequest>(request), undefined, context.turnRouter));
     return;
   }
   if (request.method === "POST" && rest === "actions/live") {
     assertRegisteredProject(input);
-    await sendWorkbenchActionLive(input, request, response);
+    await sendWorkbenchActionLive(input, request, response, context.turnRouter);
     return;
   }
   const actionEventsMatch = rest.match(/^actions\/([^/]+)\/events$/);

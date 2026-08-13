@@ -69,6 +69,7 @@ export interface ProjectRuntimeCoordinatorPort {
   register(input: { path: string; name?: string }): Promise<ProjectRuntimeState>;
   resolve(project: ManagedProject): Promise<ProjectRuntimeState>;
   requireReady(project: ManagedProject): Promise<ProjectRuntimeResolution>;
+  runtimePaths(projectId: string): ProjectRuntimePaths;
 }
 
 export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort {
@@ -144,6 +145,10 @@ export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort 
       ahoHome: this.ahoHome,
       discoveryPolicy: this.discoveryPolicy,
     });
+  }
+
+  runtimePaths(projectId: string): ProjectRuntimePaths {
+    return resolveProjectRuntimePaths(projectId, this.ahoHome);
   }
 
   async requireReady(project: ManagedProject): Promise<ProjectRuntimeResolution> {

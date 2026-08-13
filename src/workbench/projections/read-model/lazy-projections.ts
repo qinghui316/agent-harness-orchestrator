@@ -163,7 +163,9 @@ export async function getWorkbenchSchedulerRunBlockedCloseoutProjection(input: W
 
 export async function getWorkbenchWorkflowRunProjection(input: WorkbenchProjectInput, changeId: string, workflowRunId: string): Promise<Awaited<ReturnType<typeof getWorkflowRunProjectionForChange>> | null> {
   if (!input.project) return null;
-  const state = await resolveProjectRuntimeState(input.project, { discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY });
+  const state = input.runtimeStateResolver
+    ? await input.runtimeStateResolver(input.project)
+    : await resolveProjectRuntimeState(input.project, { discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY });
   return state.state === "ready"
     ? getWorkflowRunProjectionForChange(state.resolution.paths, changeId, workflowRunId)
     : null;
@@ -175,9 +177,9 @@ async function resolveSkillNativeSchedulerProjectionStore(
   schedulerRunId?: string,
 ): Promise<SchedulerArtifactStore | null> {
   if (!input.project) return null;
-  const state = await resolveProjectRuntimeState(input.project, {
-    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
-  });
+  const state = input.runtimeStateResolver
+    ? await input.runtimeStateResolver(input.project)
+    : await resolveProjectRuntimeState(input.project, { discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY });
   if (state.state !== "ready") return null;
   const evidence = await readProjectHarnessChangeEvidence(state.resolution.harness.skillRoot, changeId).catch(() => null);
   if (!evidence) return null;

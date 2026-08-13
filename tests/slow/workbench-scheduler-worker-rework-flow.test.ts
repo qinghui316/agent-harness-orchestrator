@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { listRuns } from "../../src/run/manager.js";
-import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
+import { executeWorkbenchAction as executeWorkbenchActionRaw } from "../../src/server/workbench-server.js";
 import { getWorkbenchSchedulerWorkerReworkPlanProjection, getWorkbenchSchedulerWorkerReworkResultProjection, getWorkbenchSchedulerWorkerReworkStartProjection, getWorkbenchSchedulerWorkerReworkValidationProjection, getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
 import { listAgentTasks } from "../../src/agent-task/manager.js";
 import { listWorktreeStatuses } from "../../src/worktree/manager.js";
@@ -10,13 +10,23 @@ import { listTaskQueues } from "../../src/task-queue/manager.js";
 import { listTaskRuns, listWorkerLeases } from "../../src/task-run/manager.js";
 import { listWorkflowRuns } from "../../src/workflow-run/manager.js";
 import { prepareSkillNativeSchedulerFirstWorkerThroughResult } from "../helpers/skill-native-scheduler-fixture.js";
+import { createTestConversationTurnRouter } from "../helpers/conversation-change-fixture.js";
 import { createFakeCodex, findSchedulerGateAction, getTempDir, project, unwrapWorkflowActionResult } from "../helpers/skill-native-test-environment.js";
 
 let originalAhoHome: string | undefined;
+let turnRouter: ReturnType<typeof createTestConversationTurnRouter>;
 
 beforeEach(() => {
   originalAhoHome = process.env.AHO_HOME;
+  turnRouter = createTestConversationTurnRouter();
 });
+
+function executeWorkbenchAction(
+  input: Parameters<typeof executeWorkbenchActionRaw>[0],
+  body: Parameters<typeof executeWorkbenchActionRaw>[1],
+): ReturnType<typeof executeWorkbenchActionRaw> {
+  return executeWorkbenchActionRaw(input, body, undefined, turnRouter);
+}
 
 afterEach(() => {
   if (originalAhoHome === undefined) delete process.env.AHO_HOME;

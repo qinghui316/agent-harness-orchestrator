@@ -47,19 +47,42 @@ vi.mock("../../src/codex/capabilities.js", () => ({
 
 vi.mock("../../src/codex/native-skills.js", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../src/codex/native-skills.js")>(),
-  listCodexNativeSkills: vi.fn(async () => ({
-    providerId: "codex",
-    projectPath: root,
-    skills: [{
-      name: "repo-harness",
-      description: "Test project Harness.",
-      path: join(root, ".agents", "skills", "repo-harness", "SKILL.md"),
-      scope: "repo",
-      enabled: true,
-      contentHash: "b".repeat(64),
-    }],
-    errors: [],
-  })),
+  listCodexNativeSkills: vi.fn(async () => {
+    const { hashNativeSkillPackageContent } = await import("../../src/skill/content-hash.js");
+    const { getSystemSkillsRoot } = await import("../../src/template-source/paths.js");
+    const projectHarnessRoot = join(root, ".agents", "skills", "repo-harness");
+    const systemSkills = await Promise.all([
+      "aho-main-orchestration",
+      "aho-harness-engineering",
+      "aho-workflow-authoring",
+    ].map(async (name) => {
+      const path = join(getSystemSkillsRoot(), name, "SKILL.md");
+      return {
+        name,
+        description: `Test ${name}.`,
+        path,
+        scope: "system" as const,
+        enabled: true,
+        contentHash: await hashNativeSkillPackageContent(join(getSystemSkillsRoot(), name)),
+      };
+    }));
+    const skills = existsSync(join(projectHarnessRoot, "SKILL.md"))
+      ? [{
+        name: "repo-harness",
+        description: "Test project Harness.",
+        path: join(projectHarnessRoot, "SKILL.md"),
+        scope: "repo" as const,
+        enabled: true,
+        contentHash: await hashNativeSkillPackageContent(projectHarnessRoot),
+      }, ...systemSkills]
+      : systemSkills;
+    return {
+      providerId: "codex",
+      projectPath: root,
+      skills,
+      errors: [],
+    };
+  }),
 }));
 
 import { normalizeCodexAppServerNotification } from "../../src/codex/app-server-realtime.js";
@@ -75,16 +98,21 @@ import {
   readProjectHarnessLane,
   resolveProjectHarnessRegistryContext,
 } from "../../src/project-harness/registry.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../src/provider-runtime/project-harness-discovery.js";
+import { ProjectRegistryStore } from "../../src/registry/store.js";
+import { ProjectRuntimeCoordinator } from "../../src/project-runtime/coordinator.js";
 import { resolveProjectRuntimePaths, type ProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import { defaultProviderRegistry } from "../../src/provider-runtime/index.js";
 import { agentThreadSurfaceId } from "../../src/provider-runtime/agent-surface-id.js";
+import { ProjectSkillRuntimeContextResolver } from "../../src/skill/project-skill-runtime-context-resolver.js";
 import { git } from "../../src/project/git.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import { appendCanonicalTimelineEntry } from "../../src/workbench/canonical-timeline-command.js";
-import { listConversationMessages, postConversationMessage } from "../../src/workbench/conversation-service.js";
-import { runProjectScopedMainAgentTurn } from "../../src/workbench/main-agent-turn-coordinator.js";
+import { listConversationMessages, postConversationMessage as postConversationMessageRaw } from "../../src/workbench/conversation-service.js";
 import { resumeNativeGoalAfterAction, runWorkbenchWorkflowAction } from "../../src/workbench/workflow-conversation-bridge.js";
 import { buildConversationInteractionQueue } from "../../src/workbench/conversation-interactions.js";
+import { createConversationTurnRouter } from "../../src/workbench/conversation-turn-router.js";
+import type { ConversationTurnRoutingPort } from "../../src/workbench/conversation-turn-contract.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
 import { listWorkflowRuns } from "../../src/workflow-run/manager.js";
 import { getCanonicalTimelinePage } from "../../src/workbench/canonical-timeline-query.js";
@@ -93,12 +121,13 @@ import { readLatestWorkflowGraphPlanAt } from "../../src/workflow-artifacts/mana
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { planDocumentContentHash } from "../../src/workbench/plan-documents.js";
 import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
-import { createHarnessWorkbenchConversation as createWorkbenchConversation } from "../helpers/conversation-change-fixture.js";
+import { createHarnessWorkbenchConversation as createHarnessWorkbenchConversation } from "../helpers/conversation-change-fixture.js";
 
 let root: string;
 let originalAhoHome: string | undefined;
 let runtimePaths: ProjectRuntimePaths;
 let skillRoot: string;
+let turnRouter: ConversationTurnRoutingPort;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "aho-provider-planning-"));
@@ -139,6 +168,20 @@ beforeEach(async () => {
   skillRoot = fixture.skillRoot;
   projectHarnessAgentInput.identity.skillRevision = 1;
   projectHarnessAgentInput.providerSkillInput.path = join(skillRoot, "SKILL.md");
+  const projectRuntimeCoordinator = new ProjectRuntimeCoordinator({
+    store: new ProjectRegistryStore(fixture.ahoHome),
+    ahoHome: fixture.ahoHome,
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
+  const skillContext = new ProjectSkillRuntimeContextResolver({
+    providerRegistry: defaultProviderRegistry,
+    projectRuntimeCoordinator,
+  });
+  turnRouter = createConversationTurnRouter({
+    skillContext,
+    providerRegistry: defaultProviderRegistry,
+    projectRuntimeCoordinator,
+  });
 });
 
 afterEach(async () => {
@@ -146,6 +189,25 @@ afterEach(async () => {
   else process.env.AHO_HOME = originalAhoHome;
   await rm(root, { recursive: true, force: true });
 });
+
+function createWorkbenchConversation(
+  projectInput: ManagedProject,
+  input: Parameters<typeof createHarnessWorkbenchConversation>[1],
+  live?: Parameters<typeof createHarnessWorkbenchConversation>[2],
+  options: Parameters<typeof createHarnessWorkbenchConversation>[3] = {},
+): ReturnType<typeof createHarnessWorkbenchConversation> {
+  return createHarnessWorkbenchConversation(projectInput, input, live, { ...options, turnRouter });
+}
+
+function postConversationMessage(
+  projectInput: ManagedProject,
+  conversationId: string,
+  input: Parameters<typeof postConversationMessageRaw>[2],
+  live?: Parameters<typeof postConversationMessageRaw>[3],
+  options: Parameters<typeof postConversationMessageRaw>[4] = {},
+): ReturnType<typeof postConversationMessageRaw> {
+  return postConversationMessageRaw(projectInput, conversationId, input, live, { ...options, turnRouter });
+}
 
 describe("Workbench provider planning flow", () => {
   it("does not fall back to a legacy gate when a bound Skill-native Conversation loses its graph", async () => {
@@ -937,10 +999,10 @@ describe("Workbench provider planning flow", () => {
     await mkdir(join(root, "harness"), { recursive: true });
     await writeFile(join(root, "harness", "partial.txt"), "legacy partial content without a marker\n", "utf8");
     appServerTurn.mockImplementationOnce(async (options) => {
-      expect(options.requiredNativeSkills).toEqual(["aho-main-orchestration"]);
+      expect(options.requiredNativeSkills).toEqual(["aho-main-orchestration", "repo-harness"]);
       expect(options.skillInputs).toEqual([
-        expect.objectContaining({ name: "repo-harness" }),
         expect.objectContaining({ name: "aho-main-orchestration" }),
+        expect.objectContaining({ name: "repo-harness" }),
       ]);
       return {
         status: "completed",
@@ -994,7 +1056,7 @@ describe("Workbench provider planning flow", () => {
     await resumeNativeGoalAfterAction({
       project: project(), changeId, actionRunId: "approval:result.apply:wt-1", actionType: "result.apply",
       status: "completed", result: { apply: { status: "applied", committed: true, commitHash: "abc" } },
-    }, { continueMainAgentTurn: runProjectScopedMainAgentTurn });
+    }, { continueMainAgentTurn: turnRouter.continueMainAgentTurn });
 
     expect(appServerTurn).toHaveBeenCalledTimes(1);
   });
@@ -1118,11 +1180,11 @@ describe("Workbench provider planning flow", () => {
     appServerTurn
       .mockImplementationOnce(async (options) => {
         expect(options.skillInputs).toEqual([
-          expect.objectContaining({ name: "repo-harness", path: join(skillRoot, "SKILL.md") }),
           expect.objectContaining({ name: "aho-main-orchestration", path: expect.stringContaining("aho-main-orchestration") }),
+          expect.objectContaining({ name: "repo-harness", path: join(skillRoot, "SKILL.md") }),
         ]);
         expect(options.nativeSkillRoots).toEqual([expect.stringContaining("system-skills")]);
-        expect(options.requiredNativeSkills).toEqual(["aho-main-orchestration"]);
+        expect(options.requiredNativeSkills).toEqual(["aho-main-orchestration", "repo-harness"]);
         expect(options.runtimeWorkspaceRoots).toEqual(expect.arrayContaining([expect.stringContaining("planner-proposal")]));
         expect(options.writableRoots).toEqual([expect.stringContaining("planner-proposal")]);
         await writePlannerFiles(options.writableRoots[0]);
@@ -1535,7 +1597,7 @@ describe("Workbench provider planning flow", () => {
       prompt: "Continue the accepted health endpoint Goal.",
     }, undefined, {
       postConversationMessage,
-      continueMainAgentTurn: runProjectScopedMainAgentTurn,
+      continueMainAgentTurn: turnRouter.continueMainAgentTurn,
     });
     expect(continued.error).toBeUndefined();
     expect(continued.status).toBe("completed");

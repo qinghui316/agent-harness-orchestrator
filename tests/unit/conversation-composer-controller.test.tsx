@@ -434,6 +434,63 @@ describe("Conversation composer controller", () => {
     expect(success.result.current.attachments).toEqual([]);
   });
 
+  it("keeps a captured first send running after a Provider switch without overwriting the new draft", async () => {
+    let resolveCreation!: (created: { projectId: string; conversationId: string }) => void;
+    const ports = composerPorts();
+    ports.session.createConversation.mockImplementation(() => new Promise((resolve) => { resolveCreation = resolve; }));
+    const { result, rerender } = renderHook(
+      ({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
+      { initialProps: { scope: homeScope({ productMode: "agent", selectedProviderId: "codex", providerCount: 2 }) } },
+    );
+    act(() => result.current.setComposerText("codex request"));
+
+    let creation!: Promise<{ projectId: string; conversationId: string } | null>;
+    act(() => { creation = result.current.createConversation(); });
+    await waitFor(() => expect(ports.session.createConversation).toHaveBeenCalledWith(expect.objectContaining({ providerId: "codex" })));
+    rerender({ scope: homeScope({ productMode: "agent", selectedProviderId: "other-provider", providerCount: 2 }) });
+    act(() => result.current.setComposerText("other provider draft"));
+    await act(async () => {
+      resolveCreation({ projectId: "repo", conversationId: "codex-conversation" });
+      await creation;
+    });
+
+    expect(result.current.composerText).toBe("other provider draft");
+    expect(ports.projection.refreshConversation).not.toHaveBeenCalled();
+    expect(ports.timeline.calibrate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      label: "Conversation",
+      initial: conversationScope({ conversation: { id: "conversation-a", productMode: "harness", state: "active", selectedProviderId: "codex" } }),
+      next: conversationScope({ conversation: { id: "conversation-b", productMode: "harness", state: "active", selectedProviderId: "codex" } }),
+    },
+    {
+      label: "Provider",
+      initial: homeScope({ productMode: "agent", selectedProviderId: "codex" }),
+      next: homeScope({ productMode: "agent", selectedProviderId: "other-provider" }),
+    },
+  ])("ignores a late Skill response after a $label switch", async ({ initial, next }) => {
+    let resolveInitial!: (skills: SkillListItem[]) => void;
+    const ports = composerPorts();
+    ports.skills.load
+      .mockImplementationOnce(() => new Promise<SkillListItem[]>((resolve) => { resolveInitial = resolve; }))
+      .mockResolvedValueOnce([skill("current-skill")]);
+    const { result, rerender } = renderHook(
+      ({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
+      { initialProps: { scope: initial } },
+    );
+    await waitFor(() => expect(ports.skills.load).toHaveBeenCalledTimes(1));
+
+    rerender({ scope: next });
+    await waitFor(() => expect(ports.skills.load).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.skillItems.map((item) => item.skillId)).toEqual(["current-skill"]));
+    await act(async () => { resolveInitial([skill("stale-skill")]); });
+
+    expect(result.current.skillItems.map((item) => item.skillId)).toEqual(["current-skill"]);
+    expect(ports.onError).not.toHaveBeenCalled();
+  });
+
   it("blocks running attachments, steers text, and keeps stop separate from projection ownership", async () => {
     const ports = composerPorts();
     const runningScope = conversationScope({ running: true, selectedProviderId: "codex" });

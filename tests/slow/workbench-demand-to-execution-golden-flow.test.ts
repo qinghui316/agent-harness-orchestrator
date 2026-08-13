@@ -50,19 +50,42 @@ vi.mock("../../src/codex/capabilities.js", () => ({
 
 vi.mock("../../src/codex/native-skills.js", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../src/codex/native-skills.js")>(),
-  listCodexNativeSkills: vi.fn(async () => ({
-    providerId: "codex",
-    projectPath: managedProject().path,
-    skills: [{
-      name: projectHarnessAgentInput.identity.skillName,
-      description: "Test project Harness.",
-      path: projectHarnessAgentInput.providerSkillInput.path,
-      scope: "repo",
-      enabled: true,
-      contentHash: projectHarnessAgentInput.providerSkillInput.contentHash,
-    }],
-    errors: [],
-  })),
+  listCodexNativeSkills: vi.fn(async () => {
+    const { hashNativeSkillPackageContent } = await import("../../src/skill/content-hash.js");
+    const { getSystemSkillsRoot } = await import("../../src/template-source/paths.js");
+    const systemSkills = await Promise.all([
+      "aho-main-orchestration",
+      "aho-harness-engineering",
+      "aho-workflow-authoring",
+    ].map(async (name) => {
+      const root = join(getSystemSkillsRoot(), name);
+      return {
+        name,
+        description: `Test ${name}.`,
+        path: join(root, "SKILL.md"),
+        scope: "system" as const,
+        enabled: true,
+        contentHash: await hashNativeSkillPackageContent(root),
+      };
+    }));
+    const projectHarnessRoot = join(getTempDir(), ".agents", "skills", projectHarnessAgentInput.identity.skillName);
+    const projectHarness = existsSync(join(projectHarnessRoot, "SKILL.md"))
+      ? [{
+        name: projectHarnessAgentInput.identity.skillName,
+        description: "Test project Harness.",
+        path: projectHarnessAgentInput.providerSkillInput.path,
+        scope: "repo" as const,
+        enabled: true,
+        contentHash: await hashNativeSkillPackageContent(projectHarnessRoot),
+      }]
+      : [];
+    return {
+      providerId: "codex",
+      projectPath: managedProject().path,
+      skills: [...projectHarness, ...systemSkills],
+      errors: [],
+    };
+  }),
 }));
 
 import { normalizeCodexAppServerNotification } from "../../src/codex/app-server-realtime.js";
@@ -87,7 +110,7 @@ import {
 import { resolveProjectRuntimeState } from "../../src/project-runtime/coordinator.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../src/provider-runtime/project-harness-discovery.js";
 import { listRuns } from "../../src/run/manager.js";
-import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
+import { executeWorkbenchAction as executeWorkbenchActionRaw } from "../../src/server/workbench-server.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import { listTaskQueueItems, listTaskQueues } from "../../src/task-queue/manager.js";
 import { persistTaskQueueRunFromGraph } from "../../src/task-queue/queue-creation.js";
@@ -119,7 +142,10 @@ import {
 import { persistWorkflowRunForGraph } from "../../src/workflow-run/manager.js";
 import { listWorktreeMetadata } from "../../src/worktree/manager.js";
 import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
-import { createHarnessWorkbenchConversation as createWorkbenchConversation } from "../helpers/conversation-change-fixture.js";
+import {
+  createHarnessWorkbenchConversation as createWorkbenchConversation,
+  createTestConversationTurnRouter,
+} from "../helpers/conversation-change-fixture.js";
 import { getTempDir, git, initGitRepository } from "../unit/workbench/fixtures.js";
 
 const SLOW_FLOW_TIMEOUT_MS = 120_000;
@@ -127,10 +153,12 @@ let originalAhoHome: string | undefined;
 let runtimePaths: ProjectRuntimePaths;
 let skillRoot: string;
 let skillName: string;
+let turnRouter: ReturnType<typeof createTestConversationTurnRouter>;
 
 beforeEach(async () => {
   originalAhoHome = process.env.AHO_HOME;
   process.env.AHO_HOME = join(getTempDir(), ".aho-home");
+  turnRouter = createTestConversationTurnRouter();
   appServerTurn.mockReset();
   await initGitRepository(getTempDir());
   await writeFile(join(getTempDir(), ".gitignore"), ".aho-home/\n.agents/\n.claude/\n", "utf8");
@@ -157,6 +185,13 @@ beforeEach(async () => {
   projectHarnessAgentInput.providerSkillInput.path = join(skillRoot, "SKILL.md");
 });
 
+function executeWorkbenchAction(
+  input: Parameters<typeof executeWorkbenchActionRaw>[0],
+  body: Parameters<typeof executeWorkbenchActionRaw>[1],
+): ReturnType<typeof executeWorkbenchActionRaw> {
+  return executeWorkbenchActionRaw(input, body, undefined, turnRouter);
+}
+
 afterEach(() => {
   if (originalAhoHome === undefined) delete process.env.AHO_HOME;
   else process.env.AHO_HOME = originalAhoHome;
@@ -171,7 +206,7 @@ describe("workbench Skill-native demand-to-execution golden flow", () => {
 
     const conversation = await createWorkbenchConversation(managedProject(), {
       body: "会员订单满 100 元打九折，非会员不打折，需要测试。",
-    });
+    }, undefined, { turnRouter });
     const messages = await listConversationMessages(managedProject(), conversation.conversationId);
     const plan = messages.find((message) =>
       message.agentRoleId === "planning-agent" && message.document?.documentKind === "plan");
@@ -194,7 +229,7 @@ describe("workbench Skill-native demand-to-execution golden flow", () => {
         sourceProposalHash: plan?.document?.proposalHash,
         executionMode: "stepwise",
       },
-    });
+    }, undefined, { turnRouter });
 
     const store = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
     let changeId = "";
@@ -716,7 +751,7 @@ async function prepareAcceptedExecution(
     .mockImplementation(async (options) => executionTurn(options));
   const conversation = await createWorkbenchConversation(managedProject(), {
     body: "会员订单满 100 元打九折，非会员不打折，需要测试。",
-  });
+  }, undefined, { turnRouter });
   const messages = await listConversationMessages(managedProject(), conversation.conversationId);
   const plan = messages.find((message) =>
     message.agentRoleId === "planning-agent" && message.document?.documentKind === "plan");
@@ -736,7 +771,7 @@ async function prepareAcceptedExecution(
       sourceProposalHash: plan.document.proposalHash,
       executionMode: "stepwise",
     },
-  });
+  }, undefined, { turnRouter });
   const store = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
   let changeId = "";
   let graphScopeId = "";

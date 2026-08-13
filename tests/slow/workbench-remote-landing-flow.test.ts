@@ -1,13 +1,13 @@
 ﻿import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
-import { describe, expect, it } from "vitest";
-import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
+import { describe, expect, it, vi } from "vitest";
+import { createConversationChangeFixture, createTestConversationTurnRouter } from "../helpers/conversation-change-fixture.js";
 import {
   authorizeSkillNativeWorkflowStartFixture,
   prepareSkillNativeWorkbenchFixture,
   writeSkillNativeAcceptedSpecAndTasks,
 } from "../helpers/skill-native-workbench-fixture.js";
-import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
+import { executeWorkbenchAction as executeWorkbenchActionRaw } from "../../src/server/workbench-server.js";
 import { collectWorktreeDiff } from "../../src/audit/diff.js";
 import { getCodexProviderCapabilitySnapshot } from "../../src/provider-runtime/codex.js";
 import { listRuns } from "../../src/run/repository.js";
@@ -28,6 +28,55 @@ import {
   resolveFixtureRuntime,
   unwrapWorkflowActionResult,
 } from "../unit/workbench/fixtures.js";
+
+vi.mock("../../src/codex/native-skills.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../src/codex/native-skills.js")>(),
+  listCodexNativeSkills: vi.fn(async () => {
+    const { hashNativeSkillPackageContent } = await import("../../src/skill/content-hash.js");
+    const { getSystemSkillsRoot } = await import("../../src/template-source/paths.js");
+    const systemSkills = await Promise.all([
+      "aho-main-orchestration",
+      "aho-harness-engineering",
+      "aho-workflow-authoring",
+    ].map(async (name) => {
+      const root = join(getSystemSkillsRoot(), name);
+      return {
+        name,
+        description: `Test ${name}.`,
+        path: join(root, "SKILL.md"),
+        scope: "system" as const,
+        enabled: true,
+        contentHash: await hashNativeSkillPackageContent(root),
+      };
+    }));
+    const projectHarnessRoot = join(getTempDir(), ".agents", "skills", "repo-harness");
+    const projectHarness = [
+      {
+        name: "repo-harness",
+        description: "Test project Harness.",
+        path: join(projectHarnessRoot, "SKILL.md"),
+        scope: "repo" as const,
+        enabled: true,
+        contentHash: await hashNativeSkillPackageContent(projectHarnessRoot),
+      },
+    ];
+    return {
+      providerId: "codex",
+      projectPath: getTempDir(),
+      skills: [...projectHarness, ...systemSkills],
+      errors: [],
+    };
+  }),
+}));
+
+const turnRouter = createTestConversationTurnRouter();
+
+function executeWorkbenchAction(
+  input: Parameters<typeof executeWorkbenchActionRaw>[0],
+  body: Parameters<typeof executeWorkbenchActionRaw>[1],
+): ReturnType<typeof executeWorkbenchActionRaw> {
+  return executeWorkbenchActionRaw(input, body, undefined, turnRouter);
+}
 
 describe("workbench remote landing slow flow", () => {
   it("prepares a local landing package after apply without committing, pushing, or creating PR controls", async () => {

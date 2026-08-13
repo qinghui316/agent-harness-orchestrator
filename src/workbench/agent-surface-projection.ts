@@ -20,9 +20,9 @@ export async function getAgentSurfaceProjection(
   assertedProductMode?: ProductMode,
 ): Promise<AgentSurfaceProjection> {
   if (!input.project) throw notFound("Agent surfaces are unavailable for this project.");
-  const state = await resolveProjectRuntimeState(input.project, {
-    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
-  });
+  const state = input.runtimeStateResolver
+    ? await input.runtimeStateResolver(input.project)
+    : await resolveProjectRuntimeState(input.project, { discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY });
   const paths = state.state === "onboarding" ? state.paths : state.resolution.paths;
   const catalog = readBundledAgentCatalog();
   const store = await openProjectRuntimeWorkbenchDatabase(paths);

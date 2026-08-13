@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { assertProductMode, defaultProviderRegistry, type ProductMode, type ProviderRegistry } from "../provider-runtime/index.js";
+import { assertProductMode, type ProductMode } from "../provider-runtime/index.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import { readProjectHarnessChangeContext } from "../project-harness/change.js";
 import { resolveProjectRuntimeState, type ProjectRuntimeState } from "../project-runtime/coordinator.js";
@@ -12,38 +12,17 @@ import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbenc
 import { fromStoredThreadMessage } from "./conversation-thread-log.js";
 import { CanonicalTimelineDelivery, publishCommittedCanonicalTimelineRow } from "./canonical-timeline-delivery.js";
 import { toCanonicalTimelineMessage } from "./canonical-timeline-message.js";
-import { resolveProviderSwitchWorkflowResumeRequest, switchConversationProviderAtSafePoint, type ProviderSwitchResult } from "./provider-switch.js";
-import { runProjectScopedMainAgentTurn } from "./main-agent-turn-coordinator.js";
+import { resolveProviderSwitchWorkflowResumeRequest, type ProviderSwitchResult } from "./provider-switch.js";
 import { resolveConversationId } from "./conversation-identity.js";
 import { runWorkbenchWorkflowAction } from "./workflow-conversation-bridge.js";
 import type { NewConversationSkillOverride, TopicAttachment, TopicMessageInput, TopicMessageResult, TopicThreadEntry, ValidatedPlanHandoffIntent, WorkbenchLiveSink } from "./types.js";
 import { publishAgentSurfacesInvalidated, publishProjectLiveEvent } from "./project-live-events.js";
-import { runExactChildAgentTurn } from "./provider-child-turn-coordinator.js";
-import { runAgentNativeChildFollowup } from "./agent-native-child-lifecycle-service.js";
 import type { WorkbenchDatabase } from "./persistence/database.js";
 import type { StoredConversation, StoredTopicMessage } from "./persistence/contracts.js";
 import { createConversationGraphScopeId } from "./conversation-graph-scope.js";
-import { ConversationTurnRouter } from "./conversation-turn-router.js";
-import { HarnessConversationTurnStrategy } from "./harness-conversation-turn-strategy.js";
-import { DirectAgentConversationTurnStrategy } from "./direct-agent-conversation-turn-strategy.js";
-import type { TurnSkillContextPort } from "./conversation-turn-contract.js";
+import type { ConversationTurnRoutingPort } from "./conversation-turn-contract.js";
 
-const emptyTurnSkillContext: TurnSkillContextPort = {
-  resolve: () => Promise.resolve({ skillInputs: [], diagnostics: [] }),
-};
-
-const defaultConversationTurnRouter = new ConversationTurnRouter(
-  {
-    agent: new DirectAgentConversationTurnStrategy(),
-    harness: new HarnessConversationTurnStrategy(),
-  },
-  { skillContext: emptyTurnSkillContext },
-);
-
-export type ConversationTurnRoutingPort = Pick<
-  ConversationTurnRouter,
-  "assertRequestedMode" | "route"
->;
+export type { ConversationTurnRoutingPort } from "./conversation-turn-contract.js";
 
 export async function createWorkbenchConversation(
   project: ManagedProject,
@@ -57,7 +36,7 @@ export async function createWorkbenchConversation(
     skillOverrides?: NewConversationSkillOverride[];
   },
   live?: WorkbenchLiveSink,
-  options: { runMainAgent?: boolean; turnRouter?: ConversationTurnRoutingPort } = {},
+  options: { runMainAgent?: boolean; turnRouter?: ConversationTurnRoutingPort; runtimeStateResolver?: (project: ManagedProject) => Promise<ProjectRuntimeState> } = {},
 ): Promise<{
   conversationId: string;
   title: string;
@@ -77,11 +56,10 @@ export async function createWorkbenchConversation(
   const now = new Date().toISOString();
   const conversationId = `conv-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
   const graphScopeId = createConversationGraphScopeId(conversationId);
-  const selectedProviderId = input.providerId
-    ? defaultProviderRegistry.get(input.providerId).id
-    : project.defaultProviderId
-      ? defaultProviderRegistry.get(project.defaultProviderId).id
-      : defaultProviderRegistry.requireOnly().id;
+  const turnRouter = options.turnRouter;
+  if (options.runMainAgent !== false) requireComposedTurnRouter(turnRouter);
+  const selectedProviderId = turnRouter?.resolveProviderId(project, input.providerId)
+    ?? resolvePersistenceOnlyProviderId(project, input.providerId);
   const requestHash = stableConversationCreateRequestHash({
     productMode,
     body,
@@ -90,7 +68,11 @@ export async function createWorkbenchConversation(
     providerId: selectedProviderId,
     skillOverrides,
   });
-  const persistence = await openProjectConversationDatabase(project);
+  const persistence = await openProjectConversationDatabase(
+    project,
+    options.runtimeStateResolver ?? turnRouter?.resolveRuntimeState,
+    options.runMainAgent === false && !turnRouter,
+  );
   const database = persistence.database;
   let creation: ReturnType<WorkbenchDatabase["unitOfWork"]["createConversationFromFirstSend"]>;
   try {
@@ -150,13 +132,16 @@ export async function createWorkbenchConversation(
   if (creation.message) publishCommittedCanonicalTimelineRow(live, creation.message, committed.productMode);
   if (!creation.replayed && options.runMainAgent !== false) {
     if (!creation.message) throw new Error("Committed first send is missing its canonical Timeline message.");
-    await (options.turnRouter ?? defaultConversationTurnRouter).route({
+    if (!turnRouter) throw new Error("Workbench Conversation turn routing is not composed for Provider execution.");
+    await turnRouter.route({
       project,
       conversation: committed,
       committedMessage: creation.message,
       attachments,
       providerId: committed.selectedProviderId,
       live,
+      runtimeState: persistence.runtimeState,
+      turnSkillResolution: null,
     }, productMode);
   }
   return {
@@ -174,8 +159,9 @@ export async function updateWorkbenchConversationTitle(
   project: ManagedProject,
   conversationId: string,
   input: { title: string },
+  options: { runtimeStateResolver?: (project: ManagedProject) => Promise<ProjectRuntimeState> } = {},
 ): Promise<{ id: string; productMode: ProductMode; title: string; state: string; updatedAt: string; selectedProviderId?: string }> {
-  const persistence = await openProjectConversationDatabase(project);
+  const persistence = await openProjectConversationDatabase(project, options.runtimeStateResolver, true);
   const title = normalizeConversationTitle(input.title);
   const updatedAt = new Date().toISOString();
   const database = persistence.database;
@@ -229,10 +215,11 @@ export async function postConversationMessage(
   conversationId: string,
   input: string | TopicMessageInput,
   live?: WorkbenchLiveSink,
-  options: { turnRouter?: ConversationTurnRoutingPort; providerRegistry?: ProviderRegistry } = {},
+  options: { turnRouter?: ConversationTurnRoutingPort; runtimeStateResolver?: (project: ManagedProject) => Promise<ProjectRuntimeState> } = {},
 ): Promise<TopicMessageResult> {
-  const turnRouter = options.turnRouter ?? defaultConversationTurnRouter;
-  const identity = await resolveStoredConversationIdentity(project, conversationId);
+  const turnRouter = options.turnRouter;
+  requireComposedTurnRouter(turnRouter);
+  const identity = await resolveStoredConversationIdentity(project, conversationId, options.runtimeStateResolver ?? turnRouter.resolveRuntimeState);
   conversationId = identity.conversationId;
   const requestedMode = typeof input === "string" ? undefined : input.productMode;
   turnRouter.assertRequestedMode(identity.conversation, requestedMode);
@@ -250,13 +237,13 @@ export async function postConversationMessage(
         error.name = "BadRequest";
         throw error;
       }
-      return runAgentNativeChildFollowup({
+      if (!turnRouter?.runAgentNativeChildFollowup) throw new Error("Workbench Agent child routing is not composed.");
+      return turnRouter.runAgentNativeChildFollowup({
         project,
         conversationId,
         agentSurfaceId: parsed.agentSurfaceId,
         message: parsed.message,
         live,
-        providerRegistry: options.providerRegistry,
       });
     }
     if (runtimeState.state === "onboarding") {
@@ -272,7 +259,8 @@ export async function postConversationMessage(
       error.name = "BadRequest";
       throw error;
     }
-    return runExactChildAgentTurn({ project, conversationId, agentSurfaceId: parsed.agentSurfaceId, message: parsed.message, live });
+    if (!turnRouter?.runExactChildAgentTurn) throw new Error("Workbench Harness child routing is not composed.");
+    return turnRouter.runExactChildAgentTurn({ project, conversationId, agentSurfaceId: parsed.agentSurfaceId, message: parsed.message, live });
   }
   if (identity.conversation.productMode === "harness" && runtimeState.state === "onboarding"
     && (parsed.planHandoffIntent || parsed.providerId)) {
@@ -285,7 +273,10 @@ export async function postConversationMessage(
   }
   let providerSwitch: ProviderSwitchResult | null = null;
   if (parsed.providerId && identity.conversation.productMode === "harness" && runtimeState.state === "ready") {
-    providerSwitch = await switchConversationProviderAtSafePoint({
+    if (!turnRouter.switchProviderAtSafePoint) {
+      throw new Error("Workbench Provider switching is not composed.");
+    }
+    providerSwitch = await turnRouter.switchProviderAtSafePoint({
       project,
       resolution: runtimeState.resolution,
       conversationId,
@@ -298,7 +289,6 @@ export async function postConversationMessage(
       error.name = "Conflict";
       throw error;
     }
-    defaultProviderRegistry.get(parsed.providerId);
   }
   const committed = await commitTopLevelConversationMessage(identity, parsed, turnRouter, live);
   const result = await turnRouter.route({
@@ -309,6 +299,8 @@ export async function postConversationMessage(
     providerId: committed.conversation.selectedProviderId,
     live,
     harnessHandoff: committed.planHandoff,
+    runtimeState: identity.runtimeState,
+    turnSkillResolution: null,
   }, requestedMode);
   if (providerSwitch && parsed.providerSwitchIntent === "resume-workflow") {
     if (runtimeState.state !== "ready") {
@@ -322,8 +314,14 @@ export async function postConversationMessage(
     });
     if (request) {
       await runWorkbenchWorkflowAction(project, request, live, {
-        postConversationMessage,
-        continueMainAgentTurn: runProjectScopedMainAgentTurn,
+        postConversationMessage: (ownerProject, ownerConversationId, ownerInput, ownerLive) => postConversationMessage(
+          ownerProject,
+          ownerConversationId,
+          ownerInput,
+          ownerLive,
+          { turnRouter },
+        ),
+        continueMainAgentTurn: turnRouter.continueMainAgentTurn,
       });
     }
   }
@@ -331,7 +329,7 @@ export async function postConversationMessage(
 }
 
 export async function listConversationMessages(project: ManagedProject, conversationId: string): Promise<TopicThreadEntry[]> {
-  const persistence = await openProjectConversationDatabase(project);
+  const persistence = await openProjectConversationDatabase(project, undefined, true);
   if (!persistence.projectId) return [];
   if (persistence.runtimeState.state === "ready") conversationId = await resolveConversationId(project, conversationId);
   const database = persistence.database;
@@ -344,20 +342,45 @@ export async function listConversationMessages(project: ManagedProject, conversa
 
 async function openProjectConversationDatabase(
   project: ManagedProject,
+  runtimeStateResolver: ((project: ManagedProject) => Promise<ProjectRuntimeState>) | undefined,
+  allowUncomposedPersistence = false,
 ): Promise<{
   projectId: string;
   database: WorkbenchDatabase;
   runtimeState: ProjectRuntimeState;
 }> {
-  const runtimeState = await resolveProjectRuntimeState(project, {
-    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
-  });
+  if (!runtimeStateResolver) {
+    if (!allowUncomposedPersistence) throw new Error("Workbench Conversation runtime state is not composed.");
+    runtimeStateResolver = (selectedProject) => resolveProjectRuntimeState(selectedProject, {
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+    });
+  }
+  const runtimeState = await runtimeStateResolver(project);
   const paths = runtimeState.state === "onboarding" ? runtimeState.paths : runtimeState.resolution.paths;
   return {
     projectId: paths.projectId,
     database: await openProjectRuntimeWorkbenchDatabase(paths),
     runtimeState,
   };
+}
+
+function requireComposedTurnRouter(turnRouter: ConversationTurnRoutingPort | undefined): asserts turnRouter is ConversationTurnRoutingPort & {
+  resolveProviderId: NonNullable<ConversationTurnRoutingPort["resolveProviderId"]>;
+  resolveRuntimeState: NonNullable<ConversationTurnRoutingPort["resolveRuntimeState"]>;
+} {
+  if (!turnRouter) throw new Error("Workbench Conversation turn routing is not composed for Provider execution.");
+  if (!turnRouter.resolveProviderId || !turnRouter.resolveRuntimeState) {
+    throw new Error("Workbench Conversation Provider/runtime composition is incomplete.");
+  }
+}
+
+function resolvePersistenceOnlyProviderId(project: ManagedProject, requestedProviderId?: string): string {
+  const providerId = requestedProviderId?.trim() || project.defaultProviderId?.trim();
+  // This branch exists only for runMainAgent:false persistence fixtures. Any
+  // execution path is rejected above unless the server-composed Router owns
+  // Provider validation and runtime identity.
+  if (!providerId) throw new Error("Persistence-only Conversation creation requires a Provider identity.");
+  return providerId;
 }
 
 async function normalizeTopicMessageInput(project: ManagedProject, input: string | TopicMessageInput): Promise<Required<Pick<TopicMessageInput, "mode" | "message">> & { contextRefs?: TopicMessageInput["contextRefs"]; attachments?: TopicAttachment[]; planHandoffIntent?: TopicMessageInput["planHandoffIntent"]; providerId?: string; providerSwitchIntent: "resume-workflow" | "conversation-only"; agentSurfaceId?: string }> {
@@ -393,8 +416,9 @@ function defaultAttachmentMessage(attachments: TopicAttachment[]): string {
 async function resolveStoredConversationIdentity(
   project: ManagedProject,
   requestedConversationId: string,
+  runtimeStateResolver?: (project: ManagedProject) => Promise<ProjectRuntimeState>,
 ): Promise<{ conversationId: string; conversation: StoredConversation; runtimeState: ProjectRuntimeState }> {
-  const persistence = await openProjectConversationDatabase(project);
+  const persistence = await openProjectConversationDatabase(project, runtimeStateResolver);
   let conversationId = requestedConversationId;
   try {
     let conversation = persistence.database.conversations.readConversation(

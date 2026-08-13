@@ -869,6 +869,9 @@ export function App(): ReactElement {
             section={settingsSection}
             onSectionChange={changeSettingsSection}
             project={selectedProjectStatus}
+            productMode={appMode.productMode}
+            conversationId={activeTopic?.id ?? null}
+            selectedProviderId={activeTopic?.selectedProviderId ?? composerProviderId}
             diagnostics={providerDiagnostics}
             modelSettings={providerModelSettings}
             providerCapabilities={providerCapabilities}

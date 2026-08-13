@@ -61,6 +61,7 @@ export type HarnessGapSeverity = "info" | "warning";
 export interface WorkbenchProjectInput {
   project: ManagedProject | null;
   path: string;
+  runtimeStateResolver?: (project: ManagedProject) => Promise<import("../project-runtime/coordinator.js").ProjectRuntimeState>;
 }
 
 export interface WorkbenchProjectHarnessStatus {

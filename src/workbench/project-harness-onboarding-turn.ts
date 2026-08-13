@@ -2,7 +2,6 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { defaultProviderRegistry } from "../provider-runtime/default-registry.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import type { ProviderRegistry } from "../provider-runtime/registry.js";
 import type { ProviderTurnResult } from "../provider-runtime/contracts.js";
@@ -26,7 +25,7 @@ import type { TopicThreadEntry, WorkbenchLiveSink } from "./types.js";
 import { defaultProjectRuntimeActivityRegistry } from "../project-runtime/activity.js";
 
 export interface RunProjectHarnessOnboardingTurnOptions {
-  providerRegistry?: Pick<ProviderRegistry, "requireProfiles">;
+  providerRegistry: Pick<ProviderRegistry, "requireProfiles">;
 }
 
 export function runProjectHarnessOnboardingTurn(
@@ -34,8 +33,8 @@ export function runProjectHarnessOnboardingTurn(
   state: Extract<ProjectRuntimeState, { state: "onboarding" }>,
   conversationId: string,
   userMessage: string,
+  options: RunProjectHarnessOnboardingTurnOptions,
   live?: WorkbenchLiveSink,
-  options: RunProjectHarnessOnboardingTurnOptions = {},
 ): Promise<TopicThreadEntry> {
   return defaultProjectRuntimeActivityRegistry.run(project.id, () => runProjectHarnessOnboardingTurnActivity(
     project,
@@ -55,7 +54,7 @@ async function runProjectHarnessOnboardingTurnActivity(
   live: WorkbenchLiveSink | undefined,
   options: RunProjectHarnessOnboardingTurnOptions,
 ): Promise<TopicThreadEntry> {
-  const registry = options.providerRegistry ?? defaultProviderRegistry;
+  const registry = options.providerRegistry;
   const workspace = await createOnboardingRuntime(project, state);
   const database = await openProjectRuntimeWorkbenchDatabase(state.paths);
   const conversation = database.conversations.readConversation(project.id, conversationId);

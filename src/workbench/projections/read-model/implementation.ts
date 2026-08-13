@@ -133,9 +133,9 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
   const productMode = options.productMode ?? "harness";
   let runtimeState: Awaited<ReturnType<typeof resolveProjectRuntimeState>> | null = null;
   if (input.project) {
-    runtimeState = await resolveProjectRuntimeState(input.project, {
-      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
-    });
+    runtimeState = input.runtimeStateResolver
+      ? await input.runtimeStateResolver(input.project)
+      : await resolveProjectRuntimeState(input.project, { discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY });
     const runtimePaths = runtimeState.state === "onboarding"
       ? runtimeState.paths
       : runtimeState.resolution.paths;
@@ -190,10 +190,11 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
   };
 }
 
-async function requireReadyProjectRuntime(project: ManagedProject): Promise<ProjectRuntimeResolution> {
-  const state = await resolveProjectRuntimeState(project, {
-    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
-  });
+async function requireReadyProjectRuntime(input: WorkbenchProjectInput): Promise<ProjectRuntimeResolution> {
+  if (!input.project) throw new Error("Project Harness runtime is unavailable for Workbench read models.");
+  const state = input.runtimeStateResolver
+    ? await input.runtimeStateResolver(input.project)
+    : await resolveProjectRuntimeState(input.project, { discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY });
   if (state.state !== "ready") {
     throw new Error(`Project Harness is not ready for Workbench read models: ${state.state}.`);
   }
@@ -217,15 +218,15 @@ export async function getWorkbenchEvidenceProjection(input: WorkbenchProjectInpu
 
 export async function getWorkbenchLandingQueueProjection(input: WorkbenchProjectInput): Promise<LandingQueueSnapshot | null> {
   if (!input.project) return null;
-  const runtime = await requireReadyProjectRuntime(input.project);
+  const runtime = await requireReadyProjectRuntime(input);
   return latestLandingQueueSnapshot(runtime.paths).catch(() => null);
 }
 
 export async function listWorkbenchTopics(input: WorkbenchProjectInput, productMode: ProductMode): Promise<WorkbenchTopicSummary[]> {
   if (!input.project) return [];
-  const runtime = await resolveProjectRuntimeState(input.project, {
-    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
-  });
+  const runtime = input.runtimeStateResolver
+    ? await input.runtimeStateResolver(input.project)
+    : await resolveProjectRuntimeState(input.project, { discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY });
   if (runtime.state !== "ready" && productMode === "harness") return [];
   const paths = runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
   const store = await openProjectRuntimeWorkbenchDatabase(paths);
@@ -391,7 +392,7 @@ export async function hideWorkbenchTopic(input: WorkbenchProjectInput, topicId: 
     error.name = "Conflict";
     throw error;
   }
-  const runtime = await requireReadyProjectRuntime(input.project);
+  const runtime = await requireReadyProjectRuntime(input);
   await hideConversation(runtime.paths, topicId);
   return { hidden: true, topicId };
 }
@@ -402,7 +403,7 @@ export async function deleteWorkbenchConversation(input: WorkbenchProjectInput, 
     error.name = "Conflict";
     throw error;
   }
-  const runtime = await requireReadyProjectRuntime(input.project);
+  const runtime = await requireReadyProjectRuntime(input);
   await deleteConversation(runtime.paths, topicId);
   return { deleted: true, topicId };
 }
@@ -418,9 +419,9 @@ export async function getWorkbenchStream(input: WorkbenchProjectInput, runId: st
   if (!input.project) {
     throw new Error("Project Harness runtime is unavailable; cannot replay run stream.");
   }
-  const runtime = await resolveProjectRuntimeState(input.project, {
-    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
-  });
+  const runtime = input.runtimeStateResolver
+    ? await input.runtimeStateResolver(input.project)
+    : await resolveProjectRuntimeState(input.project, { discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY });
   if (runtime.state !== "ready") {
     throw new Error("Project Harness is not ready; cannot replay run stream.");
   }

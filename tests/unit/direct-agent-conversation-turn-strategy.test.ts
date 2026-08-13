@@ -70,6 +70,7 @@ describe("DirectAgentConversationTurnStrategy", () => {
     });
     const { strategy, registry } = strategyFor(harness.descriptor);
     const input = await initialTurnInput(fixture, "Read the current project marker.");
+    input.turnSkillResolution = skillContext;
     const database = await openProjectRuntimeWorkbenchDatabase(fixture.paths);
     try {
       database.skills.setSkillEnablement({
@@ -137,7 +138,7 @@ describe("DirectAgentConversationTurnStrategy", () => {
   it("does not discover Skills or create Provider activity for a stale Conversation", async () => {
     const provider = fakeProvider();
     const skillList = vi.spyOn(provider.descriptor.skills, "list");
-    const { strategy, registry } = strategyFor(provider.descriptor);
+    const { registry } = strategyFor(provider.descriptor);
     const input = await initialTurnInput(fixture, "Do not execute this stale Turn.");
     const database = await openProjectRuntimeWorkbenchDatabase(fixture.paths);
     try {
@@ -154,10 +155,11 @@ describe("DirectAgentConversationTurnStrategy", () => {
       resolvePaths: () => fixture.paths,
     });
 
-    await expect(strategy.execute(input, { skillContext: resolver })).rejects.toMatchObject({
-      name: "TurnSkillContextError",
-      code: "stale_conversation",
-    });
+    await expect(resolver.resolve({
+      project: input.project,
+      conversation: input.conversation,
+      requiredSkillIds: [],
+    })).rejects.toMatchObject({ name: "TurnSkillContextError", code: "stale_conversation" });
     expect(skillList).not.toHaveBeenCalled();
     expect(provider.requests).toEqual([]);
     const sidecar = await openProjectRuntimeWorkbenchDatabase(fixture.paths);
@@ -637,9 +639,8 @@ describe("DirectAgentConversationTurnStrategy", () => {
     const { strategy } = strategyFor(provider.descriptor);
     const input = await initialTurnInput(fixture, "Skill resolution boundary");
 
-    await expect(strategy.execute(input, {
-      skillContext: { resolve: async () => { throw new Error("Skill context unavailable"); } },
-    })).rejects.toThrow("Skill context unavailable");
+    input.turnSkillResolution = null;
+    await expect(strategy.execute(input, emptyPorts())).rejects.toThrow("Skill resolution is not composed");
 
     const state = await readState(fixture.paths, fixture.project.id, input.conversation.conversationId);
     expect(state.messages).toEqual([expect.objectContaining({ type: "user.message", text: "Skill resolution boundary" })]);
@@ -1080,7 +1081,14 @@ function fakeProvider(behavior: FakeProviderBehavior = {}): {
 function strategyFor(descriptor: ProviderDescriptor, options: Omit<ConstructorParameters<typeof DirectAgentConversationTurnStrategy>[0], "providerRegistry"> = {}) {
   const registry = new ProviderRegistry();
   registry.register(descriptor);
-  return { registry, strategy: new DirectAgentConversationTurnStrategy({ ...options, providerRegistry: registry }) };
+  return {
+    registry,
+    strategy: new DirectAgentConversationTurnStrategy({
+      ...options,
+      providerRegistry: registry,
+      resolveRuntimePaths: () => fixture.paths,
+    }),
+  };
 }
 
 function deferred<T>() {
@@ -1164,6 +1172,7 @@ async function createOnboardingFixture(baseRoot: string, ahoHome: string) {
 async function createAgentConversation(current: typeof fixture, body: string) {
   return createWorkbenchConversation(current.project, {
     body,
+    providerId: "codex",
     productMode: "agent",
     clientRequestId: `request-${Math.random().toString(36).slice(2)}`,
   }, undefined, { runMainAgent: false });
@@ -1185,6 +1194,7 @@ async function storedTurnInput(current: typeof fixture, conversationId: string):
       committedMessage,
       attachments: [],
       providerId: conversation.selectedProviderId,
+      turnSkillResolution: skillResolution(),
     };
   } finally {
     database.close();

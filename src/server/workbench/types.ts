@@ -7,6 +7,7 @@ import type { ProductMode } from "../../provider-runtime/index.js";
 import type { ProjectRuntimeCoordinatorPort } from "../../project-runtime/coordinator.js";
 import type { ProviderRegistry } from "../../provider-runtime/registry.js";
 import type { WorkbenchProjectRemovalPort } from "./project-removal.js";
+import type { ConversationTurnRoutingPort } from "../../workbench/conversation-turn-contract.js";
 
 export interface WorkbenchServeOptions {
   host?: string;
@@ -33,6 +34,7 @@ export interface WorkbenchServerContext {
   providerRegistry: ProviderRegistry;
   projectRemoval: WorkbenchProjectRemovalPort;
   terminalRuntime: TerminalRuntime;
+  turnRouter: ConversationTurnRoutingPort;
 }
 
 export interface WorkbenchActionRequest {

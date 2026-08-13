@@ -1,12 +1,10 @@
-import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { z } from "zod";
 import { readBundledAgentCatalog } from "../agent/catalog.js";
 import { evaluateToolPolicy } from "../agent-task/tool-policy.js";
-import { defaultProviderRegistry, type ProviderTurnResult } from "../provider-runtime/index.js";
-import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
+import type { ProviderRegistry, ProviderTurnResult } from "../provider-runtime/index.js";
 import { agentThreadSurfaceId } from "../provider-runtime/agent-surface-id.js";
 import { writeJsonFile } from "../fs/json.js";
 import { getGitCommit, getGitStatusShort } from "../project/git.js";
@@ -21,11 +19,11 @@ import {
   type MainPlanningAcceptanceEvidence,
 } from "../project-harness/planning-publication.js";
 import { projectHarnessSharedWriterRoot, withProjectHarnessWriterLock } from "../project-harness/writer-lock.js";
-import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
 import type { ProjectRuntimeResolution } from "../project-runtime/context.js";
+import type { ProjectRuntimeState } from "../project-runtime/coordinator.js";
 import { requestSkillNativeProjectHarnessChangeFinalization } from "../project-runtime/change-finalization.js";
 import { getSystemSkillsRoot } from "../template-source/paths.js";
-import { hashNativeSkillPackageContent } from "../skill/content-hash.js";
+import { combineTurnSkillHandoffHash } from "../skill/project-skill-runtime-context-resolver.js";
 import {
   issueLocalExecutionAuthorization,
   revokeLocalExecutionAuthorization,
@@ -37,7 +35,7 @@ import { forwardProviderRealtimeEvent } from "./provider-live-events.js";
 import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import { publishAgentSurfacesInvalidated } from "./project-live-events.js";
 import type { WorkbenchDatabase } from "./persistence/database.js";
-import { type StoredTopicMessage } from "./persistence/contracts.js";
+import type { StoredConversation, StoredTopicMessage } from "./persistence/contracts.js";
 import type { CanonicalTimelineEnvelope } from "./canonical-timeline-contract.js";
 import { CanonicalTimelineDelivery, publishCanonicalTimelineEnvelope, publishCommittedCanonicalTimelineRow } from "./canonical-timeline-delivery.js";
 import { toCanonicalTimelineMessage } from "./canonical-timeline-message.js";
@@ -69,9 +67,15 @@ export function runProjectScopedMainAgentTurn(
   project: ManagedProject,
   conversationId: string,
   userMessage: string,
-  live?: WorkbenchLiveSink,
-  planHandoff?: ValidatedPlanHandoffIntent,
-  options: { goalResume?: { deliveryKey: string; contextText: string }; graphScopeId?: string } = {},
+  live: WorkbenchLiveSink | undefined,
+  planHandoff: ValidatedPlanHandoffIntent | undefined,
+  options: {
+    goalResume?: { deliveryKey: string; contextText: string };
+    graphScopeId?: string;
+    providerRegistry: ProviderRegistry;
+    runtimeState: ProjectRuntimeState;
+    turnSkillResolution: import("./conversation-turn-contract.js").TurnSkillContextResolution | null;
+  },
 ): Promise<TopicThreadEntry> {
   return defaultProjectRuntimeActivityRegistry.run(project.id, () => runProjectScopedMainAgentTurnActivity(
     project,
@@ -89,13 +93,19 @@ async function runProjectScopedMainAgentTurnActivity(
   userMessage: string,
   live: WorkbenchLiveSink | undefined,
   planHandoff: ValidatedPlanHandoffIntent | undefined,
-  options: { goalResume?: { deliveryKey: string; contextText: string }; graphScopeId?: string },
+  options: {
+    goalResume?: { deliveryKey: string; contextText: string };
+    graphScopeId?: string;
+    providerRegistry: ProviderRegistry;
+    runtimeState: ProjectRuntimeState;
+    turnSkillResolution: import("./conversation-turn-contract.js").TurnSkillContextResolution | null;
+  },
 ): Promise<TopicThreadEntry> {
-  const runtimeState = await resolveProjectRuntimeState(project, {
-    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
-  });
+  const runtimeState = options.runtimeState;
   if (runtimeState.state === "onboarding") {
-    return runProjectHarnessOnboardingTurn(project, runtimeState, conversationId, userMessage, live);
+    return runProjectHarnessOnboardingTurn(project, runtimeState, conversationId, userMessage, {
+      providerRegistry: options.providerRegistry,
+    }, live);
   }
   if (runtimeState.state === "repair-required") {
     throw new Error("Project Harness requires repair before planning or source execution.");
@@ -161,9 +171,6 @@ async function runProjectScopedMainAgentTurnActivity(
   };
   const proposalDirectory = join(directory, "planner-proposal");
   await mkdir(proposalDirectory, { recursive: true });
-  const mainOrchestrationSkillPath = join(getSystemSkillsRoot(), "aho-main-orchestration", "SKILL.md");
-  if (!existsSync(mainOrchestrationSkillPath)) throw new Error("原生 Main Skill 不可用：未找到 aho-main-orchestration。");
-  const mainOrchestrationSkillHash = await hashNativeSkillPackageContent(dirname(mainOrchestrationSkillPath));
   const prompt = buildProjectScopedMainAgentPrompt(userMessage);
   const additionalContext: Record<string, { kind: "untrusted" | "application"; value: string }> = {
     "aho.project": {
@@ -211,9 +218,11 @@ async function runProjectScopedMainAgentTurnActivity(
   let planDocumentCreated = false;
   let acceptedPlanning: Awaited<ReturnType<typeof acceptCurrentConversationPlanningPackage>> | null = null;
   const sessionStore = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
+  let conversation: StoredConversation;
   try {
-    const conversation = sessionStore.conversations.readConversation(projectId, conversationId);
-    if (!conversation) throw new Error(`Conversation not found: ${conversationId}.`);
+    const storedConversation = sessionStore.conversations.readConversation(projectId, conversationId);
+    if (!storedConversation) throw new Error(`Conversation not found: ${conversationId}.`);
+    conversation = storedConversation;
     providerId = conversation.selectedProviderId;
     completedTurnSequence = conversation.completedTurnSequence;
     boundChangeId = conversation?.boundChangeId ?? null;
@@ -229,6 +238,8 @@ async function runProjectScopedMainAgentTurnActivity(
   } finally {
     sessionStore.close();
   }
+  const turnSkillResolution = options.turnSkillResolution;
+  if (!turnSkillResolution) throw new Error("Workbench Main Agent Turn Skill resolution is not composed.");
   const closableChildAgents = mainSessionId
     ? await listClosableChildAgents({ project, conversationId, graphScopeId, parentThreadId: mainSessionId })
     : [];
@@ -268,10 +279,11 @@ async function runProjectScopedMainAgentTurnActivity(
     boundChangeId,
     expectedResumeAttemptId,
   );
+  const turnHandoffHash = combineTurnSkillHandoffHash(handoff.hash, turnSkillResolution);
   attemptId = queuedResumeAttempt?.attemptId ?? `attempt-${randomUUID()}`;
   capture.sink.emit({ event: "run.started", data: { projectId, productMode: "harness", runId, conversationId, graphScopeId, providerId, attemptId, actionType: "chat.ask" } });
   capture.sink.emit({ event: "run.status", data: { projectId, productMode: "harness", runId, conversationId, graphScopeId, providerId, attemptId, status: "connecting", label: "正在连接 Agent" } });
-  const resolvedProvider = await defaultProviderRegistry.requireProfiles(providerId!, ["main"], "harness", project, project.path);
+  const resolvedProvider = await options.providerRegistry.requireProfiles(providerId!, ["main"], "harness", project, project.path);
   const provider = resolvedProvider.descriptor;
   const capabilitySnapshot = resolvedProvider.snapshot;
   const attemptStartedAt = new Date().toISOString();
@@ -290,13 +302,14 @@ async function runProjectScopedMainAgentTurnActivity(
       nativeSessionId: mainSessionId,
       model: capabilitySnapshot.effectiveModel ? { providerId: providerId!, modelId: capabilitySnapshot.effectiveModel } : null,
       capabilitySnapshot,
-      handoffHash: handoff.hash,
+      effectiveSkillInputs: [...turnSkillResolution.skillInputs],
+      handoffHash: turnHandoffHash,
       deliveredThroughCompletedTurn: completedTurnSequence,
       worktreeId: null,
-      status: "running",
+      status: "running" as const,
       createdAt: attemptStartedAt,
       updatedAt: attemptStartedAt,
-    } as const;
+    };
     for (const stale of providerAttempts.filter((candidate) =>
       candidate.status === "queued"
       && candidate.attemptId !== queuedResumeAttempt?.attemptId
@@ -308,8 +321,8 @@ async function runProjectScopedMainAgentTurnActivity(
     if (queuedResumeAttempt) {
       attemptStore.providerAttempts.startQueuedProviderAttempt(projectId, attemptId, {
         capabilitySnapshot,
-        effectiveSkillInputs: [],
-        handoffHash: handoff.hash,
+        effectiveSkillInputs: [...turnSkillResolution.skillInputs],
+        handoffHash: turnHandoffHash,
         deliveredThroughCompletedTurn: completedTurnSequence,
         model: attemptRecord.model,
         updatedAt: attemptStartedAt,
@@ -347,7 +360,7 @@ async function runProjectScopedMainAgentTurnActivity(
     providerId,
     capabilitySnapshot,
     model: capabilitySnapshot.effectiveModel ? { providerId, modelId: capabilitySnapshot.effectiveModel } : null,
-    parentHandoffHash: handoff.hash,
+    parentHandoffHash: turnHandoffHash,
     deliveredThroughCompletedTurn: completedTurnSequence,
     onInvalidated: () => publishAgentSurfacesInvalidated(projectId, { conversationId, graphScopeId, reason: "attempt-updated" }),
   });
@@ -414,18 +427,9 @@ async function runProjectScopedMainAgentTurnActivity(
     writableRoots: [proposalDirectory],
     runtimeWorkspaceRoots: [resolution.projectRoot, proposalDirectory],
     additionalContext,
-    nativeSkillRoots: [getSystemSkillsRoot()],
-    requiredNativeSkills: ["aho-main-orchestration"],
-    skillInputs: [
-      resolution.providerInput,
-      {
-        id: "aho-main-orchestration",
-        path: mainOrchestrationSkillPath,
-        contentHash: mainOrchestrationSkillHash,
-        source: "aho-system",
-        required: true,
-      },
-    ],
+    nativeSkillRoots: [...(turnSkillResolution.nativeSkillRoots ?? [getSystemSkillsRoot()])],
+    requiredNativeSkills: [...(turnSkillResolution.requiredNativeSkills ?? [])],
+    skillInputs: [...turnSkillResolution.skillInputs],
     existingSession: mainSessionId ? { providerId: providerId!, sessionId: mainSessionId } : null,
     objectiveSession: true,
     objectiveResume: options.goalResume ?? planHandoffResume,
@@ -473,6 +477,7 @@ async function runProjectScopedMainAgentTurnActivity(
           graphScopeId,
           parentThreadId: call.threadId,
           agentSurfaceId: targetSurfaceId,
+          providerRegistry: options.providerRegistry,
           onLifecycleEvent: (event) => { childLifecycleOwner.onLifecycle(event); },
         });
         return {

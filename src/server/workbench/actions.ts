@@ -4,7 +4,6 @@ import { resolveProjectRuntimeState } from "../../project-runtime/coordinator.js
 import type { ManagedProject } from "../../types/index.js";
 import { resumeNativeGoalAfterAction, runWorkbenchWorkflowAction } from "../../workbench/workflow-conversation-bridge.js";
 import { postConversationMessage } from "../../workbench/conversation-service.js";
-import { runProjectScopedMainAgentTurn } from "../../workbench/main-agent-turn-coordinator.js";
 import {
   buildWorkbenchApprovalDecisionId,
   recordWorkbenchDecision,
@@ -26,10 +25,7 @@ import {
 import { resolveFeedbackRouteFromPrimary, resolveLegacyFeedbackRoute, type FeedbackRoute, type FeedbackSnapshotPrimary } from "./feedback-routing.js";
 import type { WorkbenchActionRequest } from "./types.js";
 
-const workflowConversationPorts = {
-  postConversationMessage,
-  continueMainAgentTurn: runProjectScopedMainAgentTurn,
-};
+import type { ConversationTurnRoutingPort } from "../../workbench/conversation-turn-contract.js";
 
 export interface WorkbenchApprovalExecutionDeps {
   assertCurrentAction: typeof assertCurrentApprovalAction;
@@ -49,18 +45,20 @@ export async function executeWorkbenchAction(
   input: WorkbenchProjectInput,
   body: WorkbenchActionRequest,
   approvalDeps: WorkbenchApprovalExecutionDeps = defaultApprovalExecutionDeps,
+  turnRouter?: ConversationTurnRoutingPort,
 ): Promise<{ result: unknown; snapshot: unknown }> {
   if (!input.project) throw new Error("Workbench actions require a registered project.");
   if (body.abandon) {
     return executeAbandonAction(input as WorkbenchProjectInput & { project: ManagedProject }, body);
   }
   if (body.actionType) {
-    return executeWorkflowAction(input as WorkbenchProjectInput & { project: ManagedProject }, body);
+    return executeWorkflowAction(input as WorkbenchProjectInput & { project: ManagedProject }, body, turnRouter);
   }
   return executeApprovalOrFeedbackAction(
     input as WorkbenchProjectInput & { project: ManagedProject },
     body,
     approvalDeps,
+    turnRouter,
   );
 }
 
@@ -98,7 +96,7 @@ async function executeAbandonAction(input: WorkbenchProjectInput & { project: Ma
   return { result, snapshot: await getWorkbenchSnapshot(input, { topicId: changeId }) };
 }
 
-async function executeWorkflowAction(input: WorkbenchProjectInput & { project: ManagedProject }, body: WorkbenchActionRequest): Promise<{ result: unknown; snapshot: unknown }> {
+async function executeWorkflowAction(input: WorkbenchProjectInput & { project: ManagedProject }, body: WorkbenchActionRequest, turnRouter?: ConversationTurnRoutingPort): Promise<{ result: unknown; snapshot: unknown }> {
   const actionType = body.actionType;
   if (!actionType) {
     const error = new Error("Unknown or unsupported Workbench action.");
@@ -110,7 +108,13 @@ async function executeWorkflowAction(input: WorkbenchProjectInput & { project: M
     error.name = "Conflict";
     throw error;
   }
+  if (!body.changeId?.trim()) {
+    const error = new Error(`${actionType} requires changeId.`);
+    error.name = "BadRequest";
+    throw error;
+  }
   await assertCurrentWorkflowAction(input, body, { getWorkbenchSnapshot });
+  if (!turnRouter) throw new Error("Workbench Workflow turn routing is not composed.");
   const result = await runWorkbenchWorkflowAction(input.project, {
     actionType,
     changeId: body.changeId,
@@ -161,7 +165,7 @@ async function executeWorkflowAction(input: WorkbenchProjectInput & { project: M
     specTestEvidenceFingerprint: body.specTestEvidenceFingerprint,
     specTestAcIds: body.specTestAcIds,
     specTestMissing: body.specTestMissing,
-  }, undefined, workflowConversationPorts);
+  }, undefined, workflowPorts(turnRouter));
   return { result, snapshot: await getWorkbenchSnapshot(input, { topicId: body.changeId }) };
 }
 
@@ -169,6 +173,7 @@ async function executeApprovalOrFeedbackAction(
   input: WorkbenchProjectInput & { project: ManagedProject },
   body: WorkbenchActionRequest,
   deps: WorkbenchApprovalExecutionDeps,
+  turnRouter?: ConversationTurnRoutingPort,
 ): Promise<{ result: unknown; snapshot: unknown }> {
   const action = body.action;
   if ((!action || !allowedActionIds.has(action.actionId)) && !(typeof body.feedback === "string" && body.feedback.trim())) {
@@ -198,7 +203,7 @@ async function executeApprovalOrFeedbackAction(
         input.project,
         route.workflowRequest,
         undefined,
-        workflowConversationPorts,
+        workflowPortsOrFail(turnRouter),
       );
       return {
         result: { status: "requested-changes", routedTo: route.workflowRequest.actionType, result: routed },
@@ -257,9 +262,23 @@ async function executeApprovalOrFeedbackAction(
       actionType: "result.apply",
       status: "completed",
       result,
-    }, workflowConversationPorts);
+      }, workflowPortsOrFail(turnRouter));
   }
   return { result, snapshot: await getWorkbenchSnapshot(input) };
+}
+
+function workflowPorts(turnRouter: ConversationTurnRoutingPort) {
+  return {
+    postConversationMessage: (ownerProject: ManagedProject, conversationId: string, input: string, live?: import("../../workbench/types.js").WorkbenchLiveSink) => (
+      postConversationMessage(ownerProject, conversationId, input, live, { turnRouter })
+    ),
+    continueMainAgentTurn: turnRouter.continueMainAgentTurn,
+  };
+}
+
+function workflowPortsOrFail(turnRouter: ConversationTurnRoutingPort | undefined) {
+  if (!turnRouter) throw new Error("Workbench Workflow turn routing is not composed.");
+  return workflowPorts(turnRouter);
 }
 
 function isCommittedApplyResult(result: unknown): boolean {

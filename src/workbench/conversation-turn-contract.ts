@@ -1,10 +1,13 @@
 import type { ProviderSkillInput } from "../project-harness/contracts.js";
 import type { ProductMode, ProviderId } from "../provider-runtime/index.js";
+import type { ProjectRuntimeState } from "../project-runtime/coordinator.js";
+import type { ProjectRuntimeResolution } from "../project-runtime/context.js";
 import type { ManagedProject } from "../types/index.js";
 import type { StoredConversation, StoredTopicMessage } from "./persistence/contracts.js";
 import type {
   TopicAttachment,
   TopicMessageResult,
+  TopicThreadEntry,
   ValidatedPlanHandoffIntent,
   WorkbenchLiveSink,
 } from "./types.js";
@@ -13,6 +16,16 @@ export interface TurnSkillContextRequest {
   project: ManagedProject;
   conversation: StoredConversation;
   requiredSkillIds: readonly string[];
+  runtimeState?: ProjectRuntimeState;
+}
+
+export interface TurnSkillContextPreparation {
+  paths: import("../project-runtime/paths.js").ProjectRuntimePaths;
+  identityInputs?: readonly ProviderSkillInput[];
+  extraRoots?: readonly string[];
+  requiredSkillIds?: readonly string[];
+  isSkillVisible?: (skill: { name: string; skillId: string; sourceKind: string }) => boolean;
+  nativeSkillRoots?: readonly string[];
 }
 
 export interface TurnSkillContextDiagnostic {
@@ -24,6 +37,9 @@ export interface TurnSkillContextDiagnostic {
 export interface TurnSkillContextResolution {
   skillInputs: readonly ProviderSkillInput[];
   diagnostics: readonly TurnSkillContextDiagnostic[];
+  nativeSkillRoots?: readonly string[];
+  requiredNativeSkills?: readonly string[];
+  resolutionHash?: string;
 }
 
 export interface TurnSkillContextPort {
@@ -38,10 +54,55 @@ export interface ConversationTurnStrategyInput {
   providerId: ProviderId;
   live?: WorkbenchLiveSink;
   harnessHandoff?: ValidatedPlanHandoffIntent;
+  requiredSkillIds?: readonly string[];
+  runtimeState?: ProjectRuntimeState;
+  turnSkillResolution: TurnSkillContextResolution | null;
 }
 
 export interface ConversationTurnExecutionPorts {
   skillContext: TurnSkillContextPort;
+}
+
+export interface ConversationTurnContinuationOptions {
+  goalResume?: { deliveryKey: string; contextText: string };
+  graphScopeId?: string;
+}
+
+export type ConversationTurnContinuationPort = (
+  project: ManagedProject,
+  conversationId: string,
+  message: string,
+  live?: WorkbenchLiveSink,
+  planHandoff?: ValidatedPlanHandoffIntent,
+  options?: ConversationTurnContinuationOptions,
+) => Promise<TopicThreadEntry>;
+
+export interface ConversationTurnRoutingPort {
+  assertRequestedMode(conversation: StoredConversation, requestedMode?: ProductMode): void;
+  route(input: ConversationTurnStrategyInput, requestedMode?: ProductMode): Promise<TopicMessageResult>;
+  resolveProviderId: (project: ManagedProject, requestedProviderId?: ProviderId) => ProviderId;
+  resolveRuntimeState: (project: ManagedProject) => Promise<ProjectRuntimeState>;
+  switchProviderAtSafePoint?: (input: {
+    project: ManagedProject;
+    resolution: ProjectRuntimeResolution;
+    conversationId: string;
+    targetProviderId: ProviderId;
+  }) => Promise<import("./provider-switch.js").ProviderSwitchResult>;
+  continueMainAgentTurn?: ConversationTurnContinuationPort;
+  runAgentNativeChildFollowup?: (input: {
+    project: ManagedProject;
+    conversationId: string;
+    agentSurfaceId: string;
+    message: string;
+    live?: WorkbenchLiveSink;
+  }) => Promise<TopicMessageResult>;
+  runExactChildAgentTurn?: (input: {
+    project: ManagedProject;
+    conversationId: string;
+    agentSurfaceId: string;
+    message: string;
+    live?: WorkbenchLiveSink;
+  }) => Promise<TopicMessageResult>;
 }
 
 export interface ConversationTurnStrategy {

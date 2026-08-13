@@ -4,16 +4,19 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ProjectRegistryStore } from "../../src/registry/store.js";
 import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
-import type { ProjectRuntimeCoordinatorPort } from "../../src/project-runtime/coordinator.js";
+import { ProjectRuntimeCoordinator, type ProjectRuntimeCoordinatorPort } from "../../src/project-runtime/coordinator.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../src/provider-runtime/project-harness-discovery.js";
 import type { RunMetadata } from "../../src/types/index.js";
 import { TerminalRuntime } from "../../src/server/terminal/terminal-runtime.js";
 import { buildNativeFolderDialogCommand, executeWorkbenchAction, recoverWorkbenchProjects, startWorkbenchServer, type WorkbenchServerHandle } from "../../src/server/workbench-server.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import { appendCanonicalTimelineEntry } from "../../src/workbench/canonical-timeline-command.js";
 import { buildProjectScopedMainAgentPrompt } from "../../src/workbench/main-agent-turn-coordinator.js";
+import type { ConversationTurnRoutingPort } from "../../src/workbench/conversation-turn-contract.js";
+import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
 import { createFakeCodexRuntime } from "../helpers/fake-codex-runtime.js";
 import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
@@ -183,6 +186,9 @@ describe("workbench server", () => {
       async requireReady() {
         throw new Error("not used");
       },
+      runtimePaths(projectId) {
+        return resolveProjectRuntimePaths(projectId, registryRoot);
+      },
     };
 
     handle = await startWorkbenchServer({ project: project(), path: tempDir }, {
@@ -227,10 +233,10 @@ describe("workbench server", () => {
     const addedRoot = await fetch(`${handle!.url}/api/projects/repo/skill-roots`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rootPath: skillRoot }),
+      body: JSON.stringify({ rootPath: skillRoot, productMode: "harness", providerId: "codex" }),
     });
     expect(addedRoot.ok).toBe(true);
-    const listed = await getJson<{ roots: Array<{ rootPath: string }>; skills: Array<{ skillId: string; sourceKind: string; contentHash: string; providerBindings: Array<{ providerId: string; status: string }> }> }>(`${handle!.url}/api/projects/repo/skills`);
+    const listed = await getJson<{ roots: Array<{ rootPath: string }>; skills: Array<{ skillId: string; sourceKind: string; contentHash: string; providerBindings: Array<{ providerId: string; status: string }> }> }>(`${handle!.url}/api/projects/repo/skills?productMode=harness&providerId=codex`);
     expect(listed.roots.some((root) => root.rootPath === skillRoot)).toBe(true);
     const pricing = listed.skills.find((skill) => skill.skillId === "pricing-helper");
     const system = listed.skills.find((skill) => skill.skillId === "aho-harness-engineering");
@@ -242,18 +248,84 @@ describe("workbench server", () => {
     const enabled = await fetch(`${handle!.url}/api/projects/repo/skills/pricing-helper/enable`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled: true }),
+      body: JSON.stringify({ enabled: true, productMode: "harness", providerId: "codex" }),
     });
     expect(enabled.ok).toBe(true);
 
     const disabled = await fetch(`${handle!.url}/api/projects/repo/skills/pricing-helper/provider-enable`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled: false }),
+      body: JSON.stringify({ enabled: false, productMode: "harness", providerId: "codex" }),
     });
     expect(disabled.ok).toBe(true);
-    const refreshed = await getJson<{ skills: Array<{ skillId: string; providerEnabled: boolean }> }>(`${handle!.url}/api/projects/repo/skills`);
+    const refreshed = await getJson<{ skills: Array<{ skillId: string; providerEnabled: boolean }> }>(`${handle!.url}/api/projects/repo/skills?productMode=harness&providerId=codex`);
     expect(refreshed.skills.find((skill) => skill.skillId === "pricing-helper")?.providerEnabled).toBe(false);
+
+    expect((await fetch(`${handle!.url}/api/projects/repo/skills`)).status).toBe(400);
+    const createdResponse = await fetch(`${handle!.url}/api/projects/repo/workbench/topics`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        body: "Create an Agent Skill selection scope.",
+        productMode: "agent",
+        clientRequestId: "agent-skill-catalog-scope",
+        confirm: true,
+      }),
+    });
+    expect(createdResponse.ok).toBe(true);
+    const agentConversationId = (await createdResponse.json() as { topic: { conversationId: string } }).topic.conversationId;
+    const agentCatalog = await getJson<{ skills: Array<{ skillId: string; name: string; required: boolean; sourceKind: string }> }>(
+      `${handle!.url}/api/projects/repo/skills?productMode=agent&providerId=codex&conversationId=${encodeURIComponent(agentConversationId)}`,
+    );
+    expect(agentCatalog.skills.map((skill) => skill.name)).not.toEqual(expect.arrayContaining([
+      "aho-main-orchestration",
+      "aho-harness-engineering",
+      "aho-workflow-authoring",
+    ]));
+    expect(agentCatalog.skills).toContainEqual(expect.objectContaining({
+      skillId: "repo-harness",
+      sourceKind: "project-harness",
+      required: false,
+    }));
+
+    const harnessCatalog = await getJson<{ skills: Array<{ skillId: string; required: boolean }> }>(
+      `${handle!.url}/api/projects/repo/skills?productMode=harness&providerId=codex&conversationId=${encodeURIComponent(serverConversationId)}`,
+    );
+    expect(harnessCatalog.skills).toEqual(expect.arrayContaining([
+      expect.objectContaining({ skillId: "repo-harness", required: true }),
+      expect.objectContaining({ skillId: "aho-main-orchestration", required: true }),
+    ]));
+
+    const modeMismatch = await fetch(
+      `${handle!.url}/api/projects/repo/skills?productMode=harness&providerId=codex&conversationId=${encodeURIComponent(agentConversationId)}`,
+    );
+    expect(modeMismatch.status).toBe(409);
+    const providerMismatch = await fetch(
+      `${handle!.url}/api/projects/repo/skills?productMode=agent&providerId=missing-provider&conversationId=${encodeURIComponent(agentConversationId)}`,
+    );
+    expect(providerMismatch.status).toBe(409);
+
+    const selectedHarness = await fetch(`${handle!.url}/api/projects/repo/skills/repo-harness/enable`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        enabled: true,
+        productMode: "agent",
+        providerId: "codex",
+        conversationId: agentConversationId,
+      }),
+    });
+    expect(selectedHarness.ok).toBe(true);
+    const selectedHarnessCatalog = await selectedHarness.json() as { skills: Array<{ skillId: string; name: string }> };
+    expect(selectedHarnessCatalog.skills.map((skill) => skill.name)).not.toContain("aho-main-orchestration");
+
+    const providerGlobalHarnessDisable = await fetch(`${handle!.url}/api/projects/repo/skills/repo-harness/provider-enable`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: false, productMode: "agent", providerId: "codex" }),
+    });
+    expect(providerGlobalHarnessDisable.ok).toBe(false);
+    expect(await providerGlobalHarnessDisable.text()).toContain("assigned by the Runtime");
     expect(existsSync(join(skillDir, "scripts", "run.ps1"))).toBe(true);
     expect(existsSync(join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed"))).toBe(false);
   });
@@ -712,11 +784,12 @@ describe("workbench server", () => {
       confirm: true,
     })).rejects.toThrow("requires changeId");
 
+    const testRouter = workflowTestRouter();
     const missingTarget = await executeWorkbenchAction({ project: project(), path: tempDir }, {
       actionType: "validate.run",
       changeId: "server-topic",
       confirm: true,
-    });
+    }, undefined, testRouter);
     expect(JSON.stringify(missingTarget.result)).toContain("requires worktreeId");
 
     await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
@@ -724,7 +797,7 @@ describe("workbench server", () => {
       changeId: "server-topic",
       landingPackageId: "forged-landing-package",
       confirm: true,
-    })).rejects.toThrow("stale or no longer available");
+    }, undefined, testRouter)).rejects.toThrow("stale or no longer available");
 
   });
 
@@ -958,8 +1031,18 @@ describe("workbench server", () => {
       projectName: directProject.name,
     });
     await createConversationChangeFixture(directProject, { title: "Restored Topic" });
+    const projectRuntimeCoordinator = new ProjectRuntimeCoordinator({
+      store,
+      ahoHome,
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+    });
 
-    const directHandle = await startWorkbenchServer({ project: directProject, path: sourceRoot }, { port: 0, staticRoot, store });
+    const directHandle = await startWorkbenchServer({ project: directProject, path: sourceRoot }, {
+      port: 0,
+      staticRoot,
+      store,
+      projectRuntimeCoordinator,
+    });
     try {
       const status = await getJson<{ mode: string; directProjectId: string | null }>(`${directHandle.url}/api/app/status`);
       expect(status).toMatchObject({ mode: "project", directProjectId: "external-repo" });
@@ -986,6 +1069,90 @@ describe("workbench server", () => {
       await new Promise<void>((resolve) => directHandle.server.close(() => resolve()));
       await rm(sourceRoot, { recursive: true, force: true });
       await rm(ahoHome, { recursive: true, force: true });
+    }
+  });
+
+  it("uses the injected runtime coordinator owner for Skill API, Conversation, and Snapshot reads", async () => {
+    const sourceRoot = await mkdtemp(join(tmpdir(), "aho-runtime-owner-src-"));
+    const customAhoHome = await mkdtemp(join(tmpdir(), "aho-runtime-owner-home-"));
+    const customStore = new ProjectRegistryStore(join(customAhoHome, "registry"));
+    const customProject: ManagedProject = {
+      id: "custom-runtime-owner",
+      name: "Custom Runtime Owner",
+      path: sourceRoot,
+      addedAt: "2026-08-14T00:00:00.000Z",
+      lastSeenAt: "2026-08-14T00:00:00.000Z",
+      defaultProviderId: "codex",
+    };
+    await createReadyProjectHarnessFixture({
+      projectRoot: sourceRoot,
+      ahoHome: customAhoHome,
+      projectId: customProject.id,
+      projectName: customProject.name,
+    });
+    const projectRuntimeCoordinator = new ProjectRuntimeCoordinator({
+      store: customStore,
+      ahoHome: customAhoHome,
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+    });
+    const resolveRuntimeState = vi.spyOn(projectRuntimeCoordinator, "resolve");
+    const customHandle = await startWorkbenchServer(
+      { project: customProject, path: sourceRoot },
+      {
+        port: 0,
+        staticRoot,
+        store: customStore,
+        projectRuntimeCoordinator,
+      },
+    );
+    try {
+      const skills = await getJson<{ skills: Array<{ skillId: string }> }>(
+        `${customHandle.url}/api/projects/${customProject.id}/skills?productMode=agent&providerId=codex`,
+      );
+      expect(skills.skills).toEqual(expect.any(Array));
+
+      const createResponse = await fetch(`${customHandle.url}/api/projects/${customProject.id}/workbench/topics`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          body: "Use the custom runtime owner.",
+          productMode: "agent",
+          clientRequestId: "custom-runtime-owner-create",
+          confirm: true,
+        }),
+      });
+      expect(createResponse.ok).toBe(true);
+      const created = await createResponse.json() as { topic: { conversationId: string; productMode: string } };
+      expect(created.topic.productMode).toBe("agent");
+
+      const customPaths = resolveProjectRuntimePaths(customProject.id, customAhoHome);
+      expect(existsSync(customPaths.workbenchDbPath)).toBe(true);
+      expect(resolveRuntimeState).toHaveBeenCalled();
+      expect(resolveRuntimeState.mock.calls.every(([selected]) => selected.id === customProject.id)).toBe(true);
+      const customDatabase = await openProjectRuntimeWorkbenchDatabase(customPaths);
+      try {
+        expect(customDatabase.conversations.readConversation(customProject.id, created.topic.conversationId))
+          .toMatchObject({ conversationId: created.topic.conversationId, productMode: "agent" });
+      } finally {
+        customDatabase.close();
+      }
+
+      const snapshot = await getJson<{ productMode: string; left: { topics: Array<{ id: string; productMode: string }> } }>(
+        `${customHandle.url}/api/projects/${customProject.id}/workbench/snapshot?productMode=agent&topic=${encodeURIComponent(created.topic.conversationId)}`,
+      );
+      expect(snapshot).toMatchObject({
+        productMode: "agent",
+        left: { topics: [expect.objectContaining({ id: created.topic.conversationId, productMode: "agent" })] },
+      });
+
+      const conversationSkills = await getJson<{ skills: Array<{ skillId: string }> }>(
+        `${customHandle.url}/api/projects/${customProject.id}/skills?productMode=agent&providerId=codex&conversationId=${encodeURIComponent(created.topic.conversationId)}`,
+      );
+      expect(conversationSkills.skills).toEqual(skills.skills);
+    } finally {
+      await new Promise<void>((resolve) => customHandle.server.close(() => resolve()));
+      await rm(sourceRoot, { recursive: true, force: true });
+      await rm(customAhoHome, { recursive: true, force: true });
     }
   });
 
@@ -1029,6 +1196,11 @@ describe("workbench server", () => {
       expect(snapshot.warnings).toEqual([
         "Project Harness onboarding is incomplete; Workbench will not infer project history.",
       ]);
+
+      const agentSkills = await fetch(
+        `${directHandle.url}/api/projects/missing-skill-repo/skills?productMode=agent&providerId=codex`,
+      );
+      expect(agentSkills.ok).toBe(true);
 
       const createdResponse = await fetch(`${directHandle.url}/api/projects/missing-skill-repo/workbench/topics/live`, {
         method: "POST",
@@ -1146,6 +1318,23 @@ describe("workbench server", () => {
     await rm(secondRoot, { recursive: true, force: true });
   });
 });
+
+function workflowTestRouter(): ConversationTurnRoutingPort {
+  return {
+    assertRequestedMode: () => undefined,
+    route: async () => {
+      throw new Error("workflow test Router must not execute a Conversation Turn.");
+    },
+    resolveProviderId: (_project, requestedProviderId) => requestedProviderId ?? "codex",
+    resolveRuntimeState: async (selectedProject) => ({
+      state: "onboarding",
+      project: selectedProject,
+      projectRoot: selectedProject.path,
+      paths: resolveProjectRuntimePaths(selectedProject.id, registryRoot),
+      reservedProjectId: selectedProject.id,
+    }),
+  };
+}
 
 async function getJson<T>(url: string): Promise<T> {
   const response = await fetch(url);

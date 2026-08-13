@@ -31,6 +31,7 @@ export function project(path = tempDir): ManagedProject {
     path,
     addedAt: new Date().toISOString(),
     lastSeenAt: new Date().toISOString(),
+    defaultProviderId: "codex",
   };
 }
 

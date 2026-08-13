@@ -1,7 +1,10 @@
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
+import {
+  createConversationChangeFixture,
+  createTestConversationTurnRouter,
+} from "../helpers/conversation-change-fixture.js";
 import {
   initializeSkillNativeSequentialFixture,
   prepareSkillNativeWorkbenchFixture,
@@ -20,7 +23,7 @@ import {
 import { listRuns } from "../../src/run/manager.js";
 import { projectSkillArtifact } from "../../src/project-harness/contracts.js";
 import { resolveOwnedArtifactPath } from "../../src/project-harness/path-safety.js";
-import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
+import { executeWorkbenchAction as executeWorkbenchActionRaw } from "../../src/server/workbench-server.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
 import {
   mainAgentLoopRunsRoot,
@@ -40,13 +43,22 @@ import {
 
 let tempDir: string;
 let skillNativeFixture: SkillNativeWorkbenchFixture;
+let turnRouter: ReturnType<typeof createTestConversationTurnRouter>;
 
 beforeEach(async () => {
   tempDir = getTempDir();
   skillNativeFixture = await prepareSkillNativeWorkbenchFixture({ project: project() });
+  turnRouter = createTestConversationTurnRouter();
 });
 
 afterEach(() => skillNativeFixture.restoreEnvironment());
+
+function executeWorkbenchAction(
+  input: Parameters<typeof executeWorkbenchActionRaw>[0],
+  body: Parameters<typeof executeWorkbenchActionRaw>[1],
+): ReturnType<typeof executeWorkbenchActionRaw> {
+  return executeWorkbenchActionRaw(input, body, undefined, turnRouter);
+}
 
 async function writeAcceptedSpecAndTasks(changeId: string): Promise<void> {
   await writeSkillNativeAcceptedSpecAndTasks(skillNativeFixture, changeId);

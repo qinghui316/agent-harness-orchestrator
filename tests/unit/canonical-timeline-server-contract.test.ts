@@ -58,6 +58,7 @@ describe("canonical Timeline server contract", () => {
       path: root,
       addedAt: "2026-07-17T00:00:00.000Z",
       lastSeenAt: "2026-07-17T00:00:00.000Z",
+      defaultProviderId: "codex",
     };
     const created = await createWorkbenchConversation(project, {
       body: "Agent history before Harness onboarding.",

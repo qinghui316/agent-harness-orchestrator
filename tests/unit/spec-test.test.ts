@@ -6,7 +6,7 @@ import { writeJsonFile } from "../../src/fs/json.js";
 import { getChangeStatusForChange } from "../../src/change/status.js";
 import { git } from "../../src/project/git.js";
 import { projectExecutionRuntimePort } from "../../src/project-runtime/execution-ports.js";
-import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
+import { executeWorkbenchAction as executeWorkbenchActionComposed } from "../../src/server/workbench-server.js";
 import { executeWorkbenchAction as executeWorkbenchActionWithDeps } from "../../src/server/workbench/actions.js";
 import { runAllowlistedAction } from "../../src/server/workbench/approval-actions.js";
 import { classifySpecTestDiff, composeSpecTestGeneratorPrompt, selectAcsForGeneration } from "../../src/spec-test/generate.js";
@@ -18,6 +18,7 @@ import { assertCurrentApprovalAction } from "../../src/workbench/actions/current
 import { reconcileRecoveredApprovalDecisions } from "../../src/workbench/actions/approval-decision-reconciliation.js";
 import { recordWorkbenchDecisionFailureUnlessAccepted, readWorkbenchDecisionStatus } from "../../src/workbench/decisions.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
+import type { ConversationTurnRoutingPort } from "../../src/workbench/conversation-turn-contract.js";
 import { createWorktreeWithRuntimePort } from "../../src/worktree/creation.js";
 import { listWorktreesForChange } from "../../src/worktree/status.js";
 import { revokeLocalExecutionAuthorization } from "../../src/workflow-runtime/execution-authorization.js";
@@ -321,6 +322,7 @@ describe("Skill-native Spec-Test ownership", () => {
         recordAcceptedDecision,
         recordFailureDecision: recordWorkbenchDecisionFailureUnlessAccepted,
       },
+      specTestRouter(),
     );
     expect(recordAcceptedDecision).toHaveBeenCalledTimes(2);
     expect((await getSpecTestStatus(fixture.project, { changeId: fixture.changeId })).mappings).toHaveLength(1);
@@ -888,6 +890,33 @@ async function runSpecTestAction(
       confirm: true,
     },
   );
+}
+
+function executeWorkbenchAction(
+  input: Parameters<typeof executeWorkbenchActionComposed>[0],
+  body: Parameters<typeof executeWorkbenchActionComposed>[1],
+) {
+  return executeWorkbenchActionComposed(input, body, undefined, specTestRouter());
+}
+
+function specTestRouter(): ConversationTurnRoutingPort {
+  return {
+    assertRequestedMode(conversation, requestedMode): void {
+      if (requestedMode === undefined || requestedMode === conversation.productMode) return;
+      const error = new Error("Conversation productMode does not match the requested mode.");
+      error.name = "Conflict";
+      throw error;
+    },
+    route: async () => {
+      throw new Error("Spec-Test action Router must not execute a Conversation Turn.");
+    },
+    resolveProviderId: (_project, requestedProviderId) => requestedProviderId ?? "codex",
+    resolveRuntimeState: async (project) => ({
+      state: "ready",
+      project,
+      resolution: fixture.resolution,
+    }),
+  };
 }
 
 async function readAttempts() {

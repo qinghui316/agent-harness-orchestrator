@@ -119,5 +119,5 @@ describe("workspace resource resolver", () => {
 });
 
 function project(): ManagedProject {
-  return { id: "repo", name: "Repo", path: root, addedAt: "2026-07-16T00:00:00.000Z", lastSeenAt: "2026-07-16T00:00:00.000Z" };
+  return { id: "repo", name: "Repo", path: root, addedAt: "2026-07-16T00:00:00.000Z", lastSeenAt: "2026-07-16T00:00:00.000Z", defaultProviderId: "codex" };
 }

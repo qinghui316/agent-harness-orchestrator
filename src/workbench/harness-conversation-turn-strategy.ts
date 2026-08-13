@@ -3,8 +3,9 @@ import type {
   ConversationTurnExecutionPorts,
   ConversationTurnStrategy,
   ConversationTurnStrategyInput,
+  TurnSkillContextResolution,
 } from "./conversation-turn-contract.js";
-import { runProjectScopedMainAgentTurn } from "./main-agent-turn-coordinator.js";
+import type { ProjectRuntimeState } from "../project-runtime/coordinator.js";
 import type { TopicMessageResult, TopicThreadEntry } from "./types.js";
 
 type HarnessTurnRunner = (
@@ -13,13 +14,13 @@ type HarnessTurnRunner = (
   userMessage: string,
   live: ConversationTurnStrategyInput["live"],
   handoff: ConversationTurnStrategyInput["harnessHandoff"],
-  options: { graphScopeId?: string },
+  options: { graphScopeId?: string; runtimeState: ProjectRuntimeState; turnSkillResolution: TurnSkillContextResolution | null },
 ) => Promise<TopicThreadEntry>;
 
 export class HarnessConversationTurnStrategy implements ConversationTurnStrategy {
   readonly productMode = "harness" as const;
 
-  constructor(private readonly runTurn: HarnessTurnRunner = runProjectScopedMainAgentTurn) {}
+  constructor(private readonly runTurn: HarnessTurnRunner) {}
 
   async execute(
     input: ConversationTurnStrategyInput,
@@ -32,7 +33,11 @@ export class HarnessConversationTurnStrategy implements ConversationTurnStrategy
       user.text ?? "",
       input.live,
       input.harnessHandoff,
-      { graphScopeId: user.graphScopeId },
+      {
+        graphScopeId: user.graphScopeId,
+        runtimeState: input.runtimeState ?? (() => { throw new Error("Harness Turn runtime state is not composed."); })(),
+        turnSkillResolution: input.turnSkillResolution,
+      },
     );
     return {
       user,

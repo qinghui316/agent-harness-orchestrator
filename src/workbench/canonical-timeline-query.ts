@@ -18,9 +18,9 @@ export async function getCanonicalTimelinePage(
   options: { limit?: number; beforeCursor?: string } = {},
 ): Promise<CanonicalTimelinePage> {
   if (!input.project) throw notFound(`Conversation not found: ${conversationId}.`);
-  const state = await resolveProjectRuntimeState(input.project, {
-    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
-  });
+  const state = input.runtimeStateResolver
+    ? await input.runtimeStateResolver(input.project)
+    : await resolveProjectRuntimeState(input.project, { discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY });
   const paths = state.state === "onboarding" ? state.paths : state.resolution.paths;
   const scope = { projectId: paths.projectId, conversationId, agentSurfaceId };
   const limit = normalizePageLimit(options.limit);

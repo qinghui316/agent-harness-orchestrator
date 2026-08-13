@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorkbenchConversation, postConversationMessage } from "../../src/workbench/conversation-service.js";
+import type { ConversationTurnRoutingPort } from "../../src/workbench/conversation-turn-contract.js";
 import { getCanonicalTimelinePage } from "../../src/workbench/canonical-timeline-query.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import {
@@ -116,7 +117,7 @@ describe("dual product-mode foundation", () => {
     await expect(postConversationMessage(project(), conversation.conversationId, {
       message: "Must not be committed",
       productMode: "agent",
-    })).rejects.toMatchObject({ name: "Conflict" });
+    }, undefined, { turnRouter: testTurnRouter() })).rejects.toMatchObject({ name: "Conflict" });
 
     expect(await conversationState(conversation.conversationId)).toEqual(before);
   });
@@ -203,9 +204,8 @@ describe("dual product-mode foundation", () => {
       message: "Must not target a child Agent.",
       productMode: "agent",
       agentSurfaceId: "agent:codex:thread:child",
-    })).rejects.toMatchObject({
-      name: "Conflict",
-      message: "Native child lineage does not match the selected Agent Conversation.",
+    }, undefined, { turnRouter: testTurnRouter() })).rejects.toMatchObject({
+      message: "Workbench Agent child routing is not composed.",
     });
     await expect(postConversationMessage(project(), conversation.conversationId, {
       message: "Must not hand off an AHO plan.",
@@ -215,7 +215,7 @@ describe("dual product-mode foundation", () => {
         sourceAgentRoleId: "planning-agent",
         kind: "execute-plan",
       },
-    })).rejects.toMatchObject({ name: "Conflict" });
+    }, undefined, { turnRouter: testTurnRouter() })).rejects.toMatchObject({ name: "Conflict" });
 
     expect(await conversationState(conversation.conversationId)).toEqual(before);
   });
@@ -253,6 +253,8 @@ describe("dual product-mode foundation", () => {
             );
           },
           route,
+          resolveProviderId: (_project, requestedProviderId) => requestedProviderId ?? "codex",
+          resolveRuntimeState: async () => ({ state: "ready", project: project(), resolution: fixture.resolution }),
         },
       })).rejects.toMatchObject({ name: "Conflict", message: "Captured routed input." });
     } finally {
@@ -280,7 +282,7 @@ describe("dual product-mode foundation", () => {
       message: "Do not silently use the stored Provider.",
       productMode: "agent",
       providerId: "other-provider",
-    })).rejects.toMatchObject({
+    }, undefined, { turnRouter: testTurnRouter() })).rejects.toMatchObject({
       name: "Conflict",
       message: "Direct Agent provider switching is not supported in this increment.",
     });
@@ -302,6 +304,27 @@ function failAfterCommitRouter() {
       error.name = "Conflict";
       return Promise.reject(error);
     },
+    resolveProviderId: (_project: unknown, requestedProviderId?: string) => requestedProviderId ?? "codex",
+    resolveRuntimeState: async () => ({ state: "ready" as const, project: project(), resolution: fixture.resolution }),
+  } satisfies ConversationTurnRoutingPort;
+}
+
+function testTurnRouter(): ConversationTurnRoutingPort {
+  return {
+    assertRequestedMode(conversation, requestedMode): void {
+      if (requestedMode === undefined || requestedMode === conversation.productMode) return;
+      const error = new Error("Conversation productMode does not match the requested mode.");
+      error.name = "Conflict";
+      throw error;
+    },
+    route: vi.fn(async () => ({
+      user: { id: "test-user", type: "user.message", timestamp: new Date().toISOString(), conversationId: "test", changeId: "", text: "test" },
+      assistant: null,
+      run: null,
+      providerSessionId: null,
+    })),
+    resolveProviderId: (_project, requestedProviderId) => requestedProviderId ?? "codex",
+    resolveRuntimeState: async () => ({ state: "ready", project: project(), resolution: fixture.resolution }),
   };
 }
 

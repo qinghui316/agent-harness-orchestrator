@@ -20,6 +20,16 @@ provider selector. A selector appears only when multiple providers are actually
 registered. Ordinary UI never exposes provider/session/thread/attempt/canonical
 identity fields.
 
+Turn Skill composition is server-owned. Each non-onboarding Agent or ready
+Harness turn resolves runtime identity, discovery roots, persisted selections,
+and required overlays once through the composed Conversation Turn Router. The
+same immutable resolution supplies Provider Skill inputs, native required Skill
+evidence, and the handoff hash. Harness onboarding keeps its dedicated Main plus
+engineering path and does not perform ready-turn Skill discovery. Skill API
+requests carry explicit product mode and may assert Conversation and Provider
+identity; stored Conversation identity is authoritative and mismatches fail
+closed before Provider effects.
+
 ## 1. Purpose
 
 The AHO Workbench should feel like a Codex-style development workspace, not a traditional admin console, ticket board, or raw agent terminal.

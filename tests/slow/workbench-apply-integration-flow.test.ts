@@ -34,7 +34,42 @@ vi.mock("../../src/codex/capabilities.js", () => ({
 
 vi.mock("../../src/codex/native-skills.js", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../src/codex/native-skills.js")>(),
-  listCodexNativeSkills: vi.fn(async () => ({ providerId: "codex", projectPath: getTempDir(), skills: [], errors: [] })),
+  listCodexNativeSkills: vi.fn(async () => {
+    const { hashNativeSkillPackageContent } = await import("../../src/skill/content-hash.js");
+    const { getSystemSkillsRoot } = await import("../../src/template-source/paths.js");
+    const systemSkills = await Promise.all([
+      "aho-main-orchestration",
+      "aho-harness-engineering",
+      "aho-workflow-authoring",
+    ].map(async (name) => {
+      const root = join(getSystemSkillsRoot(), name);
+      return {
+        name,
+        description: `Test ${name}.`,
+        path: join(root, "SKILL.md"),
+        scope: "system" as const,
+        enabled: true,
+        contentHash: await hashNativeSkillPackageContent(root),
+      };
+    }));
+    const projectHarnessRoot = join(getTempDir(), ".agents", "skills", "repo-harness");
+    const projectHarness = existsSync(join(projectHarnessRoot, "SKILL.md"))
+      ? [{
+        name: "repo-harness",
+        description: "Test project Harness.",
+        path: join(projectHarnessRoot, "SKILL.md"),
+        scope: "repo" as const,
+        enabled: true,
+        contentHash: await hashNativeSkillPackageContent(projectHarnessRoot),
+      }]
+      : [];
+    return {
+      providerId: "codex",
+      projectPath: getTempDir(),
+      skills: [...projectHarness, ...systemSkills],
+      errors: [],
+    };
+  }),
 }));
 vi.mock("../../src/workflow-runtime/execution-authorization.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/workflow-runtime/execution-authorization.js")>();
@@ -56,7 +91,7 @@ import { projectExecutionRuntimePort } from "../../src/project-runtime/execution
 import { resolveProjectRuntimeState } from "../../src/project-runtime/coordinator.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../src/provider-runtime/project-harness-discovery.js";
 import { listRuns } from "../../src/run/manager.js";
-import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
+import { executeWorkbenchAction as executeWorkbenchActionRaw } from "../../src/server/workbench-server.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
 import {
   listConversationMessages,
@@ -74,6 +109,7 @@ import {
 import {
   createConversationChangeFixture,
   createHarnessWorkbenchConversation as createWorkbenchConversation,
+  createTestConversationTurnRouter,
 } from "../helpers/conversation-change-fixture.js";
 import {
   authorizeSkillNativeWorkflowStartFixture,
@@ -85,10 +121,12 @@ import {
 import { getTempDir, git, initGitRepository, project } from "../helpers/skill-native-test-environment.js";
 
 let previousAhoHome: string | undefined;
+let turnRouter: ReturnType<typeof createTestConversationTurnRouter>;
 
 beforeEach(() => {
   previousAhoHome = process.env.AHO_HOME;
   process.env.AHO_HOME = join(getTempDir(), ".aho-home");
+  turnRouter = createTestConversationTurnRouter();
   appServerTurn.mockReset();
   appServerTurn.mockImplementation(async (options) => executeFixtureRoleTurn(options));
 });
@@ -97,6 +135,13 @@ afterEach(() => {
   if (previousAhoHome === undefined) delete process.env.AHO_HOME;
   else process.env.AHO_HOME = previousAhoHome;
 });
+
+function executeWorkbenchAction(
+  input: Parameters<typeof executeWorkbenchActionRaw>[0],
+  body: Parameters<typeof executeWorkbenchActionRaw>[1],
+): ReturnType<typeof executeWorkbenchActionRaw> {
+  return executeWorkbenchActionRaw(input, body, undefined, turnRouter);
+}
 
 describe("workbench apply and integration slow flows", () => {
   it("consumes a scoped-auto authorization without a second apply confirmation and advances source lineage", async () => {
@@ -636,7 +681,7 @@ async function prepareAcceptedConversation(fixture: SkillNativeWorkbenchFixture,
     .mockImplementation(async (options) => executeFixtureRoleTurn(options));
   const conversation = await createWorkbenchConversation(project(), {
     body: title,
-  });
+  }, undefined, { turnRouter });
   const messages = await listConversationMessages(project(), conversation.conversationId);
   const plan = messages.find((message) =>
     message.agentRoleId === "planning-agent" && message.document?.documentKind === "plan");
@@ -656,7 +701,7 @@ async function prepareAcceptedConversation(fixture: SkillNativeWorkbenchFixture,
       sourceProposalHash: plan.document.proposalHash,
       executionMode: "stepwise",
     },
-  });
+  }, undefined, { turnRouter });
   const store = await openProjectRuntimeWorkbenchDatabase(fixture.resolution.paths);
   try {
     const current = store.conversations.readConversation(project().id, conversation.conversationId);

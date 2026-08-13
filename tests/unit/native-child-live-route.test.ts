@@ -24,7 +24,7 @@ let previousAhoHome: string | undefined;
 let handle: WorkbenchServerHandle | null;
 
 function project(): ManagedProject {
-  return { id: "native-child-live", name: "Native Child Live", path: root, addedAt: now, lastSeenAt: now };
+  return { id: "native-child-live", name: "Native Child Live", path: root, addedAt: now, lastSeenAt: now, defaultProviderId: "codex" };
 }
 
 function parseSseEvents(body: string): Array<{ event: string; data: Record<string, unknown> }> {

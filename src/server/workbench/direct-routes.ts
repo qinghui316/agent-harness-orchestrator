@@ -15,7 +15,12 @@ import {
 import type { IntakeRequest, WorkbenchActionRequest, WorkbenchServerContext } from "./types.js";
 
 export async function handleDirectWorkbenchApi(context: WorkbenchServerContext, request: IncomingMessage, response: ServerResponse, url: URL): Promise<boolean> {
-  const input = context.input;
+  const input = context.input?.project
+    ? {
+      ...context.input,
+      runtimeStateResolver: (project: NonNullable<typeof context.input.project>) => context.projectRuntimeCoordinator.resolve(project),
+    }
+    : context.input;
   if (request.method === "GET" && url.pathname === "/api/workbench/snapshot") {
     assertDirectProjectInput(input);
     const productMode = requireProductMode(url.searchParams.get("productMode"));
@@ -45,7 +50,7 @@ export async function handleDirectWorkbenchApi(context: WorkbenchServerContext, 
   if (request.method === "POST" && directTopicMessagesLiveMatch?.[1]) {
     assertDirectProjectInput(input);
     assertRegisteredProject(input);
-    await sendConversationMessageLive(input, decodeURIComponent(directTopicMessagesLiveMatch[1]), request, response, context.providerRegistry);
+    await sendConversationMessageLive(input, decodeURIComponent(directTopicMessagesLiveMatch[1]), request, response, context.turnRouter);
     return true;
   }
   if (request.method === "GET" && url.pathname.startsWith("/api/workbench/stream/")) {
@@ -63,14 +68,14 @@ export async function handleDirectWorkbenchApi(context: WorkbenchServerContext, 
   }
   if (request.method === "POST" && url.pathname === "/api/workbench/actions") {
     assertDirectProjectInput(input);
-    const result = await executeWorkbenchAction(input, await readJsonBody<WorkbenchActionRequest>(request));
+    const result = await executeWorkbenchAction(input, await readJsonBody<WorkbenchActionRequest>(request), undefined, context.turnRouter);
     sendJson(response, 200, result);
     return true;
   }
   if (request.method === "POST" && url.pathname === "/api/workbench/actions/live") {
     assertDirectProjectInput(input);
     assertRegisteredProject(input);
-    await sendWorkbenchActionLive(input, request, response);
+    await sendWorkbenchActionLive(input, request, response, context.turnRouter);
     return true;
   }
   if (request.method === "POST" && url.pathname === "/api/workbench/intake/scan") {

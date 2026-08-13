@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ManagedProject } from "../../src/types/index.js";
+import { ProviderRegistry } from "../../src/provider-runtime/registry.js";
+import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
+import type { ProjectRuntimeState } from "../../src/project-runtime/coordinator.js";
 import { ConversationTurnRouter } from "../../src/workbench/conversation-turn-router.js";
 import { HarnessConversationTurnStrategy } from "../../src/workbench/harness-conversation-turn-strategy.js";
 import type {
@@ -16,7 +19,7 @@ describe("ConversationTurnRouter", () => {
     const harnessResult = topicResult("harness");
     const agent = strategy("agent", agentResult);
     const harness = strategy("harness", harnessResult);
-    const router = new ConversationTurnRouter({ agent, harness }, ports());
+    const router = new ConversationTurnRouter({ agent, harness }, ports(), compositionOwner());
 
     await expect(router.route(turnInput("harness"), "harness")).resolves.toBe(harnessResult);
     expect(harness.execute).toHaveBeenCalledOnce();
@@ -29,7 +32,7 @@ describe("ConversationTurnRouter", () => {
   it("rejects an asserted mode mismatch before invoking any Strategy", async () => {
     const agent = strategy("agent", topicResult("agent"));
     const harness = strategy("harness", topicResult("harness"));
-    const router = new ConversationTurnRouter({ agent, harness }, ports());
+    const router = new ConversationTurnRouter({ agent, harness }, ports(), compositionOwner());
 
     expect(() => router.assertRequestedMode(conversation("harness"), "agent"))
       .toThrow("Conversation productMode does not match the requested mode.");
@@ -40,8 +43,54 @@ describe("ConversationTurnRouter", () => {
 
   it("fails construction when a Strategy is registered under the wrong mode", () => {
     const harness = strategy("harness", topicResult("harness"));
-    expect(() => new ConversationTurnRouter({ agent: harness, harness }, ports()))
+    expect(() => new ConversationTurnRouter({ agent: harness, harness }, ports(), compositionOwner()))
       .toThrow("Conversation Turn Strategy for agent must declare the same productMode.");
+  });
+
+  it("resolves one immutable Skill context for each non-onboarding top-level Turn", async () => {
+    const resolution = Object.freeze({
+      skillInputs: Object.freeze([{ id: "marker", path: "C:\\skills\\marker\\SKILL.md", contentHash: "marker-hash", source: "provider-native" as const, required: false }]),
+      diagnostics: Object.freeze([]),
+      nativeSkillRoots: Object.freeze(["C:\\skills"]),
+      requiredNativeSkills: Object.freeze([]),
+      resolutionHash: "resolution-hash",
+    });
+    const resolveSkillContext = vi.fn(async () => resolution);
+    const agent = strategy("agent", topicResult("agent"));
+    const harness = strategy("harness", topicResult("harness"));
+    const router = new ConversationTurnRouter(
+      { agent, harness },
+      ports(resolveSkillContext),
+      compositionOwner(),
+    );
+    const input = {
+      ...turnInput("agent"),
+      runtimeState: readyState(project()),
+      turnSkillResolution: null,
+    } satisfies ConversationTurnStrategyInput;
+
+    await expect(router.route(input, "agent")).resolves.toEqual(topicResult("agent"));
+    expect(resolveSkillContext).toHaveBeenCalledOnce();
+    const routedInput = agent.execute.mock.calls[0]![0] as ConversationTurnStrategyInput;
+    expect(routedInput.turnSkillResolution).toBe(resolution);
+    expect(Object.isFrozen(routedInput.turnSkillResolution)).toBe(true);
+    expect(Object.isFrozen(routedInput.turnSkillResolution?.skillInputs)).toBe(true);
+  });
+
+  it("does not resolve Skill context for a Harness onboarding Turn", async () => {
+    const resolveSkillContext = vi.fn(async () => ({ skillInputs: [], diagnostics: [] }));
+    const agent = strategy("agent", topicResult("agent"));
+    const harness = strategy("harness", topicResult("harness"));
+    const router = new ConversationTurnRouter(
+      { agent, harness },
+      ports(resolveSkillContext),
+      compositionOwner(),
+    );
+
+    await expect(router.route({ ...turnInput("harness"), turnSkillResolution: null }, "harness"))
+      .resolves.toEqual(topicResult("harness"));
+    expect(resolveSkillContext).not.toHaveBeenCalled();
+    expect(harness.execute.mock.calls[0]![0]).toMatchObject({ turnSkillResolution: null });
   });
 });
 
@@ -71,7 +120,11 @@ describe("Conversation Turn Strategies", () => {
       "User message",
       undefined,
       undefined,
-      { graphScopeId: "graph:conversation-1" },
+      {
+        graphScopeId: "graph:conversation-1",
+        runtimeState: input.runtimeState,
+        turnSkillResolution: null,
+      },
     );
   });
 });
@@ -85,21 +138,86 @@ function strategy(productMode: "agent" | "harness", result: TopicMessageResult):
   };
 }
 
-function ports(): ConversationTurnExecutionPorts {
+function ports(
+  resolve: ConversationTurnExecutionPorts["skillContext"]["resolve"] = async () => ({ skillInputs: [], diagnostics: [] }),
+): ConversationTurnExecutionPorts {
   return {
     skillContext: {
-      resolve: async () => ({ skillInputs: [], diagnostics: [] }),
+      resolve,
     },
   };
 }
 
-function turnInput(productMode: "agent" | "harness"): ConversationTurnStrategyInput {
+function compositionOwner() {
   return {
-    project: project(),
+    projectRuntimeCoordinator: {
+      resolve: async (selectedProject: ManagedProject) => onboardingState(selectedProject),
+      runtimePaths: (projectId: string) => resolveProjectRuntimePaths(projectId, "C:\\aho-test"),
+    },
+    providerRegistry: new ProviderRegistry(),
+  };
+}
+
+function readyState(selectedProject: ManagedProject): ProjectRuntimeState {
+  const paths = resolveProjectRuntimePaths(selectedProject.id, "C:\\aho-test");
+  const skillRoot = "C:\\project\\.agents\\skills\\project-harness";
+  return {
+    state: "ready",
+    project: selectedProject,
+    resolution: {
+      projectRoot: selectedProject.path,
+      harness: {
+        projectId: selectedProject.id,
+        skillName: `${selectedProject.id}-harness`,
+        skillRevision: 1,
+        skillRoot,
+        contentFingerprint: "harness-fingerprint",
+      },
+      binding: {
+        projectId: selectedProject.id,
+        skillName: `${selectedProject.id}-harness`,
+        sourcePath: `${skillRoot}\\SKILL.md`,
+        contentFingerprint: "harness-fingerprint",
+        providers: [],
+      },
+      providerInput: {
+        id: `${selectedProject.id}-harness`,
+        path: `${skillRoot}\\SKILL.md`,
+        contentHash: "harness-fingerprint",
+        source: "project-harness",
+        required: true,
+      },
+      paths,
+    },
+  };
+}
+
+function onboardingState(selectedProject: ManagedProject): ProjectRuntimeState {
+  return {
+    state: "onboarding",
+    project: selectedProject,
+    projectRoot: selectedProject.path,
+    paths: resolveProjectRuntimePaths(selectedProject.id, "C:\\aho-test"),
+    reservedProjectId: selectedProject.id,
+  };
+}
+
+function turnInput(productMode: "agent" | "harness"): ConversationTurnStrategyInput {
+  const selectedProject = project();
+  return {
+    project: selectedProject,
     conversation: conversation(productMode),
     committedMessage: committedMessage(),
     attachments: [],
     providerId: "codex",
+    runtimeState: {
+      state: "onboarding",
+      project: selectedProject,
+      projectRoot: selectedProject.path,
+      paths: resolveProjectRuntimePaths(selectedProject.id, "C:\\aho-test"),
+      reservedProjectId: selectedProject.id,
+    },
+    turnSkillResolution: productMode === "agent" ? { skillInputs: [], diagnostics: [] } : null,
   };
 }
 

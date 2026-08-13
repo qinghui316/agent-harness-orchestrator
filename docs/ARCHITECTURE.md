@@ -35,6 +35,16 @@ Shared Conversation / Change / Workflow / AgentTask
 -> provider-private session, event, Skill, model, and diagnostic protocol
 ```
 
+Workbench Conversation execution is composed at the server boundary. The
+composition root constructs the runtime coordinator, Provider Registry,
+`ProjectSkillRuntimeContextResolver`, and `ConversationTurnRouter` together.
+The Router resolves one immutable per-turn Skill context before dispatching to
+Agent or ready Harness Main, so Provider request inputs, required-native Skill
+Attempt evidence, and handoff hashes share one source. The onboarding Main path
+remains a separate zero-discovery path. Conversation Service and interaction
+settlement receive the composed Router; they do not assemble a default Provider
+or Skill resolver internally.
+
 The canonical timeline is persisted before realtime projection and is the sole
 user-history owner for Main, child, and background Agents. Provider-native
 history is diagnostic/reconciliation evidence only. A provider switch is legal

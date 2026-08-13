@@ -122,10 +122,10 @@ describe("Workbench module boundaries", () => {
     const workflow = readFileSync("src/workbench/workflow-conversation-bridge.ts", "utf8");
     const identity = readFileSync("src/workbench/conversation-identity.ts", "utf8");
 
-    expect(conversation).toContain('from "./main-agent-turn-coordinator.js"');
+    expect(conversation).not.toContain('from "./main-agent-turn-coordinator.js"');
     expect(conversation).toContain('from "./workflow-conversation-bridge.js"');
     expect(main).not.toContain('from "./workflow-conversation-bridge.js"');
-    expect(conversation).toContain("continueMainAgentTurn: runProjectScopedMainAgentTurn");
+    expect(conversation).toContain("continueMainAgentTurn: turnRouter.continueMainAgentTurn");
     expect(workflow).toContain("resumeNativeGoalAfterAction");
     expect(workflow).toContain("requireContinueMainAgentTurn(ports)");
     expect(main).not.toMatch(/childProcessMessage\.attemptId\s*=\s*isPlannerChild/);
