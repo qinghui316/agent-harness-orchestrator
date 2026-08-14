@@ -373,7 +373,7 @@ async function handleApiRequest(context: WorkbenchServerContext, request: Incomi
         productMode: requireProductMode(body.productMode),
         conversationId: body.conversationId,
         providerId: body.providerId,
-      }, "mutation");
+      }, "read");
       sendJson(response, 200, catalogResponse(await loadNativeSkillCatalog(input.project, skillContext, true)));
       return;
     }

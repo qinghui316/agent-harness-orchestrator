@@ -351,6 +351,16 @@ describe("workbench server", () => {
       `${handle!.url}/api/projects/repo/skill-roots?productMode=harness&providerId=codex&conversationId=${encodeURIComponent(serverConversationId)}`,
     );
     expect(archivedRoots.ok).toBe(true);
+    const archivedReload = await fetch(`${handle!.url}/api/projects/repo/skills`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        productMode: "harness",
+        providerId: "codex",
+        conversationId: serverConversationId,
+      }),
+    });
+    expect(archivedReload.ok).toBe(true);
     const archivedMutation = await fetch(`${handle!.url}/api/projects/repo/skills/pricing-helper/enable`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
