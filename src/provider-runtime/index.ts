@@ -1,4 +1,5 @@
 export type {
+  AgentTurnMode,
   HarnessExecutionMode,
   ProductMode,
   ProviderCapabilityItem,
@@ -16,6 +17,6 @@ export type {
   ProviderSpecCapabilityState,
 } from "./types.js";
 export type * from "./contracts.js";
-export { assertProductMode, HARNESS_EXECUTION_MODES, parseProductMode, PRODUCT_MODES, PROVIDER_CAPABILITY_SNAPSHOT_VERSION, stableCapabilitySnapshotHash } from "./capabilities.js";
+export { AGENT_TURN_MODES, assertAgentTurnMode, assertProductMode, HARNESS_EXECUTION_MODES, parseAgentTurnMode, parseProductMode, PRODUCT_MODES, PROVIDER_CAPABILITY_SNAPSHOT_VERSION, stableCapabilitySnapshotHash } from "./capabilities.js";
 export { ProviderRegistry } from "./registry.js";
 export { createDefaultProviderRegistry, defaultProviderRegistry } from "./default-registry.js";

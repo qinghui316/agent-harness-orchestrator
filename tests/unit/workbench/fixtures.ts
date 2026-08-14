@@ -402,6 +402,8 @@ if (appServerIndex >= 0) {
       reply(request.id, { data: [{ cwd: requestedCwd, skills: [], errors: [] }] });
     } else if (request.method === "model/list") {
       reply(request.id, { data: [{ id: "fake-model", model: "fake-model", displayName: "Fake Model" }] });
+    } else if (request.method === "collaborationMode/list") {
+      reply(request.id, { data: [{ name: "Plan", mode: "plan", model: "fake-model", reasoning_effort: null }] });
     } else if (request.method === "thread/start" || request.method === "thread/resume") {
       appCwd = request.params.cwd || appCwd;
       if (request.method === "thread/start") threadId = "thread-scheduler-fake-" + process.pid + "-" + (++threadSequence);

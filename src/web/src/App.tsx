@@ -529,6 +529,7 @@ export function App(): ReactElement {
     conversation: activeTopic ? {
       id: activeTopic.id,
       productMode: activeTopic.productMode,
+      agentTurnMode: activeTopic.agentTurnMode,
       state: activeTopic.state,
       selectedProviderId: activeTopic.selectedProviderId,
     } : null,
@@ -538,6 +539,9 @@ export function App(): ReactElement {
       || currentWorkpadSummary(snapshot, activeTopic)?.runtimeStatus === "running",
     selectedProviderId: composerProviderId,
     providerCount: providerCapabilities.length,
+    providerCapabilities,
+    providerCapabilitiesLoading: providerConfiguration.capabilitiesLoading,
+    providerCapabilitiesError: providerConfiguration.capabilitiesError,
   }, {
     operation: operationGate,
     session: {
@@ -905,6 +909,10 @@ export function App(): ReactElement {
             providerOptions={composerProviderOptions}
             selectedProviderId={composerProviderId ?? undefined}
             onSelectProvider={(providerId) => { void providerConfiguration.selectProvider(providerId); }}
+            productMode={appMode.productMode}
+            agentTurnMode={composer.agentTurnMode}
+            onSelectAgentTurnMode={composer.selectAgentTurnMode}
+            agentTurnModeDisabledReason={composer.agentTurnModeDisabledReason}
             enabledSkillCount={enabledSkillCount}
             skills={skillItems}
             activeSkillIds={selectedComposerSkillIds}
@@ -1006,6 +1014,10 @@ export function App(): ReactElement {
                   disabledReason={activeTopic.state !== "active"
                     ? "已完成或稍后处理的需求对话为只读。"
                     : undefined}
+                  productMode={appMode.productMode}
+                  agentTurnMode={composer.agentTurnMode}
+                  onSelectAgentTurnMode={composer.selectAgentTurnMode}
+                  agentTurnModeDisabledReason={composer.agentTurnModeDisabledReason}
                   onSend={sendTopicMessage}
                   onStopAndContinue={stopAndContinueCurrentRun}
                   actionRunning={actionRunning}

@@ -136,7 +136,7 @@ readProviderUserInputRequest(
     return raw.providerUserInput ?? null;
   }
 
-terminalizeProviderUserInputRequests(
+  terminalizeProviderUserInputRequests(
     projectId: string,
     conversationId: string,
     runId: string,
@@ -163,6 +163,43 @@ terminalizeProviderUserInputRequests(
         updated.push(this.timeline.updateMessage(nextRow));
       }
       return updated;
+    })();
+  }
+
+  interruptStaleProviderUserInputRequest(
+    projectId: string,
+    conversationId: string,
+    requestKey: string,
+    expectedStatus: "pending" | "submitting",
+    updatedAt: string,
+  ): StoredTopicMessage | null {
+    return this.db.transaction(() => {
+      const row = this.timeline.listConversationMessages(projectId, conversationId)
+        .reverse()
+        .find((message) => {
+          try {
+            const raw = JSON.parse(message.rawJson) as { providerUserInput?: WorkbenchProviderUserInputRequest };
+            return raw.providerUserInput?.requestKey === requestKey;
+          } catch {
+            return false;
+          }
+        });
+      if (!row) return null;
+      const raw = JSON.parse(row.rawJson) as Record<string, unknown> & { providerUserInput: WorkbenchProviderUserInputRequest };
+      if (raw.providerUserInput.status !== expectedStatus) return null;
+      const nextRequest = { ...raw.providerUserInput, status: "interrupted" as const };
+      return this.timeline.updateMessage({
+        ...row,
+        timestamp: updatedAt,
+        status: "interrupted",
+        rawJson: JSON.stringify({
+          ...raw,
+          timestamp: updatedAt,
+          status: "interrupted",
+          recoveryDiagnostic: "Provider input was interrupted during startup because no exact active Provider Turn could be proven.",
+          providerUserInput: nextRequest,
+        }),
+      });
     })();
   }
 

@@ -322,6 +322,7 @@ export class AgentNativeChildLifecycleService {
         conversationId: this.input.conversationId,
         attemptId,
         productMode: "agent",
+        agentTurnMode: lineage.parentAttempt.agentTurnMode ?? "default",
         graphScopeId: this.input.graphScopeId,
         changeId: null,
         agentTaskId: null,

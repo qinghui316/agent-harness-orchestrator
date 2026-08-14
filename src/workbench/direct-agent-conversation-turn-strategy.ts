@@ -11,10 +11,13 @@ import { resolveProjectRuntimePaths, type ProjectRuntimePaths } from "../project
 import { buildCanonicalCaptureWrites } from "./provider-capture-persistence.js";
 import { forwardProviderRealtimeEvent } from "./provider-live-events.js";
 import { createAssistantTranscriptCapture } from "./live-transcript.js";
-import { CanonicalTimelineDelivery, publishCommittedCanonicalTimelineRow } from "./canonical-timeline-delivery.js";
+import { CanonicalTimelineDelivery, publishCanonicalTimelineEnvelope, publishCommittedCanonicalTimelineRow } from "./canonical-timeline-delivery.js";
 import { toCanonicalTimelineMessage } from "./canonical-timeline-message.js";
 import { fromStoredThreadMessage } from "./conversation-thread-log.js";
 import { AgentNativeChildLifecycleService, NATIVE_CHILD_AGENT_ROLE_ID } from "./agent-native-child-lifecycle-service.js";
+import { buildConversationInteractionQueue } from "./conversation-interactions.js";
+import { ProviderInputLifecycleOwner } from "./provider-input-lifecycle.js";
+import { publishAgentSurfacesInvalidated } from "./project-live-events.js";
 import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import type { StoredTopicMessage, StoredTopicMessageWrite } from "./persistence/contracts.js";
 import type { WorkbenchDatabase } from "./persistence/database.js";
@@ -27,7 +30,7 @@ import type {
 } from "./conversation-turn-contract.js";
 import type { TopicMessageResult, TopicThreadEntry } from "./types.js";
 
-type DirectAgentProviderRegistry = Pick<ProviderRegistry, "requireProfiles" | "findActiveTurn">;
+type DirectAgentProviderRegistry = Pick<ProviderRegistry, "findActiveTurn" | "get">;
 type OpenWorkbenchDatabase = typeof openProjectRuntimeWorkbenchDatabase;
 
 const activeDirectAgentConversations = new Set<string>();
@@ -85,13 +88,8 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
     if (paths.projectId !== input.project.id) {
       throw new Error("Direct Agent runtime paths do not match the selected project identity.");
     }
-    const resolvedProvider = await this.providerRegistry.requireProfiles(
-      input.providerId,
-      ["agent"],
-      "agent",
-      input.project,
-      input.project.path,
-    );
+    const capabilitySnapshot = input.admission.capabilitySnapshot;
+    if (!capabilitySnapshot) throw new Error("Direct Agent Turn admission is missing its Provider capability snapshot.");
 
     const graphScopeId = input.conversation.currentGraphScopeId;
     if (!graphScopeId) throw new Error("Direct Agent Conversation requires a current graph scope.");
@@ -105,8 +103,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
     const terminalLifecycle: { state: "idle" | "committing" | "settled" } = { state: "idle" };
     let canonicalPersistenceError: Error | null = null;
     let liveMainThreadId: string | null = null;
-    let unsupportedInputError: Error | null = null;
-    let interruptWork: Promise<void> | null = null;
+    let providerInputTerminalized = false;
     let terminalRecoveryWrites: StoredTopicMessageWrite[] = [];
     const terminalRows: StoredTopicMessage[] = [];
     const conversation = assertCurrentConversation(database, input);
@@ -119,9 +116,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
       ? binding.nativeSessionId
       : null;
     const startedAt = new Date().toISOString();
-    const model = resolvedProvider.snapshot.effectiveModel
-      ? { providerId: input.providerId, modelId: resolvedProvider.snapshot.effectiveModel }
-      : null;
+    const model = input.admission.model;
     const skillInputs = [...skillContext.skillInputs];
     const handoffHash = directAgentHandoffHash(input, skillContext);
     const mainTimelineId = `assistant:${conversation.conversationId}:${input.providerId}:${runId}:main`;
@@ -184,7 +179,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
       runId,
       parentAttemptId: attemptId,
       providerId: input.providerId,
-      capabilitySnapshot: resolvedProvider.snapshot,
+      capabilitySnapshot,
       model,
       parentHandoffHash: handoffHash,
       deliveredThroughCompletedTurn: conversation.completedTurnSequence,
@@ -193,6 +188,34 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
         for (const row of rows) publishCommittedCanonicalTimelineRow(input.live, row, "agent");
       },
       onInvalidated: () => undefined,
+    });
+    const providerInputLifecycle = new ProviderInputLifecycleOwner({
+      runtime: paths,
+      productMode: "agent",
+      projectId: paths.projectId,
+      conversationId: conversation.conversationId,
+      graphScopeId,
+      runId,
+      providerId: input.providerId,
+      attemptId,
+      runtimeScopeId: conversation.conversationId,
+      publisher: (envelope) => publishCanonicalTimelineEnvelope(input.live, envelope),
+      onUpdated: async () => {
+        input.live?.emit({
+          event: "conversation.interactions.updated",
+          data: await buildConversationInteractionQueue(paths, conversation.conversationId, graphScopeId, "agent"),
+        });
+        publishAgentSurfacesInvalidated(paths.projectId, {
+          conversationId: conversation.conversationId,
+          graphScopeId,
+          reason: "interaction-updated",
+        });
+      },
+      onError: (error) => {
+        canonicalPersistenceError ??= error;
+        const active = this.providerRegistry.findActiveTurn(conversation.conversationId);
+        if (active?.attemptId === attemptId) void active.interrupt("provider-input-persistence-failed").catch(() => undefined);
+      },
     });
 
     const terminalize = (result: ProviderTurnResult | null, status: "completed" | "interrupted" | "failed", failure?: Error): TopicThreadEntry | null => {
@@ -217,6 +240,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
         result,
         status,
         failure,
+        agentTurnMode: input.admission.agentTurnMode,
       });
       terminalRecoveryWrites = writes;
       const terminal = database.unitOfWork.commitProviderTurnTerminal({
@@ -256,6 +280,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
         conversationId: conversation.conversationId,
         attemptId,
         productMode: "agent",
+        agentTurnMode: input.admission.agentTurnMode,
         graphScopeId,
         changeId: null,
         agentTaskId: null,
@@ -265,7 +290,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
         providerId: input.providerId,
         nativeSessionId: existingSessionId,
         model,
-        capabilitySnapshot: resolvedProvider.snapshot,
+        capabilitySnapshot,
         effectiveSkillInputs: skillInputs,
         handoffHash,
         deliveredThroughCompletedTurn: conversation.completedTurnSequence,
@@ -308,7 +333,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
         },
       });
 
-      const result = await resolvedProvider.descriptor.conversation.runTurn({
+      const result = await this.providerRegistry.get(input.providerId).conversation.runTurn({
         providerId: input.providerId,
         operationProfile: "agent",
         projectId: paths.projectId,
@@ -320,7 +345,8 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
         attemptId,
         cwd: input.project.path,
         prompt: user.text ?? "",
-        sandboxPolicy: "workspace-write",
+        agentTurnMode: input.admission.agentTurnMode ?? undefined,
+        sandboxPolicy: input.admission.sandboxPolicy,
         paths: providerArtifactPaths(runRoot),
         existingSession: existingSessionId
           ? { providerId: input.providerId, sessionId: existingSessionId }
@@ -377,36 +403,8 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
             canonicalPersistenceError ??= asError(error);
           }
         },
-        onUserInputRequest: (request) => {
-          unsupportedInputError ??= conflict("Direct Agent provider input is not supported in this increment.");
-          input.live?.emit({
-            event: "error",
-            data: {
-              projectId: paths.projectId,
-              productMode: "agent",
-              conversationId: conversation.conversationId,
-              graphScopeId,
-              runId,
-              providerId: input.providerId,
-              attemptId,
-              sessionId: request.sessionId,
-              threadId: request.threadId,
-              turnId: request.turnId,
-              itemId: request.itemId,
-              message: unsupportedInputError.message,
-            },
-          });
-          interruptWork ??= Promise.resolve().then(async () => {
-            const active = this.providerRegistry.findActiveTurn(conversation.conversationId);
-            if (!active || active.attemptId !== attemptId) {
-              throw new Error("Direct Agent provider input could not locate the active Turn to interrupt.");
-            }
-            await active.interrupt("unsupported-provider-input");
-          });
-          void interruptWork.catch((error) => {
-            canonicalPersistenceError ??= asError(error);
-          });
-        },
+        onUserInputRequest: providerInputLifecycle.onRequest,
+        onUserInputResolved: providerInputLifecycle.onResolved,
         onError: (error) => {
           input.live?.emit({
             event: "error",
@@ -425,9 +423,8 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
         model,
         skillInputs,
         runtimeWorkspaceRoots: [input.project.path],
-        writableRoots: [input.project.path],
+        writableRoots: [...input.admission.writableRoots],
       });
-      if (interruptWork) await interruptWork;
       if (result.session && liveMainThreadId !== result.session.sessionId) {
         bindMainThread(database, paths.projectId, attemptId, result.session.sessionId, runId);
         liveMainThreadId = result.session.sessionId;
@@ -439,7 +436,9 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
           canonicalPersistenceError ??= asError(error);
         }
       }
-      const persistenceFailure = canonicalPersistenceError ?? unsupportedInputError;
+      await providerInputLifecycle.terminalize();
+      providerInputTerminalized = true;
+      const persistenceFailure = canonicalPersistenceError;
       const status = persistenceFailure ? "failed" : result.status;
       const assistant = terminalize(result, status, persistenceFailure ?? undefined);
       for (const row of terminalRows) publishCommittedCanonicalTimelineRow(input.live, row, "agent");
@@ -469,6 +468,12 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
       };
     } catch (error) {
       const failure = asError(error);
+      if (!providerInputTerminalized) {
+        await providerInputLifecycle.terminalize().catch((terminalizeError) => {
+          canonicalPersistenceError ??= asError(terminalizeError);
+        });
+        providerInputTerminalized = true;
+      }
       let terminalFailure: Error | null = null;
       if (attemptCreated && terminalLifecycle.state !== "settled") {
         if (terminalLifecycle.state === "idle") {
@@ -568,13 +573,15 @@ function directAgentHandoffHash(
   skills: TurnSkillContextResolution,
 ): string {
   return createHash("sha256").update(JSON.stringify({
-    version: 1,
+    version: 2,
     projectId: input.project.id,
     conversationId: input.conversation.conversationId,
     graphScopeId: input.conversation.currentGraphScopeId,
     messageId: input.committedMessage.id,
     messageRevision: input.committedMessage.revision,
     providerId: input.providerId,
+    agentTurnMode: input.admission.agentTurnMode,
+    capabilitySnapshotHash: input.admission.capabilitySnapshot?.snapshotHash ?? null,
     skillInputs: skills.skillInputs.map((skill) => ({
       id: skill.id,
       path: skill.path,
@@ -598,6 +605,7 @@ function terminalCaptureWrites(input: {
   result: ProviderTurnResult | null;
   status: "completed" | "interrupted" | "failed";
   failure?: Error;
+  agentTurnMode: "default" | "plan" | null;
 }): StoredTopicMessageWrite[] {
   const writes = buildCanonicalCaptureWrites({
     projectId: input.projectId,
@@ -610,9 +618,10 @@ function terminalCaptureWrites(input: {
     mainSessionId: input.sessionId,
     snapshot: input.capture,
   }).filter((write) => write.agentSurfaceId === "main-agent");
+  const authoritativePlanText = input.agentTurnMode === "plan" ? input.result?.planText?.trim() ?? "" : "";
   const fallbackText = input.capture.text.trim()
     ? ""
-    : input.result?.lastMessage.trim() || input.failure?.message || input.result?.error?.trim() || "";
+    : authoritativePlanText || input.result?.lastMessage.trim() || input.failure?.message || input.result?.error?.trim() || "";
   if (writes.length === 0 && (fallbackText || input.capture.blocks.length > 0 || input.capture.activity.length > 0)) {
     writes.push(toCanonicalTimelineMessage(input.projectId, input.conversationId, {
       id: input.mainTimelineId,
@@ -635,6 +644,9 @@ function terminalCaptureWrites(input: {
       blocks: input.capture.blocks,
       error: input.status === "failed" ? input.failure?.message ?? input.result?.error : undefined,
     }));
+  } else if (authoritativePlanText) {
+    const last = writes.at(-1)!;
+    writes[writes.length - 1] = replaceCanonicalText(last, authoritativePlanText);
   } else if (fallbackText) {
     const last = writes.at(-1)!;
     writes[writes.length - 1] = addFallbackProse(last, fallbackText);
@@ -643,6 +655,17 @@ function terminalCaptureWrites(input: {
     status: input.status,
     error: input.status === "failed" ? input.failure?.message ?? input.result?.error : undefined,
   }));
+}
+
+function replaceCanonicalText(write: StoredTopicMessageWrite, text: string): StoredTopicMessageWrite {
+  let raw: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(write.rawJson) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) raw = parsed as Record<string, unknown>;
+  } catch {
+    // The canonical text column remains authoritative if legacy raw evidence is malformed.
+  }
+  return { ...write, text, rawJson: JSON.stringify({ ...raw, text }) };
 }
 
 function addFallbackProse(write: StoredTopicMessageWrite, text: string): StoredTopicMessageWrite {

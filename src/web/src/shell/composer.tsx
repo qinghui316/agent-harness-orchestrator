@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { Send, X } from "lucide-react";
-import type { SkillListItem, TopicAttachment, TopicFileReference, WorkpadRuntimeStatus } from "../types.js";
+import type { AgentTurnMode, ProductMode, SkillListItem, TopicAttachment, TopicFileReference, WorkpadRuntimeStatus } from "../types.js";
 import { ComposerAttachButton, ComposerAttachmentList, filesFromDrop, hasFileDrag, imageFilesFromPaste } from "./ComposerAttachments.js";
 import { ComposerControls } from "./ComposerControls.js";
 import { buildComposerContextSummary, ComposerContextSourcesPopover, type ComposerContextKind } from "./ComposerContextSources.js";
@@ -25,6 +25,10 @@ export function TopicComposer({
   onToggleSkill,
   onSelectedFileRefsChange,
   disabledReason,
+  agentTurnMode,
+  onSelectAgentTurnMode,
+  agentTurnModeDisabledReason,
+  productMode,
   onSend,
   onStopAndContinue,
   actionRunning,
@@ -49,6 +53,10 @@ export function TopicComposer({
   onToggleSkill?: (skillId: string) => void | Promise<void>;
   onSelectedFileRefsChange?: (refs: TopicFileReference[]) => void;
   disabledReason?: string;
+  productMode?: ProductMode;
+  agentTurnMode?: AgentTurnMode;
+  onSelectAgentTurnMode?: (mode: AgentTurnMode) => void | Promise<void>;
+  agentTurnModeDisabledReason?: string | null;
   onSend: () => Promise<void>;
   onStopAndContinue?: () => Promise<void>;
   actionRunning: string | null;
@@ -70,7 +78,7 @@ export function TopicComposer({
     attachments,
   }), [skills, activeSkillIds, selectedFileRefs, attachments]);
   const canSend = Boolean(value.trim()) || hasAttachments;
-  const sendDisabled = Boolean(disabledReason) || (!canSend && !canStop);
+  const sendDisabled = Boolean(disabledReason) || Boolean(agentTurnModeDisabledReason) || (!canSend && !canStop);
   const buttonTitle = canStop ? "停止当前执行" : runningConversation ? "发送给当前执行" : "发送";
   const buttonIcon = canStop ? <X size={16} /> : <Send size={16} />;
   useLayoutEffect(() => {
@@ -113,25 +121,33 @@ export function TopicComposer({
         setDragOver(false);
         void onAttachFiles?.(files);
       }}
-      controls={<ComposerControls
-        providerDisplayName={providerDisplayName}
-        modelLabel={modelLabel}
-        onOpenModelSettings={onOpenModelSettings}
-        enabledSkillCount={enabledSkillCount}
-        contextSummary={contextSummary}
-        openContextKind={openContextKind}
-        onToggleContextKind={(kind) => setOpenContextKind((current) => current === kind ? null : kind)}
-        providerOptions={providerOptions}
-        selectedProviderId={selectedProviderId}
-        onSelectProvider={onSelectProvider}
-      />}
+      controls={<div className="composer-control-stack">
+        <ComposerControls
+          providerDisplayName={providerDisplayName}
+          modelLabel={modelLabel}
+          onOpenModelSettings={onOpenModelSettings}
+          enabledSkillCount={enabledSkillCount}
+          contextSummary={contextSummary}
+          openContextKind={openContextKind}
+          onToggleContextKind={(kind) => setOpenContextKind((current) => current === kind ? null : kind)}
+          providerOptions={providerOptions}
+          selectedProviderId={selectedProviderId}
+          onSelectProvider={onSelectProvider}
+        />
+        <AgentTurnModeControl
+          productMode={productMode}
+          value={agentTurnMode}
+          onChange={onSelectAgentTurnMode}
+          planDisabledReason={agentTurnModeDisabledReason}
+        />
+      </div>}
       toolbar={<>
         <ComposerAttachButton disabled={Boolean(disabledReason)} onAttachFiles={onAttachFiles} />
         <span className="composer-spacer" />
         <button
           className={`composer-send ${actionRunning ? "running" : ""}`}
           disabled={sendDisabled}
-          title={buttonTitle}
+          title={agentTurnModeDisabledReason ?? buttonTitle}
           onClick={submit}
         >
           {buttonIcon}
@@ -179,6 +195,33 @@ export function TopicComposer({
         placeholder={disabledReason ?? (runningConversation ? "补充要求；支持实时引导时会发送给当前执行" : "输入问题或下一步需求")}
       />
     </ComposerFrame>
+  );
+}
+
+export function AgentTurnModeControl({
+  productMode,
+  value,
+  onChange,
+  planDisabledReason,
+}: {
+  productMode?: ProductMode;
+  value?: AgentTurnMode;
+  onChange?: (mode: AgentTurnMode) => void | Promise<void>;
+  planDisabledReason?: string | null;
+}): ReactElement | null {
+  if (productMode !== "agent" || !value || !onChange) return null;
+  return (
+    <div className="agent-turn-mode-segment" role="group" aria-label="Agent 执行模式" data-testid="agent-turn-mode-control">
+      <button type="button" className={value === "default" ? "active" : ""} aria-pressed={value === "default"} onClick={() => void onChange("default")}>Default</button>
+      <button
+        type="button"
+        className={value === "plan" ? "active" : ""}
+        aria-pressed={value === "plan"}
+        disabled={Boolean(planDisabledReason) && value !== "plan"}
+        title={planDisabledReason ?? "Plan"}
+        onClick={() => void onChange("plan")}
+      >Plan</button>
+    </div>
   );
 }
 

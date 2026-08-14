@@ -86,6 +86,8 @@ rl.on("line", (line) => {
     reply(request.id, { effectiveEnabled: !disabledSkillPaths.has(skillPath) });
   } else if (request.method === "model/list") {
     reply(request.id, { data: [{ id: "fake-model", model: "fake-model", displayName: "Fake Model" }] });
+  } else if (request.method === "collaborationMode/list") {
+    reply(request.id, { data: [{ name: "Plan", mode: "plan", model: "fake-model", reasoning_effort: null }] });
   } else if (request.method === "thread/start" || request.method === "thread/resume") {
     threadId = request.method === "thread/resume" && request.params?.threadId
       ? request.params.threadId

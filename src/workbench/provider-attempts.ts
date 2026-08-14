@@ -68,6 +68,7 @@ export async function startProviderAttempt(memory: ProviderAttemptStorePort, inp
       conversationId: conversation?.conversationId ?? input.conversationId ?? null,
       attemptId: input.attemptId,
       productMode: conversation?.productMode ?? "harness",
+      agentTurnMode: conversation?.agentTurnMode ?? null,
       graphScopeId: input.graphScopeId ?? conversation?.currentGraphScopeId ?? null,
       changeId: input.changeId ?? conversation?.boundChangeId ?? null,
       agentTaskId: input.agentTaskId ?? null,

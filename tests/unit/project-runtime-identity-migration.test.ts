@@ -71,7 +71,7 @@ describe("staged canonical project identity migration", () => {
       expect(proof.countAfter, proof.table).toBe(proof.countBefore);
       expect(proof.identityNeutralHashAfter, proof.table).toBe(proof.identityNeutralHashBefore);
     }
-    expect(result.sqliteProofs[0].userVersion).toBe(12);
+    expect(result.sqliteProofs[0].userVersion).toBe(13);
     expect(result.sqliteProofs[0].updatedRows).toBe(3);
 
     const run = await readJson<{ projectId: string; payload: { keep: string } }>(
@@ -320,8 +320,8 @@ async function createDatabase(path: string): Promise<void> {
     .run(SOURCE_ID, "conversation-a", "harness", "Keep this title", "codex", new Date().toISOString(), new Date().toISOString());
   database.prepare("INSERT INTO canonical_timeline_items(id, project_id, conversation_id, change_id, position, revision, agent_surface_id, type, timestamp, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
     .run("timeline-a", SOURCE_ID, "conversation-a", "", 1, 1, "main-agent", "message", new Date().toISOString(), JSON.stringify({ type: "message", text: "unchanged" }));
-  database.prepare("INSERT INTO composer_drafts(project_id, product_mode, text, updated_at) VALUES (?, ?, ?, ?)")
-    .run(SOURCE_ID, "agent", "Keep this draft", new Date().toISOString());
+  database.prepare("INSERT INTO composer_drafts(project_id, product_mode, agent_turn_mode, text, updated_at) VALUES (?, ?, ?, ?, ?)")
+    .run(SOURCE_ID, "agent", "default", "Keep this draft", new Date().toISOString());
   database.pragma("user_version = 9");
   database.close();
 }

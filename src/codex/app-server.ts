@@ -195,6 +195,14 @@ export interface CodexAppServerTurnOptions {
   developerInstructions?: string;
   enableDefaultModeUserInput?: boolean;
   outputSchema?: Record<string, unknown>;
+  collaborationMode?: {
+    mode: "plan";
+    settings: {
+      model: string;
+      reasoning_effort: null;
+      developer_instructions: null;
+    };
+  };
 }
 
 export interface CodexAppServerTurnResult {
@@ -776,6 +784,7 @@ async function runCodexAppServerOperation(
         ...(options.runtimeWorkspaceRoots?.length ? { runtimeWorkspaceRoots: options.runtimeWorkspaceRoots } : {}),
         ...(options.additionalContext ? { additionalContext: options.additionalContext } : {}),
         ...(turnModel ? { model: turnModel } : {}),
+        ...(options.collaborationMode ? { collaborationMode: options.collaborationMode } : {}),
         ...(options.outputSchema ? { outputSchema: options.outputSchema } : {}),
       });
       turnId = extractTurnId(turnResponse);

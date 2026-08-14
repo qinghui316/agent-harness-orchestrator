@@ -19,6 +19,7 @@ import { reconcileRecoveredApprovalDecisions } from "../workbench/actions/approv
 import { reconcileStaleAgentNativeChildren } from "../workbench/agent-native-child-lifecycle-service.js";
 import { ProjectSkillRuntimeContextResolver } from "../skill/project-skill-runtime-context-resolver.js";
 import { createConversationTurnRouter } from "../workbench/conversation-turn-router.js";
+import { reconcileStaleProviderInputRequests } from "../workbench/provider-input-lifecycle.js";
 
 export type { WorkbenchServeOptions, WorkbenchServerHandle } from "./workbench/types.js";
 export { executeWorkbenchAction } from "./workbench/actions.js";
@@ -103,7 +104,10 @@ export async function recoverWorkbenchProjects(
   }
   for (const project of projects) {
     await reconcileStaleAgentNativeChildren({ project, providerRegistry });
-    if ((await projectRuntimeCoordinator.resolve(project)).state !== "ready") continue;
+    const runtime = await projectRuntimeCoordinator.resolve(project);
+    const runtimePaths = runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
+    await reconcileStaleProviderInputRequests({ runtime: runtimePaths, providerRegistry });
+    if (runtime.state !== "ready") continue;
     const reconcileReceipt = (receipt: Parameters<typeof reconcileRecoveredApprovalDecisions>[1][number]) => (
       reconcileRecoveredApprovalDecisions(project, [receipt])
     );

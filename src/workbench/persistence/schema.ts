@@ -1,10 +1,10 @@
 import type Database from "better-sqlite3";
 import type { SqliteRow } from "./sql-mappers.js";
 
-export const WORKBENCH_SCHEMA_VERSION = 12;
+export const WORKBENCH_SCHEMA_VERSION = 13;
 
 export function requiresRuntimeSchemaRebuild(currentVersion: number): boolean {
-  return ![9, 10, 11, WORKBENCH_SCHEMA_VERSION].includes(currentVersion);
+  return ![9, 10, 11, 12, WORKBENCH_SCHEMA_VERSION].includes(currentVersion);
 }
 
 export function migrate(db: Database.Database): void {
@@ -48,6 +48,7 @@ export function migrate(db: Database.Database): void {
       project_id TEXT NOT NULL,
       conversation_id TEXT NOT NULL,
       product_mode TEXT NOT NULL CHECK(product_mode IN ('agent', 'harness')),
+      agent_turn_mode TEXT CHECK(agent_turn_mode IN ('default', 'plan') OR agent_turn_mode IS NULL),
       client_create_request_id TEXT,
       client_create_request_hash TEXT,
       title TEXT NOT NULL,
@@ -119,6 +120,7 @@ export function migrate(db: Database.Database): void {
       conversation_id TEXT,
       attempt_id TEXT NOT NULL,
       product_mode TEXT NOT NULL CHECK(product_mode IN ('agent', 'harness')),
+      agent_turn_mode TEXT CHECK(agent_turn_mode IN ('default', 'plan') OR agent_turn_mode IS NULL),
       graph_scope_id TEXT,
       provider_id TEXT NOT NULL,
       change_id TEXT,
@@ -207,6 +209,7 @@ export function migrate(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS composer_drafts (
       project_id TEXT NOT NULL,
       product_mode TEXT NOT NULL CHECK(product_mode IN ('agent', 'harness')),
+      agent_turn_mode TEXT CHECK(agent_turn_mode IN ('default', 'plan') OR agent_turn_mode IS NULL),
       text TEXT NOT NULL DEFAULT '',
       context_refs_json TEXT NOT NULL DEFAULT '[]',
       attachment_ids_json TEXT NOT NULL DEFAULT '[]',
@@ -247,11 +250,25 @@ export function migrate(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_decision_records_topic ON decision_records(project_id, change_id, updated_at);
   `);
   ensureColumn(db, "provider_attempts", "parent_agent_surface_id", "TEXT");
+  ensureColumn(db, "conversations", "agent_turn_mode", "TEXT");
+  ensureColumn(db, "provider_attempts", "agent_turn_mode", "TEXT");
+  ensureColumn(db, "composer_drafts", "agent_turn_mode", "TEXT");
   ensureColumn(db, "conversations", "product_mode", "TEXT NOT NULL DEFAULT 'harness' CHECK(product_mode IN ('agent', 'harness'))");
   ensureColumn(db, "conversations", "client_create_request_id", "TEXT");
   ensureColumn(db, "conversations", "client_create_request_hash", "TEXT");
   ensureColumn(db, "provider_attempts", "product_mode", "TEXT NOT NULL DEFAULT 'harness' CHECK(product_mode IN ('agent', 'harness'))");
   ensureColumn(db, "provider_attempts", "effective_skill_inputs_json", "TEXT NOT NULL DEFAULT '[]'");
+  db.exec(`
+    UPDATE conversations SET agent_turn_mode = 'default'
+    WHERE product_mode = 'agent' AND agent_turn_mode IS NULL;
+    UPDATE provider_attempts SET agent_turn_mode = 'default'
+    WHERE product_mode = 'agent' AND agent_turn_mode IS NULL;
+    UPDATE composer_drafts SET agent_turn_mode = 'default'
+    WHERE product_mode = 'agent' AND agent_turn_mode IS NULL;
+    UPDATE conversations SET agent_turn_mode = NULL WHERE product_mode = 'harness';
+    UPDATE provider_attempts SET agent_turn_mode = NULL WHERE product_mode = 'harness';
+    UPDATE composer_drafts SET agent_turn_mode = NULL WHERE product_mode = 'harness';
+  `);
   db.exec("DELETE FROM skill_roots WHERE source_kind <> 'custom';");
   db.exec(`
     DELETE FROM conversation_change_links
@@ -308,6 +325,54 @@ export function migrate(db: Database.Database): void {
     )
     BEGIN
       SELECT RAISE(ABORT, 'ProviderAttempt product_mode must match Conversation');
+    END;
+    DROP TRIGGER IF EXISTS trg_conversations_agent_turn_mode_insert;
+    CREATE TRIGGER trg_conversations_agent_turn_mode_insert
+    BEFORE INSERT ON conversations
+    WHEN (NEW.product_mode = 'agent' AND (NEW.agent_turn_mode IS NULL OR NEW.agent_turn_mode NOT IN ('default', 'plan')))
+      OR (NEW.product_mode = 'harness' AND NEW.agent_turn_mode IS NOT NULL)
+    BEGIN
+      SELECT RAISE(ABORT, 'Conversation agent_turn_mode must match product_mode');
+    END;
+    DROP TRIGGER IF EXISTS trg_conversations_agent_turn_mode_update;
+    CREATE TRIGGER trg_conversations_agent_turn_mode_update
+    BEFORE UPDATE OF agent_turn_mode ON conversations
+    WHEN (NEW.product_mode = 'agent' AND (NEW.agent_turn_mode IS NULL OR NEW.agent_turn_mode NOT IN ('default', 'plan')))
+      OR (NEW.product_mode = 'harness' AND NEW.agent_turn_mode IS NOT NULL)
+    BEGIN
+      SELECT RAISE(ABORT, 'Conversation agent_turn_mode must match product_mode');
+    END;
+    DROP TRIGGER IF EXISTS trg_provider_attempt_agent_turn_mode_insert;
+    CREATE TRIGGER trg_provider_attempt_agent_turn_mode_insert
+    BEFORE INSERT ON provider_attempts
+    WHEN (NEW.product_mode = 'agent' AND (NEW.agent_turn_mode IS NULL OR NEW.agent_turn_mode NOT IN ('default', 'plan')))
+      OR (NEW.product_mode = 'harness' AND NEW.agent_turn_mode IS NOT NULL)
+    BEGIN
+      SELECT RAISE(ABORT, 'ProviderAttempt agent_turn_mode must match product_mode');
+    END;
+    DROP TRIGGER IF EXISTS trg_composer_draft_agent_turn_mode_insert;
+    CREATE TRIGGER trg_composer_draft_agent_turn_mode_insert
+    BEFORE INSERT ON composer_drafts
+    WHEN (NEW.product_mode = 'agent' AND (NEW.agent_turn_mode IS NULL OR NEW.agent_turn_mode NOT IN ('default', 'plan')))
+      OR (NEW.product_mode = 'harness' AND NEW.agent_turn_mode IS NOT NULL)
+    BEGIN
+      SELECT RAISE(ABORT, 'ComposerDraft agent_turn_mode must match product_mode');
+    END;
+    DROP TRIGGER IF EXISTS trg_provider_attempt_agent_turn_mode_update;
+    CREATE TRIGGER trg_provider_attempt_agent_turn_mode_update
+    BEFORE UPDATE OF agent_turn_mode ON provider_attempts
+    WHEN (NEW.product_mode = 'agent' AND (NEW.agent_turn_mode IS NULL OR NEW.agent_turn_mode NOT IN ('default', 'plan')))
+      OR (NEW.product_mode = 'harness' AND NEW.agent_turn_mode IS NOT NULL)
+    BEGIN
+      SELECT RAISE(ABORT, 'ProviderAttempt agent_turn_mode must match product_mode');
+    END;
+    DROP TRIGGER IF EXISTS trg_composer_draft_agent_turn_mode_update;
+    CREATE TRIGGER trg_composer_draft_agent_turn_mode_update
+    BEFORE UPDATE OF agent_turn_mode, product_mode ON composer_drafts
+    WHEN (NEW.product_mode = 'agent' AND (NEW.agent_turn_mode IS NULL OR NEW.agent_turn_mode NOT IN ('default', 'plan')))
+      OR (NEW.product_mode = 'harness' AND NEW.agent_turn_mode IS NOT NULL)
+    BEGIN
+      SELECT RAISE(ABORT, 'ComposerDraft agent_turn_mode must match product_mode');
     END;
   `);
   db.pragma(`user_version = ${WORKBENCH_SCHEMA_VERSION}`);

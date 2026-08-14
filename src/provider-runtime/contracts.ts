@@ -1,5 +1,5 @@
 import type { ProviderSkillInput } from "../project-harness/contracts.js";
-import type { ProductMode, ProviderCapabilitySnapshot, ProviderDiagnosticsSnapshot, ProviderId, ProviderModelRef, ProviderModelSettingsSnapshot, ProviderOperationProfile, ProviderRuntimeSummary } from "./types.js";
+import type { AgentTurnMode, ProductMode, ProviderCapabilitySnapshot, ProviderDiagnosticsSnapshot, ProviderId, ProviderModelRef, ProviderModelSettingsSnapshot, ProviderOperationProfile, ProviderRuntimeSummary } from "./types.js";
 
 export interface ProviderSessionRef {
   providerId: ProviderId;
@@ -224,6 +224,7 @@ export interface ProviderTurnRequest {
   attemptId: string;
   cwd: string;
   prompt: string;
+  agentTurnMode?: AgentTurnMode;
   sandboxPolicy: "read-only" | "workspace-write";
   paths: ProviderArtifactPaths;
   existingSession?: ProviderSessionRef | null;

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorkbenchConversation, postConversationMessage } from "../../src/workbench/conversation-service.js";
 import type { ConversationTurnRoutingPort } from "../../src/workbench/conversation-turn-contract.js";
@@ -26,6 +28,97 @@ afterEach(() => {
 });
 
 describe("dual product-mode foundation", () => {
+  it("runs Agent Plan admission before first-send and follow-up persistence", async () => {
+    const rejectPlanAdmission = vi.fn(async () => {
+      const error = new Error("Selected Provider cannot run Agent Plan turns.");
+      error.name = "Conflict";
+      throw error;
+    });
+    const router = { ...testTurnRouter(), admit: rejectPlanAdmission };
+
+    await expect(createWorkbenchConversation(project(), {
+      body: "Must not create a Plan conversation.",
+      productMode: "agent",
+      agentTurnMode: "plan",
+      clientRequestId: "plan-admission-first-send",
+    }, undefined, { turnRouter: router })).rejects.toMatchObject({ name: "Conflict" });
+
+    const existing = await createWorkbenchConversation(project(), {
+      body: "Existing default Agent conversation.",
+      productMode: "agent",
+      clientRequestId: "plan-admission-follow-up",
+    }, undefined, { runMainAgent: false });
+    const before = await conversationState(existing.conversationId);
+    await expect(postConversationMessage(project(), existing.conversationId, {
+      message: "Must not persist this Plan follow-up.",
+      productMode: "agent",
+      agentTurnMode: "plan",
+    }, undefined, { turnRouter: router })).rejects.toMatchObject({ name: "Conflict" });
+
+    const database = await openProjectRuntimeWorkbenchDatabase(fixture.resolution.paths);
+    try {
+      expect(database.conversations.listConversations(project().id, "agent").map((item) => item.clientCreateRequestId))
+        .toEqual(["plan-admission-follow-up"]);
+    } finally {
+      database.close();
+    }
+    expect(await conversationState(existing.conversationId)).toEqual(before);
+    expect(rejectPlanAdmission).toHaveBeenCalledTimes(2);
+  });
+
+  it("replays an exact create before capability admission and rejects Agent mode on Harness", async () => {
+    const input = {
+      body: "Replay before admission.",
+      productMode: "agent" as const,
+      agentTurnMode: "default" as const,
+      clientRequestId: "admission-replay-priority",
+    };
+    const created = await createWorkbenchConversation(project(), input, undefined, { runMainAgent: false });
+    const admit = vi.fn(async () => { throw new Error("Admission must not rerun."); });
+    await expect(createWorkbenchConversation(project(), input, undefined, {
+      turnRouter: { ...testTurnRouter(), admit },
+    })).resolves.toMatchObject({ conversationId: created.conversationId, replayed: true });
+    expect(admit).not.toHaveBeenCalled();
+
+    await expect(createWorkbenchConversation(project(), {
+      body: "Invalid Harness mode.",
+      productMode: "harness",
+      agentTurnMode: "plan",
+      clientRequestId: "harness-agent-turn-mode",
+    }, undefined, { runMainAgent: false })).rejects.toMatchObject({ name: "Conflict" });
+  });
+
+  it("preserves exact replay for migrated v1 create hashes without admitting a new Turn", async () => {
+    const input = {
+      body: "Replay a migrated default Agent request.",
+      productMode: "agent" as const,
+      clientRequestId: "legacy-v1-replay",
+    };
+    const created = await createWorkbenchConversation(project(), input, undefined, { runMainAgent: false });
+    const legacyHash = createHash("sha256").update(JSON.stringify({
+      version: 1,
+      productMode: "agent",
+      body: input.body,
+      contextRefs: [],
+      attachmentIds: [],
+      providerId: "codex",
+      skillOverrides: [],
+    })).digest("hex");
+    const database = new Database(fixture.resolution.paths.workbenchDbPath);
+    try {
+      database.prepare("UPDATE conversations SET client_create_request_hash = ? WHERE project_id = ? AND conversation_id = ?")
+        .run(legacyHash, project().id, created.conversationId);
+    } finally {
+      database.close();
+    }
+    const admit = vi.fn(async () => { throw new Error("Admission must not run for a migrated exact replay."); });
+
+    await expect(createWorkbenchConversation(project(), input, undefined, {
+      turnRouter: { ...testTurnRouter(), admit },
+    })).resolves.toMatchObject({ conversationId: created.conversationId, agentTurnMode: "default", replayed: true });
+    expect(admit).not.toHaveBeenCalled();
+  });
+
   it("creates the first send atomically and replays only the same request payload", async () => {
     const input = {
       body: "Create one durable conversation.",
@@ -252,6 +345,7 @@ describe("dual product-mode foundation", () => {
               new Date().toISOString(),
             );
           },
+          admit: testAdmission,
           route,
           resolveProviderId: (_project, requestedProviderId) => requestedProviderId ?? "codex",
           resolveRuntimeState: async () => ({ state: "ready", project: project(), resolution: fixture.resolution }),
@@ -299,6 +393,7 @@ function failAfterCommitRouter() {
       error.name = "Conflict";
       throw error;
     },
+    admit: testAdmission,
     route(): Promise<never> {
       const error = new Error("Injected post-commit startup failure.");
       error.name = "Conflict";
@@ -317,6 +412,7 @@ function testTurnRouter(): ConversationTurnRoutingPort {
       error.name = "Conflict";
       throw error;
     },
+    admit: testAdmission,
     route: vi.fn(async () => ({
       user: { id: "test-user", type: "user.message", timestamp: new Date().toISOString(), conversationId: "test", changeId: "", text: "test" },
       assistant: null,
@@ -325,6 +421,21 @@ function testTurnRouter(): ConversationTurnRoutingPort {
     })),
     resolveProviderId: (_project, requestedProviderId) => requestedProviderId ?? "codex",
     resolveRuntimeState: async () => ({ state: "ready", project: project(), resolution: fixture.resolution }),
+  };
+}
+
+async function testAdmission(input: Parameters<ConversationTurnRoutingPort["admit"]>[0]) {
+  return {
+    projectId: input.project.id,
+    productMode: input.productMode,
+    conversationId: input.conversationId,
+    providerId: input.providerId,
+    agentTurnMode: input.productMode === "agent" ? input.agentTurnMode ?? "default" : null,
+    capabilitySnapshot: null,
+    model: null,
+    sandboxPolicy: "workspace-write" as const,
+    writableRoots: [input.project.path],
+    runtimeState: { state: "ready" as const, project: project(), resolution: fixture.resolution },
   };
 }
 

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { consumeWorkbenchLiveStream, fetchJson, postJson } from "../api.js";
 import { extractInlineFileMentions } from "../shell/file-mentions.js";
 import { extractInlineSkillMentions } from "../shell/skill-mentions.js";
-import type { ProductMode, SkillListItem, TopicAttachment, TopicFileReference, WorkbenchLiveEvent } from "../types.js";
+import type { AgentTurnMode, ProductMode, ProviderCapabilitySnapshot, SkillListItem, TopicAttachment, TopicFileReference, WorkbenchLiveEvent } from "../types.js";
 import type { WorkbenchOperationToken } from "./useGlobalOperationGate.js";
 
 export type ComposerTransition = "project-changed" | "conversation-changed" | "new-conversation";
@@ -14,12 +14,16 @@ export interface ConversationComposerScope {
     id: string;
     state: string;
     productMode?: ProductMode;
+    agentTurnMode?: AgentTurnMode | null;
     selectedProviderId?: string;
   } | null;
   managed: boolean;
   running: boolean;
   selectedProviderId: string | null;
   providerCount: number;
+  providerCapabilities?: ProviderCapabilitySnapshot[];
+  providerCapabilitiesLoading?: boolean;
+  providerCapabilitiesError?: string | null;
 }
 
 export interface PreparedComposerInput {
@@ -37,6 +41,7 @@ export interface ComposerCreateConversationRequest {
   attachmentIds: string[];
   providerId?: string;
   skillOverrides: ComposerSkillOverride[];
+  agentTurnMode?: AgentTurnMode;
   showPendingBeforeCreate: boolean;
 }
 
@@ -66,6 +71,7 @@ export interface ComposerMessageRequest {
   attachmentIds: string[];
   providerId?: string;
   providerSwitchIntent?: "resume-workflow";
+  agentTurnMode?: AgentTurnMode;
 }
 
 export interface ComposerActionRequest {
@@ -109,6 +115,10 @@ export interface ConversationComposerPorts {
     upload(projectId: string, upload: ComposerAttachmentUpload): Promise<TopicAttachment>;
     remove(projectId: string, attachmentId: string): Promise<void>;
   };
+  drafts?: {
+    load(projectId: string, productMode: ProductMode): Promise<{ agentTurnMode: AgentTurnMode | null } | null>;
+    save(input: { projectId: string; productMode: ProductMode; agentTurnMode: AgentTurnMode; selectedProviderId: string | null }): Promise<void>;
+  };
   ids?: {
     createClientRequestId(): string;
   };
@@ -131,13 +141,17 @@ export function useConversationComposerController(
   const [draftSkillOverrides, setDraftSkillOverrides] = useState<Record<string, boolean>>({});
   const [fileRefs, setFileRefs] = useState<TopicFileReference[]>([]);
   const [attachments, setAttachments] = useState<TopicAttachment[]>([]);
+  const [agentTurnMode, setAgentTurnMode] = useState<AgentTurnMode>(() => initialAgentTurnMode(scope));
   const scopeGenerationRef = useRef(0);
   const skillRequestGenerationRef = useRef(0);
+  const draftRequestGenerationRef = useRef(0);
   const scopeIdentityRef = useRef(composerScopeIdentity(scope));
-  const stateRef = useRef({ composerText, skillItems, draftSkillOverrides, fileRefs, attachments });
+  const turnModeOwnerIdentityRef = useRef<string | null>(null);
+  const confirmedTurnModesRef = useRef(new Map<string, AgentTurnMode>());
+  const stateRef = useRef({ composerText, skillItems, draftSkillOverrides, fileRefs, attachments, agentTurnMode });
   const scopeRef = useRef(scope);
   const portsRef = useRef(ports);
-  stateRef.current = { composerText, skillItems, draftSkillOverrides, fileRefs, attachments };
+  stateRef.current = { composerText, skillItems, draftSkillOverrides, fileRefs, attachments, agentTurnMode };
   scopeRef.current = scope;
   portsRef.current = ports;
 
@@ -177,6 +191,64 @@ export function useConversationComposerController(
     scopeIdentityRef.current = identity;
     scopeGenerationRef.current += 1;
   }, [scope.productMode, scope.projectId, scope.conversation?.id, scope.conversation?.productMode, scope.conversation?.selectedProviderId, scope.selectedProviderId]);
+
+  useEffect(() => {
+    const ownerIdentity = turnModeOwnerIdentity(scope);
+    if (ownerIdentity === turnModeOwnerIdentityRef.current) return;
+    turnModeOwnerIdentityRef.current = ownerIdentity;
+    const generation = ++draftRequestGenerationRef.current;
+    const storedConversationMode = scope.conversation && composerProductMode(scope) === "agent"
+      ? initialAgentTurnMode(scope)
+      : null;
+    if (storedConversationMode) confirmedTurnModesRef.current.set(ownerIdentity, storedConversationMode);
+    const immediate = storedConversationMode
+      ?? confirmedTurnModesRef.current.get(ownerIdentity)
+      ?? initialAgentTurnMode(scope);
+    setAgentTurnMode(immediate);
+    if (composerProductMode(scope) !== "agent" || scope.conversation || !scope.projectId || !scope.managed) return;
+    void (portsRef.current.drafts ?? defaultComposerDraftApi).load(scope.projectId, "agent")
+      .then((draft) => {
+        if (generation !== draftRequestGenerationRef.current
+          || ownerIdentity !== turnModeOwnerIdentity(scopeRef.current)) return;
+        const restoredMode = draft?.agentTurnMode ?? "default";
+        confirmedTurnModesRef.current.set(ownerIdentity, restoredMode);
+        setAgentTurnMode(restoredMode);
+      })
+      .catch((cause: unknown) => {
+        if (generation === draftRequestGenerationRef.current
+          && ownerIdentity === turnModeOwnerIdentity(scopeRef.current)) {
+          portsRef.current.onError(errorMessage(cause));
+        }
+      });
+  }, [scope.productMode, scope.projectId, scope.conversation?.id, scope.conversation?.agentTurnMode, scope.managed]);
+
+  const selectAgentTurnMode = useCallback(async (nextMode: AgentTurnMode): Promise<void> => {
+    const currentScope = scopeRef.current;
+    if (composerProductMode(currentScope) !== "agent") return;
+    if (stateRef.current.agentTurnMode === nextMode) return;
+    scopeGenerationRef.current += 1;
+    confirmedTurnModesRef.current.set(turnModeOwnerIdentity(currentScope), nextMode);
+    setAgentTurnMode(nextMode);
+    if (currentScope.conversation || !currentScope.projectId || !currentScope.managed) return;
+    const ownerIdentity = turnModeOwnerIdentity(currentScope);
+    const generation = ++draftRequestGenerationRef.current;
+    try {
+      await (portsRef.current.drafts ?? defaultComposerDraftApi).save({
+        projectId: currentScope.projectId,
+        productMode: "agent",
+        agentTurnMode: nextMode,
+        selectedProviderId: currentScope.selectedProviderId,
+      });
+    } catch (cause) {
+      if (generation === draftRequestGenerationRef.current
+        && ownerIdentity === turnModeOwnerIdentity(scopeRef.current)) {
+        portsRef.current.onError(errorMessage(cause));
+      }
+      throw cause;
+    }
+  }, []);
+
+  const agentTurnModeDisabledReason = resolveAgentTurnModeDisabledReason(scope, agentTurnMode);
 
   const cleanupTransition = useCallback((transition: ComposerTransition): void => {
     scopeGenerationRef.current += 1;
@@ -279,12 +351,18 @@ export function useConversationComposerController(
     const capturedProjectId = currentScope.projectId;
     const capturedProductMode = composerProductMode(currentScope);
     const capturedProviderId = currentScope.selectedProviderId ?? currentScope.conversation?.selectedProviderId ?? null;
+    const capturedAgentTurnMode = stateRef.current.agentTurnMode;
     const clientRequestId = (portsRef.current.ids ?? defaultComposerIds).createClientRequestId();
     const body = input.body ?? stateRef.current.composerText;
     const selectedRefs = input.fileRefs ?? stateRef.current.fileRefs;
     const attachmentIds = input.attachmentIds ?? stateRef.current.attachments.map((attachment) => attachment.id);
     const attachmentFiles = input.attachmentFiles ?? [];
     if (!capturedProjectId || (!body.trim() && attachmentIds.length === 0 && attachmentFiles.length === 0)) return null;
+    const turnModeError = resolveAgentTurnModeDisabledReason(currentScope, capturedAgentTurnMode);
+    if (turnModeError) {
+      portsRef.current.onError(turnModeError);
+      return null;
+    }
     const prepared = prepareComposerInput({
       body,
       selectedRefs,
@@ -318,6 +396,7 @@ export function useConversationComposerController(
         attachmentIds: [...attachmentIds, ...uploadedDraft.map((attachment) => attachment.id)],
         providerId: capturedProviderId ?? undefined,
         skillOverrides: normalizeSkillOverrideRecord(prepared.skillOverrides),
+        agentTurnMode: capturedProductMode === "agent" ? capturedAgentTurnMode : undefined,
         showPendingBeforeCreate: attachmentFiles.length === 0,
       });
       uploadedDraft = [];
@@ -366,6 +445,7 @@ export function useConversationComposerController(
     const currentScope = scopeRef.current;
     const generation = scopeGenerationRef.current;
     const capturedProductMode = composerProductMode(currentScope);
+    const capturedAgentTurnMode = stateRef.current.agentTurnMode;
     const draft = stateRef.current;
     const attachmentIds = draft.attachments.map((attachment) => attachment.id);
     if (!currentScope.projectId || !currentScope.conversation || (!draft.composerText.trim() && attachmentIds.length === 0)) return;
@@ -416,6 +496,11 @@ export function useConversationComposerController(
       if (composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) setFileRefs([]);
       return;
     }
+    const turnModeError = resolveAgentTurnModeDisabledReason(currentScope, capturedAgentTurnMode);
+    if (turnModeError) {
+      portsRef.current.onError(turnModeError);
+      return;
+    }
 
     const token = portsRef.current.operation.begin("chat.ask");
     if (composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) {
@@ -434,6 +519,7 @@ export function useConversationComposerController(
         providerSwitchIntent: currentScope.selectedProviderId && currentScope.selectedProviderId !== currentScope.conversation.selectedProviderId
           ? "resume-workflow"
           : undefined,
+        agentTurnMode: capturedProductMode === "agent" ? capturedAgentTurnMode : undefined,
       };
       await (portsRef.current.actions.sendMessage
         ?? ((input: ComposerMessageRequest) => sendComposerMessage(input, (projectId, event) => {
@@ -543,6 +629,9 @@ export function useConversationComposerController(
     setFileRefs: setSelectedFileRefs,
     addFileReference,
     attachments,
+    agentTurnMode,
+    selectAgentTurnMode,
+    agentTurnModeDisabledReason,
     setAttachments,
     reloadSkills,
     toggleSkill,
@@ -683,6 +772,7 @@ async function sendComposerMessage(
       providerId: request.providerId,
       providerSwitchIntent: request.providerSwitchIntent,
       productMode: request.productMode,
+      agentTurnMode: request.agentTurnMode,
     },
     (event) => routeEvent?.(request.projectId, event),
   );
@@ -695,6 +785,52 @@ function composerProductMode(scope: ConversationComposerScope): ProductMode {
 function composerScopeIdentity(scope: ConversationComposerScope): string {
   return skillRequestIdentityKey(skillRequestIdentity(scope));
 }
+
+function turnModeOwnerIdentity(scope: ConversationComposerScope): string {
+  return [scope.projectId ?? "", composerProductMode(scope), scope.conversation?.id ?? ""].join("\0");
+}
+
+function initialAgentTurnMode(scope: ConversationComposerScope): AgentTurnMode {
+  return composerProductMode(scope) === "agent"
+    ? scope.conversation?.agentTurnMode ?? "default"
+    : "default";
+}
+
+export function resolveAgentTurnModeDisabledReason(
+  scope: ConversationComposerScope,
+  agentTurnMode: AgentTurnMode,
+): string | null {
+  if (composerProductMode(scope) !== "agent" || agentTurnMode === "default" || scope.running) return null;
+  if (scope.providerCapabilitiesLoading) return "正在检查当前 Agent 是否支持 Plan 模式。";
+  if (scope.providerCapabilitiesError) return `无法确认 Plan 模式能力：${scope.providerCapabilitiesError}`;
+  const providerId = scope.selectedProviderId ?? scope.conversation?.selectedProviderId ?? null;
+  if (!providerId) return "请先选择支持 Plan 模式的 Agent。";
+  const snapshot = scope.providerCapabilities?.find((candidate) => candidate.providerId === providerId);
+  const plan = snapshot?.capabilities.find((capability) => capability.key === "turn.plan");
+  if (!snapshot || snapshot.effectiveModel === null || plan?.runtime !== "ready") {
+    return plan?.reason ?? "当前 Agent 不支持 Plan 模式。";
+  }
+  return null;
+}
+
+const defaultComposerDraftApi = {
+  async load(projectId: string, productMode: ProductMode): Promise<{ agentTurnMode: AgentTurnMode | null } | null> {
+    const payload = await fetchJson<{ draft?: { agentTurnMode?: AgentTurnMode | null } | null }>(
+      `/api/projects/${encodeURIComponent(projectId)}/workbench/composer-draft?productMode=${encodeURIComponent(productMode)}`,
+    );
+    return payload.draft && (payload.draft.agentTurnMode === "default" || payload.draft.agentTurnMode === "plan")
+      ? { agentTurnMode: payload.draft.agentTurnMode }
+      : null;
+  },
+  async save(input: { projectId: string; productMode: ProductMode; agentTurnMode: AgentTurnMode; selectedProviderId: string | null }): Promise<void> {
+    const response = await fetch(`/api/projects/${encodeURIComponent(input.projectId)}/workbench/composer-draft`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    if (!response.ok) throw new Error(await response.text());
+  },
+};
 
 export function workbenchEventMatchesConversation(
   event: WorkbenchLiveEvent,

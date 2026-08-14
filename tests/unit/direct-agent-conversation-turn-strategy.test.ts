@@ -135,6 +135,29 @@ describe("DirectAgentConversationTurnStrategy", () => {
     ]);
   });
 
+  it("uses completed planText as the canonical Plan result instead of realtime shadow text", async () => {
+    const provider = fakeProvider({
+      realtime: true,
+      lastMessage: "non-authoritative assistant fallback",
+      planText: "1. Inspect the project.\n2. Propose the bounded change.",
+    });
+    const { strategy } = strategyFor(provider.descriptor);
+    const input = await initialTurnInput(fixture, "Plan this change without editing files.", "plan");
+
+    const result = await strategy.execute(input, emptyPorts());
+
+    expect(provider.requests[0]).toMatchObject({
+      agentTurnMode: "plan",
+      sandboxPolicy: "read-only",
+      writableRoots: [],
+    });
+    expect(result.assistantMessage).toBe("1. Inspect the project.\n2. Propose the bounded change.");
+    const state = await readState(fixture.paths, fixture.project.id, input.conversation.conversationId);
+    const mainAssistant = state.messages.find((message) => message.type === "assistant.message" && message.agentSurfaceId === "main-agent");
+    expect(mainAssistant?.text).toBe("1. Inspect the project.\n2. Propose the bounded change.");
+    expect(mainAssistant?.text).not.toContain("realtime reply");
+  });
+
   it("does not discover Skills or create Provider activity for a stale Conversation", async () => {
     const provider = fakeProvider();
     const skillList = vi.spyOn(provider.descriptor.skills, "list");
@@ -670,27 +693,40 @@ describe("DirectAgentConversationTurnStrategy", () => {
     expect(state.binding?.bindingStatus).toBe(expectedStatus === "interrupted" ? "ready" : "stale");
   });
 
-  it("interrupts unsupported provider input and records a bounded failed Turn", async () => {
+  it("persists Direct Agent provider input and terminalizes an unanswered request", async () => {
     const provider = fakeProvider({ userInput: true });
     const { strategy } = strategyFor(provider.descriptor);
     const input = await initialTurnInput(fixture, "Ask for unsupported input");
     const events: WorkbenchLiveEvent[] = [];
     input.live = { emit: (event) => events.push(event) };
 
-    await expect(strategy.execute(input, emptyPorts())).rejects.toMatchObject({
-      name: "Conflict",
-      message: "Direct Agent provider input is not supported in this increment.",
-    });
-    expect(provider.interrupts).toBe(1);
-    expect(events).toContainEqual(expect.objectContaining({
-      event: "error",
-      data: expect.objectContaining({ message: "Direct Agent provider input is not supported in this increment." }),
-    }));
+    await expect(strategy.execute(input, emptyPorts())).resolves.toMatchObject({ providerSessionId: "session-1" });
+    expect(provider.interrupts).toBe(0);
+    expect(events).toContainEqual(expect.objectContaining({ event: "conversation.interactions.updated" }));
     const state = await readState(fixture.paths, fixture.project.id, input.conversation.conversationId);
     expect(state.attempts).toEqual([
-      expect.objectContaining({ roleId: "main-agent", status: "failed" }),
+      expect.objectContaining({ roleId: "main-agent", status: "interrupted" }),
     ]);
     expect(state.conversation.completedTurnSequence).toBe(0);
+    const requestRow = state.messages.find((message) => message.id.startsWith("provider-user-input:"));
+    expect(JSON.parse(requestRow!.rawJson).providerUserInput).toMatchObject({ status: "interrupted" });
+  });
+
+  it("lets an explicit Provider input resolution win the Direct Agent terminal race", async () => {
+    const provider = fakeProvider({ userInput: true, userInputResolved: true });
+    const { strategy } = strategyFor(provider.descriptor);
+    const input = await initialTurnInput(fixture, "Ask once and continue after Provider resolution.");
+
+    await expect(strategy.execute(input, emptyPorts())).resolves.toMatchObject({ providerSessionId: "session-1" });
+
+    const state = await readState(fixture.paths, fixture.project.id, input.conversation.conversationId);
+    expect(state.attempts).toEqual([expect.objectContaining({ roleId: "main-agent", status: "completed" })]);
+    const requestRow = state.messages.find((message) => message.id.startsWith("provider-user-input:"));
+    expect(JSON.parse(requestRow!.rawJson).providerUserInput).toMatchObject({
+      status: "submitted",
+      disposition: "skipped",
+      skippedQuestionIds: ["q1"],
+    });
   });
 
   it("rejects an overlapping Turn before creating a second Attempt", async () => {
@@ -820,11 +856,13 @@ describe("DirectAgentConversationTurnStrategy", () => {
 
 interface FakeProviderBehavior {
   lastMessage?: string;
+  planText?: string;
   realtime?: boolean;
   status?: "completed" | "interrupted" | "failed";
   error?: string;
   throwError?: string;
   userInput?: boolean;
+  userInputResolved?: boolean;
   waitForRelease?: Promise<void>;
   onEntered?: () => void;
   skills?: ProviderNativeSkill[];
@@ -869,6 +907,7 @@ function fakeProvider(behavior: FakeProviderBehavior = {}): {
     session: { providerId, sessionId },
     turnId: "turn-1",
     lastMessage: behavior.lastMessage ?? (status === "failed" ? "" : "completed"),
+    ...(behavior.planText ? { planText: behavior.planText } : {}),
     childThreads: behavior.realtime && !behavior.suppressChildSnapshot ? [{ providerId, activityId: "activity-1", parentThreadId: sessionId, threadId: `${sessionId}-child-1`, status: "completed", finalText: "child", changedFiles: [] }] : [],
     changedFiles: [],
     ...(behavior.error ? { error: behavior.error } : {}),
@@ -1020,8 +1059,19 @@ function fakeProvider(behavior: FakeProviderBehavior = {}): {
             questions: [{ id: "q1", question: "Continue?", inputMode: "single", allowCustom: false }],
           });
           await Promise.resolve();
+          if (behavior.userInputResolved) {
+            request.onUserInputResolved?.({
+              providerId,
+              requestId: "input-1",
+              runtimeScopeId: request.runtimeScopeId!,
+              runId: request.runId,
+              attemptId: request.attemptId,
+              threadId: sessionId,
+            });
+            await Promise.resolve();
+          }
           active = null;
-          return result(request, "interrupted", sessionId);
+          return result(request, behavior.userInputResolved ? "completed" : "interrupted", sessionId);
         }
         active = null;
         return result(request, behavior.status, sessionId);
@@ -1169,17 +1219,18 @@ async function createOnboardingFixture(baseRoot: string, ahoHome: string) {
   return { project: registered.project, paths: registered.paths };
 }
 
-async function createAgentConversation(current: typeof fixture, body: string) {
+async function createAgentConversation(current: typeof fixture, body: string, agentTurnMode: "default" | "plan" = "default") {
   return createWorkbenchConversation(current.project, {
     body,
     providerId: "codex",
     productMode: "agent",
     clientRequestId: `request-${Math.random().toString(36).slice(2)}`,
+    agentTurnMode,
   }, undefined, { runMainAgent: false });
 }
 
-async function initialTurnInput(current: typeof fixture, body: string): Promise<ConversationTurnStrategyInput> {
-  const created = await createAgentConversation(current, body);
+async function initialTurnInput(current: typeof fixture, body: string, agentTurnMode: "default" | "plan" = "default"): Promise<ConversationTurnStrategyInput> {
+  const created = await createAgentConversation(current, body, agentTurnMode);
   return storedTurnInput(current, created.conversationId);
 }
 
@@ -1194,6 +1245,19 @@ async function storedTurnInput(current: typeof fixture, conversationId: string):
       committedMessage,
       attachments: [],
       providerId: conversation.selectedProviderId,
+      admission: {
+        projectId: current.project.id,
+        productMode: "agent",
+        conversationId,
+        providerId: conversation.selectedProviderId,
+        agentTurnMode: conversation.agentTurnMode ?? "default",
+        capabilitySnapshot: capabilitySnapshot("agent"),
+        model: { providerId: conversation.selectedProviderId, modelId: "test-model" },
+        sandboxPolicy: conversation.agentTurnMode === "plan" ? "read-only" : "workspace-write",
+        writableRoots: conversation.agentTurnMode === "plan" ? [] : [current.project.path],
+        runtimeState: { state: "onboarding", project: current.project, paths: current.paths },
+      },
+      runtimeState: { state: "onboarding", project: current.project, paths: current.paths },
       turnSkillResolution: skillResolution(),
     };
   } finally {

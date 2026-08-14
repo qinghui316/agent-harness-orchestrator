@@ -26,6 +26,50 @@
   min-height: 34px;
 }
 
+.composer-control-stack {
+  display: grid;
+  gap: 6px;
+}
+
+.agent-turn-mode-segment {
+  display: grid;
+  grid-template-columns: repeat(2, 78px);
+  width: 156px;
+  min-height: 30px;
+  margin: 0 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+}
+
+.agent-turn-mode-segment button {
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-right: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.agent-turn-mode-segment button:last-child {
+  border-right: 0;
+}
+
+.agent-turn-mode-segment button.active {
+  background: var(--bg-panel);
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
+.agent-turn-mode-segment button:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+
 .conversation-interaction-dock {
   position: relative;
   display: grid;
@@ -908,6 +952,10 @@
   font: inherit;
   font-size: 17px;
   line-height: 1.55;
+}
+
+.home-demand-composer > .agent-turn-mode-segment {
+  margin-top: 4px;
 }
 
 .home-demand-composer textarea::placeholder {

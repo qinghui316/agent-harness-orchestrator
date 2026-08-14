@@ -6,13 +6,14 @@ import {
   X,
 } from "lucide-react";
 import { ComposerControls } from "../shell/ComposerControls.js";
+import { AgentTurnModeControl } from "../shell/composer.js";
 import { ComposerAttachButton, ComposerAttachmentList, filesFromDrop, hasFileDrag, imageFilesFromPaste, type ComposerAttachmentListItem } from "../shell/ComposerAttachments.js";
 import { buildComposerContextSummary, ComposerContextSourcesPopover, type ComposerContextKind } from "../shell/ComposerContextSources.js";
 import { FileMentionPicker } from "../shell/FileMentionPicker.js";
 import { SkillMentionPicker } from "../shell/SkillMentionPicker.js";
 import { WorkspacePicker } from "./WorkspacePicker.js";
 import { InfoRow } from "./ProjectPanels.js";
-import type { ProviderModelCandidate, ProviderModelSettingsSnapshot, ProjectStatus, SkillListItem, TopicFileReference } from "../types.js";
+import type { AgentTurnMode, ProductMode, ProviderModelCandidate, ProviderModelSettingsSnapshot, ProjectStatus, SkillListItem, TopicFileReference } from "../types.js";
 
 export function ProjectHomeView({
   projects,
@@ -59,6 +60,10 @@ export function ProjectReadinessHome({
   providerOptions,
   selectedProviderId,
   onSelectProvider,
+  productMode,
+  agentTurnMode,
+  onSelectAgentTurnMode,
+  agentTurnModeDisabledReason,
 }: {
   project: ProjectStatus;
   providerDisplayName?: string;
@@ -77,6 +82,10 @@ export function ProjectReadinessHome({
   providerOptions?: Array<{ id: string; label: string }>;
   selectedProviderId?: string;
   onSelectProvider?: (providerId: string) => void;
+  productMode: ProductMode;
+  agentTurnMode: AgentTurnMode;
+  onSelectAgentTurnMode: (mode: AgentTurnMode) => void | Promise<void>;
+  agentTurnModeDisabledReason?: string | null;
 }): ReactElement {
   const [draft, setDraft] = useState("");
   const [draftFileRefs, setDraftFileRefs] = useState<TopicFileReference[]>([]);
@@ -175,6 +184,12 @@ export function ProjectReadinessHome({
             selectedProviderId={selectedProviderId}
             onSelectProvider={onSelectProvider}
           />
+          <AgentTurnModeControl
+            productMode={productMode}
+            value={agentTurnMode}
+            onChange={onSelectAgentTurnMode}
+            planDisabledReason={agentTurnModeDisabledReason}
+          />
           <ComposerContextSourcesPopover
             kind={openContextKind}
             skills={skills}
@@ -227,9 +242,9 @@ export function ProjectReadinessHome({
             <span className="composer-footer-spacer" />
             <button
               className="composer-send"
-              disabled={!canStartDemand || submitting || (!draft.trim() && draftAttachments.length === 0)}
+              disabled={!canStartDemand || submitting || Boolean(agentTurnModeDisabledReason) || (!draft.trim() && draftAttachments.length === 0)}
               onClick={() => void submitDemand()}
-              title="创建需求对话"
+              title={agentTurnModeDisabledReason ?? "创建需求对话"}
             >
               <Send size={16} />
             </button>

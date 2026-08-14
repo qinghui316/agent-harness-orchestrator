@@ -1,5 +1,7 @@
 ﻿import type { IncomingMessage, ServerResponse } from "node:http";
 import { createWorkbenchConversation, updateWorkbenchConversationTitle } from "../../workbench/conversation-service.js";
+import { openProjectRuntimeWorkbenchDatabase } from "../../workbench/persistence/open-workbench-database.js";
+import { assertAgentTurnMode } from "../../provider-runtime/index.js";
 import {
   getWorkbenchSnapshot,
   getWorkbenchStream,
@@ -41,6 +43,55 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
     sendJson(response, 200, await listWorkbenchTopics(input, requireProductMode(url.searchParams.get("productMode"))));
     return;
   }
+  if (rest === "composer-draft" && request.method === "GET") {
+    assertRegisteredProject(input);
+    const productMode = requireProductMode(url.searchParams.get("productMode"));
+    const runtime = await input.runtimeStateResolver!(input.project!);
+    const paths = runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      sendJson(response, 200, { draft: database.drafts.readDraft(paths.projectId, productMode) });
+    } finally {
+      database.close();
+    }
+    return;
+  }
+  if (rest === "composer-draft" && request.method === "PUT") {
+    assertRegisteredProject(input);
+    const body = await readJsonBody<{ productMode?: unknown; agentTurnMode?: unknown; selectedProviderId?: unknown }>(request);
+    const productMode = requireProductMode(body.productMode);
+    let agentTurnMode = null;
+    if (productMode === "agent") {
+      try {
+        agentTurnMode = assertAgentTurnMode(body.agentTurnMode, "ComposerDraft agentTurnMode");
+      } catch (cause) {
+        const error = cause instanceof Error ? cause : new Error(String(cause));
+        error.name = "BadRequest";
+        throw error;
+      }
+    }
+    if (productMode === "harness" && body.agentTurnMode !== null && body.agentTurnMode !== undefined) {
+      const error = new Error("Harness Composer drafts cannot carry agentTurnMode.");
+      error.name = "Conflict";
+      throw error;
+    }
+    const runtime = await input.runtimeStateResolver!(input.project!);
+    const paths = runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      const draft = database.drafts.upsertAgentTurnMode({
+        projectId: paths.projectId,
+        productMode,
+        agentTurnMode,
+        selectedProviderId: typeof body.selectedProviderId === "string" ? body.selectedProviderId : null,
+        updatedAt: new Date().toISOString(),
+      });
+      sendJson(response, 200, { draft });
+    } finally {
+      database.close();
+    }
+    return;
+  }
   if (request.method === "POST" && rest === "topics/live") {
     assertRegisteredProject(input);
     await sendCreateTopicLive(input, request, response, context.turnRouter);
@@ -59,6 +110,7 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
         replayed: topic.replayed,
         title: topic.title,
         state: topic.state,
+        agentTurnMode: topic.agentTurnMode,
       },
       snapshot: await getWorkbenchSnapshot(input, { topicId: topic.conversationId, productMode: topic.productMode }),
     });
@@ -135,6 +187,7 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
       request,
       response,
       context.turnRouter,
+      context.providerRegistry,
     );
     return;
   }

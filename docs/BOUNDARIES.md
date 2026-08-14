@@ -81,6 +81,24 @@ interrupt, native child execution, Skill/role loading, model discovery, and raw
 diagnostics. The static Provider Registry resolves adapters and operation
 capabilities; it is not a scheduler or state store.
 
+`ConversationTurnRouter` owns side-effect-free admission for each new turn.
+Agent admission captures the Provider, effective model, optional `turn.plan`
+capability snapshot, Agent turn mode, and sandbox policy before Conversation or
+message persistence. The public contract carries only `default | plan`; a
+Provider adapter alone constructs private collaboration payloads. Plan remains
+optional and never lowers Default Agent readiness. Harness requests cannot carry
+an Agent turn mode, and Agent Plan cannot create Harness planning or governance
+objects.
+
+Provider-native questions use one Workbench lifecycle owner for Agent and
+Harness. Settlement reads the stored Conversation first, then proves project,
+mode, Conversation, graph scope, run, Attempt, Provider, thread, turn, and
+request lineage against the active Provider turn. Local validation failure may
+return `submitting` to `pending` only before transport is invoked; an uncertain
+transport outcome stays `submitting`, and terminal or restart recovery
+interrupts requests without live-turn proof. Secret answer plaintext must not
+enter SQLite, Timeline, SSE, or logs.
+
 Generic Workbench, Workflow, AgentTask, and UI modules must not import provider
 raw protocol modules or branch on provider names. Unsupported capabilities fail
 before an attempt starts. When exactly one provider is registered it may be the

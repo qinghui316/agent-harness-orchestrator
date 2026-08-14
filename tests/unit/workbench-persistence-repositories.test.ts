@@ -23,7 +23,35 @@ afterEach(async () => {
 });
 
 describe("Workbench persistence owners", () => {
-  it.each([9, 10, 11])("migrates revision %i to 12 without losing Conversation continuity", async (revision) => {
+  it("persists Agent Composer mode preferences and rejects Harness mode leakage", async () => {
+    const database = await openProjectRuntimeWorkbenchDatabase(runtimePaths());
+    try {
+      expect(database.drafts.readDraft(projectId, "agent")).toBeNull();
+      expect(database.drafts.upsertAgentTurnMode({
+        projectId,
+        productMode: "agent",
+        agentTurnMode: "plan",
+        selectedProviderId: "codex",
+        updatedAt: now,
+      })).toMatchObject({
+        projectId,
+        productMode: "agent",
+        agentTurnMode: "plan",
+        selectedProviderId: "codex",
+      });
+      expect(() => database.drafts.upsertAgentTurnMode({
+        projectId,
+        productMode: "harness",
+        agentTurnMode: "plan",
+        selectedProviderId: "codex",
+        updatedAt: now,
+      })).toThrow(/must match product_mode/);
+    } finally {
+      database.close();
+    }
+  });
+
+  it.each([9, 10, 11, 12])("migrates revision %i to 13 without losing Conversation continuity", async (revision) => {
     await createLegacyWorkbenchDatabase(revision);
 
     const database = await openProjectRuntimeWorkbenchDatabase(runtimePaths());
@@ -68,10 +96,10 @@ describe("Workbench persistence owners", () => {
       `).run(projectId, "legacy-conversation")).toThrow(/immutable/);
       expect(() => inspected.prepare(`
         INSERT INTO provider_attempts (
-          project_id, conversation_id, attempt_id, product_mode, provider_id, role_id,
+          project_id, conversation_id, attempt_id, product_mode, agent_turn_mode, provider_id, role_id,
           operation_profile, capability_snapshot_json, effective_skill_inputs_json,
           handoff_hash, delivered_through_completed_turn, status, created_at, updated_at
-        ) VALUES (?, ?, ?, 'agent', 'codex', 'main-agent', 'main', '{}', '[]', '', 0, 'queued', ?, ?)
+        ) VALUES (?, ?, ?, 'agent', 'default', 'codex', 'main-agent', 'main', '{}', '[]', '', 0, 'queued', ?, ?)
       `).run(projectId, "legacy-conversation", "wrong-mode-attempt", now, now)).toThrow(/must match Conversation/);
     } finally {
       inspected.close();

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ManagedProject } from "../../src/types/index.js";
+import { PROVIDER_OPERATION_CAPABILITIES, type ProviderCapabilitySnapshot } from "../../src/provider-runtime/types.js";
 import { ProviderRegistry } from "../../src/provider-runtime/registry.js";
 import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import type { ProjectRuntimeState } from "../../src/project-runtime/coordinator.js";
@@ -130,13 +131,16 @@ describe("ConversationTurnRouter", () => {
     const runTurn = vi.fn(async () => { throw new Error("must not run"); });
     const agent = strategy("agent", topicResult("agent"));
     const harness = new HarnessConversationTurnStrategy(runTurn);
+    const request = turnRequest("harness");
+    const runtimeState = repairRequiredState(request.project);
+    request.admission = { ...request.admission, runtimeState };
     const router = new ConversationTurnRouter(
       { agent, harness },
       ports(resolveSkillContext),
-      compositionOwner(repairRequiredState(project())),
+      compositionOwner(runtimeState),
     );
 
-    await expect(router.route(turnRequest("harness"), "harness"))
+    await expect(router.route(request, "harness"))
       .rejects.toMatchObject({ name: "Conflict" });
     expect(resolveSkillContext).not.toHaveBeenCalled();
     expect(runTurn).not.toHaveBeenCalled();
@@ -304,19 +308,16 @@ function repairRequiredState(selectedProject: ManagedProject): ProjectRuntimeSta
 
 function turnInput(productMode: "agent" | "harness"): ConversationTurnStrategyInput {
   const selectedProject = project();
+  const selectedConversation = conversation(productMode);
+  const runtimeState = onboardingState(selectedProject);
   return {
     project: selectedProject,
-    conversation: conversation(productMode),
+    conversation: selectedConversation,
     committedMessage: committedMessage(),
     attachments: [],
     providerId: "codex",
-    runtimeState: {
-      state: "onboarding",
-      project: selectedProject,
-      projectRoot: selectedProject.path,
-      paths: resolveProjectRuntimePaths(selectedProject.id, "C:\\aho-test"),
-      reservedProjectId: selectedProject.id,
-    },
+    admission: turnAdmission(selectedProject, selectedConversation, runtimeState),
+    runtimeState,
     turnSkillResolution: productMode === "agent" ? { skillInputs: [], diagnostics: [] } : null,
   };
 }
@@ -329,6 +330,50 @@ function turnRequest(productMode: "agent" | "harness"): ConversationTurnRequest 
     committedMessage: input.committedMessage,
     attachments: input.attachments,
     providerId: input.providerId,
+    admission: input.admission,
+  };
+}
+
+function turnAdmission(
+  selectedProject: ManagedProject,
+  selectedConversation: StoredConversation,
+  runtimeState: ProjectRuntimeState,
+): ConversationTurnStrategyInput["admission"] {
+  const agentMode = selectedConversation.productMode === "agent";
+  return {
+    projectId: selectedProject.id,
+    productMode: selectedConversation.productMode,
+    conversationId: selectedConversation.conversationId,
+    providerId: selectedConversation.selectedProviderId,
+    agentTurnMode: agentMode ? selectedConversation.agentTurnMode ?? "default" : null,
+    capabilitySnapshot: agentMode ? agentCapabilitySnapshot() : null,
+    model: agentMode ? { providerId: selectedConversation.selectedProviderId, modelId: "test-model" } : null,
+    sandboxPolicy: "workspace-write",
+    writableRoots: [selectedProject.path],
+    runtimeState,
+  };
+}
+
+function agentCapabilitySnapshot(): ProviderCapabilitySnapshot {
+  return {
+    providerId: "codex",
+    displayName: "Codex",
+    productMode: "agent",
+    status: "ready",
+    runnable: true,
+    checkedAt: "2026-08-11T00:00:00.000Z",
+    snapshotHash: "agent-capabilities",
+    snapshotVersion: 1,
+    effectiveModel: "test-model",
+    effectiveModelSource: "provider-default",
+    degradedReasons: [],
+    capabilities: PROVIDER_OPERATION_CAPABILITIES.agent.map((key) => ({
+      key,
+      label: key,
+      spec: "supported",
+      runtime: "ready",
+      summary: "ready",
+    })),
   };
 }
 
@@ -337,6 +382,7 @@ function conversation(productMode: "agent" | "harness"): StoredConversation {
     projectId: "project-1",
     conversationId: "conversation-1",
     productMode,
+    agentTurnMode: productMode === "agent" ? "default" : null,
     clientCreateRequestId: null,
     clientCreateRequestHash: null,
     title: "Conversation",

@@ -151,6 +151,7 @@ export interface CreateTopicRequest {
   contextRefs?: TopicMessageInput["contextRefs"];
   attachmentIds?: string[];
   providerId?: TopicMessageInput["providerId"];
+  agentTurnMode?: TopicMessageInput["agentTurnMode"];
 }
 
 export interface UpdateConversationTitleRequest {
@@ -167,6 +168,7 @@ export interface TopicMessageRequest {
   providerSwitchIntent?: TopicMessageInput["providerSwitchIntent"];
   agentSurfaceId?: TopicMessageInput["agentSurfaceId"];
   productMode: ProductMode;
+  agentTurnMode?: TopicMessageInput["agentTurnMode"];
 }
 
 export interface FolderDialogResult {

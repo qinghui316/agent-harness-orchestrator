@@ -1,4 +1,4 @@
-import type { ProductMode, ProviderId, ProviderReadableEvent, ProviderUserInputQuestion } from "../provider-runtime/index.js";
+import type { AgentTurnMode, ProductMode, ProviderId, ProviderReadableEvent, ProviderUserInputQuestion } from "../provider-runtime/index.js";
 import type { ConversationInteractionQueue } from "./conversation-interaction-contract.js";
 import type { HarnessExecutionMode, RunMetadata } from "../types/index.js";
 import type { WorkflowActionType } from "../workflow-actions/registry.js";
@@ -57,6 +57,7 @@ export interface TopicThreadEntry {
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
   planHandoff?: ValidatedPlanHandoffIntent;
+  agentTurnMode?: AgentTurnMode;
   document?: CanonicalPlanDocument;
 }
 
@@ -228,6 +229,7 @@ export type WorkbenchLiveEvent =
       state: "active" | "archive";
       selectedProviderId?: string;
       productMode: ProductMode;
+      agentTurnMode?: AgentTurnMode | null;
     };
   } }
   | { event: "topic.updated"; data: { conversation: { id: string; productMode: ProductMode; title: string; state: string; updatedAt?: string; selectedProviderId?: string } } }
@@ -310,6 +312,7 @@ export interface TopicMessageInput {
   providerSwitchIntent?: "resume-workflow" | "conversation-only";
   agentSurfaceId?: string;
   productMode?: ProductMode;
+  agentTurnMode?: AgentTurnMode;
 }
 
 export interface NewConversationSkillOverride {

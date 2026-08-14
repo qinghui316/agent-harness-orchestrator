@@ -606,6 +606,24 @@ retired semantic-thread and raw-provider history paths do not participate in
 the default conversation, and schema mismatch rebuilds bounded Workbench
 conversation/runtime data behind quiescence instead of importing old history.
 
+Direct Agent turn admission is composed through `ConversationTurnRouter` before
+new Conversation or user-message persistence. One immutable admission captures
+Provider capability evidence, effective model, `default | plan`, and the
+sandbox policy reused by the Strategy and ProviderAttempt. Schema revision 13
+stores the Agent next-send preference on Conversations and Composer drafts and
+the actual mode on ProviderAttempts; Harness rows remain null. Codex-specific
+`collaborationMode/list` and the complete Plan `turn/start` payload remain inside
+the Codex adapter. The completed provider-neutral `planText` is the durable Plan
+result, while realtime deltas are projection-only.
+
+`ProviderInputLifecycleOwner` is the single durable owner for native user-input
+requests from Main/Harness and Direct Agent turns. It persists provider-neutral
+questions and lineage, drives `pending -> submitting -> submitted`, interrupts
+unresolved requests at terminal boundaries, and reconciles restart state from
+active Provider-turn proof. The HTTP settlement service receives the composed
+Provider Registry and does not import a default adapter. This owner does not
+change Harness clarification or formal Plan handoff authority.
+
 Plan-document and workspace-resource projection follows the same read-only
 direction. The exact provider-qualified final Planning-child item owns the
 visible Plan body and immutable document identity; proposal files and accepted

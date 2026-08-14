@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { assertProductMode, type ProductMode } from "../provider-runtime/index.js";
+import { assertAgentTurnMode, assertProductMode, type AgentTurnMode, type ProductMode } from "../provider-runtime/index.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import { readProjectHarnessChangeContext } from "../project-harness/change.js";
 import { resolveProjectRuntimeState, type ProjectRuntimeState } from "../project-runtime/coordinator.js";
@@ -34,6 +34,7 @@ export async function createWorkbenchConversation(
     productMode: ProductMode;
     clientRequestId: string;
     skillOverrides?: NewConversationSkillOverride[];
+    agentTurnMode?: AgentTurnMode;
   },
   live?: WorkbenchLiveSink,
   options: { runMainAgent?: boolean; turnRouter?: ConversationTurnRoutingPort; runtimeStateResolver?: (project: ManagedProject) => Promise<ProjectRuntimeState> } = {},
@@ -45,8 +46,10 @@ export async function createWorkbenchConversation(
   clientRequestId: string;
   replayed: boolean;
   selectedProviderId: string;
+  agentTurnMode: AgentTurnMode | null;
 }> {
   const productMode = assertProductMode(input.productMode);
+  const agentTurnMode = normalizeRequestedAgentTurnMode(productMode, input.agentTurnMode);
   const clientRequestId = normalizeClientRequestId(input.clientRequestId);
   const skillOverrides = normalizeSkillOverrides(input.skillOverrides);
   const resolved = await resolveTopicFileReferences(project, input.body ?? "", input.contextRefs);
@@ -67,6 +70,7 @@ export async function createWorkbenchConversation(
     attachmentIds: attachments.map((attachment) => attachment.id),
     providerId: selectedProviderId,
     skillOverrides,
+    agentTurnMode,
   });
   const persistence = await openProjectConversationDatabase(
     project,
@@ -75,12 +79,43 @@ export async function createWorkbenchConversation(
   );
   const database = persistence.database;
   let creation: ReturnType<WorkbenchDatabase["unitOfWork"]["createConversationFromFirstSend"]>;
+  let pendingAdmission: Awaited<ReturnType<ConversationTurnRoutingPort["admit"]>> | null = null;
   try {
+    const existing = database.conversations.readConversationByClientCreateRequestId(persistence.projectId, clientRequestId);
+    if (existing) {
+      const legacyRequestHash = stableConversationCreateRequestHashV1({
+        productMode,
+        body,
+        contextRefs: resolved.contextRefs,
+        attachmentIds: attachments.map((attachment) => attachment.id),
+        providerId: selectedProviderId,
+        skillOverrides,
+      });
+      const requestMatches = existing.clientCreateRequestHash === requestHash
+        || (existing.agentTurnMode === agentTurnMode && existing.clientCreateRequestHash === legacyRequestHash);
+      if (existing.productMode !== productMode || !requestMatches) {
+        const error = new Error("clientRequestId was already used for a different Conversation request.");
+        error.name = "Conflict";
+        throw error;
+      }
+      creation = { conversation: existing, message: null, replayed: true };
+    } else {
+      const admission = options.runMainAgent === false
+        ? null
+        : await turnRouter!.admit({
+          project,
+          productMode,
+          conversationId,
+          providerId: selectedProviderId,
+          agentTurnMode,
+          attachments,
+        });
     creation = database.unitOfWork.createConversationFromFirstSend({
       conversation: {
       projectId: persistence.projectId,
       conversationId,
       productMode,
+      agentTurnMode,
       clientCreateRequestId: clientRequestId,
       clientCreateRequestHash: requestHash,
       title,
@@ -104,9 +139,12 @@ export async function createWorkbenchConversation(
         text: body,
         contextRefs: resolved.contextRefs.length > 0 ? resolved.contextRefs : undefined,
         attachments: attachments.length > 0 ? attachments : undefined,
+        agentTurnMode: agentTurnMode ?? undefined,
       }),
       skillOverrides,
     });
+      if (admission && !creation.replayed) pendingAdmission = admission;
+    }
   } finally {
     database.close();
   }
@@ -126,6 +164,7 @@ export async function createWorkbenchConversation(
         state: committed.state,
         selectedProviderId: committed.selectedProviderId,
         productMode: committed.productMode,
+        agentTurnMode: committed.agentTurnMode,
       },
     },
   });
@@ -140,6 +179,7 @@ export async function createWorkbenchConversation(
       attachments,
       providerId: committed.selectedProviderId,
       live,
+      admission: pendingAdmission!,
     }, productMode);
   }
   return {
@@ -150,6 +190,7 @@ export async function createWorkbenchConversation(
     clientRequestId,
     replayed: creation.replayed,
     selectedProviderId: committed.selectedProviderId,
+    agentTurnMode: committed.agentTurnMode,
   };
 }
 
@@ -288,7 +329,19 @@ export async function postConversationMessage(
       throw error;
     }
   }
-  const committed = await commitTopLevelConversationMessage(identity, parsed, turnRouter, live);
+  const agentTurnMode = normalizeRequestedAgentTurnMode(
+    identity.conversation.productMode,
+    parsed.agentTurnMode ?? identity.conversation.agentTurnMode ?? undefined,
+  );
+  const admission = await turnRouter.admit({
+    project,
+    productMode: identity.conversation.productMode,
+    conversationId,
+    providerId: identity.conversation.selectedProviderId,
+    agentTurnMode,
+    attachments: parsed.attachments ?? [],
+  });
+  const committed = await commitTopLevelConversationMessage(identity, { ...parsed, agentTurnMode: agentTurnMode ?? undefined }, turnRouter, live);
   const result = await turnRouter.route({
     project,
     conversation: committed.conversation,
@@ -297,6 +350,7 @@ export async function postConversationMessage(
     providerId: committed.conversation.selectedProviderId,
     live,
     harnessHandoff: committed.planHandoff,
+    admission,
   }, requestedMode);
   if (providerSwitch && parsed.providerSwitchIntent === "resume-workflow") {
     if (runtimeState.state !== "ready") {
@@ -379,7 +433,7 @@ function resolvePersistenceOnlyProviderId(project: ManagedProject, requestedProv
   return providerId;
 }
 
-async function normalizeTopicMessageInput(project: ManagedProject, input: string | TopicMessageInput): Promise<Required<Pick<TopicMessageInput, "mode" | "message">> & { contextRefs?: TopicMessageInput["contextRefs"]; attachments?: TopicAttachment[]; planHandoffIntent?: TopicMessageInput["planHandoffIntent"]; providerId?: string; providerSwitchIntent: "resume-workflow" | "conversation-only"; agentSurfaceId?: string }> {
+async function normalizeTopicMessageInput(project: ManagedProject, input: string | TopicMessageInput): Promise<Required<Pick<TopicMessageInput, "mode" | "message">> & { contextRefs?: TopicMessageInput["contextRefs"]; attachments?: TopicAttachment[]; planHandoffIntent?: TopicMessageInput["planHandoffIntent"]; providerId?: string; providerSwitchIntent: "resume-workflow" | "conversation-only"; agentSurfaceId?: string; agentTurnMode?: AgentTurnMode }> {
   const mode = typeof input === "string" ? "chat" : input.mode ?? "chat";
   const message = typeof input === "string" ? input : input.message ?? input.text ?? "";
   if (mode !== "chat") throw new Error("Message mode must be chat; planning is delegated by the Main Agent to a real child.");
@@ -397,6 +451,9 @@ async function normalizeTopicMessageInput(project: ManagedProject, input: string
     providerId: typeof input === "string" ? undefined : input.providerId,
     providerSwitchIntent: typeof input === "string" ? "conversation-only" : input.providerSwitchIntent ?? (input.providerId ? "resume-workflow" : "conversation-only"),
     agentSurfaceId: typeof input === "string" ? undefined : input.agentSurfaceId?.trim() || undefined,
+    agentTurnMode: typeof input === "string" || input.agentTurnMode === undefined
+      ? undefined
+      : assertAgentTurnMode(input.agentTurnMode),
   };
 }
 
@@ -508,8 +565,22 @@ async function commitTopLevelConversationMessage(
       contextRefs: parsed.contextRefs,
       attachments: parsed.attachments,
       planHandoff,
+      agentTurnMode: parsed.agentTurnMode,
     };
-    delivery.append(toCanonicalTimelineMessage(projectId, conversationId, user));
+    const userWrite = toCanonicalTimelineMessage(projectId, conversationId, user);
+    if (conversation.productMode === "agent") {
+      const committedUser = database.unitOfWork.commitAgentConversationMessage({
+        projectId,
+        conversationId,
+        expectedAgentTurnMode: conversation.agentTurnMode ?? "default",
+        agentTurnMode: parsed.agentTurnMode ?? conversation.agentTurnMode ?? "default",
+        updatedAt: now,
+        message: userWrite,
+      });
+      delivery.publishCommitted(committedUser);
+    } else {
+      delivery.append(userWrite);
+    }
     const proposalStatus = planHandoff?.kind === "revise-plan"
       ? "revision-requested"
       : planHandoff?.kind === "skip-plan" ? "skipped" : null;
@@ -572,7 +643,21 @@ function stableConversationCreateRequestHash(input: {
   attachmentIds: string[];
   providerId: string;
   skillOverrides: NewConversationSkillOverride[];
+  agentTurnMode: AgentTurnMode | null;
 }): string {
+  return createHash("sha256").update(JSON.stringify({
+    version: 2,
+    productMode: input.productMode,
+    body: input.body,
+    contextRefs: input.contextRefs ?? [],
+    attachmentIds: input.attachmentIds,
+    providerId: input.providerId,
+    skillOverrides: input.skillOverrides,
+    agentTurnMode: input.agentTurnMode,
+  })).digest("hex");
+}
+
+function stableConversationCreateRequestHashV1(input: Omit<Parameters<typeof stableConversationCreateRequestHash>[0], "agentTurnMode">): string {
   return createHash("sha256").update(JSON.stringify({
     version: 1,
     productMode: input.productMode,
@@ -582,4 +667,23 @@ function stableConversationCreateRequestHash(input: {
     providerId: input.providerId,
     skillOverrides: input.skillOverrides,
   })).digest("hex");
+}
+
+function normalizeRequestedAgentTurnMode(productMode: ProductMode, value: AgentTurnMode | undefined): AgentTurnMode | null {
+  if (productMode === "harness") {
+    if (value !== undefined) {
+      const error = new Error("Harness requests cannot carry agentTurnMode.");
+      error.name = "Conflict";
+      throw error;
+    }
+    return null;
+  }
+  if (value === undefined) return "default";
+  try {
+    return assertAgentTurnMode(value);
+  } catch (cause) {
+    const error = cause instanceof Error ? cause : new Error(String(cause));
+    error.name = "BadRequest";
+    throw error;
+  }
 }

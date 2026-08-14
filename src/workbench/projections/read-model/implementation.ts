@@ -234,6 +234,7 @@ export async function listWorkbenchTopics(input: WorkbenchProjectInput, productM
     return store.conversations.listConversations(paths.projectId, productMode).map((conversation) => ({
       id: conversation.conversationId,
       productMode: conversation.productMode,
+      agentTurnMode: conversation.agentTurnMode,
       kind: "conversation",
       name: conversation.conversationId,
       title: conversation.title,
@@ -273,6 +274,7 @@ async function buildAgentModeSnapshot(
     const topics: WorkbenchTopicSummary[] = conversations.map((conversation) => ({
       id: conversation.conversationId,
       productMode: "agent",
+      agentTurnMode: conversation.agentTurnMode,
       kind: "conversation",
       name: conversation.conversationId,
       title: conversation.title,

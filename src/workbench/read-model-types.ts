@@ -17,7 +17,7 @@ import type {
 } from "../types/index.js";
 import type { ApplyReadinessKind } from "../apply/manager.js";
 import type { HighImpactApprovalScope } from "../workflow-actions/high-impact-approval.js";
-import type { ProductMode } from "../provider-runtime/index.js";
+import type { AgentTurnMode, ProductMode } from "../provider-runtime/index.js";
 import type { StoredProviderAttempt } from "./persistence/contracts.js";
 import type {
   WorkbenchSchedulerClaimReconcilePlanSummary,
@@ -92,6 +92,7 @@ export type WorkbenchRuntimeStatus = WorkbenchProjectHarnessStatus | WorkbenchPr
 export interface WorkbenchTopicSummary {
   id: string;
   productMode: ProductMode;
+  agentTurnMode?: AgentTurnMode | null;
   kind?: "conversation" | "change";
   name: string;
   title: string;

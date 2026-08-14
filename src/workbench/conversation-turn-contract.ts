@@ -1,5 +1,11 @@
 import type { ProviderSkillInput } from "../project-harness/contracts.js";
-import type { ProductMode, ProviderId } from "../provider-runtime/index.js";
+import type {
+  AgentTurnMode,
+  ProductMode,
+  ProviderCapabilitySnapshot,
+  ProviderId,
+  ProviderModelRef,
+} from "../provider-runtime/index.js";
 import type { ProjectRuntimeState } from "../project-runtime/coordinator.js";
 import type { ProjectRuntimeResolution } from "../project-runtime/context.js";
 import type { ManagedProject } from "../types/index.js";
@@ -55,6 +61,29 @@ export interface ConversationTurnRequest {
   live?: WorkbenchLiveSink;
   harnessHandoff?: ValidatedPlanHandoffIntent;
   requiredSkillIds?: readonly string[];
+  admission: ConversationTurnAdmission;
+}
+
+export interface ConversationTurnAdmissionRequest {
+  project: ManagedProject;
+  productMode: ProductMode;
+  conversationId: string;
+  providerId: ProviderId;
+  agentTurnMode: AgentTurnMode | null;
+  attachments: readonly TopicAttachment[];
+}
+
+export interface ConversationTurnAdmission {
+  projectId: string;
+  productMode: ProductMode;
+  conversationId: string;
+  providerId: ProviderId;
+  agentTurnMode: AgentTurnMode | null;
+  capabilitySnapshot: ProviderCapabilitySnapshot | null;
+  model: ProviderModelRef | null;
+  sandboxPolicy: "read-only" | "workspace-write";
+  writableRoots: readonly string[];
+  runtimeState: ProjectRuntimeState;
 }
 
 /** Internal input created only by ConversationTurnRouter after composition. */
@@ -88,6 +117,7 @@ export type ConversationTurnContinuationPort = (
 
 export interface ConversationTurnRoutingPort {
   assertRequestedMode(conversation: StoredConversation, requestedMode?: ProductMode): void;
+  admit(input: ConversationTurnAdmissionRequest): Promise<ConversationTurnAdmission>;
   route(input: ConversationTurnRequest, requestedMode?: ProductMode): Promise<TopicMessageResult>;
   resolveProviderId: (project: ManagedProject, requestedProviderId?: ProviderId) => ProviderId;
   resolveRuntimeState: (project: ManagedProject) => Promise<ProjectRuntimeState>;

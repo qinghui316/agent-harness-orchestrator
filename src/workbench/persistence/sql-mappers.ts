@@ -1,5 +1,5 @@
 import type { ProviderSkillInput } from "../../project-harness/contracts.js";
-import { assertProductMode, type ProviderCapabilitySnapshot, type ProviderModelRef } from "../../provider-runtime/index.js";
+import { assertAgentTurnMode, assertProductMode, type ProviderCapabilitySnapshot, type ProviderModelRef } from "../../provider-runtime/index.js";
 import type { StoredConversation, StoredConversationProviderBinding, StoredDecisionRecord, StoredDecisionStatus, StoredProviderAttempt, StoredProviderResumePoint, StoredProviderThreadLink, StoredSkillEnablement, StoredSkillRoot, StoredTopicMessage } from "./contracts.js";
 
 export interface SqliteRow { [key: string]: unknown; }
@@ -36,6 +36,9 @@ export function mapConversationRow(row: SqliteRow): StoredConversation {
     projectId: String(row.projectId),
     conversationId: String(row.conversationId),
     productMode: assertProductMode(row.productMode, "Stored Conversation productMode"),
+    agentTurnMode: row.agentTurnMode === null || row.agentTurnMode === undefined
+      ? null
+      : assertAgentTurnMode(row.agentTurnMode, "Stored Conversation agentTurnMode"),
     clientCreateRequestId: nullableString(row.clientCreateRequestId),
     clientCreateRequestHash: nullableString(row.clientCreateRequestHash),
     title: String(row.title),
@@ -113,6 +116,9 @@ export function mapProviderAttemptRow(row: SqliteRow): StoredProviderAttempt {
     conversationId: nullableString(row.conversationId),
     attemptId: String(row.attemptId),
     productMode: assertProductMode(row.productMode, "Stored ProviderAttempt productMode"),
+    agentTurnMode: row.agentTurnMode === null || row.agentTurnMode === undefined
+      ? null
+      : assertAgentTurnMode(row.agentTurnMode, "Stored ProviderAttempt agentTurnMode"),
     graphScopeId: nullableString(row.graphScopeId),
     changeId: nullableString(row.changeId),
     agentTaskId: nullableString(row.agentTaskId),

@@ -49,6 +49,8 @@ import type { ConversationTurnRoutingPort } from "../../src/workbench/conversati
 import { buildConversationInteractionQueue } from "../../src/workbench/conversation-interactions.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
+import { defaultProviderRegistry } from "../../src/provider-runtime/index.js";
+import { reconcileStaleProviderInputRequests } from "../../src/workbench/provider-input-lifecycle.js";
 
 let root: string;
 let originalAhoHome: string | undefined;
@@ -99,6 +101,41 @@ afterEach(async () => {
 });
 
 describe("conversation interaction settlement", () => {
+  it("interrupts stale pending and submitting Provider input during startup recovery", async () => {
+    const pending = await providerInteraction("pending");
+    activeTurn.mockReturnValue(null);
+
+    const result = await reconcileStaleProviderInputRequests({ runtime, providerRegistry: defaultProviderRegistry });
+
+    expect(result.interrupted).toBe(1);
+    const store = await openProjectRuntimeWorkbenchDatabase(runtime);
+    try {
+      expect(store.interactions.readProviderUserInputRequest(project().id, pending.conversationId, "request-key-1")?.status)
+        .toBe("interrupted");
+      expect(store.timeline
+        .listConversationMessages(project().id, pending.conversationId)
+        .find((item) => item.id === "provider-input-message")?.rawJson)
+        .toContain("no exact active Provider Turn could be proven");
+    } finally {
+      store.close();
+    }
+  });
+
+  it("preserves Provider input only when exact active Turn lineage is still proven", async () => {
+    const pending = await providerInteraction("submitting");
+
+    const result = await reconcileStaleProviderInputRequests({ runtime, providerRegistry: defaultProviderRegistry });
+
+    expect(result.interrupted).toBe(0);
+    const store = await openProjectRuntimeWorkbenchDatabase(runtime);
+    try {
+      expect(store.interactions.readProviderUserInputRequest(project().id, pending.conversationId, "request-key-1")?.status)
+        .toBe("submitting");
+    } finally {
+      store.close();
+    }
+  });
+
   it("routes grouped answers to the active provider turn and persists only redacted secret history", async () => {
     const fixture = await providerInteraction();
     providerAnswer.mockResolvedValue(undefined);
@@ -107,7 +144,7 @@ describe("conversation interaction settlement", () => {
       action: "answer",
       answers: { choice: "continue", token: "top-secret-value" },
       skippedQuestionIds: [],
-    });
+    }, undefined, undefined, defaultProviderRegistry);
 
     expect(activeTurn).toHaveBeenCalledWith(fixture.conversationId);
     expect(providerAnswer).toHaveBeenCalledWith(
@@ -119,7 +156,7 @@ describe("conversation interaction settlement", () => {
     try {
       const request = store.interactions.readProviderUserInputRequest(project().id, fixture.conversationId, "request-key-1");
       expect(request).toMatchObject({
-        status: "submitted",
+        status: "submitting",
         publicAnswers: { choice: "continue", token: "已提供敏感信息" },
         disposition: "answered",
       });
@@ -137,7 +174,7 @@ describe("conversation interaction settlement", () => {
       action: "answer",
       answers: { choice: "continue", token: "must-not-replay" },
       skippedQuestionIds: [],
-    })).rejects.toThrow("提交结果尚未确认");
+    }, undefined, undefined, defaultProviderRegistry)).rejects.toThrow("提交结果尚未确认");
     expect(providerAnswer).not.toHaveBeenCalled();
   });
 
@@ -150,7 +187,7 @@ describe("conversation interaction settlement", () => {
       skippedQuestionIds: [],
     };
 
-    await expect(settleConversationInteraction(project(), fixture.conversationId, fixture.interactionId, settlement))
+    await expect(settleConversationInteraction(project(), fixture.conversationId, fixture.interactionId, settlement, undefined, undefined, defaultProviderRegistry))
       .rejects.toThrow("transport outcome unknown");
 
     const store = await openProjectRuntimeWorkbenchDatabase(runtime);
@@ -162,7 +199,7 @@ describe("conversation interaction settlement", () => {
       store.close();
     }
 
-    await expect(settleConversationInteraction(project(), fixture.conversationId, fixture.interactionId, settlement))
+    await expect(settleConversationInteraction(project(), fixture.conversationId, fixture.interactionId, settlement, undefined, undefined, defaultProviderRegistry))
       .rejects.toThrow("提交结果尚未确认");
     expect(providerAnswer).toHaveBeenCalledTimes(1);
   });
@@ -178,11 +215,12 @@ describe("conversation interaction settlement", () => {
 
     await expect(settleConversationInteraction(project(), fixture.conversationId, fixture.interactionId, {
       action: "skip",
-    })).rejects.toThrow("已经处理、过期或不属于当前需求");
+    }, undefined, undefined, defaultProviderRegistry)).rejects.toThrow("已经处理、过期或不属于当前需求");
     expect(providerAnswer).not.toHaveBeenCalled();
   });
 
   it("delegates clarification answer and skip to the intake owner", async () => {
+    await ensureHarnessConversation("conversation-1");
     domainSettlement.resolved = {
       kind: "clarification",
       public: {
@@ -210,6 +248,7 @@ describe("conversation interaction settlement", () => {
   });
 
   it("delegates execute, revise, and non-authorizing skip Plan intents to Main", async () => {
+    await ensureHarnessConversation("conversation-plan");
     domainSettlement.resolved = {
       kind: "plan",
       public: { questions: [] },
@@ -242,6 +281,7 @@ describe("conversation interaction settlement", () => {
   });
 
   it("fails closed for Plan settlement without the composed Router", async () => {
+    await ensureHarnessConversation("conversation-plan");
     domainSettlement.resolved = {
       kind: "plan",
       public: { questions: [] },
@@ -260,6 +300,32 @@ describe("conversation interaction settlement", () => {
     expect(domainSettlement.postConversationMessage).not.toHaveBeenCalled();
   });
 });
+
+async function ensureHarnessConversation(conversationId: string): Promise<void> {
+  const store = await openProjectRuntimeWorkbenchDatabase(runtime);
+  const now = new Date().toISOString();
+  try {
+    if (store.conversations.readConversation(project().id, conversationId)) return;
+    store.conversations.createConversation({
+      projectId: project().id,
+      conversationId,
+      productMode: "harness",
+      agentTurnMode: null,
+      title: conversationId,
+      state: "active",
+      boundChangeId: null,
+      currentGraphScopeId: `scope-${conversationId}`,
+      selectedProviderId: "codex",
+      completedTurnSequence: 0,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+    store.conversations.initializeConversationGraphScope(project().id, conversationId, `scope-${conversationId}`, now);
+  } finally {
+    store.close();
+  }
+}
 
 function testTurnRouter(): ConversationTurnRoutingPort {
   return {

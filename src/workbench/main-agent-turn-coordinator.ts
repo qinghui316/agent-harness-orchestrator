@@ -36,7 +36,6 @@ import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbenc
 import { publishAgentSurfacesInvalidated } from "./project-live-events.js";
 import type { WorkbenchDatabase } from "./persistence/database.js";
 import type { StoredConversation, StoredTopicMessage } from "./persistence/contracts.js";
-import type { CanonicalTimelineEnvelope } from "./canonical-timeline-contract.js";
 import { CanonicalTimelineDelivery, publishCanonicalTimelineEnvelope, publishCommittedCanonicalTimelineRow } from "./canonical-timeline-delivery.js";
 import { toCanonicalTimelineMessage } from "./canonical-timeline-message.js";
 import {
@@ -46,7 +45,7 @@ import {
 } from "./provider-capture-persistence.js";
 import { ProviderChildLifecycleOwner } from "./provider-child-lifecycle-owner.js";
 import { listClosableChildAgents, runExactChildAgentClose } from "./provider-child-turn-coordinator.js";
-import { persistProviderUserInputRequest, providerUserInputRequestKey } from "./provider-input-lifecycle.js";
+import { ProviderInputLifecycleOwner } from "./provider-input-lifecycle.js";
 import { assembleSharedConversationContext } from "./shared-conversation-context.js";
 import { buildConversationInteractionQueue } from "./conversation-interactions.js";
 import { acceptCurrentConversationPlanningPackage, readPlannerChildProposal } from "./planning/planner-child-proposal.js";
@@ -126,15 +125,6 @@ async function runProjectScopedMainAgentTurnActivity(
   let completedTurnSequence = 0;
   let boundChangeId: string | null = null;
   let expectedResumeAttemptId: string | null = null;
-  const persistedProviderInputRequests = new Map<string, Promise<CanonicalTimelineEnvelope>>();
-  const providerInputRequestKeys = new Map<string, string>();
-  const pendingProviderInputResolutions = new Set<Promise<void>>();
-  const flushProviderInputLifecycle = async (): Promise<void> => {
-    await Promise.allSettled([
-      ...persistedProviderInputRequests.values(),
-      ...pendingProviderInputResolutions,
-    ]);
-  };
   const terminalCommittedRows: StoredTopicMessage[] = [];
   const publishTerminalRows = (): number => {
     const count = terminalCommittedRows.length;
@@ -143,6 +133,7 @@ async function runProjectScopedMainAgentTurnActivity(
     }
     return count;
   };
+  let providerInputLifecycle: ProviderInputLifecycleOwner | null = null;
   await mkdir(directory, { recursive: true });
   const capture = createAssistantTranscriptCapture(live, (snapshot) => {
     if (!canonicalDelivery) return true;
@@ -411,6 +402,23 @@ async function runProjectScopedMainAgentTurnActivity(
     terminalCommittedRows.push(...terminal.interactionRows);
   };
   let result: ProviderTurnResult;
+  providerInputLifecycle = new ProviderInputLifecycleOwner({
+    runtime: resolution.paths,
+    productMode: "harness",
+    projectId,
+    conversationId,
+    graphScopeId,
+    runId,
+    providerId,
+    attemptId,
+    runtimeScopeId: conversationId,
+    changeId: boundChangeId ?? undefined,
+    publisher: (envelope) => publishCanonicalTimelineEnvelope(live, envelope),
+    onUpdated: () => emitInteractionUpdate(),
+    onError: (error) => {
+      canonicalPersistenceError ??= error;
+    },
+  });
   try {
     result = await provider.conversation.runTurn({
     providerId: providerId!,
@@ -647,81 +655,17 @@ async function runProjectScopedMainAgentTurnActivity(
         registered.status,
       );
     },
-    onUserInputRequest: (request) => {
-      const requestKey = providerUserInputRequestKey(runId, request);
-      providerInputRequestKeys.set(request.requestId, requestKey);
-      const record = {
-        providerId: request.providerId,
-        attemptId: request.attemptId,
-        requestKey,
-        requestId: request.requestId,
-        threadId: request.threadId,
-        turnId: request.turnId,
-        itemId: request.itemId,
-        runId,
-        runtimeScopeId: conversationId,
-        conversationId,
-        graphScopeId,
-        changeId: boundChangeId ?? undefined,
-        agentRoleId: request.roleId !== "main-agent" ? request.roleId : undefined,
-        questions: request.questions,
-        ...(request.expiresAt ? { expiresAt: request.expiresAt } : {}),
-        status: "pending" as const,
-      };
-      const persistence = persistProviderUserInputRequest(resolution.paths, record, (envelope) => publishCanonicalTimelineEnvelope(live, envelope));
-      persistedProviderInputRequests.set(request.requestId, persistence);
-      void persistence
-        .then(async () => {
-          await emitInteractionUpdate();
-        })
-        .catch((cause) => {
-          capture.sink.emit({ event: "error", data: { projectId, productMode: "harness", conversationId, runId, graphScopeId, message: cause instanceof Error ? cause.message : String(cause) } });
-        });
-    },
-    onUserInputResolved: (providerResolution) => {
-      const persistence = persistedProviderInputRequests.get(providerResolution.requestId);
-      const resolutionWork = (async () => {
-        if (persistence) await persistence;
-        const requestKey = providerInputRequestKeys.get(providerResolution.requestId);
-        if (!requestKey) return;
-        const resolutionStore = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
-        let row: StoredTopicMessage | null = null;
-        try {
-          const current = resolutionStore.interactions.readProviderUserInputRequest(projectId, conversationId, requestKey);
-          if (!current || current.status !== "pending") return;
-          const transition = resolutionStore.interactions.transitionProviderUserInputRequest(
-            projectId,
-            conversationId,
-            graphScopeId,
-            requestKey,
-            "pending",
-            "submitted",
-            {
-              skippedQuestionIds: current.questions.map((question) => question.id),
-              disposition: "skipped",
-            },
-            new Date().toISOString(),
-          );
-          row = transition.row;
-        } finally {
-          resolutionStore.close();
-        }
-        if (row) publishCommittedCanonicalTimelineRow(capture.sink, row, "harness");
-        await emitInteractionUpdate();
-      })().catch((cause) => {
-        capture.sink.emit({ event: "error", data: { projectId, productMode: "harness", conversationId, runId, graphScopeId, message: cause instanceof Error ? cause.message : String(cause) } });
-      });
-      pendingProviderInputResolutions.add(resolutionWork);
-      void resolutionWork.finally(() => pendingProviderInputResolutions.delete(resolutionWork));
-    },
+    onUserInputRequest: providerInputLifecycle.onRequest,
+    onUserInputResolved: providerInputLifecycle.onResolved,
     onError: (error) => capture.sink.emit({ event: "error", data: { projectId, productMode: "harness", conversationId, runId, message: error instanceof Error ? error.message : String(error) } }),
     model: capabilitySnapshot.effectiveModel ? { providerId: providerId!, modelId: capabilitySnapshot.effectiveModel } : null,
     });
+    await providerInputLifecycle.terminalize();
   } catch (error) {
     canonicalStore?.close();
     canonicalStore = null;
     canonicalDelivery = null;
-    await flushProviderInputLifecycle();
+    await providerInputLifecycle?.terminalize().catch(() => undefined);
     const failedAttemptStore = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
     try {
       commitFailedProviderTurn(failedAttemptStore, null);
@@ -737,7 +681,7 @@ async function runProjectScopedMainAgentTurnActivity(
     canonicalStore.close();
     canonicalStore = null;
     canonicalDelivery = null;
-    await flushProviderInputLifecycle();
+    await providerInputLifecycle?.terminalize().catch(() => undefined);
     const failedAttemptStore = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
     try {
       commitFailedProviderTurn(failedAttemptStore, result.session?.sessionId ?? null);
@@ -907,7 +851,6 @@ async function runProjectScopedMainAgentTurnActivity(
     if (assistant && capture.mainCaptures.size === 0) {
       terminalTimelineMessages.push(toCanonicalTimelineMessage(projectId, conversationId, assistant, completedTurnSequence + 1));
     }
-    await flushProviderInputLifecycle();
     const terminalAt = new Date().toISOString();
     const uniqueTerminalMessages = [...new Map(terminalTimelineMessages.map((message) => [message.id, message])).values()];
     const terminalCommit = store.unitOfWork.commitProviderTurnTerminal({

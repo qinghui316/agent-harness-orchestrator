@@ -21,19 +21,23 @@ export function useProviderConfigurationController(input: ProviderConfigurationI
   const [diagnostics, setDiagnostics] = useState<ProviderDiagnostics | null>(null);
   const [modelSettings, setModelSettings] = useState<ProviderModelSettingsSnapshot | null>(null);
   const [capabilities, setCapabilities] = useState<ProviderCapabilitySnapshot[]>([]);
+  const [capabilitiesError, setCapabilitiesError] = useState<string | null>(null);
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [modelSettingsBusy, setModelSettingsBusy] = useState(false);
   const [modelSettingsMessage, setModelSettingsMessage] = useState<string | null>(null);
   const [resolvedScopeIdentity, setResolvedScopeIdentity] = useState<string | null>(null);
   const requestGenerationRef = useRef(0);
+  const onErrorRef = useRef(input.onError);
   const selectedProviderIdRef = useRef<string | null>(null);
   const scopeResolved = resolvedScopeIdentity === scopeIdentity;
   const visibleDiagnostics = scopeResolved ? diagnostics : null;
   const visibleModelSettings = scopeResolved ? modelSettings : null;
   const visibleCapabilities = scopeResolved ? capabilities : [];
+  const visibleCapabilitiesError = scopeResolved ? capabilitiesError : null;
   const visibleSelectedProviderId = scopeResolved ? selectedProviderId : null;
   selectedProviderIdRef.current = visibleSelectedProviderId;
+  onErrorRef.current = input.onError;
 
   const providerPath = useCallback((providerId: string, leaf: "diagnostics" | "models") => (
     input.projectId
@@ -62,6 +66,7 @@ export function useProviderConfigurationController(input: ProviderConfigurationI
       ))
       : [];
     setCapabilities(nextCapabilities);
+    setCapabilitiesError(null);
     const providerId = selectEffectiveProviderId({
       conversationProviderId: input.conversationProviderId,
       projectDefaultProviderId: input.projectDefaultProviderId,
@@ -82,13 +87,19 @@ export function useProviderConfigurationController(input: ProviderConfigurationI
   useEffect(() => {
     let active = true;
     reload().catch((cause: unknown) => {
-      if (active) input.onError(cause instanceof Error ? cause.message : String(cause));
+      if (active) {
+        const message = cause instanceof Error ? cause.message : String(cause);
+        setCapabilities([]);
+        setCapabilitiesError(message);
+        setResolvedScopeIdentity(scopeIdentity);
+        onErrorRef.current(message);
+      }
     });
     return () => {
       active = false;
       requestGenerationRef.current += 1;
     };
-  }, [reload, input.onError]);
+  }, [reload]);
 
   useEffect(() => {
     setModelSettingsBusy(false);
@@ -163,6 +174,8 @@ export function useProviderConfigurationController(input: ProviderConfigurationI
     diagnostics: visibleDiagnostics,
     modelSettings: visibleModelSettings,
     capabilities: visibleCapabilities,
+    capabilitiesLoading: !scopeResolved,
+    capabilitiesError: visibleCapabilitiesError,
     selectedProviderId: visibleSelectedProviderId,
     modelPickerOpen,
     modelSettingsBusy,

@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
-import type { HarnessExecutionMode, ProductMode, ProviderCapabilitySnapshot } from "./types.js";
+import type { AgentTurnMode, HarnessExecutionMode, ProductMode, ProviderCapabilitySnapshot } from "./types.js";
 
 export const PROVIDER_CAPABILITY_SNAPSHOT_VERSION = 2;
 export const HARNESS_EXECUTION_MODES: HarnessExecutionMode[] = ["stepwise", "scoped-auto"];
 export const PRODUCT_MODES = ["agent", "harness"] as const satisfies readonly ProductMode[];
+export const AGENT_TURN_MODES = ["default", "plan"] as const satisfies readonly AgentTurnMode[];
 
 export function parseProductMode(value: unknown): ProductMode | null {
   return typeof value === "string" && PRODUCT_MODES.includes(value as ProductMode)
@@ -14,6 +15,18 @@ export function parseProductMode(value: unknown): ProductMode | null {
 export function assertProductMode(value: unknown, label = "productMode"): ProductMode {
   const mode = parseProductMode(value);
   if (!mode) throw new Error(label + " must be agent or harness.");
+  return mode;
+}
+
+export function parseAgentTurnMode(value: unknown): AgentTurnMode | null {
+  return typeof value === "string" && AGENT_TURN_MODES.includes(value as AgentTurnMode)
+    ? value as AgentTurnMode
+    : null;
+}
+
+export function assertAgentTurnMode(value: unknown, label = "agentTurnMode"): AgentTurnMode {
+  const mode = parseAgentTurnMode(value);
+  if (!mode) throw new Error(label + " must be default or plan.");
   return mode;
 }
 

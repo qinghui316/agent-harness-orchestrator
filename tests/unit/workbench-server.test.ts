@@ -162,6 +162,33 @@ describe("workbench server", () => {
     )).status).toBe(409);
   });
 
+  it("persists Agent Composer mode through the HTTP draft contract and rejects Harness leakage", async () => {
+    const endpoint = `${handle!.url}/api/projects/repo/workbench/composer-draft`;
+    const saved = await fetch(endpoint, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        productMode: "agent",
+        agentTurnMode: "plan",
+        selectedProviderId: "codex",
+      }),
+    });
+    expect(saved.ok).toBe(true);
+    expect(await saved.json()).toMatchObject({
+      draft: { productMode: "agent", agentTurnMode: "plan", selectedProviderId: "codex" },
+    });
+
+    expect(await getJson(`${endpoint}?productMode=agent`)).toMatchObject({
+      draft: { productMode: "agent", agentTurnMode: "plan", selectedProviderId: "codex" },
+    });
+    const invalidHarness = await fetch(endpoint, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ productMode: "harness", agentTurnMode: "plan" }),
+    });
+    expect(invalidHarness.status).toBe(409);
+  });
+
   it("orders identity reconciliation before project recovery and listen", async () => {
     await handle!.close();
     handle = null;

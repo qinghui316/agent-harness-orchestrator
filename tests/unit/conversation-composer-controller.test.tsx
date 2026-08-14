@@ -10,7 +10,7 @@ import {
   type ConversationComposerPorts,
   type ConversationComposerScope,
 } from "../../src/web/src/controllers/useConversationComposerController.js";
-import type { SkillListItem, TopicAttachment, TopicFileReference } from "../../src/web/src/types.js";
+import type { AgentTurnMode, ProviderCapabilitySnapshot, SkillListItem, TopicAttachment, TopicFileReference } from "../../src/web/src/types.js";
 
 afterEach(() => {
   cleanup();
@@ -237,6 +237,137 @@ describe("Conversation composer controller", () => {
       conversationId: "agent-conversation",
       message: "captured turn",
     }));
+  });
+
+  it("restores an empty Agent draft mode and captures it in the atomic first send", async () => {
+    const ports = composerPorts();
+    ports.drafts.load.mockResolvedValue({ agentTurnMode: "plan" });
+    const scope = homeScope({
+      productMode: "agent",
+      providerCapabilities: [providerCapability("codex", true)],
+    });
+    const { result } = renderHook(() => useConversationComposerController(scope, ports));
+    await waitFor(() => expect(result.current.agentTurnMode).toBe("plan"));
+    act(() => result.current.setComposerText("plan this change"));
+
+    await act(async () => { await result.current.createConversation(); });
+
+    expect(ports.session.createConversation).toHaveBeenCalledWith(expect.objectContaining({
+      productMode: "agent",
+      agentTurnMode: "plan",
+      body: "plan this change",
+    }));
+  });
+
+  it("retains Plan across a Provider switch and blocks unsupported dispatch without side effects", async () => {
+    const ports = composerPorts();
+    const initial = conversationScope({
+      productMode: "agent",
+      selectedProviderId: "codex",
+      conversation: {
+        id: "agent-conversation",
+        productMode: "agent",
+        agentTurnMode: "plan",
+        state: "active",
+        selectedProviderId: "codex",
+      },
+      providerCapabilities: [providerCapability("codex", true)],
+    });
+    const { result, rerender } = renderHook(
+      ({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
+      { initialProps: { scope: initial } },
+    );
+    expect(result.current.agentTurnMode).toBe("plan");
+
+    rerender({ scope: {
+      ...initial,
+      selectedProviderId: "other-provider",
+      providerCapabilities: [providerCapability("codex", true), providerCapability("other-provider", false)],
+    } });
+    act(() => result.current.setComposerText("must stay local"));
+    await act(async () => { await result.current.send(); });
+
+    expect(result.current.agentTurnMode).toBe("plan");
+    expect(result.current.agentTurnModeDisabledReason).toBe("当前 Agent 不支持 Plan 模式。");
+    expect(ports.actions.sendMessage).not.toHaveBeenCalled();
+    expect(ports.skills.setEnabled).not.toHaveBeenCalled();
+    expect(result.current.composerText).toBe("must stay local");
+  });
+
+  it("keeps a selected Plan on capability query failure and blocks dispatch until recovery", async () => {
+    const ports = composerPorts();
+    const scope = conversationScope({
+      productMode: "agent",
+      conversation: {
+        id: "agent-conversation",
+        productMode: "agent",
+        agentTurnMode: "plan",
+        state: "active",
+        selectedProviderId: "codex",
+      },
+      providerCapabilities: [],
+      providerCapabilitiesError: "Provider capability request failed",
+    });
+    const { result } = renderHook(() => useConversationComposerController(scope, ports));
+    act(() => result.current.setComposerText("preserve this plan request"));
+
+    await act(async () => { await result.current.send(); });
+
+    expect(result.current.agentTurnMode).toBe("plan");
+    expect(result.current.agentTurnModeDisabledReason).toContain("Provider capability request failed");
+    expect(ports.actions.sendMessage).not.toHaveBeenCalled();
+    expect(result.current.composerText).toBe("preserve this plan request");
+  });
+
+  it("persists an empty Agent mode selection without writing a Harness draft", async () => {
+    const ports = composerPorts();
+    const { result, rerender } = renderHook(
+      ({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
+      { initialProps: { scope: homeScope({ productMode: "agent", providerCapabilities: [providerCapability("codex", true)] }) } },
+    );
+    await act(async () => { await result.current.selectAgentTurnMode("plan"); });
+    expect(ports.drafts.save).toHaveBeenCalledWith({
+      projectId: "repo",
+      productMode: "agent",
+      agentTurnMode: "plan",
+      selectedProviderId: "codex",
+    });
+
+    rerender({ scope: homeScope({ productMode: "harness" }) });
+    await act(async () => { await result.current.selectAgentTurnMode("plan"); });
+    expect(ports.drafts.save).toHaveBeenCalledTimes(1);
+    expect(result.current.agentTurnMode).toBe("default");
+  });
+
+  it("restores the persisted empty Agent draft after an Agent to Harness to Agent transition", async () => {
+    const ports = composerPorts();
+    const restoredDraft = deferred<{ agentTurnMode: AgentTurnMode | null } | null>();
+    ports.drafts.load
+      .mockResolvedValueOnce({ agentTurnMode: "plan" })
+      .mockImplementationOnce(() => restoredDraft.promise);
+    const agentScope = homeScope({
+      productMode: "agent",
+      providerCapabilities: [providerCapability("codex", true)],
+    });
+    const { result, rerender } = renderHook(
+      ({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
+      { initialProps: { scope: agentScope } },
+    );
+
+    await waitFor(() => expect(result.current.agentTurnMode).toBe("plan"));
+    rerender({ scope: homeScope({ productMode: "harness", providerCapabilities: [] }) });
+    await waitFor(() => expect(result.current.agentTurnMode).toBe("default"));
+    rerender({ scope: {
+      ...agentScope,
+      providerCapabilities: undefined,
+      providerCapabilitiesLoading: true,
+    } });
+    rerender({ scope: agentScope });
+
+    expect(result.current.agentTurnMode).toBe("plan");
+    await act(async () => { restoredDraft.resolve({ agentTurnMode: "plan" }); });
+    await waitFor(() => expect(result.current.agentTurnMode).toBe("plan"));
+    expect(ports.drafts.load).toHaveBeenCalledTimes(2);
   });
 
   it("uses one captured Skill identity while follow-up overrides are pending", async () => {
@@ -687,6 +818,7 @@ function composerPorts(): ConversationComposerPorts & {
   timeline: { calibrate: ReturnType<typeof vi.fn> };
   skills: { load: ReturnType<typeof vi.fn>; setEnabled: ReturnType<typeof vi.fn> };
   attachments: { upload: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn> };
+  drafts: { load: ReturnType<typeof vi.fn>; save: ReturnType<typeof vi.fn> };
   operation: { begin: ReturnType<typeof vi.fn>; release: ReturnType<typeof vi.fn> };
   ids: { createClientRequestId: ReturnType<typeof vi.fn> };
   onError: ReturnType<typeof vi.fn>;
@@ -715,6 +847,10 @@ function composerPorts(): ConversationComposerPorts & {
     attachments: {
       upload: vi.fn(async () => attachment("uploaded")),
       remove: vi.fn(async () => undefined),
+    },
+    drafts: {
+      load: vi.fn(async () => null),
+      save: vi.fn(async () => undefined),
     },
     ids: { createClientRequestId: vi.fn(() => "request-1") },
     onError: vi.fn(),
@@ -784,6 +920,29 @@ function attachment(id: string): TopicAttachment {
     createdAt: "2026-07-17T00:00:00.000Z",
     storagePath: `attachments/${id}/content.txt`,
     runtimeMode: "bounded-text-preview",
+  };
+}
+
+function providerCapability(providerId: string, planReady: boolean): ProviderCapabilitySnapshot {
+  return {
+    providerId,
+    displayName: providerId,
+    productMode: "agent",
+    status: "ready",
+    runnable: true,
+    checkedAt: "2026-08-15T00:00:00.000Z",
+    snapshotHash: `snapshot-${providerId}`,
+    snapshotVersion: 1,
+    effectiveModel: "gpt-test",
+    effectiveModelSource: "provider-default",
+    degradedReasons: [],
+    capabilities: [{
+      key: "turn.plan",
+      label: "Plan",
+      spec: planReady ? "supported" : "unsupported",
+      runtime: planReady ? "ready" : "unavailable",
+      summary: planReady ? "Ready" : "Unavailable",
+    }],
   };
 }
 

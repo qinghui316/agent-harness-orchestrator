@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { consumeWorkbenchLiveStream, fetchJson, postJson } from "../api.js";
 import { projectDisplayName } from "../formatters.js";
 import type {
+  AgentTurnMode,
   AppStatus,
   ProductMode,
   ProjectStatus,
@@ -33,6 +34,7 @@ type PendingDemandRekeyResult = "rekeyed" | "already-canonical" | "not-pending" 
 export type CreateDemandConversationInput = {
   projectId: string;
   productMode: ProductMode;
+  agentTurnMode?: AgentTurnMode;
   clientRequestId: string;
   body: string;
   contextRefs: TopicFileReference[];
@@ -885,6 +887,7 @@ const defaultApi: ProjectConversationSessionApi = {
       confirm: true,
       providerId: input.providerId,
       productMode: input.productMode,
+      agentTurnMode: input.agentTurnMode,
       clientRequestId: input.clientRequestId,
       skillOverrides: input.skillOverrides,
     },

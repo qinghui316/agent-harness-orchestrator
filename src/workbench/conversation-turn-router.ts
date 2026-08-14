@@ -11,6 +11,8 @@ import type { StoredConversation } from "./persistence/contracts.js";
 import type {
   ConversationTurnContinuationOptions,
   ConversationTurnContinuationPort,
+  ConversationTurnAdmission,
+  ConversationTurnAdmissionRequest,
   ConversationTurnExecutionPorts,
   ConversationTurnRequest,
   ConversationTurnStrategy,
@@ -84,7 +86,8 @@ export class ConversationTurnRouter {
   async route(input: ConversationTurnRequest, requestedMode?: ProductMode): Promise<TopicMessageResult> {
     this.assertRequestedMode(input.conversation, requestedMode);
     assertProviderIdentity(input);
-    const runtimeState = await this.requireRuntimeState(input.project);
+    assertAdmissionIdentity(input);
+    const runtimeState = input.admission.runtimeState;
     const strategy = this.strategies[input.conversation.productMode];
     await strategy.preflight?.({ ...input, runtimeState });
     const turnSkillResolution = await this.resolveSkillContextForTurn(input, runtimeState);
@@ -93,6 +96,56 @@ export class ConversationTurnRouter {
       runtimeState,
       turnSkillResolution: freezeResolution(turnSkillResolution),
     }, this.ports);
+  }
+
+  async admit(input: ConversationTurnAdmissionRequest): Promise<ConversationTurnAdmission> {
+    const runtimeState = await this.requireRuntimeState(input.project);
+    if (input.productMode === "harness") {
+      if (input.agentTurnMode !== null) throw conflict("Harness Turn cannot carry an Agent Turn mode.");
+      return freezeAdmission({
+        projectId: input.project.id,
+        productMode: input.productMode,
+        conversationId: input.conversationId,
+        providerId: input.providerId,
+        agentTurnMode: null,
+        capabilitySnapshot: null,
+        model: null,
+        sandboxPolicy: "workspace-write",
+        writableRoots: [input.project.path],
+        runtimeState,
+      });
+    }
+    if (input.attachments.length > 0) {
+      throw conflict("Direct Agent attachments are not supported in this increment.");
+    }
+    const agentTurnMode = input.agentTurnMode ?? "default";
+    const resolved = await this.providerRegistry.requireProfiles(
+      input.providerId,
+      ["agent"],
+      "agent",
+      input.project,
+      input.project.path,
+    );
+    if (agentTurnMode === "plan") {
+      const plan = resolved.snapshot.capabilities.find((capability) => capability.key === "turn.plan");
+      if (plan?.runtime !== "ready" || !resolved.snapshot.effectiveModel) {
+        throw conflict("Selected Provider cannot run Agent Plan turns.");
+      }
+    }
+    return freezeAdmission({
+      projectId: input.project.id,
+      productMode: "agent",
+      conversationId: input.conversationId,
+      providerId: input.providerId,
+      agentTurnMode,
+      capabilitySnapshot: resolved.snapshot,
+      model: resolved.snapshot.effectiveModel
+        ? { providerId: input.providerId, modelId: resolved.snapshot.effectiveModel }
+        : null,
+      sandboxPolicy: agentTurnMode === "plan" ? "read-only" : "workspace-write",
+      writableRoots: agentTurnMode === "plan" ? [] : [input.project.path],
+      runtimeState,
+    });
   }
 
   readonly resolveRuntimeState = async (project: ManagedProject): Promise<ProjectRuntimeState> => this.requireRuntimeState(project);
@@ -190,6 +243,20 @@ export class ConversationTurnRouter {
   }
 }
 
+function freezeAdmission(admission: ConversationTurnAdmission): ConversationTurnAdmission {
+  if (admission.capabilitySnapshot) {
+    const capabilities = admission.capabilitySnapshot.capabilities.map((capability) => Object.freeze({ ...capability }));
+    admission.capabilitySnapshot = Object.freeze({
+      ...admission.capabilitySnapshot,
+      degradedReasons: Object.freeze([...admission.capabilitySnapshot.degradedReasons]) as unknown as string[],
+      capabilities: Object.freeze(capabilities) as unknown as typeof admission.capabilitySnapshot.capabilities,
+    });
+  }
+  if (admission.model) admission.model = Object.freeze({ ...admission.model });
+  Object.freeze(admission.writableRoots);
+  return Object.freeze(admission);
+}
+
 function freezeResolution(
   resolution: import("./conversation-turn-contract.js").TurnSkillContextResolution | null,
 ): import("./conversation-turn-contract.js").TurnSkillContextResolution | null {
@@ -206,4 +273,21 @@ function assertProviderIdentity(input: import("./conversation-turn-contract.js")
   const error = new Error("Conversation Provider does not match the requested Provider.");
   error.name = "Conflict";
   throw error;
+}
+
+function assertAdmissionIdentity(input: import("./conversation-turn-contract.js").ConversationTurnRequest): void {
+  const admission = input.admission;
+  if (admission.projectId !== input.project.id
+    || admission.productMode !== input.conversation.productMode
+    || admission.conversationId !== input.conversation.conversationId
+    || admission.providerId !== input.providerId
+    || admission.agentTurnMode !== input.conversation.agentTurnMode) {
+    throw conflict("Turn admission does not match the committed Conversation identity.");
+  }
+}
+
+function conflict(message: string): Error {
+  const error = new Error(message);
+  error.name = "Conflict";
+  return error;
 }

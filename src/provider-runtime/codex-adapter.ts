@@ -102,7 +102,10 @@ export async function runCodexTurn(request: ProviderTurnRequest): Promise<Provid
     additionalContext: request.additionalContext,
     writableRoots: request.writableRoots,
     developerInstructions: request.developerInstructions,
-    enableDefaultModeUserInput: request.operationProfile === "main" || request.operationProfile === "planning",
+    enableDefaultModeUserInput: request.operationProfile === "agent" || request.operationProfile === "main" || request.operationProfile === "planning",
+    collaborationMode: request.agentTurnMode === "plan"
+      ? codexPlanCollaborationMode(request)
+      : undefined,
     outputSchema: request.outputSchema,
     });
   } finally {
@@ -121,6 +124,19 @@ export async function runCodexTurn(request: ProviderTurnRequest): Promise<Provid
     changedFiles: result.changedFiles,
     ...(result.host ? { runtimeHost: result.host } : {}),
     error: result.error,
+  };
+}
+
+export function codexPlanCollaborationMode(request: ProviderTurnRequest): NonNullable<import("../codex/app-server.js").CodexAppServerTurnOptions["collaborationMode"]> {
+  const model = request.model?.modelId?.trim();
+  if (!model) throw new Error("Codex Plan Turn requires the admitted effective model.");
+  return {
+    mode: "plan",
+    settings: {
+      model,
+      reasoning_effort: null,
+      developer_instructions: null,
+    },
   };
 }
 

@@ -164,13 +164,13 @@ writeConversationProviderBinding(binding: StoredConversationProviderBinding): vo
   }
 
 createProviderAttempt(
-  attempt: Omit<StoredProviderAttempt, "productMode" | "effectiveSkillInputs">
-    & Partial<Pick<StoredProviderAttempt, "productMode" | "effectiveSkillInputs">>,
+  attempt: Omit<StoredProviderAttempt, "productMode" | "agentTurnMode" | "effectiveSkillInputs">
+    & Partial<Pick<StoredProviderAttempt, "productMode" | "agentTurnMode" | "effectiveSkillInputs">>,
 ): void {
     let productMode = attempt.productMode;
     if (attempt.conversationId) {
       const conversation = this.db.prepare(`
-        SELECT product_mode AS productMode
+        SELECT product_mode AS productMode, agent_turn_mode AS agentTurnMode
         FROM conversations
         WHERE project_id = ? AND conversation_id = ? AND deleted_at IS NULL
       `).get(attempt.projectId, attempt.conversationId) as SqliteRow | undefined;
@@ -185,16 +185,17 @@ createProviderAttempt(
     }
     this.db.prepare(`
       INSERT INTO provider_attempts (
-        project_id, conversation_id, attempt_id, product_mode, graph_scope_id, provider_id,
+        project_id, conversation_id, attempt_id, product_mode, agent_turn_mode, graph_scope_id, provider_id,
         change_id, agent_task_id, role_id, parent_agent_surface_id, operation_profile,
         native_session_id, model_json, capability_snapshot_json, effective_skill_inputs_json, handoff_hash,
         delivered_through_completed_turn, worktree_id, status, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       attempt.projectId,
       attempt.conversationId,
       attempt.attemptId,
       productMode,
+      attempt.agentTurnMode ?? (productMode === "agent" ? "default" : null),
       attempt.graphScopeId,
       attempt.providerId,
       attempt.changeId,
@@ -267,7 +268,7 @@ completeProviderAttempt(projectId: string, attemptId: string, status: StoredProv
   readProviderAttempt(projectId: string, attemptId: string): StoredProviderAttempt | null {
     const row = this.db.prepare(`
       SELECT project_id AS projectId, conversation_id AS conversationId, attempt_id AS attemptId,
-        product_mode AS productMode,
+        product_mode AS productMode, agent_turn_mode AS agentTurnMode,
         graph_scope_id AS graphScopeId, provider_id AS providerId, native_session_id AS nativeSessionId,
         change_id AS changeId, agent_task_id AS agentTaskId, role_id AS roleId,
         parent_agent_surface_id AS parentAgentSurfaceId, operation_profile AS operationProfile,
@@ -482,7 +483,7 @@ bindProviderAttemptThread(
 listProviderAttempts(projectId: string, conversationId: string): StoredProviderAttempt[] {
     const rows = this.db.prepare(`
       SELECT project_id AS projectId, conversation_id AS conversationId, attempt_id AS attemptId,
-        product_mode AS productMode,
+        product_mode AS productMode, agent_turn_mode AS agentTurnMode,
         graph_scope_id AS graphScopeId, provider_id AS providerId, native_session_id AS nativeSessionId,
         change_id AS changeId, agent_task_id AS agentTaskId, role_id AS roleId,
         parent_agent_surface_id AS parentAgentSurfaceId, operation_profile AS operationProfile,

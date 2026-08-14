@@ -7,6 +7,30 @@ import { TopicComposer } from "../../src/web/src/shell/composer.js";
 afterEach(cleanup);
 
 describe("Topic Composer height", () => {
+  it("shows the turn-mode control only for Agent and keeps unsupported Plan selected", () => {
+    const onSelect = vi.fn();
+    const view = render(<TopicComposer
+      value="draft"
+      onChange={vi.fn()}
+      modelLabel="gpt"
+      projectId="project"
+      productMode="agent"
+      agentTurnMode="plan"
+      onSelectAgentTurnMode={onSelect}
+      agentTurnModeDisabledReason="当前 Agent 不支持 Plan 模式。"
+      onSend={async () => undefined}
+      actionRunning={null}
+    />);
+    expect(screen.getByTestId("agent-turn-mode-control")).toBeTruthy();
+    const planButton = screen.getByRole("button", { name: "Plan" });
+    expect(planButton.getAttribute("aria-pressed")).toBe("true");
+    expect(planButton.hasAttribute("disabled")).toBe(false);
+    expect(screen.getByRole("button", { name: "当前 Agent 不支持 Plan 模式。" }).hasAttribute("disabled")).toBe(true);
+
+    view.rerender(composer("draft"));
+    expect(screen.queryByTestId("agent-turn-mode-control")).toBeNull();
+  });
+
   it("keeps a compact input and caps content growth at 160px", () => {
     let measuredHeight = 44;
     const descriptor = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "scrollHeight");

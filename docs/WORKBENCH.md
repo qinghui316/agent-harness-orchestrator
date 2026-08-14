@@ -30,6 +30,25 @@ requests carry explicit product mode and may assert Conversation and Provider
 identity; stored Conversation identity is authoritative and mismatches fail
 closed before Provider effects.
 
+Ordinary Agent conversations have a per-send `Default / Plan` control. `Default`
+uses the admitted project workspace-write sandbox. `Plan` is available only when
+the selected Provider reports the optional `turn.plan` capability and an
+effective model; it uses a read-only sandbox with no writable roots. The
+selection is captured before the user message, ProviderAttempt, or Provider turn
+is created, and the Conversation and empty Composer draft retain it only as the
+next-send preference. A capability error keeps a selected Plan visible but
+blocks sending until the user changes mode or capability recovery succeeds.
+Harness conversations do not expose this control.
+
+Agent Plan output is ordinary canonical assistant content. Realtime plan updates
+are temporary presentation events; the completed Provider `planText` calibrates
+the durable final message. It does not create a Harness Change, Planning Agent
+proposal, execution approval, or Plan handoff. Provider-native questions from
+Agent and Harness turns share one durable interaction lifecycle. Answers target
+the exact active Provider turn, secret values are persisted only as redacted
+placeholders, and an unproven submission remains `submitting` rather than being
+replayed.
+
 ## 1. Purpose
 
 The AHO Workbench should feel like a Codex-style development workspace, not a traditional admin console, ticket board, or raw agent terminal.
@@ -381,6 +400,7 @@ Primary Workbench surfaces should use:
 - `处理中`
 - `已完成`
 - `稍后处理`
+- Agent Composer 中的 `Default` / `Plan`
 
 Primary Workbench surfaces should not use:
 
@@ -393,17 +413,17 @@ Primary Workbench surfaces should not use:
 - `audit-blocked`
 - `queue blocked`
 - `Approval Inbox`
-- `Plan mode`
+- Harness 主对话中的 `Plan mode`
 
 Internal terms may appear in developer docs, tests, APIs, storage, and Agent Loop / raw evidence contexts.
 
 ## 5. Core UX Rules
 
 - A developer should understand the current demand, next required decision, and strongest evidence without opening raw files first.
-- Planning happens in the `plan-session` / Plan Agent workspace or in a real
-  provider-owned child-agent workspace; the main conversation keeps the parent
-  Agent narrative and delegation/result process rows. There is no separate
-  user-visible bottom Plan mode.
+- Harness planning happens in the `plan-session` / Plan Agent workspace or in a
+  real provider-owned child-agent workspace; the Harness main conversation keeps
+  the parent Agent narrative and delegation/result process rows. This is
+  separate from the ordinary Agent Composer's read-only `Plan` turn mode.
 - Command process rows use deterministic running/completed/failed wording and
   the same normal font weight. Failure is conveyed with restrained status color
   and iconography, while details remain manually expanded in the bounded

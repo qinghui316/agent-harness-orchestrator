@@ -1,7 +1,8 @@
-import { defaultProviderRegistry } from "../provider-runtime/index.js";
+import type { ProviderRegistry } from "../provider-runtime/index.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
 import type { ProjectRuntimeResolution } from "../project-runtime/context.js";
+import type { ProjectRuntimeState } from "../project-runtime/coordinator.js";
 import type { ManagedProject } from "../types/index.js";
 import { answerClarification, skipClarification, type ClarificationAnswer } from "./intake.js";
 import { postConversationMessage } from "./conversation-service.js";
@@ -23,12 +24,26 @@ export async function settleConversationInteraction(
   settlement: ConversationInteractionSettlement,
   live?: WorkbenchLiveSink,
   turnRouter?: ConversationTurnRoutingPort,
+  providerRegistry?: Pick<ProviderRegistry, "get">,
 ): Promise<unknown> {
-  const runtime = await requireReadyProjectRuntime(project);
-  const resolved = await resolveConversationInteraction(runtime.paths, conversationId, interactionId);
-  if (resolved.kind === "provider-input") {
-    return settleProviderInput(project, conversationId, interactionId, resolved, settlement, live);
+  const runtimeState = await resolveProjectRuntimeState(project, {
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
+  const paths = runtimeState.state === "onboarding" ? runtimeState.paths : runtimeState.resolution.paths;
+  const store = await openProjectRuntimeWorkbenchDatabase(paths);
+  let conversation;
+  try {
+    conversation = store.conversations.readConversation(paths.projectId, conversationId);
+  } finally {
+    store.close();
   }
+  if (!conversation) throw conflict("对应Conversation不存在，无法提交交互。");
+  const resolved = await resolveConversationInteraction(paths, conversationId, interactionId);
+  if (resolved.kind === "provider-input") {
+    if (!providerRegistry) throw new Error("Provider Registry is not composed for interaction settlement.");
+    return settleProviderInput(paths, conversation, interactionId, resolved, settlement, providerRegistry, live);
+  }
+  requireReadyProjectRuntime(runtimeState);
   if (resolved.kind === "clarification") {
     const result = await settleClarification(project, resolved, settlement);
     publishAgentSurfacesInvalidated(project.id, {
@@ -42,29 +57,34 @@ export async function settleConversationInteraction(
 }
 
 async function settleProviderInput(
-  project: ManagedProject,
-  conversationId: string,
+  paths: import("../project-runtime/paths.js").ProjectRuntimePaths,
+  conversation: import("./persistence/contracts.js").StoredConversation,
   interactionId: string,
   resolved: Extract<Awaited<ReturnType<typeof resolveConversationInteraction>>, { kind: "provider-input" }>,
   settlement: ConversationInteractionSettlement,
+  providerRegistry: Pick<ProviderRegistry, "get">,
   live?: WorkbenchLiveSink,
-): Promise<{ status: "submitted"; interactionId: string }> {
+): Promise<{ status: "submitting"; interactionId: string }> {
   if (settlement.action !== "answer" && settlement.action !== "skip") throw badRequest("该操作不适用于Agent问题。");
   const request = resolved.source.request;
   if (request.status === "submitting") throw conflict("该回答的提交结果尚未确认，请等待状态恢复后再重试。");
   const normalized = settlement.action === "skip"
     ? { answers: {}, skippedQuestionIds: resolved.public.questions.map((question) => question.questionId), disposition: "skipped" as const }
     : normalizeQuestionSettlement(resolved.public.questions, settlement);
-  const submissionKey = `${project.id}:${conversationId}:${interactionId}`;
+  const submissionKey = `${conversation.projectId}:${conversation.conversationId}:${interactionId}`;
   if (activeSettlements.has(submissionKey)) throw conflict("该回答正在提交，请勿重复操作。");
   activeSettlements.add(submissionKey);
   let transitioned = false;
   let transportInvoked = false;
   try {
-    const provider = defaultProviderRegistry.get(request.providerId);
+    const provider = providerRegistry.get(request.providerId);
     const active = provider.conversation.getActiveTurn(request.runtimeScopeId);
-    if (!active || active.attemptId !== request.attemptId) throw conflict("对应Agent回合当前不可用，请恢复该任务后重试。");
-    await transitionProviderRequest(project, conversationId, requireRequestGraphScope(request), request.requestKey, "pending", "submitting", undefined, live);
+    assertActiveProviderInputIdentity(conversation, request, active);
+    await transitionProviderRequest(paths, conversation, requireRequestGraphScope(request), request.requestKey, "pending", "submitting", {
+      publicAnswers: sanitizeAnswers(resolved.public.questions, normalized.answers),
+      skippedQuestionIds: normalized.skippedQuestionIds,
+      disposition: normalized.disposition,
+    }, live);
     transitioned = true;
     transportInvoked = true;
     await active.respondToUserInput(request.requestId, normalized, {
@@ -72,15 +92,10 @@ async function settleProviderInput(
       sessionId: request.threadId,
       turnId: request.turnId,
     });
-    await transitionProviderRequest(project, conversationId, requireRequestGraphScope(request), request.requestKey, "submitting", "submitted", {
-      publicAnswers: sanitizeAnswers(resolved.public.questions, normalized.answers),
-      skippedQuestionIds: normalized.skippedQuestionIds,
-      disposition: normalized.disposition,
-    }, live);
-    return { status: "submitted", interactionId };
+    return { status: "submitting", interactionId };
   } catch (cause) {
     if (transitioned && !transportInvoked) {
-      await transitionProviderRequest(project, conversationId, requireRequestGraphScope(request), request.requestKey, "submitting", "pending", undefined, live).catch(() => undefined);
+      await transitionProviderRequest(paths, conversation, requireRequestGraphScope(request), request.requestKey, "submitting", "pending", undefined, live).catch(() => undefined);
     }
     throw cause;
   } finally {
@@ -182,8 +197,8 @@ function sanitizeAnswers(
 }
 
 async function transitionProviderRequest(
-  project: ManagedProject,
-  conversationId: string,
+  paths: import("../project-runtime/paths.js").ProjectRuntimePaths,
+  conversation: import("./persistence/contracts.js").StoredConversation,
   expectedGraphScopeId: string,
   requestKey: string,
   expectedStatus: "pending" | "submitting",
@@ -191,12 +206,12 @@ async function transitionProviderRequest(
   settlement?: { publicAnswers?: Record<string, string | string[]>; skippedQuestionIds?: string[]; disposition?: "answered" | "skipped" },
   live?: WorkbenchLiveSink,
 ): Promise<void> {
-  const runtime = await requireReadyProjectRuntime(project);
-  const projectId = runtime.harness.projectId;
-  const store = await openProjectRuntimeWorkbenchDatabase(runtime.paths);
+  const projectId = paths.projectId;
+  const conversationId = conversation.conversationId;
+  const store = await openProjectRuntimeWorkbenchDatabase(paths);
   try {
     const transition = store.interactions.transitionProviderUserInputRequest(projectId, conversationId, expectedGraphScopeId, requestKey, expectedStatus, nextStatus, settlement, new Date().toISOString());
-    new CanonicalTimelineDelivery(store, "harness", live).publishCommitted(transition.row);
+    new CanonicalTimelineDelivery(store, conversation.productMode, live).publishCommitted(transition.row);
     const graphScopeId = store.conversations.readConversation(projectId, conversationId)?.currentGraphScopeId;
     publishAgentSurfacesInvalidated(projectId, {
       conversationId,
@@ -213,14 +228,30 @@ function requireRequestGraphScope(request: { graphScopeId?: string }): string {
   return request.graphScopeId;
 }
 
-async function requireReadyProjectRuntime(project: ManagedProject): Promise<ProjectRuntimeResolution> {
-  const state = await resolveProjectRuntimeState(project, {
-    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
-  });
+function requireReadyProjectRuntime(state: ProjectRuntimeState): ProjectRuntimeResolution {
   if (state.state !== "ready") {
     throw new Error(`Project Harness is not ready for conversation interaction settlement: ${state.state}.`);
   }
   return state.resolution;
+}
+
+function assertActiveProviderInputIdentity(
+  conversation: import("./persistence/contracts.js").StoredConversation,
+  request: import("./types.js").WorkbenchProviderUserInputRequest,
+  active: ReturnType<import("../provider-runtime/index.js").ProviderDescriptor["conversation"]["getActiveTurn"]>,
+): asserts active is NonNullable<typeof active> {
+  if (!active
+    || active.providerId !== request.providerId
+    || active.attemptId !== request.attemptId
+    || active.runId !== request.runId
+    || active.runtimeScopeId !== request.runtimeScopeId
+    || active.session.sessionId !== request.threadId
+    || active.turnId !== request.turnId
+    || request.conversationId !== conversation.conversationId
+    || request.graphScopeId !== conversation.currentGraphScopeId
+    || request.requestId.trim() === "") {
+    throw conflict("对应Agent回合当前不可用或身份不匹配，请恢复该任务后重试。");
+  }
 }
 
 function badRequest(message: string): Error {

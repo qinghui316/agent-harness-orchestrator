@@ -7,6 +7,7 @@ import type { ConversationInteractionSettlement } from "../../workbench/conversa
 import { createLiveSink } from "./live.js";
 import { readJsonBody, requireProductMode } from "./http.js";
 import type { ConversationTurnRoutingPort } from "../../workbench/conversation-turn-contract.js";
+import type { ProviderRegistry } from "../../provider-runtime/index.js";
 
 export async function sendConversationInteractionSettlement(
   input: WorkbenchProjectInput & { project: ManagedProject },
@@ -15,6 +16,7 @@ export async function sendConversationInteractionSettlement(
   request: IncomingMessage,
   response: ServerResponse,
   turnRouter: ConversationTurnRoutingPort,
+  providerRegistry: ProviderRegistry,
 ): Promise<void> {
   const body = await readJsonBody<ConversationInteractionSettlement & { productMode?: import("../../provider-runtime/index.js").ProductMode }>(request);
   const productMode = requireProductMode(body.productMode);
@@ -28,7 +30,7 @@ export async function sendConversationInteractionSettlement(
   const sink = createLiveSink(sse, input.project.id);
   try {
     await getWorkbenchTopic(input, conversationId, productMode);
-    await settleConversationInteraction(input.project, conversationId, interactionId, settlement, sink, turnRouter);
+    await settleConversationInteraction(input.project, conversationId, interactionId, settlement, sink, turnRouter, providerRegistry);
     sink.emit({ event: "snapshot", data: await getWorkbenchSnapshot(input, { topicId: conversationId, productMode }) });
     sink.emit({ event: "done", data: { projectId: input.project.id, productMode, conversationId, status: "completed" } });
   } catch (cause) {

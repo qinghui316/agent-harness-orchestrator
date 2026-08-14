@@ -47,7 +47,8 @@ export type ProviderCapabilityKey =
   | "session.continuation"
   | "image.input"
   | "model.list"
-  | "skills";
+  | "skills"
+  | "turn.plan";
 export type ProviderCapabilityItem = {
   key: ProviderCapabilityKey;
   label: string;
@@ -58,6 +59,7 @@ export type ProviderCapabilityItem = {
 };
 export type ProviderId = string;
 export type ProductMode = "harness" | "agent";
+export type AgentTurnMode = "default" | "plan";
 export type HarnessExecutionMode = "stepwise" | "scoped-auto";
 export type ProviderCapabilitySnapshot = {
   providerId: ProviderId;
@@ -343,7 +345,7 @@ export type Snapshot = {
   warnings: string[];
 };
 
-export type Topic = { id: string; productMode: ProductMode; title: string; state: string; updatedAt?: string; kind?: "conversation" | "change"; boundChangeId?: string | null; graphScopeId?: string; selectedProviderId?: string };
+export type Topic = { id: string; productMode: ProductMode; agentTurnMode?: AgentTurnMode | null; title: string; state: string; updatedAt?: string; kind?: "conversation" | "change"; boundChangeId?: string | null; graphScopeId?: string; selectedProviderId?: string };
 export type WorkpadRuntimeStatus = "active" | "running" | "queued" | "blocked" | "waiting-decision" | "archived" | "readonly";
 export type WorkpadUserStatus = "processing" | "waiting-confirmation" | "needs-rework" | "later" | "completed" | "abandoned";
 export type ConversationLifecycle = "active" | "running" | "waiting-user" | "archived-readonly" | "abandoned";
@@ -1615,7 +1617,7 @@ export type CanonicalTimelinePage = {
   };
 };
 export type WorkbenchLiveEvent =
-  | { event: "topic.created"; data: { projectId: string; productMode: ProductMode; conversationId: string; clientRequestId: string; replayed: boolean; topic: { id?: string; conversationId?: string; changeId?: string; title: string; state: "active" | "archive"; selectedProviderId?: string; productMode: ProductMode } } }
+  | { event: "topic.created"; data: { projectId: string; productMode: ProductMode; conversationId: string; clientRequestId: string; replayed: boolean; topic: { id?: string; conversationId?: string; changeId?: string; title: string; state: "active" | "archive"; selectedProviderId?: string; productMode: ProductMode; agentTurnMode?: AgentTurnMode | null } } }
   | { event: "topic.updated"; data: { conversation: Topic } }
   | { event: "timeline.patch"; data: CanonicalTimelineEnvelope }
   | { event: "conversation.interactions.updated"; data: ConversationInteractionQueue }

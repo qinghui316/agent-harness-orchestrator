@@ -3,6 +3,7 @@ import { detectCodexAppServerCapability } from "../codex/app-server.js";
 import { getCodexModelSettingsSnapshot } from "../codex/model-settings.js";
 import { listCodexNativeSkills } from "../codex/native-skills.js";
 import { getSystemSkillsRoot } from "../template-source/paths.js";
+import { codexPlanModeAvailable } from "../codex/collaboration-modes.js";
 import type { ManagedProject } from "../types/index.js";
 import {
   PROVIDER_OPERATION_CAPABILITIES,
@@ -37,7 +38,7 @@ export async function getCodexProviderRuntimeSummary(project: ManagedProject | n
 }
 
 export async function getCodexProviderCapabilitySnapshot(project: ManagedProject | null, productMode: ProductMode, projectPath?: string): Promise<ProviderCapabilitySnapshot> {
-  const [cli, appServer, models, skills] = await Promise.all([
+  const [cli, appServer, models, skills, planMode] = await Promise.all([
     detectCodexCapabilities(),
     detectCodexAppServerCapability(),
     getCodexModelSettingsSnapshot(projectPath),
@@ -46,6 +47,10 @@ export async function getCodexProviderCapabilitySnapshot(project: ManagedProject
       extraRoots: [getSystemSkillsRoot()],
       forceReload: false,
     }).catch((error: unknown) => ({ error })) : Promise.resolve(null),
+    projectPath ? codexPlanModeAvailable(projectPath).then(
+      (available) => ({ available, error: null as string | null }),
+      (error: unknown) => ({ available: false, error: messageFrom(error) }),
+    ) : Promise.resolve({ available: false, error: "No selected project for collaboration mode discovery." }),
   ]);
 
   const cliReady = cli.available && cli.errors.length === 0;
@@ -149,6 +154,14 @@ export async function getCodexProviderCapabilitySnapshot(project: ManagedProject
     { key: "turn.resume", label: "续接回合", spec: "supported", runtime: appServerReady ? "ready" : "degraded", summary: "Codex app-server 可续接原生会话。" },
     { key: "turn.interrupt", label: "中断回合", spec: "supported", runtime: appServerReady ? "ready" : "unavailable", summary: "Codex app-server 支持中断当前回合。" },
     { key: "turn.user-input", label: "用户问答", spec: "supported", runtime: appServerReady ? "ready" : "unavailable", summary: "Codex app-server 可路由用户回答。" },
+    {
+      key: "turn.plan",
+      label: "Plan 回合",
+      spec: "supported",
+      runtime: appServerReady && planMode.available && Boolean(models.effectiveModel) ? "ready" : "unavailable",
+      summary: planMode.available ? "Codex app-server 提供原生 Plan collaboration mode。" : "Codex app-server 未提供原生 Plan collaboration mode。",
+      reason: planMode.error ?? (!models.effectiveModel ? "Plan mode requires an effective model." : undefined),
+    },
     { key: "child.spawn", label: "子 Agent", spec: "supported", runtime: appServerReady ? "ready" : "unavailable", summary: "Codex native collaboration 可创建子 Agent。" },
     { key: "child.result", label: "子 Agent 结果", spec: "supported", runtime: appServerReady ? "ready" : "unavailable", summary: "Codex 可返回子 Agent 结果。" },
     { key: "structured-output", label: "结构化输出", spec: "supported", runtime: appServerReady ? "ready" : "unavailable", summary: "Codex app-server 支持 output schema。" },

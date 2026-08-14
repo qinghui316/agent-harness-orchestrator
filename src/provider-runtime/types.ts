@@ -1,5 +1,6 @@
 export type ProviderId = string;
 export type ProductMode = "agent" | "harness";
+export type AgentTurnMode = "default" | "plan";
 export type HarnessExecutionMode = "stepwise" | "scoped-auto";
 
 export type ProviderCapabilityKey =
@@ -7,6 +8,7 @@ export type ProviderCapabilityKey =
   | "turn.resume"
   | "turn.interrupt"
   | "turn.user-input"
+  | "turn.plan"
   | "stream.text"
   | "stream.reasoning-summary"
   | "stream.tool-output"

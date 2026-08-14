@@ -1,5 +1,5 @@
 import type { ProviderSkillInput } from "../../project-harness/contracts.js";
-import type { ProductMode, ProviderCapabilitySnapshot, ProviderId, ProviderModelRef } from "../../provider-runtime/index.js";
+import type { AgentTurnMode, ProductMode, ProviderCapabilitySnapshot, ProviderId, ProviderModelRef } from "../../provider-runtime/index.js";
 
 export interface StoredTopicMessage {
   id: string;
@@ -34,6 +34,7 @@ export interface StoredConversation {
   projectId: string;
   conversationId: string;
   productMode: ProductMode;
+  agentTurnMode: AgentTurnMode | null;
   clientCreateRequestId: string | null;
   clientCreateRequestHash: string | null;
   title: string;
@@ -91,6 +92,7 @@ export interface StoredProviderAttempt {
   conversationId: string | null;
   attemptId: string;
   productMode: ProductMode;
+  agentTurnMode: AgentTurnMode | null;
   graphScopeId: string | null;
   changeId: string | null;
   agentTaskId: string | null;
@@ -113,6 +115,7 @@ export interface StoredProviderAttempt {
 export interface StoredComposerDraft {
   projectId: string;
   productMode: ProductMode;
+  agentTurnMode: AgentTurnMode | null;
   text: string;
   contextRefsJson: string;
   attachmentIdsJson: string;

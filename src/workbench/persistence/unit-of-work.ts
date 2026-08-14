@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import type { ProviderId } from "../../provider-runtime/index.js";
+import type { AgentTurnMode, ProviderId } from "../../provider-runtime/index.js";
 import { agentThreadSurfaceId } from "../../provider-runtime/agent-surface-id.js";
 import type {
   StoredConversation,
@@ -98,6 +98,26 @@ export class WorkbenchUnitOfWork {
         message,
         replayed: false,
       };
+    }).immediate();
+  }
+
+  commitAgentConversationMessage(input: {
+    projectId: string;
+    conversationId: string;
+    expectedAgentTurnMode: AgentTurnMode;
+    agentTurnMode: AgentTurnMode;
+    updatedAt: string;
+    message: StoredTopicMessageWrite;
+  }): StoredTopicMessage {
+    return this.db.transaction(() => {
+      this.conversations.updateAgentTurnMode(
+        input.projectId,
+        input.conversationId,
+        input.expectedAgentTurnMode,
+        input.agentTurnMode,
+        input.updatedAt,
+      );
+      return this.timeline.appendMessage(input.message);
     }).immediate();
   }
 

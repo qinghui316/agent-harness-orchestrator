@@ -187,6 +187,7 @@ export async function switchConversationProviderAtSafePoint(input: {
       conversationId: input.conversationId,
       attemptId: resumeAttemptId,
       productMode: initial.conversation.productMode,
+      agentTurnMode: initial.conversation.agentTurnMode,
       graphScopeId: initial.conversation.currentGraphScopeId,
       changeId: initial.conversation.boundChangeId,
       agentTaskId: null,
