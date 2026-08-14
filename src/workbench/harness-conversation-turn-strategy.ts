@@ -3,6 +3,7 @@ import type {
   ConversationTurnExecutionPorts,
   ConversationTurnStrategy,
   ConversationTurnStrategyInput,
+  ConversationTurnStrategyPreflightInput,
   TurnSkillContextResolution,
 } from "./conversation-turn-contract.js";
 import type { ProjectRuntimeState } from "../project-runtime/coordinator.js";
@@ -22,10 +23,28 @@ export class HarnessConversationTurnStrategy implements ConversationTurnStrategy
 
   constructor(private readonly runTurn: HarnessTurnRunner) {}
 
+  preflight(input: ConversationTurnStrategyPreflightInput): void {
+    if (input.conversation.productMode !== "harness") {
+      throw conflict("Harness Strategy requires a Harness Conversation.");
+    }
+    if (input.project.id !== input.conversation.projectId
+      || input.committedMessage.projectId !== input.conversation.projectId
+      || input.committedMessage.conversationId !== input.conversation.conversationId) {
+      throw conflict("Harness Turn identity does not match the selected project and Conversation.");
+    }
+    if (input.providerId !== input.conversation.selectedProviderId) {
+      throw conflict("Harness provider does not match the committed Conversation selection.");
+    }
+    if (input.runtimeState.state === "repair-required") {
+      throw conflict("Project Harness requires repair before planning or source execution.");
+    }
+  }
+
   async execute(
     input: ConversationTurnStrategyInput,
     _ports: ConversationTurnExecutionPorts,
   ): Promise<TopicMessageResult> {
+    this.preflight(input);
     const user = fromStoredThreadMessage(input.committedMessage);
     const assistant = await this.runTurn(
       input.project,
@@ -48,4 +67,10 @@ export class HarnessConversationTurnStrategy implements ConversationTurnStrategy
       assistantMessage: assistant.text ?? "",
     };
   }
+}
+
+function conflict(message: string): Error {
+  const error = new Error(message);
+  error.name = "Conflict";
+  return error;
 }

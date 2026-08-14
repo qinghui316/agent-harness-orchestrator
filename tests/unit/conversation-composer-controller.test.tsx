@@ -585,6 +585,40 @@ describe("Conversation composer controller", () => {
     expect(ports.onError).not.toHaveBeenCalled();
   });
 
+  it("does not publish a stale Skill mutation failure after the request identity changes", async () => {
+    const mutation = deferred<void>();
+    const ports = composerPorts();
+    ports.skills.load.mockResolvedValue([skill("reviewer", { enabledProject: true })]);
+    ports.skills.setEnabled.mockImplementation(() => mutation.promise);
+    const { result, rerender } = renderHook(
+      ({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
+      { initialProps: { scope: conversationScope({ conversation: {
+        id: "conversation-a",
+        productMode: "harness",
+        state: "active",
+        selectedProviderId: "codex",
+      } }) } },
+    );
+    await waitFor(() => expect(result.current.skillItems).toHaveLength(1));
+
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.toggleSkill("reviewer"); });
+    await waitFor(() => expect(ports.skills.setEnabled).toHaveBeenCalledOnce());
+    rerender({ scope: conversationScope({ conversation: {
+      id: "conversation-b",
+      productMode: "harness",
+      state: "active",
+      selectedProviderId: "other-provider",
+    } }) });
+
+    await act(async () => {
+      mutation.reject(new Error("stale Skill mutation failed"));
+      await expect(pending).rejects.toThrow("stale Skill mutation failed");
+    });
+
+    expect(ports.onError).not.toHaveBeenCalledWith("stale Skill mutation failed");
+  });
+
   it("blocks running attachments, steers text, and keeps stop separate from projection ownership", async () => {
     const ports = composerPorts();
     const runningScope = conversationScope({ running: true, selectedProviderId: "codex" });

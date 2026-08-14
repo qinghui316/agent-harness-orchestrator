@@ -73,10 +73,12 @@ describe("SkillsSettingsView request identity", () => {
       onRefresh={refresh}
     />);
     await waitFor(() => expect(fetchJson.mock.calls.some((call) => String(call[0]).includes("providerId=other-provider"))).toBe(true));
+    await waitFor(() => expect((screen.getByRole("button", { name: /刷新/ }) as HTMLButtonElement).disabled).toBe(false));
     mutation.resolve();
     await Promise.resolve();
 
     expect(refresh).not.toHaveBeenCalled();
+    expect((screen.getByRole("button", { name: /刷新/ }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("does not publish an older same-identity load failure after a newer load succeeds", async () => {

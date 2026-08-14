@@ -67,6 +67,9 @@ export function SkillsSettingsView({
   }
 
   useEffect(() => {
+    actionGenerationRef.current += 1;
+    setBusy(false);
+    setMessage(null);
     const requestIdentityKey = identityKey;
     const requestGeneration = requestGenerationRef.current + 1;
     load().catch((cause: unknown) => {

@@ -339,7 +339,7 @@ async function handleApiRequest(context: WorkbenchServerContext, request: Incomi
         productMode: requireProductMode(url.searchParams.get("productMode")),
         conversationId: url.searchParams.get("conversationId"),
         providerId: url.searchParams.get("providerId"),
-      });
+      }, "read");
       sendJson(response, 200, { roots: await listSkillRoots(skillContext.paths) });
       return;
     }
@@ -353,7 +353,7 @@ async function handleApiRequest(context: WorkbenchServerContext, request: Incomi
         productMode: requireProductMode(body.productMode),
         conversationId: body.conversationId,
         providerId: body.providerId,
-      });
+      }, "mutation");
       sendJson(response, 200, { roots: await addSkillRoot(skillContext.paths, body.rootPath) });
       return;
     }
@@ -363,7 +363,7 @@ async function handleApiRequest(context: WorkbenchServerContext, request: Incomi
     const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(skillsMatch[1]));
     assertRegisteredProject(input);
     if (request.method === "GET") {
-      const skillContext = await resolveSkillApiContext(context, input.project, skillApiQuery(url));
+      const skillContext = await resolveSkillApiContext(context, input.project, skillApiQuery(url), "read");
       sendJson(response, 200, catalogResponse(await loadNativeSkillCatalog(input.project, skillContext, false)));
       return;
     }
@@ -373,7 +373,7 @@ async function handleApiRequest(context: WorkbenchServerContext, request: Incomi
         productMode: requireProductMode(body.productMode),
         conversationId: body.conversationId,
         providerId: body.providerId,
-      });
+      }, "mutation");
       sendJson(response, 200, catalogResponse(await loadNativeSkillCatalog(input.project, skillContext, true)));
       return;
     }
@@ -387,7 +387,7 @@ async function handleApiRequest(context: WorkbenchServerContext, request: Incomi
       productMode: requireProductMode(body.productMode),
       conversationId: body.conversationId,
       providerId: body.providerId,
-    });
+    }, "mutation");
     const catalog = await loadNativeSkillCatalog(input.project, skillContext, false);
     sendJson(response, 200, catalogResponseForMode(await setSkillEnabled(
       skillContext.paths,
@@ -408,7 +408,7 @@ async function handleApiRequest(context: WorkbenchServerContext, request: Incomi
       productMode: requireProductMode(body.productMode),
       conversationId: body.conversationId,
       providerId: body.providerId,
-    });
+    }, "mutation");
     const before = await loadNativeSkillCatalog(input.project, skillContext, false);
     const skillId = decodeURIComponent(providerSkillEnableMatch[2]);
     const skill = before.skills.find((item) => item.skillId === skillId);
@@ -472,6 +472,7 @@ async function resolveSkillApiContext(
   context: WorkbenchServerContext,
   project: ManagedProject,
   request: { productMode: ProductMode; conversationId?: string | null; providerId?: string | null },
+  access: "read" | "mutation",
 ): Promise<SkillApiContext> {
   const state = await context.projectRuntimeCoordinator.resolve(project);
   if (request.productMode === "harness" && state.state !== "ready") {
@@ -485,7 +486,7 @@ async function resolveSkillApiContext(
     const database = await openProjectRuntimeWorkbenchDatabase(paths);
     try {
       const conversation = database.conversations.readConversation(paths.projectId, conversationId);
-      if (!conversation || conversation.deletedAt || conversation.state !== "active") {
+      if (!conversation || conversation.deletedAt) {
         const error = new Error(`Conversation not found: ${conversationId}.`);
         error.name = "NotFound";
         throw error;
@@ -493,6 +494,9 @@ async function resolveSkillApiContext(
       if (conversation.productMode !== request.productMode) throw skillApiConflict("Conversation productMode does not match the Skill request mode.");
       if (authoritativeProviderId && authoritativeProviderId !== conversation.selectedProviderId) {
         throw skillApiConflict("Conversation Provider does not match the Skill request Provider.");
+      }
+      if (access === "mutation" && conversation.state !== "active") {
+        throw skillApiConflict("Archived Conversation Skill settings are read-only.");
       }
       conversationId = conversation.conversationId;
       authoritativeProviderId = conversation.selectedProviderId;

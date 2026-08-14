@@ -207,15 +207,20 @@ export function useConversationComposerController(
       setDraftSkillOverrides((current) => ({ ...current, [skillId]: !currentlyActive }));
       return;
     }
+    const generation = scopeGenerationRef.current;
+    const identity = skillRequestIdentity(currentScope);
+    const identityKey = skillRequestIdentityKey(identity);
+    const ownsCurrentScope = (): boolean => generation === scopeGenerationRef.current
+      && identityKey === skillRequestIdentityKey(skillRequestIdentity(scopeRef.current));
     try {
       await (portsRef.current.skills ?? defaultSkillApi).setEnabled(
-        skillRequestIdentity(currentScope),
+        identity,
         skillId,
         !currentlyActive,
       );
-      await reloadSkills(currentScope.projectId);
+      if (ownsCurrentScope()) await reloadSkills(currentScope.projectId, identity);
     } catch (cause) {
-      portsRef.current.onError(errorMessage(cause));
+      if (ownsCurrentScope()) portsRef.current.onError(errorMessage(cause));
       throw cause;
     }
   }, [reloadSkills]);

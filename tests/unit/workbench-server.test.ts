@@ -326,6 +326,43 @@ describe("workbench server", () => {
     });
     expect(providerGlobalHarnessDisable.ok).toBe(false);
     expect(await providerGlobalHarnessDisable.text()).toContain("assigned by the Runtime");
+
+    const database = await openProjectRuntimeWorkbenchDatabase(resolveProjectRuntimePaths(project().id));
+    try {
+      const conversation = database.conversations.readConversation(project().id, serverConversationId);
+      if (!conversation?.boundChangeId || !conversation.currentGraphScopeId) {
+        throw new Error("Expected a bound Harness Conversation fixture.");
+      }
+      database.conversations.archiveBoundConversation(
+        project().id,
+        serverConversationId,
+        conversation.boundChangeId,
+        conversation.currentGraphScopeId,
+        "2026-08-14T00:00:00.000Z",
+      );
+    } finally {
+      database.close();
+    }
+    const archivedCatalog = await fetch(
+      `${handle!.url}/api/projects/repo/skills?productMode=harness&providerId=codex&conversationId=${encodeURIComponent(serverConversationId)}`,
+    );
+    expect(archivedCatalog.ok).toBe(true);
+    const archivedRoots = await fetch(
+      `${handle!.url}/api/projects/repo/skill-roots?productMode=harness&providerId=codex&conversationId=${encodeURIComponent(serverConversationId)}`,
+    );
+    expect(archivedRoots.ok).toBe(true);
+    const archivedMutation = await fetch(`${handle!.url}/api/projects/repo/skills/pricing-helper/enable`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        enabled: false,
+        productMode: "harness",
+        providerId: "codex",
+        conversationId: serverConversationId,
+      }),
+    });
+    expect(archivedMutation.status).toBe(409);
+    expect(await archivedMutation.text()).toContain("read-only");
     expect(existsSync(join(skillDir, "scripts", "run.ps1"))).toBe(true);
     expect(existsSync(join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed"))).toBe(false);
   });

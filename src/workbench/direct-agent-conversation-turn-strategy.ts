@@ -22,6 +22,7 @@ import type {
   ConversationTurnExecutionPorts,
   ConversationTurnStrategy,
   ConversationTurnStrategyInput,
+  ConversationTurnStrategyPreflightInput,
   TurnSkillContextResolution,
 } from "./conversation-turn-contract.js";
 import type { TopicMessageResult, TopicThreadEntry } from "./types.js";
@@ -50,10 +51,18 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
     this.resolveRuntimePaths = options.resolveRuntimePaths ?? ((projectId) => resolveProjectRuntimePaths(projectId));
   }
 
+  preflight(input: ConversationTurnStrategyPreflightInput): void {
+    validateTurnIdentity(input);
+    if (input.attachments.length > 0) {
+      throw conflict("Direct Agent attachments are not supported in this increment.");
+    }
+  }
+
   async execute(
     input: ConversationTurnStrategyInput,
     ports: ConversationTurnExecutionPorts,
   ): Promise<TopicMessageResult> {
+    this.preflight(input);
     const activityKey = `${input.project.id}:${input.conversation.conversationId}`;
     if (activeDirectAgentConversations.has(activityKey)) {
       throw conflict("Direct Agent Conversation already has an active Turn.");
@@ -68,11 +77,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
     input: ConversationTurnStrategyInput,
     _ports: ConversationTurnExecutionPorts,
   ): Promise<TopicMessageResult> {
-    validateTurnIdentity(input);
     const user = fromStoredThreadMessage(input.committedMessage);
-    if (input.attachments.length > 0) {
-      throw conflict("Direct Agent attachments are not supported in this increment.");
-    }
 
     const skillContext = input.turnSkillResolution;
     if (!skillContext) throw new Error("Direct Agent Turn Skill resolution is not composed.");
@@ -529,7 +534,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
   }
 }
 
-function validateTurnIdentity(input: ConversationTurnStrategyInput): void {
+function validateTurnIdentity(input: ConversationTurnStrategyPreflightInput): void {
   if (input.conversation.productMode !== "agent") throw conflict("Direct Agent Strategy requires an Agent Conversation.");
   if (input.project.id !== input.conversation.projectId
     || input.committedMessage.projectId !== input.conversation.projectId

@@ -63,6 +63,11 @@ export interface ConversationTurnStrategyInput extends ConversationTurnRequest {
   turnSkillResolution: TurnSkillContextResolution | null;
 }
 
+/** Internal side-effect-free validation input created before Turn Skill discovery. */
+export interface ConversationTurnStrategyPreflightInput extends ConversationTurnRequest {
+  runtimeState: ProjectRuntimeState;
+}
+
 export interface ConversationTurnExecutionPorts {
   skillContext: TurnSkillContextPort;
 }
@@ -111,6 +116,7 @@ export interface ConversationTurnRoutingPort {
 
 export interface ConversationTurnStrategy {
   readonly productMode: ProductMode;
+  preflight?(input: ConversationTurnStrategyPreflightInput): void | Promise<void>;
   execute(
     input: ConversationTurnStrategyInput,
     ports: ConversationTurnExecutionPorts,

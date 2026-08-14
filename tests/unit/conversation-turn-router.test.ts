@@ -4,6 +4,7 @@ import { ProviderRegistry } from "../../src/provider-runtime/registry.js";
 import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import type { ProjectRuntimeState } from "../../src/project-runtime/coordinator.js";
 import { ConversationTurnRouter } from "../../src/workbench/conversation-turn-router.js";
+import { DirectAgentConversationTurnStrategy } from "../../src/workbench/direct-agent-conversation-turn-strategy.js";
 import { HarnessConversationTurnStrategy } from "../../src/workbench/harness-conversation-turn-strategy.js";
 import type {
   ConversationTurnExecutionPorts,
@@ -89,6 +90,56 @@ describe("ConversationTurnRouter", () => {
       .resolves.toEqual(topicResult("harness"));
     expect(resolveSkillContext).not.toHaveBeenCalled();
     expect(harness.execute.mock.calls[0]![0]).toMatchObject({ turnSkillResolution: null });
+  });
+
+  it("rejects unsupported Agent attachments before resolving Skills", async () => {
+    const resolveSkillContext = vi.fn(async () => ({ skillInputs: [], diagnostics: [] }));
+    const agent = new DirectAgentConversationTurnStrategy({
+      providerRegistry: {
+        requireProfiles: vi.fn(),
+        findActiveTurn: vi.fn(),
+      },
+    });
+    const harness = strategy("harness", topicResult("harness"));
+    const router = new ConversationTurnRouter(
+      { agent, harness },
+      ports(resolveSkillContext),
+      compositionOwner(),
+    );
+
+    await expect(router.route({
+      ...turnRequest("agent"),
+      attachments: [{
+        id: "attachment-1",
+        fileName: "note.txt",
+        mediaType: "text/plain",
+        kind: "text",
+        size: 4,
+        hash: "attachment-hash",
+        source: "composer",
+        createdAt: "2026-08-11T00:00:00.000Z",
+        storagePath: "attachments/attachment-1/note.txt",
+        runtimeMode: "bounded-text-preview",
+      }],
+    }, "agent")).rejects.toMatchObject({ name: "Conflict" });
+    expect(resolveSkillContext).not.toHaveBeenCalled();
+  });
+
+  it("rejects repair-required Harness Turns before resolving Skills", async () => {
+    const resolveSkillContext = vi.fn(async () => ({ skillInputs: [], diagnostics: [] }));
+    const runTurn = vi.fn(async () => { throw new Error("must not run"); });
+    const agent = strategy("agent", topicResult("agent"));
+    const harness = new HarnessConversationTurnStrategy(runTurn);
+    const router = new ConversationTurnRouter(
+      { agent, harness },
+      ports(resolveSkillContext),
+      compositionOwner(repairRequiredState(project())),
+    );
+
+    await expect(router.route(turnRequest("harness"), "harness"))
+      .rejects.toMatchObject({ name: "Conflict" });
+    expect(resolveSkillContext).not.toHaveBeenCalled();
+    expect(runTurn).not.toHaveBeenCalled();
   });
 
   it("does not expose runtime state or a pre-resolved Skill context on the public route input", () => {
@@ -237,6 +288,18 @@ function onboardingState(selectedProject: ManagedProject): ProjectRuntimeState {
     paths: resolveProjectRuntimePaths(selectedProject.id, "C:\\aho-test"),
     reservedProjectId: selectedProject.id,
   };
+}
+
+function repairRequiredState(selectedProject: ManagedProject): ProjectRuntimeState {
+  const ready = readyState(selectedProject);
+  if (ready.state !== "ready") throw new Error("Expected ready state fixture.");
+  return {
+    state: "repair-required",
+    project: selectedProject,
+    resolution: ready.resolution,
+    doctor: {} as Extract<ProjectRuntimeState, { state: "repair-required" }>["doctor"],
+    audit: {} as Extract<ProjectRuntimeState, { state: "repair-required" }>["audit"],
+  } as ProjectRuntimeState;
 }
 
 function turnInput(productMode: "agent" | "harness"): ConversationTurnStrategyInput {

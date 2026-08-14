@@ -85,8 +85,10 @@ export class ConversationTurnRouter {
     this.assertRequestedMode(input.conversation, requestedMode);
     assertProviderIdentity(input);
     const runtimeState = await this.requireRuntimeState(input.project);
+    const strategy = this.strategies[input.conversation.productMode];
+    await strategy.preflight?.({ ...input, runtimeState });
     const turnSkillResolution = await this.resolveSkillContextForTurn(input, runtimeState);
-    return this.strategies[input.conversation.productMode].execute({
+    return strategy.execute({
       ...input,
       runtimeState,
       turnSkillResolution: freezeResolution(turnSkillResolution),
