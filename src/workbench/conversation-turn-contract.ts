@@ -46,7 +46,7 @@ export interface TurnSkillContextPort {
   resolve(request: TurnSkillContextRequest): Promise<TurnSkillContextResolution>;
 }
 
-export interface ConversationTurnStrategyInput {
+export interface ConversationTurnRequest {
   project: ManagedProject;
   conversation: StoredConversation;
   committedMessage: StoredTopicMessage;
@@ -55,7 +55,11 @@ export interface ConversationTurnStrategyInput {
   live?: WorkbenchLiveSink;
   harnessHandoff?: ValidatedPlanHandoffIntent;
   requiredSkillIds?: readonly string[];
-  runtimeState?: ProjectRuntimeState;
+}
+
+/** Internal input created only by ConversationTurnRouter after composition. */
+export interface ConversationTurnStrategyInput extends ConversationTurnRequest {
+  runtimeState: ProjectRuntimeState;
   turnSkillResolution: TurnSkillContextResolution | null;
 }
 
@@ -79,7 +83,7 @@ export type ConversationTurnContinuationPort = (
 
 export interface ConversationTurnRoutingPort {
   assertRequestedMode(conversation: StoredConversation, requestedMode?: ProductMode): void;
-  route(input: ConversationTurnStrategyInput, requestedMode?: ProductMode): Promise<TopicMessageResult>;
+  route(input: ConversationTurnRequest, requestedMode?: ProductMode): Promise<TopicMessageResult>;
   resolveProviderId: (project: ManagedProject, requestedProviderId?: ProviderId) => ProviderId;
   resolveRuntimeState: (project: ManagedProject) => Promise<ProjectRuntimeState>;
   switchProviderAtSafePoint?: (input: {

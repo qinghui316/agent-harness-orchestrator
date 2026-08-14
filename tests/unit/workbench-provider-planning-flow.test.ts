@@ -1,4 +1,5 @@
 ﻿import { existsSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -544,25 +545,49 @@ describe("Workbench provider planning flow", () => {
     } finally {
       store.close();
     }
-    appServerTurn.mockResolvedValue({
-      status: "completed",
-      threadId: "thread-main-resumed",
-      turnId: "turn-main-resumed",
-      lastMessage: "已继续。",
-      goal: nativeGoal("active"),
-      childThreads: [],
-      changedFiles: [],
-      error: null,
+    let resumeRequestSkills: Array<{ name: string; path: string }> = [];
+    let resumeRequiredSkills: string[] = [];
+    let resumeNativeSkillRoots: string[] = [];
+    let resumeHandoffContext = "";
+    appServerTurn.mockImplementationOnce(async (options) => {
+      resumeRequestSkills = [...(options.skillInputs ?? [])];
+      resumeRequiredSkills = [...(options.requiredNativeSkills ?? [])];
+      resumeNativeSkillRoots = [...(options.nativeSkillRoots ?? [])];
+      resumeHandoffContext = options.additionalContext?.["aho.shared-conversation-handoff"]?.value ?? "";
+      return {
+        status: "completed",
+        threadId: "thread-main-resumed",
+        turnId: "turn-main-resumed",
+        lastMessage: "已继续。",
+        goal: nativeGoal("active"),
+        childThreads: [],
+        changedFiles: [],
+        error: null,
+      };
     });
 
     await postConversationMessage(project(), conversation.conversationId, { mode: "chat", message: "继续。" });
 
     const verified = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
     try {
-      expect(verified.providerAttempts.listProviderAttempts(project().id, conversation.conversationId)).toEqual(expect.arrayContaining([
+      const attempts = verified.providerAttempts.listProviderAttempts(project().id, conversation.conversationId);
+      expect(attempts).toEqual(expect.arrayContaining([
         expect.objectContaining({ attemptId: "attempt-resume-old", status: "interrupted" }),
         expect.objectContaining({ attemptId: "attempt-resume-latest", status: "completed" }),
       ]));
+      const resumed = attempts.find((attempt) => attempt.attemptId === "attempt-resume-latest");
+      expect(resumeRequiredSkills).toEqual(["aho-main-orchestration", "repo-harness"]);
+      expect(resumed?.effectiveSkillInputs.map(({ id, path, required }) => ({ id, path, required }))).toEqual(
+        resumeRequestSkills.map(({ name, path }) => ({ id: name, path, required: resumeRequiredSkills.includes(name) })),
+      );
+      expect(resumed?.handoffHash).toBe(expectedHarnessTurnHandoffHash({
+        handoffContext: resumeHandoffContext,
+        projectId: project().id,
+        conversationId: conversation.conversationId,
+        skillInputs: resumed?.effectiveSkillInputs ?? [],
+        nativeSkillRoots: resumeNativeSkillRoots,
+        requiredNativeSkills: resumeRequiredSkills,
+      }));
     } finally {
       verified.close();
     }
@@ -1177,8 +1202,16 @@ describe("Workbench provider planning flow", () => {
 
   it("carries a real planner-child result through execute intent into an accepted graph and concrete gate", async () => {
     let continueDeliveryKey = "";
+    let createRequestSkills: Array<{ name: string; path: string }> = [];
+    let createRequiredSkills: string[] = [];
+    let createNativeSkillRoots: string[] = [];
+    let createHandoffContext = "";
     appServerTurn
       .mockImplementationOnce(async (options) => {
+        createRequestSkills = [...(options.skillInputs ?? [])];
+        createRequiredSkills = [...(options.requiredNativeSkills ?? [])];
+        createNativeSkillRoots = [...(options.nativeSkillRoots ?? [])];
+        createHandoffContext = options.additionalContext?.["aho.shared-conversation-handoff"]?.value ?? "";
         expect(options.skillInputs).toEqual([
           expect.objectContaining({ name: "aho-main-orchestration", path: expect.stringContaining("aho-main-orchestration") }),
           expect.objectContaining({ name: "repo-harness", path: join(skillRoot, "SKILL.md") }),
@@ -1511,6 +1544,22 @@ describe("Workbench provider planning flow", () => {
           handoffHash: expect.stringMatching(/^[a-f0-9]{64}$/),
         }),
       ]));
+      const mainAttempts = store.providerAttempts.listProviderAttempts(project().id, conversation.conversationId)
+        .filter((attempt) => attempt.roleId === "main-agent" && attempt.operationProfile === "main");
+      expect(mainAttempts.length).toBeGreaterThanOrEqual(2);
+      const createdMain = mainAttempts[0];
+      expect(createRequiredSkills).toEqual(["aho-main-orchestration", "repo-harness"]);
+      expect(createdMain?.effectiveSkillInputs.map(({ id, path, required }) => ({ id, path, required }))).toEqual(
+        createRequestSkills.map(({ name, path }) => ({ id: name, path, required: createRequiredSkills.includes(name) })),
+      );
+      expect(createdMain?.handoffHash).toBe(expectedHarnessTurnHandoffHash({
+        handoffContext: createHandoffContext,
+        projectId: project().id,
+        conversationId: conversation.conversationId,
+        skillInputs: createdMain?.effectiveSkillInputs ?? [],
+        nativeSkillRoots: createNativeSkillRoots,
+        requiredNativeSkills: createRequiredSkills,
+      }));
     } finally {
       store.close();
     }
@@ -1935,6 +1984,31 @@ function nativeGoal(status: "active" | "paused" | "blocked" | "complete") {
     createdAt: 100,
     updatedAt: 101,
   };
+}
+
+function expectedHarnessTurnHandoffHash(input: {
+  handoffContext: string;
+  projectId: string;
+  conversationId: string;
+  skillInputs: Array<{ id: string; path: string; source: string; contentHash: string; required: boolean }>;
+  nativeSkillRoots: string[];
+  requiredNativeSkills: string[];
+}): string {
+  const baseHandoffHash = createHash("sha256").update(input.handoffContext).digest("hex");
+  const skillResolutionHash = createHash("sha256").update(JSON.stringify({
+    projectId: input.projectId,
+    conversationId: input.conversationId,
+    productMode: "harness",
+    providerId: "codex",
+    skillInputs: input.skillInputs,
+    diagnostics: [],
+    nativeSkillRoots: input.nativeSkillRoots,
+    requiredNativeSkills: input.requiredNativeSkills,
+  })).digest("hex");
+  return createHash("sha256").update(JSON.stringify({
+    baseHandoffHash,
+    skillResolutionHash,
+  })).digest("hex");
 }
 
 function readyCodexCapabilities() {

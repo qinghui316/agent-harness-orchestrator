@@ -8,6 +8,8 @@ import { getSystemSkillsRoot } from "../../template-source/paths.js";
 import type { ManagedProject } from "../../types/index.js";
 import { printJson, printTable } from "../output.js";
 import { resolveManagedProject, type CliContext } from "../context.js";
+import { openProjectRuntimeWorkbenchDatabase } from "../../workbench/persistence/open-workbench-database.js";
+import type { StoredConversation } from "../../workbench/persistence/contracts.js";
 
 export function installSkillAgentProviderCommands(program: Command, context: CliContext): void {
   const { store } = context;
@@ -93,28 +95,48 @@ export function installSkillAgentProviderCommands(program: Command, context: Cli
     .command("enable")
     .argument("<project>", "registered project id/name/path")
     .argument("<skill-id>", "skill id")
-    .option("--topic <change-id>", "enable only for a specific Topic/Change")
+    .option("--conversation-id <conversation-id>", "enable only for a specific Conversation")
     .option("--json", "print JSON")
-    .action(async (query: string, skillId: string, options: { topic?: string; json?: boolean }) => {
+    .action(async (query: string, skillId: string, options: { conversationId?: string; json?: boolean }) => {
       const project = await resolveRegisteredSkillProject(query);
-      const catalog = await nativeCatalog(project);
-      const result = await setSkillEnabled(catalog.runtime.paths, catalog.snapshot, skillId, { conversationId: options.topic, enabled: true }, [catalog.runtime.providerInput]);
+      const runtime = await runtimeCoordinator().requireReady(project);
+      const conversation = await validateConversation(project, runtime.paths, options.conversationId);
+      const catalog = await nativeCatalog(project, conversation, runtime);
+      const conversationId = conversation?.conversationId;
+      const result = await setSkillEnabled(
+        catalog.runtime.paths,
+        catalog.snapshot,
+        skillId,
+        { conversationId, enabled: true },
+        catalog.requiredInputs,
+        catalog.identityInputs,
+      );
       if (options.json) printJson(result);
-      else console.log(`Enabled skill ${skillId}${options.topic ? ` for Topic ${options.topic}` : " for project"}.`);
+      else console.log(`Enabled skill ${skillId}${conversationId ? ` for Conversation ${conversationId}` : " for project"}.`);
     });
 
   skill
     .command("disable")
     .argument("<project>", "registered project id/name/path")
     .argument("<skill-id>", "skill id")
-    .option("--topic <change-id>", "disable only for a specific Topic/Change")
+    .option("--conversation-id <conversation-id>", "disable only for a specific Conversation")
     .option("--json", "print JSON")
-    .action(async (query: string, skillId: string, options: { topic?: string; json?: boolean }) => {
+    .action(async (query: string, skillId: string, options: { conversationId?: string; json?: boolean }) => {
       const project = await resolveRegisteredSkillProject(query);
-      const catalog = await nativeCatalog(project);
-      const result = await setSkillEnabled(catalog.runtime.paths, catalog.snapshot, skillId, { conversationId: options.topic, enabled: false }, [catalog.runtime.providerInput]);
+      const runtime = await runtimeCoordinator().requireReady(project);
+      const conversation = await validateConversation(project, runtime.paths, options.conversationId);
+      const catalog = await nativeCatalog(project, conversation, runtime);
+      const conversationId = conversation?.conversationId;
+      const result = await setSkillEnabled(
+        catalog.runtime.paths,
+        catalog.snapshot,
+        skillId,
+        { conversationId, enabled: false },
+        catalog.requiredInputs,
+        catalog.identityInputs,
+      );
       if (options.json) printJson(result);
-      else console.log(`Disabled skill ${skillId}${options.topic ? ` for Topic ${options.topic}` : " for project"}.`);
+      else console.log(`Disabled skill ${skillId}${conversationId ? ` for Conversation ${conversationId}` : " for project"}.`);
     });
 
   function runtimeCoordinator(): ProjectRuntimeCoordinator {
@@ -128,17 +150,50 @@ export function installSkillAgentProviderCommands(program: Command, context: Cli
     return project;
   }
 
-  async function nativeCatalog(project: ManagedProject) {
-    const runtime = await runtimeCoordinator().requireReady(project);
-    const provider = project.defaultProviderId
-      ? defaultProviderRegistry.get(project.defaultProviderId)
-      : defaultProviderRegistry.requireOnly();
+  async function nativeCatalog(
+    project: ManagedProject,
+    conversation?: StoredConversation,
+    preparedRuntime?: Awaited<ReturnType<ProjectRuntimeCoordinator["requireReady"]>>,
+  ) {
+    const runtime = preparedRuntime ?? await runtimeCoordinator().requireReady(project);
+    const provider = conversation
+      ? defaultProviderRegistry.get(conversation.selectedProviderId)
+      : project.defaultProviderId
+        ? defaultProviderRegistry.get(project.defaultProviderId)
+        : defaultProviderRegistry.requireOnly();
     const roots = await listSkillRoots(runtime.paths);
     const snapshot = await provider.skills.list({
       projectPath: project.path,
       extraRoots: [getSystemSkillsRoot(), ...roots.map((root) => root.rootPath)],
       forceReload: true,
     });
-    return { runtime, snapshot, ...await listSkills(runtime.paths, snapshot, [runtime.providerInput]) };
+    const identityInputs = [runtime.providerInput];
+    const requiredInputs = conversation?.productMode === "agent" ? [] : identityInputs;
+    return {
+      runtime,
+      snapshot,
+      identityInputs,
+      requiredInputs,
+      ...await listSkills(runtime.paths, snapshot, requiredInputs, identityInputs),
+    };
+  }
+
+  async function validateConversation(
+    project: ManagedProject,
+    paths: Parameters<typeof openProjectRuntimeWorkbenchDatabase>[0],
+    conversationId?: string,
+  ): Promise<StoredConversation | undefined> {
+    const normalized = conversationId?.trim();
+    if (!normalized) return undefined;
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      const conversation = database.conversations.readConversation(paths.projectId, normalized);
+      if (!conversation || conversation.projectId !== project.id || conversation.deletedAt || conversation.state !== "active") {
+        throw new Error(`Conversation not found for project ${project.id}: ${normalized}.`);
+      }
+      return conversation;
+    } finally {
+      database.close();
+    }
   }
 }

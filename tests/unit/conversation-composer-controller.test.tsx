@@ -239,6 +239,100 @@ describe("Conversation composer controller", () => {
     }));
   });
 
+  it("uses one captured Skill identity while follow-up overrides are pending", async () => {
+    const firstOverride = deferred<void>();
+    const ports = composerPorts();
+    ports.skills.load.mockResolvedValue([
+      skill("reviewer", { enabledProject: true }),
+      skill("formatter", { enabledProject: true }),
+    ]);
+    ports.skills.setEnabled
+      .mockImplementationOnce(() => firstOverride.promise)
+      .mockResolvedValueOnce(undefined);
+    const initialScope = conversationScope({
+      productMode: "agent",
+      selectedProviderId: "codex",
+      conversation: {
+        id: "agent-conversation",
+        productMode: "agent",
+        state: "active",
+        selectedProviderId: "codex",
+      },
+    });
+    const { result, rerender } = renderHook(
+      ({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
+      { initialProps: { scope: initialScope } },
+    );
+    await waitFor(() => expect(result.current.skillItems).toHaveLength(2));
+    act(() => result.current.setComposerText("/reviewer /formatter inspect"));
+
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.send(); });
+    await waitFor(() => expect(ports.skills.setEnabled).toHaveBeenCalledTimes(1));
+    rerender({ scope: conversationScope({
+      productMode: "harness",
+      selectedProviderId: "other-provider",
+      conversation: {
+        id: "harness-conversation",
+        productMode: "harness",
+        state: "active",
+        selectedProviderId: "other-provider",
+      },
+    }) });
+    act(() => result.current.setComposerText("new scope draft"));
+    await act(async () => { firstOverride.resolve(); await pending; });
+
+    expect(ports.skills.setEnabled).toHaveBeenCalledTimes(2);
+    for (const [identity] of ports.skills.setEnabled.mock.calls) {
+      expect(identity).toEqual({
+        projectId: "repo",
+        productMode: "agent",
+        conversationId: "agent-conversation",
+        providerId: "codex",
+      });
+    }
+    expect(ports.actions.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: "repo",
+      productMode: "agent",
+      conversationId: "agent-conversation",
+      providerId: "codex",
+    }));
+    expect(result.current.composerText).toBe("new scope draft");
+    expect(ports.onError).not.toHaveBeenCalled();
+  });
+
+  it("uses the stored Conversation Provider for Skill overrides before a Provider switch", async () => {
+    const ports = composerPorts();
+    ports.skills.load.mockResolvedValue([skill("reviewer", { enabledProject: true })]);
+    const scope = conversationScope({
+      productMode: "harness",
+      selectedProviderId: "other-provider",
+      conversation: {
+        id: "conversation-switch",
+        productMode: "harness",
+        state: "active",
+        selectedProviderId: "codex",
+      },
+    });
+    const { result } = renderHook(() => useConversationComposerController(scope, ports));
+    await waitFor(() => expect(result.current.skillItems).toHaveLength(1));
+    act(() => result.current.setComposerText("/reviewer switch and continue"));
+
+    await act(async () => { await result.current.send(); });
+
+    expect(ports.skills.setEnabled).toHaveBeenCalledWith({
+      projectId: "repo",
+      productMode: "harness",
+      conversationId: "conversation-switch",
+      providerId: "codex",
+    }, "reviewer", true);
+    expect(ports.actions.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      conversationId: "conversation-switch",
+      providerId: "other-provider",
+      providerSwitchIntent: "resume-workflow",
+    }));
+  });
+
   it("does not clear the new mode refs or attachments when an old send completes", async () => {
     let resolveSend!: () => void;
     const ports = composerPorts();
@@ -657,4 +751,14 @@ function attachment(id: string): TopicAttachment {
     storagePath: `attachments/${id}/content.txt`,
     runtimeMode: "bounded-text-preview",
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }

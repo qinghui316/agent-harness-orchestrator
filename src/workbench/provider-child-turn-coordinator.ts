@@ -7,7 +7,7 @@ import { assertPhysicalDirectory, resolveWithinPhysicalRoot } from "../project-h
 import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
 import type { ProjectRuntimeResolution } from "../project-runtime/context.js";
 import type { ProjectWorkbenchPathPort } from "../project-runtime/paths.js";
-import type { ProviderOperationProfile, ProviderRegistry } from "../provider-runtime/index.js";
+import { defaultProviderRegistry, type ProviderOperationProfile } from "../provider-runtime/index.js";
 import type { ProviderSkillInput } from "../project-harness/contracts.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import { agentThreadSurfaceId } from "../provider-runtime/agent-surface-id.js";
@@ -103,11 +103,8 @@ async function runExactChildAgentCloseActivity(input: {
   graphScopeId: string;
   parentThreadId: string;
   agentSurfaceId: string;
-  providerRegistry?: ProviderRegistry;
   onLifecycleEvent(event: ProviderChildLifecycleEvent): void;
 }): Promise<{ runId: string; roleId: string; displayName?: string }> {
-  const providerRegistry = input.providerRegistry;
-  if (!providerRegistry) throw new Error("Workbench Child close requires an explicitly composed Provider Registry.");
   const runtime = await requireReadyProjectRuntime(input.project);
   const target = await resolveExactChildTarget({
     runtime: runtime.paths,
@@ -117,7 +114,7 @@ async function runExactChildAgentCloseActivity(input: {
     parentThreadId: input.parentThreadId,
     requireIdle: false,
   });
-  const childState = await providerRegistry.get(target.providerId).conversation.inspectChild({
+  const childState = await defaultProviderRegistry.get(target.providerId).conversation.inspectChild({
     providerId: target.providerId,
     projectId: input.project.id,
     cwd: input.project.path,
@@ -127,7 +124,7 @@ async function runExactChildAgentCloseActivity(input: {
   if (childState === "stale") {
     throw conflict("The selected Child Agent belongs to a stale Provider Host generation and cannot be closed.");
   }
-  const resolvedProvider = await providerRegistry.requireProfiles(
+  const resolvedProvider = await defaultProviderRegistry.requireProfiles(
     target.providerId,
     [target.operationProfile],
     "harness",
@@ -181,10 +178,7 @@ async function runExactChildAgentTurnActivity(input: {
   agentSurfaceId: string;
   message: string;
   live?: WorkbenchLiveSink;
-  providerRegistry?: ProviderRegistry;
 }): Promise<TopicMessageResult> {
-  const providerRegistry = input.providerRegistry;
-  if (!providerRegistry) throw new Error("Workbench Child turn requires an explicitly composed Provider Registry.");
   const runtime = await requireReadyProjectRuntime(input.project);
   if (input.agentSurfaceId === "main-agent") throw badRequest("Child Agent feedback cannot target Main Agent.");
 
@@ -195,7 +189,7 @@ async function runExactChildAgentTurnActivity(input: {
     requireIdle: true,
   });
 
-  const childState = await providerRegistry.get(target.providerId).conversation.inspectChild({
+  const childState = await defaultProviderRegistry.get(target.providerId).conversation.inspectChild({
     providerId: target.providerId,
     projectId: input.project.id,
     cwd: input.project.path,
@@ -205,7 +199,7 @@ async function runExactChildAgentTurnActivity(input: {
   if (childState === "stale") {
     throw conflict("The selected Child Agent belongs to a stale Provider Host generation and cannot receive more feedback.");
   }
-  const resolvedProvider = await providerRegistry.requireProfiles(
+  const resolvedProvider = await defaultProviderRegistry.requireProfiles(
     target.providerId,
     [target.operationProfile],
     "harness",

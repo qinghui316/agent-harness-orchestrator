@@ -7,6 +7,7 @@ import { ConversationTurnRouter } from "../../src/workbench/conversation-turn-ro
 import { HarnessConversationTurnStrategy } from "../../src/workbench/harness-conversation-turn-strategy.js";
 import type {
   ConversationTurnExecutionPorts,
+  ConversationTurnRequest,
   ConversationTurnStrategy,
   ConversationTurnStrategyInput,
 } from "../../src/workbench/conversation-turn-contract.js";
@@ -58,18 +59,15 @@ describe("ConversationTurnRouter", () => {
     const resolveSkillContext = vi.fn(async () => resolution);
     const agent = strategy("agent", topicResult("agent"));
     const harness = strategy("harness", topicResult("harness"));
-    const router = new ConversationTurnRouter(
+    const input = turnRequest("agent");
+    const owner = compositionOwner(readyState(project()));
+    const readyRouter = new ConversationTurnRouter(
       { agent, harness },
       ports(resolveSkillContext),
-      compositionOwner(),
+      owner,
     );
-    const input = {
-      ...turnInput("agent"),
-      runtimeState: readyState(project()),
-      turnSkillResolution: null,
-    } satisfies ConversationTurnStrategyInput;
 
-    await expect(router.route(input, "agent")).resolves.toEqual(topicResult("agent"));
+    await expect(readyRouter.route(input, "agent")).resolves.toEqual(topicResult("agent"));
     expect(resolveSkillContext).toHaveBeenCalledOnce();
     const routedInput = agent.execute.mock.calls[0]![0] as ConversationTurnStrategyInput;
     expect(routedInput.turnSkillResolution).toBe(resolution);
@@ -87,10 +85,49 @@ describe("ConversationTurnRouter", () => {
       compositionOwner(),
     );
 
-    await expect(router.route({ ...turnInput("harness"), turnSkillResolution: null }, "harness"))
+    await expect(router.route(turnRequest("harness"), "harness"))
       .resolves.toEqual(topicResult("harness"));
     expect(resolveSkillContext).not.toHaveBeenCalled();
     expect(harness.execute.mock.calls[0]![0]).toMatchObject({ turnSkillResolution: null });
+  });
+
+  it("does not expose runtime state or a pre-resolved Skill context on the public route input", () => {
+    const request: ConversationTurnRequest = turnRequest("agent");
+    // @ts-expect-error Production callers cannot inject a Skill resolution.
+    request.turnSkillResolution = { skillInputs: [], diagnostics: [] };
+    // @ts-expect-error Production callers cannot bypass the composition-owned runtime coordinator.
+    request.runtimeState = readyState(project());
+  });
+
+  it("rejects Agent and non-ready Conversations before resolving continuation Skills", async () => {
+    const resolveSkillContext = vi.fn(async () => ({ skillInputs: [], diagnostics: [] }));
+    const agent = strategy("agent", topicResult("agent"));
+    const harness = strategy("harness", topicResult("harness"));
+    const router = new ConversationTurnRouter({ agent, harness }, ports(resolveSkillContext), compositionOwner());
+    const internal = router as unknown as {
+      readContinuationTurn: (selectedProject: ManagedProject, conversationId: string) => Promise<{
+        conversation: StoredConversation;
+        runtimeState: ProjectRuntimeState;
+      }>;
+    };
+
+    internal.readContinuationTurn = vi.fn(async () => ({
+      conversation: conversation("agent"),
+      runtimeState: readyState(project()),
+    }));
+    await expect(router.continueMainAgentTurn(project(), "conversation-1", "continue"))
+      .rejects.toMatchObject({ name: "Conflict" });
+    expect(resolveSkillContext).not.toHaveBeenCalled();
+    expect(agent.execute).not.toHaveBeenCalled();
+    expect(harness.execute).not.toHaveBeenCalled();
+
+    internal.readContinuationTurn = vi.fn(async () => ({
+      conversation: conversation("harness"),
+      runtimeState: onboardingState(project()),
+    }));
+    await expect(router.continueMainAgentTurn(project(), "conversation-1", "continue"))
+      .rejects.toMatchObject({ name: "Conflict" });
+    expect(resolveSkillContext).not.toHaveBeenCalled();
   });
 });
 
@@ -148,10 +185,10 @@ function ports(
   };
 }
 
-function compositionOwner() {
+function compositionOwner(state?: ProjectRuntimeState) {
   return {
     projectRuntimeCoordinator: {
-      resolve: async (selectedProject: ManagedProject) => onboardingState(selectedProject),
+      resolve: async (selectedProject: ManagedProject) => state ?? onboardingState(selectedProject),
       runtimePaths: (projectId: string) => resolveProjectRuntimePaths(projectId, "C:\\aho-test"),
     },
     providerRegistry: new ProviderRegistry(),
@@ -218,6 +255,17 @@ function turnInput(productMode: "agent" | "harness"): ConversationTurnStrategyIn
       reservedProjectId: selectedProject.id,
     },
     turnSkillResolution: productMode === "agent" ? { skillInputs: [], diagnostics: [] } : null,
+  };
+}
+
+function turnRequest(productMode: "agent" | "harness"): ConversationTurnRequest {
+  const input = turnInput(productMode);
+  return {
+    project: input.project,
+    conversation: input.conversation,
+    committedMessage: input.committedMessage,
+    attachments: input.attachments,
+    providerId: input.providerId,
   };
 }
 

@@ -229,7 +229,7 @@ node dist/index.js agent sync aho-test --json
 node dist/index.js skill import aho-test --path C:\path\to\skill
 node dist/index.js skill list aho-test --json
 node dist/index.js skill enable aho-test pricing-skill
-node dist/index.js skill disable aho-test pricing-skill --topic <change-id>
+node dist/index.js skill disable aho-test pricing-skill --conversation-id <conversation-id>
 
 node dist/index.js provider bridge status codex --json
 node dist/index.js provider bridge status codex aho-test --json

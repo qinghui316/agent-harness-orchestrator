@@ -140,8 +140,6 @@ export async function createWorkbenchConversation(
       attachments,
       providerId: committed.selectedProviderId,
       live,
-      runtimeState: persistence.runtimeState,
-      turnSkillResolution: null,
     }, productMode);
   }
   return {
@@ -299,8 +297,6 @@ export async function postConversationMessage(
     providerId: committed.conversation.selectedProviderId,
     live,
     harnessHandoff: committed.planHandoff,
-    runtimeState: identity.runtimeState,
-    turnSkillResolution: null,
   }, requestedMode);
   if (providerSwitch && parsed.providerSwitchIntent === "resume-workflow") {
     if (runtimeState.state !== "ready") {

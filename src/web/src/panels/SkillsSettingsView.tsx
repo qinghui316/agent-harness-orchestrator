@@ -68,8 +68,11 @@ export function SkillsSettingsView({
 
   useEffect(() => {
     const requestIdentityKey = identityKey;
+    const requestGeneration = requestGenerationRef.current + 1;
     load().catch((cause: unknown) => {
-      if (requestIdentityKey === identityKeyRef.current) setMessage(cause instanceof Error ? cause.message : String(cause));
+      if (requestGeneration === requestGenerationRef.current && requestIdentityKey === identityKeyRef.current) {
+        setMessage(cause instanceof Error ? cause.message : String(cause));
+      }
     });
     return () => {
       requestGenerationRef.current += 1;

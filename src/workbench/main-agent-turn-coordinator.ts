@@ -477,7 +477,6 @@ async function runProjectScopedMainAgentTurnActivity(
           graphScopeId,
           parentThreadId: call.threadId,
           agentSurfaceId: targetSurfaceId,
-          providerRegistry: options.providerRegistry,
           onLifecycleEvent: (event) => { childLifecycleOwner.onLifecycle(event); },
         });
         return {

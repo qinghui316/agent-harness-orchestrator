@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createProgram } from "../../src/cli/program.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../src/provider-runtime/project-harness-discovery.js";
 import { defaultProviderRegistry } from "../../src/provider-runtime/default-registry.js";
@@ -15,6 +15,7 @@ import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persist
 import { getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
 import { createFakeCodexRuntime } from "../helpers/fake-codex-runtime.js";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
+import { createWorkbenchConversation } from "../../src/workbench/conversation-service.js";
 import {
   createReadyProjectHarnessFixture,
   type ReadyProjectHarnessFixture,
@@ -220,6 +221,65 @@ describe("Skill-native CLI flow", () => {
     database.close();
     expect(existsSync(join(homeDir, "projects", "repo", "skills"))).toBe(false);
     expect(existsSync(join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed"))).toBe(false);
+  });
+
+  it("uses the stored Conversation Provider for explicit Skill overrides and rejects the retired Topic option", async () => {
+    const fixture = await createReadyProject();
+    process.env.AHO_CODEX_BIN = await createFakeCodexRuntime(tempDir);
+    const skillRoot = join(tempDir, "conversation-skills");
+    const skillDir = join(skillRoot, "conversation-helper");
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, "SKILL.md"), "---\nname: conversation-helper\ndescription: Conversation rules.\n---\n\n# Conversation Helper\n", "utf8");
+    await runCli(["skill", "root-add", "repo", "--path", skillRoot]);
+    const conversation = await createWorkbenchConversation(fixture.project, {
+      body: "Create a Conversation-scoped Skill selection.",
+      productMode: "agent",
+      clientRequestId: "cli-conversation-skill",
+      providerId: "codex",
+    }, undefined, { runMainAgent: false });
+
+    const databaseForProvider = await openProjectRuntimeWorkbenchDatabase(resolveProjectRuntimePaths("repo", homeDir));
+    try {
+      databaseForProvider.conversations.selectConversationProvider(
+        "repo",
+        conversation.conversationId,
+        "conversation-provider",
+        new Date().toISOString(),
+      );
+    } finally {
+      databaseForProvider.close();
+    }
+    const codexProvider = defaultProviderRegistry.get("codex");
+    const providerLookup = vi.spyOn(defaultProviderRegistry, "get").mockImplementation(() => codexProvider);
+    try {
+      await runCli(["skill", "enable", "repo", "conversation-helper", "--conversation-id", conversation.conversationId]);
+      await runCli(["skill", "enable", "repo", "repo-harness", "--conversation-id", conversation.conversationId]);
+      expect(providerLookup).toHaveBeenCalledWith("conversation-provider");
+    } finally {
+      providerLookup.mockRestore();
+    }
+    await expect(runCli(["skill", "disable", "repo", "conversation-helper", "--topic", "change-id"]))
+      .rejects.toThrow();
+
+    const database = await openProjectRuntimeWorkbenchDatabase(resolveProjectRuntimePaths("repo", homeDir));
+    try {
+      expect(database.skills.listSkillEnablement("repo")).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          skillId: "conversation-helper",
+          scope: "topic",
+          changeId: conversation.conversationId,
+          enabled: true,
+        }),
+        expect.objectContaining({
+          skillId: "repo-harness",
+          scope: "topic",
+          changeId: conversation.conversationId,
+          enabled: true,
+        }),
+      ]));
+    } finally {
+      database.close();
+    }
   });
 
   it("creates and removes AHO-owned worktrees through sidecar metadata", async () => {

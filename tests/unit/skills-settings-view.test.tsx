@@ -78,6 +78,44 @@ describe("SkillsSettingsView request identity", () => {
 
     expect(refresh).not.toHaveBeenCalled();
   });
+
+  it("does not publish an older same-identity load failure after a newer load succeeds", async () => {
+    const stale = deferred<{ skills: SkillListItem[] }>();
+    fetchJson
+      .mockImplementationOnce(() => stale.promise)
+      .mockResolvedValueOnce({ skills: [skill("current-skill")] });
+    const view = render(<SkillsSettingsView
+      projectId="repo"
+      productMode="agent"
+      conversationId="conversation-1"
+      providerId="codex"
+      onRefresh={vi.fn()}
+    />);
+    await waitFor(() => expect(fetchJson).toHaveBeenCalledTimes(1));
+
+    view.rerender(<SkillsSettingsView
+      projectId={null}
+      productMode="agent"
+      conversationId={null}
+      providerId="codex"
+      onRefresh={vi.fn()}
+    />);
+    view.rerender(<SkillsSettingsView
+      projectId="repo"
+      productMode="agent"
+      conversationId="conversation-1"
+      providerId="codex"
+      onRefresh={vi.fn()}
+    />);
+    await waitFor(() => expect(
+      within(screen.getByRole("list", { name: "Skill 列表" })).getByText("current-skill"),
+    ).toBeTruthy());
+    stale.reject(new Error("stale load failed"));
+    await Promise.resolve();
+
+    expect(screen.queryByText("stale load failed")).toBeNull();
+    expect(within(screen.getByRole("list", { name: "Skill 列表" })).getByText("current-skill")).toBeTruthy();
+  });
 });
 
 function skill(skillId: string): SkillListItem {

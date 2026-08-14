@@ -12,8 +12,8 @@ import type {
   ConversationTurnContinuationOptions,
   ConversationTurnContinuationPort,
   ConversationTurnExecutionPorts,
+  ConversationTurnRequest,
   ConversationTurnStrategy,
-  ConversationTurnStrategyInput,
   ConversationTurnRoutingPort,
 } from "./conversation-turn-contract.js";
 import type { TopicMessageResult, TopicThreadEntry, ValidatedPlanHandoffIntent, WorkbenchLiveSink } from "./types.js";
@@ -81,15 +81,15 @@ export class ConversationTurnRouter {
     throw error;
   }
 
-  async route(input: ConversationTurnStrategyInput, requestedMode?: ProductMode): Promise<TopicMessageResult> {
+  async route(input: ConversationTurnRequest, requestedMode?: ProductMode): Promise<TopicMessageResult> {
     this.assertRequestedMode(input.conversation, requestedMode);
     assertProviderIdentity(input);
-    const runtimeState = await this.resolveRuntimeStateForTurn(input);
-    const turnSkillResolution = await this.resolveSkillContextForTurn({ ...input, runtimeState });
+    const runtimeState = await this.requireRuntimeState(input.project);
+    const turnSkillResolution = await this.resolveSkillContextForTurn(input, runtimeState);
     return this.strategies[input.conversation.productMode].execute({
       ...input,
       runtimeState,
-      turnSkillResolution,
+      turnSkillResolution: freezeResolution(turnSkillResolution),
     }, this.ports);
   }
 
@@ -117,7 +117,7 @@ export class ConversationTurnRouter {
 
   readonly runExactChildAgentTurn: NonNullable<ConversationTurnRoutingPort["runExactChildAgentTurn"]> = async (input) => {
     const { runExactChildAgentTurn } = await import("./provider-child-turn-coordinator.js");
-    return runExactChildAgentTurn({ ...input, providerRegistry: this.providerRegistry });
+    return runExactChildAgentTurn(input);
   };
 
   readonly continueMainAgentTurn: ConversationTurnContinuationPort = async (
@@ -129,18 +129,26 @@ export class ConversationTurnRouter {
     options?: ConversationTurnContinuationOptions,
   ): Promise<TopicThreadEntry> => {
     const turn = await this.readContinuationTurn(project, conversationId);
+    if (turn.conversation.productMode !== "harness") {
+      const error = new Error("Main Agent continuation requires a Harness Conversation.");
+      error.name = "Conflict";
+      throw error;
+    }
+    if (turn.runtimeState.state !== "ready") {
+      const error = new Error(`Main Agent continuation requires a ready Project Harness, got ${turn.runtimeState.state}.`);
+      error.name = "Conflict";
+      throw error;
+    }
     const turnSkillResolution = await this.resolveSkillContextForTurn({
       project,
       conversation: turn.conversation,
-      runtimeState: turn.runtimeState,
-      turnSkillResolution: null,
       requiredSkillIds: [],
-    });
+    }, turn.runtimeState);
     return runProjectScopedMainAgentTurn(project, conversationId, message, live, planHandoff, {
       ...options,
       providerRegistry: this.providerRegistry,
       runtimeState: turn.runtimeState,
-      turnSkillResolution,
+      turnSkillResolution: freezeResolution(turnSkillResolution),
     });
   };
 
@@ -148,21 +156,13 @@ export class ConversationTurnRouter {
     return this.runtimeStateResolver(project);
   }
 
-  private async resolveRuntimeStateForTurn(input: ConversationTurnStrategyInput): Promise<ProjectRuntimeState> {
-    return input.runtimeState ?? await this.requireRuntimeState(input.project);
-  }
-
   private async resolveSkillContextForTurn(
-    input: Pick<ConversationTurnStrategyInput, "project" | "conversation" | "requiredSkillIds" | "turnSkillResolution" | "runtimeState">,
-  ) {
-    const runtimeState = input.runtimeState ?? await this.requireRuntimeState(input.project);
+    input: Pick<ConversationTurnRequest, "project" | "conversation" | "requiredSkillIds">,
+    runtimeState: ProjectRuntimeState,
+  ): Promise<import("./conversation-turn-contract.js").TurnSkillContextResolution | null> {
     if (input.conversation.productMode === "harness" && runtimeState.state === "onboarding") {
-      if (input.turnSkillResolution !== null) {
-        throw new Error("Harness onboarding must use the dedicated onboarding path without Skill resolution.");
-      }
       return null;
     }
-    if (input.turnSkillResolution) return input.turnSkillResolution;
     return this.ports.skillContext.resolve({
       project: input.project,
       conversation: input.conversation,
@@ -188,7 +188,18 @@ export class ConversationTurnRouter {
   }
 }
 
-function assertProviderIdentity(input: ConversationTurnStrategyInput): void {
+function freezeResolution(
+  resolution: import("./conversation-turn-contract.js").TurnSkillContextResolution | null,
+): import("./conversation-turn-contract.js").TurnSkillContextResolution | null {
+  if (!resolution) return null;
+  Object.freeze(resolution.skillInputs);
+  Object.freeze(resolution.diagnostics);
+  if (resolution.nativeSkillRoots) Object.freeze(resolution.nativeSkillRoots);
+  if (resolution.requiredNativeSkills) Object.freeze(resolution.requiredNativeSkills);
+  return Object.freeze(resolution);
+}
+
+function assertProviderIdentity(input: import("./conversation-turn-contract.js").ConversationTurnRequest): void {
   if (input.providerId === input.conversation.selectedProviderId) return;
   const error = new Error("Conversation Provider does not match the requested Provider.");
   error.name = "Conflict";

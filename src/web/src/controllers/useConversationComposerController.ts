@@ -146,14 +146,17 @@ export function useConversationComposerController(
     [draftSkillOverrides, scope.conversation?.id, skillItems],
   );
 
-  const reloadSkills = useCallback(async (projectId = scopeRef.current.projectId): Promise<void> => {
+  const reloadSkills = useCallback(async (
+    projectId = scopeRef.current.projectId,
+    capturedIdentity?: SkillRequestIdentity,
+  ): Promise<void> => {
     const generation = ++skillRequestGenerationRef.current;
     if (!projectId || !scopeRef.current.managed) {
       setSkillItems([]);
       return;
     }
     try {
-      const identity = skillRequestIdentity({ ...scopeRef.current, projectId });
+      const identity = capturedIdentity ?? skillRequestIdentity({ ...scopeRef.current, projectId });
       const next = await (portsRef.current.skills ?? defaultSkillApi).load(identity);
       if (generation !== skillRequestGenerationRef.current
         || skillRequestIdentityKey(identity) !== skillRequestIdentityKey(skillRequestIdentity(scopeRef.current))) return;
@@ -361,6 +364,12 @@ export function useConversationComposerController(
     const draft = stateRef.current;
     const attachmentIds = draft.attachments.map((attachment) => attachment.id);
     if (!currentScope.projectId || !currentScope.conversation || (!draft.composerText.trim() && attachmentIds.length === 0)) return;
+    const capturedSkillIdentity: SkillRequestIdentity = {
+      projectId: currentScope.projectId,
+      productMode: capturedProductMode,
+      conversationId: currentScope.conversation.id,
+      providerId: currentScope.conversation.selectedProviderId ?? null,
+    };
     if (currentScope.conversation.productMode
       && currentScope.conversation.productMode !== capturedProductMode) {
       portsRef.current.onError("Conversation productMode does not match the selected application mode.");
@@ -377,8 +386,10 @@ export function useConversationComposerController(
       conversationId: currentScope.conversation.id,
       draftSkillOverrides: draft.draftSkillOverrides,
     });
-    await applySkillOverrides(currentScope.projectId, currentScope.conversation.id, prepared.skillOverrides);
-    if (Object.keys(prepared.skillOverrides).length > 0) await reloadSkills(currentScope.projectId);
+    await applySkillOverrides(capturedSkillIdentity, prepared.skillOverrides);
+    if (Object.keys(prepared.skillOverrides).length > 0) {
+      await reloadSkills(capturedSkillIdentity.projectId, capturedSkillIdentity);
+    }
     if (!prepared.text && attachmentIds.length === 0) {
       if (composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) {
         setComposerText("");
@@ -463,14 +474,9 @@ export function useConversationComposerController(
     }), currentScope, submittedText, true);
   }, []);
 
-  async function applySkillOverrides(projectId: string, conversationId: string, overrides: Record<string, boolean>): Promise<void> {
+  async function applySkillOverrides(identity: SkillRequestIdentity, overrides: Record<string, boolean>): Promise<void> {
     for (const [skillId, enabled] of Object.entries(overrides)) {
-      const current = scopeRef.current;
-      await (portsRef.current.skills ?? defaultSkillApi).setEnabled({
-        ...skillRequestIdentity(current),
-        projectId,
-        conversationId,
-      }, skillId, enabled);
+      await (portsRef.current.skills ?? defaultSkillApi).setEnabled(identity, skillId, enabled);
     }
   }
 
