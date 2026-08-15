@@ -13,6 +13,7 @@ import { CodexCollaborationNormalizer, type CodexChildLifecycleEvent } from "./c
 
 const UNREGISTERED_CHILD_ROLE_ID = "unregistered-provider-child";
 const CODEX_TURN_INTERRUPT_TIMEOUT_MS = 5_000;
+const CODEX_TURN_ALREADY_TERMINAL = Object.freeze({ status: "already-terminal" });
 
 export interface CodexAppServerCapabilities {
   available: boolean;
@@ -243,7 +244,7 @@ export interface ActiveCodexAppServerTurn {
   turnId: string;
   startedAt: string;
   steer(input: string): Promise<void>;
-  interrupt(reason?: string): Promise<void>;
+  interrupt(reason?: string): Promise<{ status: "interrupt-requested" | "already-terminal" }>;
   respondToUserInput(
     requestId: string,
     response: CodexAppServerUserInputResponse,
@@ -644,7 +645,7 @@ async function runCodexAppServerOperation(
   let terminalError: string | undefined;
   let targetFollowupObserved = false;
   let installActiveTurn: (() => void) | null = null;
-  let activeTurnTerminal = deferredSignal();
+  let activeTurnTerminal = deferredSignal<Record<string, unknown>>();
   const pendingServerRequests = new Map<string, {
     id: number;
     method: string;
@@ -748,15 +749,20 @@ async function runCodexAppServerOperation(
           void reason;
           if (options.goalSession) {
             await requestNativeGoalPause(activeThreadId, activeTurnId);
+            return { status: "interrupt-requested" as const };
           } else {
             try {
               const lease = hostLease;
               if (!lease) throw new Error("Codex app-server Host lease is unavailable.");
-              await lease.request(
+              const terminal = activeTurnTerminal;
+              const result = await lease.request(
                 "turn/interrupt",
                 { threadId: activeThreadId, turnId: activeTurnId },
-                { timeoutMs: CODEX_TURN_INTERRUPT_TIMEOUT_MS, resolveOn: activeTurnTerminal.promise },
+                { timeoutMs: CODEX_TURN_INTERRUPT_TIMEOUT_MS, resolveOn: terminal.promise },
               );
+              return result === CODEX_TURN_ALREADY_TERMINAL
+                ? { status: "already-terminal" as const }
+                : { status: "interrupt-requested" as const };
             } catch (error) {
               if (error instanceof CodexAppServerJsonRpcError && error.method === "turn/interrupt") {
                 const rejection = new Error(error.rpcMessage, { cause: error });
@@ -1035,7 +1041,7 @@ async function runCodexAppServerOperation(
     if (isParentNotification && method === "turn/started") {
       const nextTurnId = stringValue((isRecord(params.turn) ? params.turn.id : undefined) ?? params.turnId);
       if (nextTurnId) {
-        if (turnId !== nextTurnId) activeTurnTerminal = deferredSignal();
+        if (turnId !== nextTurnId) activeTurnTerminal = deferredSignal<Record<string, unknown>>();
         turnId = nextTurnId;
         activeTurnRunning = true;
         installActiveTurn?.();
@@ -1063,7 +1069,7 @@ async function runCodexAppServerOperation(
     }
     if (isParentNotification && method === "turn/completed") {
       activeTurnRunning = false;
-      activeTurnTerminal.resolve();
+      activeTurnTerminal.resolve(CODEX_TURN_ALREADY_TERMINAL);
       const completedTurnId = stringValue((isRecord(params.turn) ? params.turn.id : undefined) ?? params.turnId);
       if (threadId && completedTurnId) hostLease?.clearActiveTurn(threadId, completedTurnId);
       const interrupted = completionStatus(params) === "interrupted";
@@ -1073,7 +1079,7 @@ async function runCodexAppServerOperation(
       }
     } else if (isParentNotification && method === "turn/failed") {
       activeTurnRunning = false;
-      activeTurnTerminal.resolve();
+      activeTurnTerminal.resolve(CODEX_TURN_ALREADY_TERMINAL);
       terminalStatus = "failed";
       terminalError = JSON.stringify(params);
     } else if (isParentNotification && method === "item/completed") {
@@ -1747,9 +1753,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function deferredSignal(): { promise: Promise<void>; resolve(): void } {
-  let resolvePromise!: () => void;
-  const promise = new Promise<void>((resolve) => { resolvePromise = resolve; });
+function deferredSignal<T>(): { promise: Promise<T>; resolve(value: T): void } {
+  let resolvePromise!: (value: T) => void;
+  const promise = new Promise<T>((resolve) => { resolvePromise = resolve; });
   return { promise, resolve: resolvePromise };
 }
 

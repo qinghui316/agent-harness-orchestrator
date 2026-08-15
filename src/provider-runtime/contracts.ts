@@ -350,7 +350,7 @@ export interface ActiveProviderTurn {
   turnId: string;
   startedAt: string;
   steer(input: string): Promise<void>;
-  interrupt(reason?: string): Promise<void>;
+  interrupt(reason?: string): Promise<{ status: "interrupt-requested" | "already-terminal" }>;
   respondToUserInput(requestId: string, response: ProviderUserInputResponse, expected?: { runId: string; sessionId?: string; turnId?: string }): Promise<void>;
 }
 

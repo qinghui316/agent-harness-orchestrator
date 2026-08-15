@@ -307,6 +307,49 @@ describe("DirectAgentConversationTurnStrategy", () => {
     });
   });
 
+  it("reports already-terminal when the Provider Turn finishes before interrupt acknowledgement", async () => {
+    const releaseProvider = deferred<void>();
+    const providerEntered = deferred<void>();
+    const provider = fakeProvider({
+      waitForRelease: releaseProvider.promise,
+      onEntered: () => providerEntered.resolve(),
+      interruptResult: "already-terminal",
+    });
+    const registry = new ProviderRegistry();
+    registry.register(provider.descriptor);
+    const turnControl = new ConversationTurnControlOwner({
+      providerRegistry: registry,
+      projectRuntimeCoordinator: {
+        resolve: async () => ({ state: "onboarding", project: fixture.project, paths: fixture.paths }),
+      },
+      onInvalidated: () => undefined,
+    });
+    const strategy = new DirectAgentConversationTurnStrategy({
+      providerRegistry: registry,
+      resolveRuntimePaths: () => fixture.paths,
+      turnControl,
+    });
+    const input = await initialTurnInput(fixture, "terminal interrupt race");
+    const running = strategy.execute(input, { skillContext: { resolve: async () => skillResolution() } });
+    await providerEntered.promise;
+    const request = provider.requests[0]!;
+
+    await expect(turnControl.interrupt(fixture.project, {
+      projectId: fixture.project.id,
+      productMode: "agent",
+      conversationId: input.conversation.conversationId,
+      providerId: "codex",
+      expectedAttemptId: request.attemptId,
+    })).resolves.toEqual({
+      status: "already-terminal",
+      attemptId: request.attemptId,
+      runId: request.runId,
+    });
+
+    releaseProvider.resolve();
+    await running;
+  });
+
   it("releases Turn control after the durable terminal commit before publishing terminal events", async () => {
     const provider = fakeProvider();
     const registry = new ProviderRegistry();
@@ -1238,6 +1281,7 @@ interface FakeProviderBehavior {
   waitForRelease?: Promise<void>;
   beforeActive?: Promise<void>;
   interruptErrors?: Error[];
+  interruptResult?: "interrupt-requested" | "already-terminal";
   onEntered?: () => void;
   skills?: ProviderNativeSkill[];
   childCapability?: boolean;
@@ -1341,6 +1385,7 @@ function fakeProvider(behavior: FakeProviderBehavior = {}): {
             interrupts += 1;
             const error = behavior.interruptErrors?.shift();
             if (error) throw error;
+            return { status: behavior.interruptResult ?? "interrupt-requested" };
           },
           respondToUserInput: async () => undefined,
         };

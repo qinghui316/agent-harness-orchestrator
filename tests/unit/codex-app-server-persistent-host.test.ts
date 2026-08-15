@@ -331,7 +331,7 @@ describe("Codex persistent app-server Host", () => {
     const active = getActiveCodexAppServerTurn(options.runtimeScopeId);
     expect(active).not.toBeNull();
 
-    await active!.interrupt("user stop");
+    await expect(active!.interrupt("user stop")).resolves.toEqual({ status: "interrupt-requested" });
     await expect(turn).resolves.toMatchObject({ status: "interrupted", threadId: "thread-main", turnId: "turn-main-1" });
     expect(server.interruptParams).toEqual([{ threadId: "thread-main", turnId: "turn-main-1" }]);
     expect(started).toHaveLength(1);
@@ -353,7 +353,7 @@ describe("Codex persistent app-server Host", () => {
     });
     expect(getActiveCodexAppServerTurn(options.runtimeScopeId)).not.toBeNull();
 
-    await expect(active.interrupt("retry user stop")).resolves.toBeUndefined();
+    await expect(active.interrupt("retry user stop")).resolves.toEqual({ status: "interrupt-requested" });
     await expect(turn).resolves.toMatchObject({ status: "interrupted" });
     expect(server.interruptParams).toEqual([
       { threadId: "thread-main", turnId: "turn-main-1" },
@@ -441,7 +441,7 @@ describe("Codex persistent app-server Host", () => {
     const interruption = getActiveCodexAppServerTurn(options.runtimeScopeId)!.interrupt("user stop");
     server.completeParent();
 
-    await expect(interruption).resolves.toBeUndefined();
+    await expect(interruption).resolves.toEqual({ status: "already-terminal" });
     await expect(turn).resolves.toMatchObject({ status: "completed" });
     server.respondToHeldInterrupt();
     expect(server.interruptParams).toEqual([{ threadId: "thread-main", turnId: "turn-main-1" }]);

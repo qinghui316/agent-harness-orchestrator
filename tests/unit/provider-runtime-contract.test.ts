@@ -117,7 +117,7 @@ describe("provider-neutral runtime contract", () => {
         turnId: `${providerId}-turn`,
         startedAt: "2026-07-15T00:00:00.000Z",
         steer: async () => undefined,
-        interrupt: async () => undefined,
+        interrupt: async () => ({ status: "interrupt-requested" as const }),
         respondToUserInput: async () => undefined,
       } : null;
       registry.register(provider);
@@ -188,6 +188,7 @@ describe("provider-neutral runtime contract", () => {
       interrupt: async () => {
         interrupted = true;
         activeAlphaTurn = false;
+        return { status: "interrupt-requested" as const };
       },
       respondToUserInput: async () => undefined,
     } : null;
@@ -457,7 +458,7 @@ describe("provider-neutral runtime contract", () => {
       turnId: "alpha-turn",
       startedAt: "2026-07-15T00:00:00.000Z",
       steer: async () => undefined,
-      interrupt: async () => undefined,
+      interrupt: async () => ({ status: "interrupt-requested" as const }),
       respondToUserInput: async () => undefined,
     }];
     registry.register(provider);

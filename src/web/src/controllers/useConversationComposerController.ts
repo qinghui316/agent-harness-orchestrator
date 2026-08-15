@@ -845,7 +845,11 @@ function composerScopeIdentity(scope: ConversationComposerScope): string {
 }
 
 function composerStopIdentity(scope: ConversationComposerScope): string {
-  return [composerScopeIdentity(scope), scope.runControlState?.attemptId ?? ""].join("\0");
+  return [
+    composerScopeIdentity(scope),
+    scope.runControlState?.providerId ?? "",
+    scope.runControlState?.attemptId ?? "",
+  ].join("\0");
 }
 
 function turnModeOwnerIdentity(scope: ConversationComposerScope): string {

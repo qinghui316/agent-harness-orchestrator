@@ -53,7 +53,7 @@ interface PendingRequest {
 
 export interface CodexAppServerRequestOptions {
   timeoutMs?: number;
-  resolveOn?: Promise<void>;
+  resolveOn?: Promise<Record<string, unknown>>;
 }
 
 export class CodexAppServerRequestTimeoutError extends Error {
@@ -333,11 +333,11 @@ export class CodexAppServerHost {
           reject(error);
         },
       });
-      void options.resolveOn?.then(() => {
+      void options.resolveOn?.then((value) => {
         const pending = this.pending.get(id);
         if (!pending) return;
         this.pending.delete(id);
-        pending.resolve({});
+        pending.resolve(value);
       });
     });
   }

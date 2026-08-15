@@ -160,11 +160,17 @@ export class ConversationTurnControlOwner {
     entry.phase = "submitting";
     this.invalidate(entry.registration);
     entry.submission = active.interrupt("User requested interrupt from the owning Conversation.")
-      .then(() => ({
-        status: "interrupt-requested" as const,
-        attemptId: entry.registration.expectedAttemptId,
-        runId: entry.registration.runId,
-      }))
+      .then((result) => result.status === "already-terminal"
+        ? {
+          status: "already-terminal" as const,
+          attemptId: entry.registration.expectedAttemptId,
+          runId: entry.registration.runId,
+        }
+        : {
+          status: "interrupt-requested" as const,
+          attemptId: entry.registration.expectedAttemptId,
+          runId: entry.registration.runId,
+        })
       .catch((error: unknown) => {
         if (error instanceof Error && error.name === "ProviderInterruptRejected") {
           entry.phase = "running";
