@@ -8,7 +8,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { normalizeCodexAppServerNotification, type CodexAppServerRealtimeEvent } from "./app-server-realtime.js";
 import { readCodexNativeCollabConfigStatus, type CodexNativeCollabConfigStatus } from "./trust.js";
 import { agentRoleDisplayName, composeAgentDisplayLabel } from "../agent-display-label.js";
-import { defaultCodexAppServerHostRegistry, type CodexAppServerChildControl, type CodexAppServerHostIdentity, type CodexAppServerHostLease } from "./app-server-host.js";
+import { CodexAppServerJsonRpcError, defaultCodexAppServerHostRegistry, type CodexAppServerChildControl, type CodexAppServerHostIdentity, type CodexAppServerHostLease } from "./app-server-host.js";
 import { CodexCollaborationNormalizer, type CodexChildLifecycleEvent } from "./collaboration-normalizer.js";
 
 const UNREGISTERED_CHILD_ROLE_ID = "unregistered-provider-child";
@@ -747,7 +747,16 @@ async function runCodexAppServerOperation(
           if (options.goalSession) {
             await requestNativeGoalPause(activeThreadId, activeTurnId);
           } else {
-            await sendRequest("turn/interrupt", { threadId: activeThreadId, turnId: activeTurnId });
+            try {
+              await sendRequest("turn/interrupt", { threadId: activeThreadId, turnId: activeTurnId });
+            } catch (error) {
+              if (error instanceof CodexAppServerJsonRpcError && error.method === "turn/interrupt") {
+                const rejection = new Error(error.rpcMessage, { cause: error });
+                rejection.name = "ProviderInterruptRejected";
+                throw rejection;
+              }
+              throw error;
+            }
           }
         },
         respondToUserInput: async (requestId: string, response: CodexAppServerUserInputResponse, expected) => {

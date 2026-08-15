@@ -410,6 +410,7 @@ async function runProjectScopedMainAgentTurnActivity(
       updatedAt: failedAt,
       timelineMessages,
     });
+    options.turnControl?.release(turnRegistration);
     publishAgentSurfacesInvalidated(projectId, { conversationId, graphScopeId, reason: "attempt-updated" });
     terminalCommittedRows.push(...terminal.timelineRows);
     terminalCommittedRows.push(...terminal.interactionRows);
@@ -892,6 +893,7 @@ async function runProjectScopedMainAgentTurnActivity(
       updatedAt: terminalAt,
       timelineMessages: uniqueTerminalMessages,
     });
+    options.turnControl?.release(turnRegistration);
     publishAgentSurfacesInvalidated(projectId, { conversationId, graphScopeId, reason: "attempt-updated" });
     terminalCommittedRows.push(...terminalCommit.timelineRows);
     terminalCommittedRows.push(...terminalCommit.interactionRows);

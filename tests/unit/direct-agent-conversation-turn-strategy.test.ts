@@ -240,6 +240,52 @@ describe("DirectAgentConversationTurnStrategy", () => {
     );
   });
 
+  it("releases Turn control after the durable terminal commit before publishing terminal events", async () => {
+    const provider = fakeProvider();
+    const registry = new ProviderRegistry();
+    registry.register(provider.descriptor);
+    const turnControl = new ConversationTurnControlOwner({
+      providerRegistry: registry,
+      projectRuntimeCoordinator: {
+        resolve: async () => ({ state: "onboarding", project: fixture.project, paths: fixture.paths }),
+      },
+      onInvalidated: () => undefined,
+    });
+    const strategy = new DirectAgentConversationTurnStrategy({
+      providerRegistry: registry,
+      resolveRuntimePaths: () => fixture.paths,
+      turnControl,
+    });
+    const input = await initialTurnInput(fixture, "release after terminal commit");
+    let nextRegistrationSucceeded = false;
+    const nextRegistration = {
+      projectId: fixture.project.id,
+      productMode: "agent" as const,
+      conversationId: input.conversation.conversationId,
+      providerId: "codex" as const,
+      expectedAttemptId: "attempt-next-after-terminal",
+      graphScopeId: input.conversation.currentGraphScopeId!,
+      runId: "run-next-after-terminal",
+      roleId: "main-agent" as const,
+    };
+    input.live = {
+      emit: (event) => {
+        if (event.event !== "timeline.patch" || nextRegistrationSucceeded) return;
+        turnControl.registerAttempt(nextRegistration);
+        nextRegistrationSucceeded = true;
+      },
+    };
+
+    await expect(strategy.execute(input, emptyPorts())).resolves.toMatchObject({ mode: "chat" });
+
+    expect(nextRegistrationSucceeded).toBe(true);
+    expect(turnControl.state(fixture.project.id, input.conversation.conversationId)).toMatchObject({
+      state: "running",
+      attemptId: nextRegistration.expectedAttemptId,
+    });
+    turnControl.release(nextRegistration);
+  });
+
   it("fails a stale Agent main Attempt on restart and marks its Provider binding stale", async () => {
     const created = await createAgentConversation(fixture, "restart recovery");
     const database = await openProjectRuntimeWorkbenchDatabase(fixture.paths);

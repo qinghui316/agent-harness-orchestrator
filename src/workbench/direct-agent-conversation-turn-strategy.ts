@@ -289,6 +289,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
         timelineMessages: writes,
       });
       terminalLifecycle.state = "settled";
+      this.turnControl?.release(turnRegistration);
       terminalRows.push(...terminal.timelineRows, ...terminal.interactionRows);
       const assistantRow = [...terminal.timelineRows].reverse().find((row) => row.agentSurfaceId === "main-agent") ?? null;
       return assistantRow ? fromStoredThreadMessage(assistantRow) : null;
@@ -547,6 +548,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
               }
             }
             terminalLifecycle.state = "settled";
+            this.turnControl?.release(turnRegistration);
           } catch (recoveryError) {
             terminalFailure = new AggregateError(
               [terminalFailure, asError(recoveryError)].filter((item): item is Error => Boolean(item)),

@@ -112,6 +112,7 @@ import { appendCanonicalTimelineEntry } from "../../src/workbench/canonical-time
 import { listConversationMessages, postConversationMessage as postConversationMessageRaw } from "../../src/workbench/conversation-service.js";
 import { resumeNativeGoalAfterAction, runWorkbenchWorkflowAction } from "../../src/workbench/workflow-conversation-bridge.js";
 import { buildConversationInteractionQueue } from "../../src/workbench/conversation-interactions.js";
+import { ConversationTurnControlOwner } from "../../src/workbench/conversation-turn-control.js";
 import { createConversationTurnRouter } from "../../src/workbench/conversation-turn-router.js";
 import type { ConversationTurnRoutingPort } from "../../src/workbench/conversation-turn-contract.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
@@ -211,6 +212,80 @@ function postConversationMessage(
 }
 
 describe("Workbench provider planning flow", () => {
+  it("releases Harness Turn control after terminal commit before publishing terminal rows", async () => {
+    const conversation = await createWorkbenchConversation(project(), {
+      body: "Start without running Main yet.",
+    }, undefined, { runMainAgent: false });
+    appServerTurn.mockImplementation(async (options) => {
+      emitMainThreadStarted(options, "thread-release-race", "turn-release-race");
+      emitCanonicalMainText(
+        options,
+        "Harness turn completed.",
+        "thread-release-race",
+        "turn-release-race",
+        "message-release-race",
+      );
+      return {
+        status: "completed",
+        threadId: "thread-release-race",
+        turnId: "turn-release-race",
+        lastMessage: "Harness turn completed.",
+        childThreads: [],
+      };
+    });
+    const projectRuntimeCoordinator = new ProjectRuntimeCoordinator({
+      store: new ProjectRegistryStore(process.env.AHO_HOME!),
+      ahoHome: process.env.AHO_HOME!,
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+    });
+    const skillContext = new ProjectSkillRuntimeContextResolver({
+      providerRegistry: defaultProviderRegistry,
+      projectRuntimeCoordinator,
+    });
+    const turnControl = new ConversationTurnControlOwner({
+      providerRegistry: defaultProviderRegistry,
+      projectRuntimeCoordinator,
+      onInvalidated: () => undefined,
+    });
+    const router = createConversationTurnRouter({
+      skillContext,
+      providerRegistry: defaultProviderRegistry,
+      projectRuntimeCoordinator,
+      turnControl,
+    });
+    const store = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
+    const graphScopeId = store.conversations.readConversation(project().id, conversation.conversationId)!.currentGraphScopeId!;
+    store.close();
+    const nextRegistration = {
+      projectId: project().id,
+      productMode: "harness" as const,
+      conversationId: conversation.conversationId,
+      providerId: "codex" as const,
+      expectedAttemptId: "attempt-next-harness-turn",
+      graphScopeId,
+      runId: "run-next-harness-turn",
+      roleId: "main-agent" as const,
+    };
+    let nextRegistrationSucceeded = false;
+
+    await postConversationMessageRaw(project(), conversation.conversationId, "Run Main once.", {
+      emit: (event) => {
+        if (event.event !== "timeline.patch"
+          || !event.data.messageId.startsWith("assistant:")
+          || nextRegistrationSucceeded) return;
+        turnControl.registerAttempt(nextRegistration);
+        nextRegistrationSucceeded = true;
+      },
+    }, { turnRouter: router });
+
+    expect(nextRegistrationSucceeded).toBe(true);
+    expect(turnControl.state(project().id, conversation.conversationId)).toMatchObject({
+      state: "running",
+      attemptId: nextRegistration.expectedAttemptId,
+    });
+    turnControl.release(nextRegistration);
+  });
+
   it("does not fall back to a legacy gate when a bound Skill-native Conversation loses its graph", async () => {
     const conversation = await createWorkbenchConversation(project(), {
       body: "Prepare a plan.",

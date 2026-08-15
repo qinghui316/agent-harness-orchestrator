@@ -46,8 +46,23 @@ export interface CodexAppServerChildControl extends CodexAppServerHostIdentity {
 }
 
 interface PendingRequest {
+  method: string;
   resolve(value: Record<string, unknown>): void;
   reject(error: Error): void;
+}
+
+export class CodexAppServerJsonRpcError extends Error {
+  readonly code: number | null;
+  readonly data: unknown;
+  readonly rpcMessage: string;
+
+  constructor(readonly method: string, error: Record<string, unknown>) {
+    super(JSON.stringify(error));
+    this.name = "CodexAppServerJsonRpcError";
+    this.code = typeof error.code === "number" ? error.code : null;
+    this.data = error.data;
+    this.rpcMessage = typeof error.message === "string" ? error.message : this.message;
+  }
 }
 
 export class CodexAppServerHost {
@@ -274,7 +289,7 @@ export class CodexAppServerHost {
     if (!stdin?.writable) return Promise.reject(new Error("Codex app-server Host stdin is not writable."));
     const id = this.requestId++;
     stdin.write(`${JSON.stringify({ id, method, params })}\n`);
-    return new Promise((resolve, reject) => this.pending.set(id, { resolve, reject }));
+    return new Promise((resolve, reject) => this.pending.set(id, { method, resolve, reject }));
   }
 
   private notify(method: string, params: Record<string, unknown>, generation: number): void {
@@ -342,7 +357,7 @@ export class CodexAppServerHost {
         const pending = this.pending.get(payload.id);
         if (pending) {
           this.pending.delete(payload.id);
-          if (isRecord(payload.error)) pending.reject(new Error(JSON.stringify(payload.error)));
+          if (isRecord(payload.error)) pending.reject(new CodexAppServerJsonRpcError(pending.method, payload.error));
           else pending.resolve(isRecord(payload.result) ? payload.result : payload);
           continue;
         }

@@ -335,6 +335,48 @@ describe("Codex persistent app-server Host", () => {
     expect(server.interruptParams).toEqual([{ threadId: "thread-main", turnId: "turn-main-1" }]);
     expect(started).toHaveLength(1);
   });
+
+  it("classifies an explicit interrupt error response as a retryable Provider rejection", async () => {
+    const cwd = await tempDir();
+    const server = new PersistentCollaborationServer(4562, true);
+    server.rejectNextInterrupt("turn is not interruptible");
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+    const options = await turnOptions(cwd, "interrupt-rejection-run", null);
+    const turn = runCodexAppServerTurn(options);
+    await vi.waitFor(() => expect(getActiveCodexAppServerTurn(options.runtimeScopeId)).not.toBeNull());
+
+    const active = getActiveCodexAppServerTurn(options.runtimeScopeId)!;
+    await expect(active.interrupt("user stop")).rejects.toMatchObject({
+      name: "ProviderInterruptRejected",
+      message: "turn is not interruptible",
+    });
+    expect(getActiveCodexAppServerTurn(options.runtimeScopeId)).not.toBeNull();
+
+    await expect(active.interrupt("retry user stop")).resolves.toBeUndefined();
+    await expect(turn).resolves.toMatchObject({ status: "interrupted" });
+    expect(server.interruptParams).toEqual([
+      { threadId: "thread-main", turnId: "turn-main-1" },
+      { threadId: "thread-main", turnId: "turn-main-1" },
+    ]);
+  });
+
+  it("keeps an interrupt connection loss classified as an uncertain transport failure", async () => {
+    const cwd = await tempDir();
+    const server = new PersistentCollaborationServer(4563, true);
+    server.crashOnNextInterrupt();
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+    const options = await turnOptions(cwd, "interrupt-uncertain-run", null);
+    const turn = runCodexAppServerTurn(options);
+    await vi.waitFor(() => expect(getActiveCodexAppServerTurn(options.runtimeScopeId)).not.toBeNull());
+
+    const active = getActiveCodexAppServerTurn(options.runtimeScopeId)!;
+    const interruption = active.interrupt("user stop");
+    await expect(interruption).rejects.not.toMatchObject({ name: "ProviderInterruptRejected" });
+    await expect(turn).resolves.toMatchObject({
+      status: "failed",
+      error: "Codex app-server Host exited with 17.",
+    });
+  });
 });
 
 async function tempDir(): Promise<string> {
@@ -378,6 +420,8 @@ class PersistentCollaborationServer extends EventEmitter {
   killCount = 0;
   private input = "";
   private turnCount = 0;
+  private nextInterruptError: string | null = null;
+  private crashInterrupt = false;
 
   constructor(
     pid: number,
@@ -408,6 +452,14 @@ class PersistentCollaborationServer extends EventEmitter {
 
   completeParent(): void {
     this.notify("turn/completed", { threadId: "thread-main", turn: { id: "turn-main-1", status: "completed" } });
+  }
+
+  rejectNextInterrupt(message: string): void {
+    this.nextInterruptError = message;
+  }
+
+  crashOnNextInterrupt(): void {
+    this.crashInterrupt = true;
   }
 
   private drain(): void {
@@ -505,6 +557,17 @@ class PersistentCollaborationServer extends EventEmitter {
       }
       case "turn/interrupt":
         this.interruptParams.push({ threadId: String(params.threadId), turnId: String(params.turnId) });
+        if (this.crashInterrupt) {
+          this.crashInterrupt = false;
+          queueMicrotask(() => this.crash());
+          return;
+        }
+        if (this.nextInterruptError) {
+          const message = this.nextInterruptError;
+          this.nextInterruptError = null;
+          this.reject(id, { code: -32000, message });
+          return;
+        }
         this.respond(id, {});
         this.notify("turn/completed", { threadId: String(params.threadId), turn: { id: String(params.turnId), status: "interrupted" } });
         return;
@@ -530,6 +593,10 @@ class PersistentCollaborationServer extends EventEmitter {
 
   private respond(id: number, result: Record<string, unknown>): void {
     queueMicrotask(() => this.stdout.write(`${JSON.stringify({ id, result })}\n`));
+  }
+
+  private reject(id: number, error: Record<string, unknown>): void {
+    queueMicrotask(() => this.stdout.write(`${JSON.stringify({ id, error })}\n`));
   }
 
   private notify(method: string, params: Record<string, unknown>): void {
