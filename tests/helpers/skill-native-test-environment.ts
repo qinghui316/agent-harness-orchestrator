@@ -110,6 +110,8 @@ if (appServerIndex >= 0) {
     const request = JSON.parse(line);
     if (request.method === "initialize" || request.method === "skills/extraRoots/set") {
       reply(request.id, {});
+    } else if (request.method === "initialized") {
+      // JSON-RPC notifications do not have an id and must not receive a response.
     } else if (request.method === "skills/list") {
       const requestedCwd = Array.isArray(request.params && request.params.cwds)
         ? request.params.cwds[0]
@@ -139,8 +141,12 @@ if (appServerIndex >= 0) {
         console.log(JSON.stringify({ method: "item/completed", params: { threadId, turnId, item: { id: "message-scheduler-fake-" + process.pid + "-" + turnSequence, type: "agentMessage", text: responseText } } }));
         console.log(JSON.stringify({ method: "turn/completed", params: { threadId, turn: { id: turnId, status: "completed" } } }));
       });
-    } else {
+    } else if (request.id !== undefined && request.id !== null) {
       reject(request.id, request.method);
+    } else {
+      console.error("Unsupported fake Codex RPC notification: " + request.method);
+      process.exitCode = 1;
+      rl.close();
     }
   });
 } else if (args[0] === "exec" || args.includes("exec")) {
