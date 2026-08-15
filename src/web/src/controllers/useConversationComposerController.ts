@@ -145,6 +145,7 @@ export function useConversationComposerController(
   const scopeGenerationRef = useRef(0);
   const skillRequestGenerationRef = useRef(0);
   const draftRequestGenerationRef = useRef(0);
+  const attachmentSelectionGenerationRef = useRef(0);
   const scopeIdentityRef = useRef(composerScopeIdentity(scope));
   const turnModeOwnerIdentityRef = useRef<string | null>(null);
   const confirmedTurnModesRef = useRef(new Map<string, AgentTurnMode>());
@@ -248,7 +249,8 @@ export function useConversationComposerController(
     }
   }, []);
 
-  const agentTurnModeDisabledReason = resolveAgentTurnModeDisabledReason(scope, agentTurnMode);
+  const agentTurnModeDisabledReason = resolveAgentTurnModeDisabledReason(scope, agentTurnMode)
+    ?? resolveAttachmentCapabilityDisabledReason(scope, attachments);
 
   const cleanupTransition = useCallback((transition: ComposerTransition): void => {
     scopeGenerationRef.current += 1;
@@ -327,6 +329,7 @@ export function useConversationComposerController(
         return [];
       }
       setAttachments((current) => mergeTopicAttachments(current, uploaded));
+      attachmentSelectionGenerationRef.current += 1;
       return uploaded;
     } catch (cause) {
       portsRef.current.onError(errorMessage(cause));
@@ -337,6 +340,7 @@ export function useConversationComposerController(
   const removeAttachment = useCallback(async (attachmentId: string): Promise<void> => {
     const projectId = scopeRef.current.projectId;
     setAttachments((current) => current.filter((attachment) => attachment.id !== attachmentId));
+    attachmentSelectionGenerationRef.current += 1;
     if (!projectId) return;
     try {
       await (portsRef.current.attachments ?? defaultAttachmentApi).remove(projectId, attachmentId);
@@ -363,6 +367,15 @@ export function useConversationComposerController(
       portsRef.current.onError(turnModeError);
       return null;
     }
+    const attachmentCapabilityError = resolveAttachmentCapabilityDisabledReason(currentScope, [
+      ...stateRef.current.attachments.filter((attachment) => attachmentIds.includes(attachment.id)),
+      ...attachmentFiles.map(topicAttachmentCapabilityProbe),
+    ]);
+    if (attachmentCapabilityError) {
+      portsRef.current.onError(attachmentCapabilityError);
+      return null;
+    }
+    const attachmentGeneration = attachmentSelectionGenerationRef.current;
     const prepared = prepareComposerInput({
       body,
       selectedRefs,
@@ -401,7 +414,8 @@ export function useConversationComposerController(
       });
       uploadedDraft = [];
       const requestProjectIds = [capturedProjectId, effectiveProjectId];
-      if (composerRequestOwnsCurrentScope(generation, requestProjectIds, capturedProductMode, capturedProviderId, scopeGenerationRef, scopeRef, created.conversationId)) {
+      if (attachmentGeneration === attachmentSelectionGenerationRef.current
+        && composerRequestOwnsCurrentScope(generation, requestProjectIds, capturedProductMode, capturedProviderId, scopeGenerationRef, scopeRef, created.conversationId)) {
         setComposerText("");
         setFileRefs([]);
         setAttachments([]);
@@ -448,6 +462,7 @@ export function useConversationComposerController(
     const capturedAgentTurnMode = stateRef.current.agentTurnMode;
     const draft = stateRef.current;
     const attachmentIds = draft.attachments.map((attachment) => attachment.id);
+    const attachmentGeneration = attachmentSelectionGenerationRef.current;
     if (!currentScope.projectId || !currentScope.conversation || (!draft.composerText.trim() && attachmentIds.length === 0)) return;
     const capturedSkillIdentity: SkillRequestIdentity = {
       projectId: currentScope.projectId,
@@ -501,6 +516,11 @@ export function useConversationComposerController(
       portsRef.current.onError(turnModeError);
       return;
     }
+    const attachmentCapabilityError = resolveAttachmentCapabilityDisabledReason(currentScope, draft.attachments);
+    if (attachmentCapabilityError) {
+      portsRef.current.onError(attachmentCapabilityError);
+      return;
+    }
 
     const token = portsRef.current.operation.begin("chat.ask");
     if (composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) {
@@ -532,7 +552,8 @@ export function useConversationComposerController(
             portsRef.current.projection.routeEvent?.(projectId, event);
           }
         })))(request);
-      if (composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) {
+      if (attachmentGeneration === attachmentSelectionGenerationRef.current
+        && composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) {
         setFileRefs([]);
         setAttachments([]);
       }
@@ -632,7 +653,10 @@ export function useConversationComposerController(
     agentTurnMode,
     selectAgentTurnMode,
     agentTurnModeDisabledReason,
-    setAttachments,
+    setAttachments: (next: TopicAttachment[] | ((current: TopicAttachment[]) => TopicAttachment[])) => {
+      attachmentSelectionGenerationRef.current += 1;
+      setAttachments(next);
+    },
     reloadSkills,
     toggleSkill,
     appendAttachments,
@@ -811,6 +835,32 @@ export function resolveAgentTurnModeDisabledReason(
     return plan?.reason ?? "当前 Agent 不支持 Plan 模式。";
   }
   return null;
+}
+
+export function resolveAttachmentCapabilityDisabledReason(
+  scope: ConversationComposerScope,
+  attachments: readonly Pick<TopicAttachment, "kind">[],
+): string | null {
+  if (composerProductMode(scope) !== "agent" || attachments.length === 0 || scope.running) return null;
+  if (scope.providerCapabilitiesLoading) return "正在检查当前 Agent 是否支持附件输入。";
+  if (scope.providerCapabilitiesError) return `无法确认附件能力：${scope.providerCapabilitiesError}`;
+  const providerId = scope.selectedProviderId ?? scope.conversation?.selectedProviderId ?? null;
+  if (!providerId) return "请先选择支持附件输入的 Agent。";
+  const snapshot = scope.providerCapabilities?.find((candidate) => candidate.providerId === providerId);
+  if (!snapshot) return "无法确认当前 Agent 的附件能力。";
+  const readiness = new Map(snapshot.capabilities.map((capability) => [capability.key, capability]));
+  if (attachments.some((attachment) => attachment.kind === "image") && readiness.get("image.input")?.runtime !== "ready") {
+    return readiness.get("image.input")?.reason ?? "当前 Agent 不支持图片输入。";
+  }
+  if (attachments.some((attachment) => attachment.kind === "text") && readiness.get("file.reference")?.runtime !== "ready") {
+    return readiness.get("file.reference")?.reason ?? "当前 Agent 不支持文件引用。";
+  }
+  return null;
+}
+
+function topicAttachmentCapabilityProbe(file: File): Pick<TopicAttachment, "kind"> {
+  const image = file.type.startsWith("image/");
+  return { kind: image ? "image" : "text" };
 }
 
 const defaultComposerDraftApi = {

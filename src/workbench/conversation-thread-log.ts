@@ -178,8 +178,8 @@ function isTopicAttachment(value: unknown): value is TopicAttachment {
     && typeof value.hash === "string"
     && value.source === "composer"
     && typeof value.createdAt === "string"
-    && typeof value.storagePath === "string"
     && (value.runtimeMode === "provider-image-input"
+      || value.runtimeMode === "provider-file-reference"
       || value.runtimeMode === "bounded-text-preview"
       || value.runtimeMode === "metadata-only");
 }

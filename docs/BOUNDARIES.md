@@ -90,6 +90,34 @@ optional and never lowers Default Agent readiness. Harness requests cannot carry
 an Agent turn mode, and Agent Plan cannot create Harness planning or governance
 objects.
 
+Direct Agent attachments cross one provider-neutral boundary. The Workbench
+composition root injects one `TurnAttachmentResolver`; Composer and HTTP carry
+only managed attachment IDs, Router admission carries one immutable resolution,
+and the Strategy passes `imageInputs` / `fileInputs` to the selected adapter.
+Only adapters may translate those inputs into private types such as Codex
+`LocalImage` or `Mention`. `image.input` and `file.reference` are optional
+capabilities and are not part of minimum Agent readiness or pure-text turns.
+
+Only files uploaded into the selected project's managed Workbench attachment
+directory are eligible. Arbitrary local paths, URLs, workspace-reference tokens,
+binary files, cross-project IDs, metadata path substitution, and root escape fail
+closed. Attachment directories may extend Provider read roots but never writable
+roots. Absolute managed paths, file bodies, and base64 data remain transient at
+the filesystem/Provider boundary; durable request and Timeline evidence uses
+bounded attachment metadata and the existing handoff hash. Legacy
+`bounded-text-preview` metadata remains readable and is promoted in-memory to a
+provider file reference without rewriting historical records or changing Harness
+Main's bounded-preview behavior.
+
+First-send and Direct Agent follow-up admission completes before SSE begins.
+Capability or initial attachment validation failure therefore has zero
+Conversation/message/Attempt/Provider side effects and returns HTTP Conflict.
+Exact create replay is checked from durable request and canonical attachment
+evidence before touching the current attachment file or Provider capabilities.
+Before a new Attempt, the Strategy repeats containment, existence, size, and hash
+validation to close the upload-to-execution race; failure after message commit is
+reported without silently dropping or rewriting the committed attachment facts.
+
 Provider-native questions use one Workbench lifecycle owner for Agent and
 Harness. Settlement reads the stored Conversation first, then proves project,
 mode, Conversation, graph scope, run, Attempt, Provider, thread, turn, and

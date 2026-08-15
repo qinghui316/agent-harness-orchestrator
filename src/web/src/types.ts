@@ -46,6 +46,7 @@ export type ProviderCapabilityKey =
   | "collaboration.mode"
   | "session.continuation"
   | "image.input"
+  | "file.reference"
   | "model.list"
   | "skills"
   | "turn.plan";
@@ -153,9 +154,7 @@ export type TopicAttachment = {
   hash: string;
   source: "composer";
   createdAt: string;
-  storagePath: string;
-  runtimeMode: "provider-image-input" | "bounded-text-preview" | "metadata-only";
-  message?: string;
+  runtimeMode: "provider-image-input" | "provider-file-reference" | "bounded-text-preview" | "metadata-only";
   previewUrl?: string;
 };
 export type ProjectFileTreeResult = {

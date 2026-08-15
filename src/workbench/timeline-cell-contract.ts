@@ -19,7 +19,7 @@ export interface TopicFileReference {
 }
 
 export type TopicAttachmentKind = "image" | "text" | "unsupported";
-export type TopicAttachmentRuntimeMode = "provider-image-input" | "bounded-text-preview" | "metadata-only";
+export type TopicAttachmentRuntimeMode = "provider-image-input" | "provider-file-reference" | "bounded-text-preview" | "metadata-only";
 
 export interface TopicAttachment {
   id: string;
@@ -30,9 +30,7 @@ export interface TopicAttachment {
   hash: string;
   source: "composer";
   createdAt: string;
-  storagePath: string;
   runtimeMode: TopicAttachmentRuntimeMode;
-  message?: string;
 }
 
 export type ParentAgentTranscriptActor = "user" | "parent-agent";

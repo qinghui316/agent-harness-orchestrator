@@ -44,6 +44,7 @@ describe("provider-neutral runtime contract", () => {
     ]));
     expect(PROVIDER_OPERATION_CAPABILITIES.agent).not.toContain("child.spawn");
     expect(PROVIDER_OPERATION_CAPABILITIES.agent).not.toContain("turn.plan");
+    expect(PROVIDER_OPERATION_CAPABILITIES.agent).not.toContain("file.reference");
     expect(PROVIDER_OPERATION_CAPABILITIES.agent).not.toContain("workspace.multiroot");
     expect(PROVIDER_OPERATION_CAPABILITIES.main).toContain("turn.user-input");
     expect(PROVIDER_OPERATION_CAPABILITIES.planning).toContain("turn.user-input");

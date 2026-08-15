@@ -204,6 +204,26 @@ export interface ProviderArtifactPaths {
   session: string;
 }
 
+export interface ProviderImageInput {
+  id?: string;
+  path: string;
+  mediaType?: string;
+  fileName?: string;
+  size?: number;
+  contentHash?: string;
+  source?: "managed-attachment";
+}
+
+export interface ProviderFileInput {
+  id: string;
+  name: string;
+  path: string;
+  mediaType: string;
+  size: number;
+  contentHash: string;
+  source: "managed-attachment";
+}
+
 export interface ProviderRuntimeHostRef {
   hostId: string;
   generation: number;
@@ -244,7 +264,8 @@ export interface ProviderTurnRequest {
   onPlanUpdate?: (text: string, params: Record<string, unknown>) => void;
   onError?: (error: unknown) => void;
   model?: ProviderModelRef | null;
-  imageInputs?: Array<{ path: string; mediaType?: string; fileName?: string }>;
+  imageInputs?: ProviderImageInput[];
+  fileInputs?: ProviderFileInput[];
   skillInputs?: ProviderSkillInput[];
   nativeSkillRoots?: string[];
   requiredNativeSkills?: string[];

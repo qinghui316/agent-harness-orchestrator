@@ -1,6 +1,11 @@
 ﻿import type { IncomingMessage, ServerResponse } from "node:http";
 import { createSseResponse } from "../sse.js";
-import { createWorkbenchConversation, postConversationMessage } from "../../workbench/conversation-service.js";
+import {
+  createWorkbenchConversation,
+  postConversationMessage,
+  prepareConversationMessage,
+  prepareWorkbenchConversation,
+} from "../../workbench/conversation-service.js";
 import { getWorkbenchSnapshot, type WorkbenchProjectInput } from "../../workbench/projections/read-model/implementation.js";
 import type { WorkbenchLiveSink } from "../../workbench/types.js";
 import type { ManagedProject } from "../../types/index.js";
@@ -77,6 +82,7 @@ export async function sendCreateTopicLive(
   turnRouter: ConversationTurnRoutingPort,
 ): Promise<void> {
   const body = await readCreateTopicBody(request);
+  const prepared = await prepareWorkbenchConversation(input.project, body, { turnRouter });
   const sse = createSseResponse(response);
   let conversationId: string | undefined;
   const downstream = createLiveSink(sse, input.project.id);
@@ -88,7 +94,7 @@ export async function sendCreateTopicLive(
     isClosed: () => downstream.isClosed?.() ?? false,
   };
   try {
-    const topic = await createWorkbenchConversation(input.project, body, sink, { turnRouter });
+    const topic = await createWorkbenchConversation(input.project, body, sink, { turnRouter, prepared });
     conversationId = topic.conversationId;
     sink.emit({ event: "snapshot", data: await getWorkbenchSnapshot(input, { topicId: topic.conversationId, productMode: topic.productMode }) });
     sink.emit({ event: "done", data: { projectId: input.project.id, productMode: topic.productMode, conversationId: topic.conversationId, status: "completed" } });
@@ -109,11 +115,14 @@ export async function sendConversationMessageLive(
   turnRouter: ConversationTurnRoutingPort,
 ): Promise<void> {
   const message = await readTopicMessageBody(request);
+  const prepared = message.productMode === "agent" && !message.agentSurfaceId
+    ? await prepareConversationMessage(input.project, conversationId, message, { turnRouter })
+    : undefined;
   const sse = createSseResponse(response);
   const sink = createLiveSink(sse, input.project.id);
   let resolvedConversationId = conversationId;
   try {
-    const result = await postConversationMessage(input.project, resolvedConversationId, message, sink, { turnRouter });
+    const result = await postConversationMessage(input.project, resolvedConversationId, message, sink, { turnRouter, prepared });
     resolvedConversationId = result.user.conversationId ?? resolvedConversationId;
     sink.emit({ event: "snapshot", data: await getWorkbenchSnapshot(input, { topicId: resolvedConversationId, productMode: message.productMode }) });
     sink.emit({ event: "done", data: { projectId: input.project.id, productMode: message.productMode, conversationId: resolvedConversationId, status: "completed" } });

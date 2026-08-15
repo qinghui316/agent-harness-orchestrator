@@ -20,6 +20,7 @@ import type {
 } from "./conversation-turn-contract.js";
 import type { TopicMessageResult, TopicThreadEntry, ValidatedPlanHandoffIntent, WorkbenchLiveSink } from "./types.js";
 import type { TurnSkillContextPort } from "./conversation-turn-contract.js";
+import { TurnAttachmentResolver } from "./turn-attachment-resolver.js";
 
 export type ConversationTurnStrategies = Readonly<Record<ProductMode, ConversationTurnStrategy>>;
 
@@ -28,6 +29,7 @@ export interface ConversationTurnRouterCompositionOptions {
   providerRegistry: ProviderRegistry;
   projectRuntimeCoordinator: Pick<ProjectRuntimeCoordinatorPort, "resolve" | "runtimePaths">;
   resolveRuntimePaths?: (projectId: string) => ProjectRuntimePaths;
+  attachmentResolver?: TurnAttachmentResolver;
 }
 
 export function createConversationTurnRouter(
@@ -35,11 +37,13 @@ export function createConversationTurnRouter(
 ): ConversationTurnRouter {
   const resolveRuntimePaths = options.resolveRuntimePaths
     ?? ((projectId: string) => options.projectRuntimeCoordinator.runtimePaths(projectId));
+  const attachmentResolver = options.attachmentResolver ?? new TurnAttachmentResolver({ resolveRuntimePaths });
   return new ConversationTurnRouter(
     {
       agent: new DirectAgentConversationTurnStrategy({
         providerRegistry: options.providerRegistry,
         resolveRuntimePaths,
+        attachmentResolver,
       }),
       harness: new HarnessConversationTurnStrategy((project, conversationId, userMessage, live, handoff, runnerOptions) => (
         runProjectScopedMainAgentTurn(project, conversationId, userMessage, live, handoff, {
@@ -53,6 +57,7 @@ export function createConversationTurnRouter(
     {
       projectRuntimeCoordinator: options.projectRuntimeCoordinator,
       providerRegistry: options.providerRegistry,
+      attachmentResolver,
     },
   );
 }
@@ -63,10 +68,13 @@ export class ConversationTurnRouter {
   constructor(
     private readonly strategies: ConversationTurnStrategies,
     private readonly ports: ConversationTurnExecutionPorts,
-    options: Pick<ConversationTurnRouterCompositionOptions, "projectRuntimeCoordinator" | "providerRegistry">,
+    options: Pick<ConversationTurnRouterCompositionOptions, "projectRuntimeCoordinator" | "providerRegistry"> & { attachmentResolver?: TurnAttachmentResolver },
   ) {
     this.runtimeStateResolver = (project) => options.projectRuntimeCoordinator.resolve(project);
     this.providerRegistry = options.providerRegistry;
+    this.attachmentResolver = options.attachmentResolver ?? new TurnAttachmentResolver({
+      resolveRuntimePaths: (projectId) => options.projectRuntimeCoordinator.runtimePaths(projectId),
+    });
     for (const productMode of ["agent", "harness"] as const) {
       if (strategies[productMode].productMode !== productMode) {
         throw new Error(`Conversation Turn Strategy for ${productMode} must declare the same productMode.`);
@@ -75,6 +83,11 @@ export class ConversationTurnRouter {
   }
 
   private readonly providerRegistry: ProviderRegistry;
+  private readonly attachmentResolver: TurnAttachmentResolver;
+
+  readonly resolveAttachments = (project: ManagedProject, attachmentIds: readonly string[] = []) => (
+    this.attachmentResolver.resolveMetadata(project, attachmentIds)
+  );
 
   assertRequestedMode(conversation: StoredConversation, requestedMode?: ProductMode): void {
     if (requestedMode === undefined || requestedMode === conversation.productMode) return;
@@ -113,11 +126,10 @@ export class ConversationTurnRouter {
         sandboxPolicy: "workspace-write",
         writableRoots: [input.project.path],
         runtimeState,
+        attachmentResolution: null,
       });
     }
-    if (input.attachments.length > 0) {
-      throw conflict("Direct Agent attachments are not supported in this increment.");
-    }
+    const attachmentResolution = await this.attachmentResolver.resolve(input.project, input.attachments);
     const agentTurnMode = input.agentTurnMode ?? "default";
     const resolved = await this.providerRegistry.requireProfiles(
       input.providerId,
@@ -132,6 +144,7 @@ export class ConversationTurnRouter {
         throw conflict("Selected Provider cannot run Agent Plan turns.");
       }
     }
+    requireAttachmentCapabilities(resolved.snapshot, attachmentResolution);
     return freezeAdmission({
       projectId: input.project.id,
       productMode: "agent",
@@ -145,6 +158,7 @@ export class ConversationTurnRouter {
       sandboxPolicy: agentTurnMode === "plan" ? "read-only" : "workspace-write",
       writableRoots: agentTurnMode === "plan" ? [] : [input.project.path],
       runtimeState,
+      attachmentResolution,
     });
   }
 
@@ -284,10 +298,28 @@ function assertAdmissionIdentity(input: import("./conversation-turn-contract.js"
     || admission.agentTurnMode !== input.conversation.agentTurnMode) {
     throw conflict("Turn admission does not match the committed Conversation identity.");
   }
+  if (input.conversation.productMode === "agent") {
+    const expected = [...new Set(input.attachments.map((attachment) => attachment.id))].sort();
+    const admitted = admission.attachmentResolution?.attachmentIds ?? [];
+    if (JSON.stringify(expected) !== JSON.stringify(admitted)) {
+      throw conflict("Turn admission attachment identity does not match the committed message.");
+    }
+  }
 }
 
 function conflict(message: string): Error {
   const error = new Error(message);
   error.name = "Conflict";
   return error;
+}
+
+function requireAttachmentCapabilities(
+  snapshot: import("../provider-runtime/index.js").ProviderCapabilitySnapshot,
+  resolution: import("./conversation-turn-contract.js").TurnAttachmentResolution,
+): void {
+  const readiness = new Map(snapshot.capabilities.map((item) => [item.key, item.runtime]));
+  const missing: string[] = [];
+  if (resolution.imageInputs.length > 0 && readiness.get("image.input") !== "ready") missing.push("image.input");
+  if (resolution.fileInputs.length > 0 && readiness.get("file.reference") !== "ready") missing.push("file.reference");
+  if (missing.length > 0) throw conflict(`Selected Provider cannot accept the managed attachments; missing ready capabilities: ${missing.join(", ")}.`);
 }

@@ -29,6 +29,7 @@ import type {
   TurnSkillContextResolution,
 } from "./conversation-turn-contract.js";
 import type { TopicMessageResult, TopicThreadEntry } from "./types.js";
+import { TurnAttachmentResolver } from "./turn-attachment-resolver.js";
 
 type DirectAgentProviderRegistry = Pick<ProviderRegistry, "findActiveTurn" | "get">;
 type OpenWorkbenchDatabase = typeof openProjectRuntimeWorkbenchDatabase;
@@ -39,6 +40,7 @@ export interface DirectAgentConversationTurnStrategyOptions {
   providerRegistry: DirectAgentProviderRegistry;
   openDatabase?: OpenWorkbenchDatabase;
   resolveRuntimePaths?: (projectId: string) => ProjectRuntimePaths;
+  attachmentResolver?: TurnAttachmentResolver;
 }
 
 export class DirectAgentConversationTurnStrategy implements ConversationTurnStrategy {
@@ -47,18 +49,19 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
   private readonly providerRegistry: DirectAgentProviderRegistry;
   private readonly openDatabase: OpenWorkbenchDatabase;
   private readonly resolveRuntimePaths: (projectId: string) => ProjectRuntimePaths;
+  private readonly attachmentResolver: TurnAttachmentResolver;
 
   constructor(options: DirectAgentConversationTurnStrategyOptions) {
     this.providerRegistry = options.providerRegistry;
     this.openDatabase = options.openDatabase ?? openProjectRuntimeWorkbenchDatabase;
     this.resolveRuntimePaths = options.resolveRuntimePaths ?? ((projectId) => resolveProjectRuntimePaths(projectId));
+    this.attachmentResolver = options.attachmentResolver ?? new TurnAttachmentResolver({
+      resolveRuntimePaths: this.resolveRuntimePaths,
+    });
   }
 
   preflight(input: ConversationTurnStrategyPreflightInput): void {
     validateTurnIdentity(input);
-    if (input.attachments.length > 0) {
-      throw conflict("Direct Agent attachments are not supported in this increment.");
-    }
   }
 
   async execute(
@@ -90,6 +93,9 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
     }
     const capabilitySnapshot = input.admission.capabilitySnapshot;
     if (!capabilitySnapshot) throw new Error("Direct Agent Turn admission is missing its Provider capability snapshot.");
+    const attachmentResolution = input.admission.attachmentResolution
+      ?? (input.attachments.length === 0 ? await this.attachmentResolver.resolve(input.project, []) : null);
+    if (!attachmentResolution) throw conflict("Direct Agent Turn admission is missing its attachment resolution.");
 
     const graphScopeId = input.conversation.currentGraphScopeId;
     if (!graphScopeId) throw new Error("Direct Agent Conversation requires a current graph scope.");
@@ -118,7 +124,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
     const startedAt = new Date().toISOString();
     const model = input.admission.model;
     const skillInputs = [...skillContext.skillInputs];
-    const handoffHash = directAgentHandoffHash(input, skillContext);
+    const handoffHash = directAgentHandoffHash(input, skillContext, attachmentResolution);
     const mainTimelineId = `assistant:${conversation.conversationId}:${input.providerId}:${runId}:main`;
     const delivery = new CanonicalTimelineDelivery(database, "agent", input.live);
     const capture = createAssistantTranscriptCapture(input.live, (snapshot) => {
@@ -275,6 +281,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
     };
 
     try {
+      await this.attachmentResolver.revalidate(input.project, attachmentResolution);
       database.providerAttempts.createProviderAttempt({
         projectId: paths.projectId,
         conversationId: conversation.conversationId,
@@ -421,8 +428,10 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
           });
         },
         model,
+        imageInputs: [...attachmentResolution.imageInputs],
+        fileInputs: [...attachmentResolution.fileInputs],
         skillInputs,
-        runtimeWorkspaceRoots: [input.project.path],
+        runtimeWorkspaceRoots: [input.project.path, ...attachmentResolution.runtimeReadRoots],
         writableRoots: [...input.admission.writableRoots],
       });
       if (result.session && liveMainThreadId !== result.session.sessionId) {
@@ -571,9 +580,10 @@ function assertCurrentConversation(database: WorkbenchDatabase, input: Conversat
 function directAgentHandoffHash(
   input: ConversationTurnStrategyInput,
   skills: TurnSkillContextResolution,
+  attachments: import("./conversation-turn-contract.js").TurnAttachmentResolution,
 ): string {
   return createHash("sha256").update(JSON.stringify({
-    version: 2,
+    version: 3,
     projectId: input.project.id,
     conversationId: input.conversation.conversationId,
     graphScopeId: input.conversation.currentGraphScopeId,
@@ -582,6 +592,8 @@ function directAgentHandoffHash(
     providerId: input.providerId,
     agentTurnMode: input.admission.agentTurnMode,
     capabilitySnapshotHash: input.admission.capabilitySnapshot?.snapshotHash ?? null,
+    attachmentHandoffHash: attachments.handoffHash,
+    attachments: attachments.evidence,
     skillInputs: skills.skillInputs.map((skill) => ({
       id: skill.id,
       path: skill.path,

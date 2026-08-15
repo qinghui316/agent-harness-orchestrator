@@ -21,9 +21,11 @@ import { ProjectRegistryStore } from "../../src/registry/store.js";
 import { hashNativeSkillPackageContent } from "../../src/skill/content-hash.js";
 import { TurnSkillContextResolver } from "../../src/skill/turn-skill-context-resolver.js";
 import { createWorkbenchConversation } from "../../src/workbench/conversation-service.js";
+import { createTopicAttachment } from "../../src/workbench/attachments.js";
 import { AgentNativeChildLifecycleService, runAgentNativeChildFollowup } from "../../src/workbench/agent-native-child-lifecycle-service.js";
 import { createAssistantTranscriptCapture } from "../../src/workbench/live-transcript.js";
 import { DirectAgentConversationTurnStrategy } from "../../src/workbench/direct-agent-conversation-turn-strategy.js";
+import { TurnAttachmentResolver } from "../../src/workbench/turn-attachment-resolver.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { WorkbenchUnitOfWork } from "../../src/workbench/persistence/unit-of-work.js";
 import { TimelineRepository } from "../../src/workbench/persistence/repositories/timeline-repository.js";
@@ -630,7 +632,7 @@ describe("DirectAgentConversationTurnStrategy", () => {
     ]));
   });
 
-  it("fails attachments before Skill resolution, readiness, or Attempt creation", async () => {
+  it("rejects attachments without the immutable admission resolution before Attempt creation", async () => {
     const provider = fakeProvider();
     const { strategy } = strategyFor(provider.descriptor);
     const input = await initialTurnInput(fixture, "Attachment boundary");
@@ -650,11 +652,50 @@ describe("DirectAgentConversationTurnStrategy", () => {
 
     await expect(strategy.execute(input, { skillContext: { resolve } })).rejects.toMatchObject({
       name: "Conflict",
-      message: "Direct Agent attachments are not supported in this increment.",
+      message: "Direct Agent Turn admission is missing its attachment resolution.",
     });
     expect(resolve).not.toHaveBeenCalled();
     expect(provider.requests).toEqual([]);
     expect((await readState(fixture.paths, fixture.project.id, input.conversation.conversationId)).attempts).toEqual([]);
+  });
+
+  it("passes immutable file inputs through read-only runtime roots without granting attachment writes", async () => {
+    const provider = fakeProvider();
+    const { strategy } = strategyFor(provider.descriptor);
+    const attachment = await createTopicAttachment(fixture.project, {
+      fileName: "input.txt",
+      mediaType: "text/plain",
+      data: `data:text/plain;base64,${Buffer.from("managed attachment", "utf8").toString("base64")}`,
+    }, { workbenchRoot: fixture.paths.workbenchRoot });
+    const resolver = new TurnAttachmentResolver({ resolveRuntimePaths: () => fixture.paths });
+    const resolution = await resolver.resolve(fixture.project, [attachment]);
+    const repeated = await resolver.resolve(fixture.project, [attachment]);
+    const input = await initialTurnInput(fixture, "Read the attached marker.");
+    input.attachments = [attachment];
+    input.admission = { ...input.admission, attachmentResolution: resolution };
+
+    await strategy.execute(input, emptyPorts());
+
+    expect(repeated.handoffHash).toBe(resolution.handoffHash);
+    expect(provider.requests).toHaveLength(1);
+    expect(provider.requests[0]).toMatchObject({
+      imageInputs: [],
+      fileInputs: [{
+        id: attachment.id,
+        name: "input.txt",
+        mediaType: "text/plain",
+        size: attachment.size,
+        contentHash: attachment.hash,
+        source: "managed-attachment",
+      }],
+      writableRoots: [fixture.project.path],
+    });
+    expect(provider.requests[0]!.runtimeWorkspaceRoots).toContain(fixture.project.path);
+    expect(provider.requests[0]!.runtimeWorkspaceRoots).toContain(dirname(provider.requests[0]!.fileInputs![0]!.path));
+    expect(provider.requests[0]!.writableRoots).not.toContain(dirname(provider.requests[0]!.fileInputs![0]!.path));
+
+    const state = await readState(fixture.paths, fixture.project.id, input.conversation.conversationId);
+    expect(state.attempts).toEqual([expect.objectContaining({ handoffHash: expect.stringMatching(/^[a-f0-9]{64}$/) })]);
   });
 
   it("keeps the committed user message and creates no Attempt when Skill resolution fails", async () => {

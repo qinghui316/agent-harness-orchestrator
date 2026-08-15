@@ -49,19 +49,38 @@ vi.mock("../../src/codex/capabilities.js", () => ({
 
 vi.mock("../../src/codex/native-skills.js", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../src/codex/native-skills.js")>(),
-  listCodexNativeSkills: vi.fn(async () => ({
-    providerId: "codex",
-    projectPath: root,
-    skills: [{
-      name: projectHarnessAgentInput.identity.skillName,
-      description: "Test project Harness.",
-      path: join(root, ".agents", "skills", projectHarnessAgentInput.identity.skillName, "SKILL.md"),
-      scope: "repo",
-      enabled: true,
-      contentHash: projectHarnessAgentInput.providerSkillInput.contentHash,
-    }],
-    errors: [],
-  })),
+  listCodexNativeSkills: vi.fn(async () => {
+    const { hashNativeSkillPackageContent } = await import("../../src/skill/content-hash.js");
+    const { getSystemSkillsRoot } = await import("../../src/template-source/paths.js");
+    const systemSkills = await Promise.all([
+      "aho-main-orchestration",
+      "aho-harness-engineering",
+      "aho-workflow-authoring",
+    ].map(async (name) => {
+      const skillRoot = join(getSystemSkillsRoot(), name);
+      return {
+        name,
+        description: `Test ${name}.`,
+        path: join(skillRoot, "SKILL.md"),
+        scope: "system" as const,
+        enabled: true,
+        contentHash: await hashNativeSkillPackageContent(skillRoot),
+      };
+    }));
+    return {
+      providerId: "codex",
+      projectPath: root,
+      skills: [{
+        name: projectHarnessAgentInput.identity.skillName,
+        description: "Test project Harness.",
+        path: join(root, ".agents", "skills", projectHarnessAgentInput.identity.skillName, "SKILL.md"),
+        scope: "repo" as const,
+        enabled: true,
+        contentHash: projectHarnessAgentInput.providerSkillInput.contentHash,
+      }, ...systemSkills],
+      errors: [],
+    };
+  }),
 }));
 
 import { normalizeCodexAppServerNotification } from "../../src/codex/app-server-realtime.js";
@@ -87,7 +106,10 @@ import {
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
 import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
-import { createHarnessWorkbenchConversation as createWorkbenchConversation } from "../helpers/conversation-change-fixture.js";
+import {
+  createHarnessWorkbenchConversation as createWorkbenchConversation,
+  createTestConversationTurnRouter,
+} from "../helpers/conversation-change-fixture.js";
 
 const SLOW_FLOW_TIMEOUT_MS = 120_000;
 let root: string;
@@ -95,6 +117,7 @@ let originalAhoHome: string | undefined;
 let runtimePaths: ProjectRuntimePaths;
 let skillRoot: string;
 let skillName: string;
+let turnRouter: ReturnType<typeof createTestConversationTurnRouter>;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "aho-skill-native-human-gate-"));
@@ -121,6 +144,9 @@ beforeEach(async () => {
   projectHarnessAgentInput.identity.skillRevision = 1;
   projectHarnessAgentInput.providerSkillInput.id = skillName;
   projectHarnessAgentInput.providerSkillInput.path = join(skillRoot, "SKILL.md");
+  const { hashNativeSkillPackageContent } = await import("../../src/skill/content-hash.js");
+  projectHarnessAgentInput.providerSkillInput.contentHash = await hashNativeSkillPackageContent(skillRoot);
+  turnRouter = createTestConversationTurnRouter();
 });
 
 afterEach(async () => {
@@ -225,7 +251,7 @@ describe("workbench Skill-native planning-to-human-gate flow", () => {
 
     const conversation = await createWorkbenchConversation(project(), {
       body: "Add GET /healthz returning status ok and add a regression test.",
-    });
+    }, undefined, { turnRouter });
     const messages = await listConversationMessages(project(), conversation.conversationId);
     const plan = messages.find((message) =>
       message.agentRoleId === "planning-agent" && message.document?.documentKind === "plan");
@@ -248,7 +274,7 @@ describe("workbench Skill-native planning-to-human-gate flow", () => {
         sourceProposalHash: plan?.document?.proposalHash,
         executionMode: "stepwise",
       },
-    });
+    }, undefined, { turnRouter });
 
     const store = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
     let changeId: string;

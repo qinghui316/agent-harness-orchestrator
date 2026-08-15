@@ -9,7 +9,7 @@ import { defaultProviderRegistry, type ProductMode } from "../../provider-runtim
 import type { ProviderRegistry } from "../../provider-runtime/registry.js";
 import { listProjectFileChildren, readProjectFilePreview, searchProjectFiles } from "../../workbench/file-references.js";
 import { resolveWorkspaceResource, type WorkspaceResourceTarget } from "../../workbench/workspace-resources.js";
-import { createTopicAttachment, deleteTopicAttachment } from "../../workbench/attachments.js";
+import { createTopicAttachment, deleteTopicAttachment, toTopicAttachmentEvidence } from "../../workbench/attachments.js";
 import { getProjectGitCommitDetail, getProjectGitCommitDiff, getProjectGitDiff, getProjectGitHistory, getProjectGitStatus } from "../../workbench/git-panel.js";
 import { addSkillRoot, listSkillRoots, listSkills, setSkillEnabled, type SkillCatalogResult } from "../../skill/catalog.js";
 import { hashNativeSkillPackageContent } from "../../skill/content-hash.js";
@@ -215,7 +215,10 @@ async function handleApiRequest(context: WorkbenchServerContext, request: Incomi
     }
     try {
       const body = await readJsonBody<{ fileName?: string; mediaType?: string; data?: string }>(request);
-      sendJson(response, 200, { attachment: await createTopicAttachment(input.project, body) });
+      const attachment = await createTopicAttachment(input.project, body, {
+          workbenchRoot: context.projectRuntimeCoordinator.runtimePaths(input.project.id).workbenchRoot,
+      });
+      sendJson(response, 200, { attachment: toTopicAttachmentEvidence(attachment) });
     } catch (error) {
       sendJson(response, error instanceof Error && error.name === "BadRequest" ? 400 : 500, { error: error instanceof Error ? error.message : String(error) });
     }
@@ -229,7 +232,9 @@ async function handleApiRequest(context: WorkbenchServerContext, request: Incomi
       return;
     }
     try {
-      sendJson(response, 200, await deleteTopicAttachment(input.project, decodeURIComponent(attachmentDeleteMatch[2])));
+      sendJson(response, 200, await deleteTopicAttachment(input.project, decodeURIComponent(attachmentDeleteMatch[2]), {
+        workbenchRoot: context.projectRuntimeCoordinator.runtimePaths(input.project.id).workbenchRoot,
+      }));
     } catch (error) {
       sendJson(response, error instanceof Error && error.name === "BadRequest" ? 400 : 500, { error: error instanceof Error ? error.message : String(error) });
     }

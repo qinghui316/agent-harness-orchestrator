@@ -186,6 +186,7 @@ export interface CodexAppServerTurnOptions {
   onError?: (error: unknown) => void;
   model?: string | null;
   imageInputs?: Array<{ path: string; mediaType?: string; fileName?: string }>;
+  fileInputs?: Array<{ name: string; path: string }>;
   skillInputs?: Array<{ name: string; path: string }>;
   nativeSkillRoots?: string[];
   requiredNativeSkills?: string[];
@@ -777,7 +778,7 @@ async function runCodexAppServerOperation(
       acceptingTurnEvents = true;
       const turnResponse = await sendRequest("turn/start", {
         threadId,
-        input: [userTextInput(options.prompt), ...skillInputs(options.skillInputs), ...imageInputs(options.imageInputs)],
+        input: [userTextInput(options.prompt), ...skillInputs(options.skillInputs), ...fileInputs(options.fileInputs), ...imageInputs(options.imageInputs)],
         cwd: options.cwd,
         sandboxPolicy: sandboxPolicyFor(options.sandboxPolicy, options.cwd, options.writableRoots),
         approvalPolicy: "never",
@@ -850,13 +851,14 @@ async function runCodexAppServerOperation(
   }
 
   function handleLine(line: string): void {
-    eventStream.write(`${line}\n`);
     let payload: Record<string, unknown>;
     try {
-      payload = JSON.parse(line) as Record<string, unknown>;
+      payload = sanitizeManagedAttachmentPayload(JSON.parse(line) as Record<string, unknown>, options);
     } catch {
+      eventStream.write(`${redactManagedAttachmentPaths(line, options)}\n`);
       return;
     }
+    eventStream.write(`${JSON.stringify(payload)}\n`);
     if (typeof payload.id === "number" && typeof payload.method === "string") {
       if (handleServerRequest(payload.id, payload.method, isRecord(payload.params) ? payload.params : {}, payload)) return;
     }
@@ -1510,6 +1512,76 @@ function skillInputs(skills: CodexAppServerTurnOptions["skillInputs"]): Record<s
     .map((skill) => ({ name: skill.name.trim(), path: skill.path.trim() }))
     .filter((skill) => skill.name && skill.path)
     .map((skill) => ({ type: "skill", ...skill }));
+}
+
+function fileInputs(files: CodexAppServerTurnOptions["fileInputs"]): Record<string, unknown>[] {
+  if (!files?.length) return [];
+  return files
+    .map((file) => ({ name: file.name.trim(), path: file.path.trim() }))
+    .filter((file) => file.name && file.path)
+    .map((file) => ({ type: "mention", ...file }));
+}
+
+function redactManagedAttachmentPaths(line: string, options: CodexAppServerTurnOptions): string {
+  return managedAttachmentPaths(options).reduce((sanitized, path) => {
+    const escaped = JSON.stringify(path).slice(1, -1);
+    return sanitized.split(path).join("[managed-attachment]").split(escaped).join("[managed-attachment]");
+  }, line);
+}
+
+function sanitizeManagedAttachmentPayload(
+  payload: Record<string, unknown>,
+  options: CodexAppServerTurnOptions,
+): Record<string, unknown> {
+  const roots = managedAttachmentRoots(options);
+  const params = isRecord(payload.params) ? payload.params : undefined;
+  const item = params && isRecord(params.item) ? params.item : undefined;
+  if (item && isManagedAttachmentCommand(item, roots)) {
+    for (const field of ["aggregatedOutput", "aggregated_output", "output"]) {
+      if (typeof item[field] === "string") item[field] = "[managed-attachment output redacted]";
+    }
+  }
+  return redactManagedAttachmentValue(payload, managedAttachmentPaths(options)) as Record<string, unknown>;
+}
+
+function redactManagedAttachmentValue(value: unknown, paths: readonly string[]): unknown {
+  if (typeof value === "string") {
+    return paths.reduce((sanitized, path) => sanitized.split(path).join("[managed-attachment]"), value);
+  }
+  if (Array.isArray(value)) return value.map((item) => redactManagedAttachmentValue(item, paths));
+  if (!isRecord(value)) return value;
+  for (const [key, item] of Object.entries(value)) value[key] = redactManagedAttachmentValue(item, paths);
+  return value;
+}
+
+function isManagedAttachmentCommand(item: Record<string, unknown>, roots: readonly string[]): boolean {
+  const cwd = typeof item.cwd === "string" ? canonicalPathForRedaction(item.cwd) : "";
+  const command = typeof item.command === "string" ? canonicalPathForRedaction(item.command) : "";
+  return roots.some((root) => cwd === root || cwd.startsWith(`${root}\\`) || command.includes(root));
+}
+
+function managedAttachmentPaths(options: CodexAppServerTurnOptions): string[] {
+  const inputPaths = [
+    ...(options.imageInputs ?? []).map((input) => input.path),
+    ...(options.fileInputs ?? []).map((input) => input.path),
+  ].filter(Boolean);
+  return [...new Set(inputPaths.flatMap((path) => [path, dirname(path), dirname(dirname(path))]))]
+    .filter(Boolean)
+    .sort((left, right) => right.length - left.length);
+}
+
+function managedAttachmentRoots(options: CodexAppServerTurnOptions): string[] {
+  const inputPaths = [
+    ...(options.imageInputs ?? []).map((input) => input.path),
+    ...(options.fileInputs ?? []).map((input) => input.path),
+  ].filter(Boolean);
+  return [...new Set(inputPaths
+    .flatMap((path) => [dirname(path), dirname(dirname(path))])
+    .map(canonicalPathForRedaction))];
+}
+
+function canonicalPathForRedaction(value: string): string {
+  return value.replace(/\//g, "\\").replace(/\\+$/g, "").toLowerCase();
 }
 
 function sandboxPolicyFor(policy: "read-only" | "workspace-write", cwd: string, writableRoots?: string[]): Record<string, unknown> {

@@ -95,6 +95,7 @@ export async function runCodexTurn(request: ProviderTurnRequest): Promise<Provid
     onError: guardedProjectNotification(request.projectId, projectGeneration, request.onError),
     model: request.model?.modelId,
     imageInputs: request.imageInputs,
+    fileInputs: request.fileInputs,
     skillInputs: request.skillInputs?.map((skill) => ({ name: skill.id, path: skill.path })),
     nativeSkillRoots: request.nativeSkillRoots,
     requiredNativeSkills: request.requiredNativeSkills,

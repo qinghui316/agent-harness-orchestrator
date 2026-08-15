@@ -40,6 +40,28 @@ next-send preference. A capability error keeps a selected Plan visible but
 blocks sending until the user changes mode or capability recovery succeeds.
 Harness conversations do not expose this control.
 
+Ordinary Agent turns accept Composer-managed images and safe text/code files in
+both Default and Plan mode. One server-owned `TurnAttachmentResolver` validates
+project ownership, the exact managed attachment directory, type, size, and
+SHA-256, then produces immutable provider-neutral image/file inputs, safe
+evidence, read-only runtime roots, and a stable handoff hash. Codex maps those
+inputs privately to `LocalImage` and `Mention`; Workbench, Router, Composer, and
+SQLite do not depend on those protocol types. Attachment roots are readable
+runtime context only: Default can still write only the project root, while Plan
+has no writable roots.
+
+Create and Agent follow-up routes prepare attachment and capability admission
+before opening SSE. Missing `image.input` or `file.reference`, invalid ownership,
+or changed upload evidence therefore returns HTTP Conflict before a new
+Conversation, user message, ProviderAttempt, Timeline event, or Provider turn is
+created. A committed exact create replay is proved from the stored request and
+canonical attachment metadata before physical attachment access, so it neither
+rediscovers capabilities nor invokes the Provider again. Execution revalidates
+file existence, containment, size, and hash immediately before Attempt creation;
+a later failure keeps the committed user message and Composer selection for
+diagnosis and retry. Successful send clears only the current Composer selection,
+not the managed files referenced by canonical history.
+
 Agent Plan output is ordinary canonical assistant content. Realtime plan updates
 are temporary presentation events; the completed Provider `planText` calibrates
 the durable final message. It does not create a Harness Change, Planning Agent

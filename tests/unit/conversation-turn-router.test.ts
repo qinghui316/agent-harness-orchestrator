@@ -93,7 +93,7 @@ describe("ConversationTurnRouter", () => {
     expect(harness.execute.mock.calls[0]![0]).toMatchObject({ turnSkillResolution: null });
   });
 
-  it("rejects unsupported Agent attachments before resolving Skills", async () => {
+  it("rejects an attachment Turn whose admission lacks the immutable resolution", async () => {
     const resolveSkillContext = vi.fn(async () => ({ skillInputs: [], diagnostics: [] }));
     const agent = new DirectAgentConversationTurnStrategy({
       providerRegistry: {
@@ -122,7 +122,10 @@ describe("ConversationTurnRouter", () => {
         storagePath: "attachments/attachment-1/note.txt",
         runtimeMode: "bounded-text-preview",
       }],
-    }, "agent")).rejects.toMatchObject({ name: "Conflict" });
+    }, "agent")).rejects.toMatchObject({
+      name: "Conflict",
+      message: "Turn admission attachment identity does not match the committed message.",
+    });
     expect(resolveSkillContext).not.toHaveBeenCalled();
   });
 

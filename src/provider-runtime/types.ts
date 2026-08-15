@@ -23,6 +23,7 @@ export type ProviderCapabilityKey =
   | "tool.mcp"
   | "tool.web"
   | "image.input"
+  | "file.reference"
   | "session.continuation"
   | "model.list"
   | "reasoning.effort";

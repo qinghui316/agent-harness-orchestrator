@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import type { ChildProcess } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { PassThrough, Writable } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -24,6 +24,36 @@ afterEach(async () => {
 });
 
 describe("Codex persistent app-server Host", () => {
+  it("maps managed images and files to private LocalImage and Mention inputs", async () => {
+    const cwd = await tempDir();
+    const managedFile = join(cwd, "managed", "marker.txt");
+    const server = new PersistentCollaborationServer(4051, false, managedFile);
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+    const options = await turnOptions(cwd, "attachment-run", null);
+    const realtimeEvents: string[] = [];
+
+    await runCodexAppServerTurn({
+      ...options,
+      imageInputs: [{ path: join(cwd, "managed", "pixel.png"), fileName: "pixel.png" }],
+      fileInputs: [{ name: "marker.txt", path: managedFile }],
+      onRealtimeEvent: (event) => realtimeEvents.push(JSON.stringify(event)),
+    });
+
+    expect(server.turnInputs[0]).toEqual([
+      expect.objectContaining({ type: "text" }),
+      { type: "mention", name: "marker.txt", path: join(cwd, "managed", "marker.txt") },
+      { type: "localImage", path: join(cwd, "managed", "pixel.png") },
+    ]);
+    const events = await readFile(options.paths.events, "utf8");
+    expect(events).not.toContain(join(cwd, "managed"));
+    expect(events).not.toContain("AHO_ATTACHMENT_PRIVATE_TEXT");
+    expect(events).not.toContain("storagePath");
+    expect(realtimeEvents.join("\n")).not.toContain(join(cwd, "managed"));
+    expect(realtimeEvents.join("\n")).not.toContain("AHO_ATTACHMENT_PRIVATE_TEXT");
+    expect(realtimeEvents.join("\n")).not.toContain("storagePath");
+    expect(realtimeEvents.join("\n")).toContain("[managed-attachment]");
+  });
+
   it("initializes one process and continues the exact native Child on the same generation", async () => {
     const cwd = await tempDir();
     const server = new PersistentCollaborationServer(4101, true);
@@ -319,12 +349,17 @@ class PersistentCollaborationServer extends EventEmitter {
   readonly methods: string[] = [];
   readonly followupPrompts: string[] = [];
   readonly closePrompts: string[] = [];
+  readonly turnInputs: unknown[][] = [];
   readonly pid: number;
   killCount = 0;
   private input = "";
   private turnCount = 0;
 
-  constructor(pid: number, private readonly holdFirstParent = false) {
+  constructor(
+    pid: number,
+    private readonly holdFirstParent = false,
+    private readonly managedPathLeak?: string,
+  ) {
     super();
     this.pid = pid;
     this.stdin = new Writable({
@@ -380,9 +415,25 @@ class PersistentCollaborationServer extends EventEmitter {
       case "turn/start": {
         this.turnCount += 1;
         const turnId = `turn-main-${this.turnCount}`;
-        const prompt = JSON.stringify(params.input ?? []);
+        const turnInput = Array.isArray(params.input) ? params.input : [];
+        this.turnInputs.push(turnInput);
+        const prompt = JSON.stringify(turnInput);
         this.respond(id, { turn: { id: turnId } });
         this.notify("turn/started", { threadId: "thread-main", turn: { id: turnId } });
+        if (this.managedPathLeak) {
+          this.notify("item/completed", {
+            threadId: "thread-main",
+            turnId,
+            item: {
+              id: "managed-path-command",
+              type: "commandExecution",
+              command: `Get-Content ${this.managedPathLeak}`,
+              cwd: dirname(this.managedPathLeak),
+              aggregatedOutput: `storagePath=${this.managedPathLeak}\nAHO_ATTACHMENT_PRIVATE_TEXT`,
+              exitCode: 0,
+            },
+          });
+        }
         if (this.turnCount === 1) {
           this.notify("item/completed", {
             threadId: "thread-main",

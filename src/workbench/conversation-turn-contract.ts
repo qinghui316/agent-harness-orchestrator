@@ -6,12 +6,13 @@ import type {
   ProviderId,
   ProviderModelRef,
 } from "../provider-runtime/index.js";
+import type { ProviderFileInput, ProviderImageInput } from "../provider-runtime/contracts.js";
 import type { ProjectRuntimeState } from "../project-runtime/coordinator.js";
 import type { ProjectRuntimeResolution } from "../project-runtime/context.js";
 import type { ManagedProject } from "../types/index.js";
 import type { StoredConversation, StoredTopicMessage } from "./persistence/contracts.js";
+import type { TopicAttachment } from "./attachments.js";
 import type {
-  TopicAttachment,
   TopicMessageResult,
   TopicThreadEntry,
   ValidatedPlanHandoffIntent,
@@ -52,6 +53,33 @@ export interface TurnSkillContextPort {
   resolve(request: TurnSkillContextRequest): Promise<TurnSkillContextResolution>;
 }
 
+export interface AttachmentDiagnostic {
+  code: string;
+  message: string;
+  attachmentId?: string;
+}
+
+export interface TurnAttachmentEvidence {
+  id: string;
+  fileName: string;
+  mediaType: string;
+  size: number;
+  contentHash: string;
+  kind: "image" | "text";
+  runtimeMode: "provider-image-input" | "provider-file-reference";
+}
+
+export interface TurnAttachmentResolution {
+  attachmentIds: readonly string[];
+  attachments: readonly TopicAttachment[];
+  imageInputs: readonly ProviderImageInput[];
+  fileInputs: readonly ProviderFileInput[];
+  runtimeReadRoots: readonly string[];
+  evidence: readonly TurnAttachmentEvidence[];
+  diagnostics: readonly AttachmentDiagnostic[];
+  handoffHash: string;
+}
+
 export interface ConversationTurnRequest {
   project: ManagedProject;
   conversation: StoredConversation;
@@ -84,6 +112,7 @@ export interface ConversationTurnAdmission {
   sandboxPolicy: "read-only" | "workspace-write";
   writableRoots: readonly string[];
   runtimeState: ProjectRuntimeState;
+  attachmentResolution: TurnAttachmentResolution | null;
 }
 
 /** Internal input created only by ConversationTurnRouter after composition. */
@@ -118,6 +147,7 @@ export type ConversationTurnContinuationPort = (
 export interface ConversationTurnRoutingPort {
   assertRequestedMode(conversation: StoredConversation, requestedMode?: ProductMode): void;
   admit(input: ConversationTurnAdmissionRequest): Promise<ConversationTurnAdmission>;
+  resolveAttachments(project: ManagedProject, attachmentIds?: readonly string[]): Promise<readonly TopicAttachment[]>;
   route(input: ConversationTurnRequest, requestedMode?: ProductMode): Promise<TopicMessageResult>;
   resolveProviderId: (project: ManagedProject, requestedProviderId?: ProviderId) => ProviderId;
   resolveRuntimeState: (project: ManagedProject) => Promise<ProjectRuntimeState>;

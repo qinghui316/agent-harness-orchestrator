@@ -7,6 +7,19 @@ export function toCanonicalTimelineMessage(
   entry: TopicThreadEntry,
   completedTurnSequence = entry.completedTurnSequence,
 ): StoredTopicMessageWrite {
+  const safeEntry = entry.attachments
+    ? { ...entry, attachments: entry.attachments.map((attachment) => ({
+      id: attachment.id,
+      fileName: attachment.fileName,
+      mediaType: attachment.mediaType,
+      kind: attachment.kind,
+      size: attachment.size,
+      hash: attachment.hash,
+      source: attachment.source,
+      createdAt: attachment.createdAt,
+      runtimeMode: attachment.runtimeMode,
+    })) }
+    : entry;
   return {
     id: entry.id,
     projectId,
@@ -27,7 +40,7 @@ export function toCanonicalTimelineMessage(
     initialThreadInput: entry.initialThreadInput === true,
     artifact: entry.artifact ?? null,
     error: entry.error ?? null,
-    rawJson: JSON.stringify({ ...entry, ...(completedTurnSequence === undefined ? {} : { completedTurnSequence }) }),
+    rawJson: JSON.stringify({ ...safeEntry, ...(completedTurnSequence === undefined ? {} : { completedTurnSequence }) }),
   };
 }
 

@@ -15,6 +15,7 @@ import { buildNativeFolderDialogCommand, executeWorkbenchAction, recoverWorkbenc
 import type { ManagedProject } from "../../src/types/index.js";
 import { appendCanonicalTimelineEntry } from "../../src/workbench/canonical-timeline-command.js";
 import { buildProjectScopedMainAgentPrompt } from "../../src/workbench/main-agent-turn-coordinator.js";
+import { resolveTopicAttachments } from "../../src/workbench/attachments.js";
 import type { ConversationTurnRoutingPort } from "../../src/workbench/conversation-turn-contract.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
@@ -457,6 +458,7 @@ describe("workbench server", () => {
       id: attachmentPayload.attachment.id,
       fileName: "note.md",
     }));
+    expect(JSON.stringify(timeline)).not.toContain("storagePath");
   });
 
   it("streams topic creation before the initial main-agent turn finishes", async () => {
@@ -554,7 +556,7 @@ describe("workbench server", () => {
     expect(snapshot.left.topics).toContainEqual(expect.objectContaining({ id: createdBody.topic.id, title: "Checkout polish" }));
   });
 
-  it("rejects composer attachment uploads before project preparation", async () => {
+  it("stores composer attachments before Harness preparation for Direct Agent use", async () => {
     await rm(join(tempDir, ".claude", "skills", "repo-harness"), { recursive: true, force: true });
     await rm(join(tempDir, ".agents", "skills", "repo-harness"), { recursive: true, force: true });
 
@@ -568,8 +570,101 @@ describe("workbench server", () => {
       }),
     });
 
-    expect(attachment.status).toBe(400);
-    expect(await attachment.text()).toContain("Project must be prepared before attaching files.");
+    expect(attachment.status).toBe(200);
+    expect(await attachment.json()).toEqual({
+      attachment: expect.objectContaining({ kind: "text", runtimeMode: "provider-file-reference" }),
+    });
+  });
+
+  it("returns HTTP 409 before SSE and Conversation persistence when a managed attachment changed", async () => {
+    const upload = await fetch(`${handle!.url}/api/projects/repo/attachments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fileName: "marker.txt",
+        mediaType: "text/plain",
+        data: `data:text/plain;base64,${Buffer.from("before", "utf8").toString("base64")}`,
+      }),
+    });
+    const uploaded = await upload.json() as { attachment: { id: string; storagePath?: string } };
+    expect(uploaded.attachment.storagePath).toBeUndefined();
+    const paths = resolveProjectRuntimePaths(project().id);
+    const stored = (await resolveTopicAttachments(project(), [uploaded.attachment.id], { workbenchRoot: paths.workbenchRoot }))[0]!;
+    await writeFile(join(paths.workbenchRoot, stored.storagePath), "after!", "utf8");
+
+    const response = await fetch(`${handle!.url}/api/projects/repo/workbench/topics/live`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        attachmentIds: [uploaded.attachment.id],
+        productMode: "agent",
+        clientRequestId: "tampered-attachment-create",
+        confirm: true,
+      }),
+    });
+
+    expect(response.status).toBe(409);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    expect(await response.text()).toContain("Attachment content changed after upload");
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      expect(database.conversations.readConversationByClientCreateRequestId(project().id, "tampered-attachment-create")).toBeNull();
+    } finally {
+      database.close();
+    }
+  });
+
+  it("replays a committed attachment Turn before reading deleted attachment content", async () => {
+    const upload = await fetch(`${handle!.url}/api/projects/repo/attachments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fileName: "replay-marker.txt",
+        mediaType: "text/plain",
+        data: `data:text/plain;base64,${Buffer.from("replay marker", "utf8").toString("base64")}`,
+      }),
+    });
+    const uploaded = await upload.json() as { attachment: { id: string; storagePath?: string } };
+    expect(uploaded.attachment.storagePath).toBeUndefined();
+    const request = {
+      attachmentIds: [uploaded.attachment.id],
+      productMode: "agent",
+      clientRequestId: "attachment-exact-replay",
+      confirm: true,
+    };
+    const create = () => fetch(`${handle!.url}/api/projects/repo/workbench/topics/live`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    });
+
+    const firstResponse = await create();
+    expect(firstResponse.status).toBe(200);
+    const firstEvents = parseSseEvents(await firstResponse.text());
+    const firstCreated = firstEvents.find((event) => event.event === "topic.created")?.data as {
+      conversationId: string;
+      replayed: boolean;
+    };
+    expect(firstCreated).toMatchObject({ replayed: false });
+
+    const paths = resolveProjectRuntimePaths(project().id);
+    const stored = (await resolveTopicAttachments(project(), [uploaded.attachment.id], { workbenchRoot: paths.workbenchRoot }))[0]!;
+    await rm(join(paths.workbenchRoot, stored.storagePath), { force: true });
+
+    const replayResponse = await create();
+    expect(replayResponse.status).toBe(200);
+    const replayEvents = parseSseEvents(await replayResponse.text());
+    expect(replayEvents.find((event) => event.event === "topic.created")?.data).toMatchObject({
+      conversationId: firstCreated.conversationId,
+      replayed: true,
+    });
+
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      expect(database.providerAttempts.listProviderAttempts(project().id, firstCreated.conversationId)).toHaveLength(1);
+    } finally {
+      database.close();
+    }
   });
 
   it("serves safe file tree children and read-only previews for the right rail files tab", async () => {

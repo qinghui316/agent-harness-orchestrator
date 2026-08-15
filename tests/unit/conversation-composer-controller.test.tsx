@@ -216,7 +216,10 @@ describe("Conversation composer controller", () => {
     ports.actions.sendMessage.mockImplementation(() => new Promise<void>((resolve) => { resolveSend = resolve; }));
     const { result, rerender } = renderHook(
       ({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
-      { initialProps: { scope: conversationScope({ productMode: "agent", conversation: {
+      { initialProps: { scope: conversationScope({
+        productMode: "agent",
+        providerCapabilities: [providerCapability("codex", true), providerCapability("claude", true)],
+        conversation: {
         id: "agent-conversation",
         productMode: "agent",
         state: "active",
@@ -317,6 +320,42 @@ describe("Conversation composer controller", () => {
     expect(result.current.agentTurnModeDisabledReason).toContain("Provider capability request failed");
     expect(ports.actions.sendMessage).not.toHaveBeenCalled();
     expect(result.current.composerText).toBe("preserve this plan request");
+  });
+
+  it("retains attachments after switching to a Provider without file reference support", async () => {
+    const ports = composerPorts();
+    const initial = conversationScope({
+      productMode: "agent",
+      selectedProviderId: "codex",
+      conversation: {
+        id: "agent-conversation",
+        productMode: "agent",
+        agentTurnMode: "default",
+        state: "active",
+        selectedProviderId: "codex",
+      },
+      providerCapabilities: [providerCapability("codex", true)],
+    });
+    const { result, rerender } = renderHook(
+      ({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
+      { initialProps: { scope: initial } },
+    );
+    act(() => {
+      result.current.setComposerText("read the retained file");
+      result.current.setAttachments([attachment("retained-attachment")]);
+    });
+
+    rerender({ scope: {
+      ...initial,
+      selectedProviderId: "other-provider",
+      providerCapabilities: [providerCapability("codex", true), providerCapability("other-provider", true, false)],
+    } });
+    await act(async () => { await result.current.send(); });
+
+    expect(result.current.attachments).toEqual([expect.objectContaining({ id: "retained-attachment" })]);
+    expect(result.current.composerText).toBe("read the retained file");
+    expect(ports.actions.sendMessage).not.toHaveBeenCalled();
+    expect(ports.onError).toHaveBeenLastCalledWith("当前 Agent 不支持文件引用。");
   });
 
   it("persists an empty Agent mode selection without writing a Harness draft", async () => {
@@ -470,7 +509,10 @@ describe("Conversation composer controller", () => {
     ports.actions.sendMessage.mockImplementation(() => new Promise<void>((resolve) => { resolveSend = resolve; }));
     const { result, rerender } = renderHook(
       ({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
-      { initialProps: { scope: conversationScope({ productMode: "agent", conversation: {
+      { initialProps: { scope: conversationScope({
+        productMode: "agent",
+        providerCapabilities: [providerCapability("codex", true), providerCapability("claude", true)],
+        conversation: {
         id: "agent-conversation",
         productMode: "agent",
         state: "active",
@@ -923,7 +965,7 @@ function attachment(id: string): TopicAttachment {
   };
 }
 
-function providerCapability(providerId: string, planReady: boolean): ProviderCapabilitySnapshot {
+function providerCapability(providerId: string, planReady: boolean, fileReferenceReady = true): ProviderCapabilitySnapshot {
   return {
     providerId,
     displayName: providerId,
@@ -942,6 +984,18 @@ function providerCapability(providerId: string, planReady: boolean): ProviderCap
       spec: planReady ? "supported" : "unsupported",
       runtime: planReady ? "ready" : "unavailable",
       summary: planReady ? "Ready" : "Unavailable",
+    }, {
+      key: "image.input",
+      label: "Image",
+      spec: "supported",
+      runtime: "ready",
+      summary: "Ready",
+    }, {
+      key: "file.reference",
+      label: "File",
+      spec: fileReferenceReady ? "supported" : "unsupported",
+      runtime: fileReferenceReady ? "ready" : "unavailable",
+      summary: fileReferenceReady ? "Ready" : "Unavailable",
     }],
   };
 }

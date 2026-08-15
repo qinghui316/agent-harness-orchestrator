@@ -73,9 +73,29 @@ describe("Conversation Turn admission", () => {
     })).rejects.toMatchObject({ name: "Conflict" });
     expect(fixture.capabilitySnapshot).not.toHaveBeenCalled();
   });
+
+  it("requires file.reference only when a managed text attachment is present", async () => {
+    const fixture = admissionFixture(true, false);
+    await expect(fixture.router.admit({
+      project: fixture.project,
+      productMode: "agent",
+      conversationId: "conversation-file",
+      providerId: "provider",
+      agentTurnMode: "default",
+      attachments: [managedTextAttachment()],
+    })).rejects.toMatchObject({ name: "Conflict", message: expect.stringContaining("file.reference") });
+    await expect(fixture.router.admit({
+      project: fixture.project,
+      productMode: "agent",
+      conversationId: "conversation-text-only",
+      providerId: "provider",
+      agentTurnMode: "default",
+      attachments: [],
+    })).resolves.toMatchObject({ attachmentResolution: expect.objectContaining({ attachmentIds: [] }) });
+  });
 });
 
-function admissionFixture(planReady: boolean) {
+function admissionFixture(planReady: boolean, fileReady = true) {
   const project: ManagedProject = {
     id: "project",
     name: "Project",
@@ -111,6 +131,13 @@ function admissionFixture(planReady: boolean) {
         runtime: planReady ? "ready" as const : "unavailable" as const,
         summary: planReady ? "ready" : "unavailable",
       },
+      {
+        key: "file.reference" as const,
+        label: "File",
+        spec: "supported" as const,
+        runtime: fileReady ? "ready" as const : "unavailable" as const,
+        summary: fileReady ? "ready" : "unavailable",
+      },
     ],
   }));
   const registry = new ProviderRegistry();
@@ -139,6 +166,39 @@ function admissionFixture(planReady: boolean) {
   }, {
     projectRuntimeCoordinator: { resolve: vi.fn(async () => runtimeState) } as never,
     providerRegistry: registry,
+    attachmentResolver: {
+      resolve: vi.fn(async (_project, attachments) => ({
+        attachmentIds: attachments.map((attachment: { id: string }) => attachment.id),
+        attachments,
+        imageInputs: [],
+        fileInputs: attachments.map((attachment: { id: string; fileName: string; mediaType: string; size: number; hash: string }) => ({
+          id: attachment.id, name: attachment.fileName, path: "C:\\managed\\input.txt", mediaType: attachment.mediaType,
+          size: attachment.size, contentHash: attachment.hash, source: "managed-attachment" as const,
+        })),
+        runtimeReadRoots: ["C:\\managed"],
+        evidence: attachments.map((attachment: { id: string; fileName: string; mediaType: string; size: number; hash: string }) => ({
+          id: attachment.id, fileName: attachment.fileName, mediaType: attachment.mediaType, size: attachment.size,
+          contentHash: attachment.hash, kind: "text" as const, runtimeMode: "provider-file-reference" as const,
+        })),
+        diagnostics: [],
+        handoffHash: "attachment-hash",
+      })),
+    } as never,
   });
   return { router, project, capabilitySnapshot };
+}
+
+function managedTextAttachment() {
+  return {
+    id: "att-20260815000000-abcdefabcdef",
+    fileName: "input.txt",
+    mediaType: "text/plain",
+    kind: "text" as const,
+    size: 4,
+    hash: "hash",
+    source: "composer" as const,
+    createdAt: "2026-08-15T00:00:00.000Z",
+    storagePath: "attachments/att-20260815000000-abcdefabcdef/content.txt",
+    runtimeMode: "provider-file-reference" as const,
+  };
 }

@@ -346,6 +346,7 @@ describe("dual product-mode foundation", () => {
             );
           },
           admit: testAdmission,
+          resolveAttachments: async () => [],
           route,
           resolveProviderId: (_project, requestedProviderId) => requestedProviderId ?? "codex",
           resolveRuntimeState: async () => ({ state: "ready", project: project(), resolution: fixture.resolution }),
@@ -394,6 +395,7 @@ function failAfterCommitRouter() {
       throw error;
     },
     admit: testAdmission,
+    resolveAttachments: async () => [],
     route(): Promise<never> {
       const error = new Error("Injected post-commit startup failure.");
       error.name = "Conflict";
@@ -413,6 +415,7 @@ function testTurnRouter(): ConversationTurnRoutingPort {
       throw error;
     },
     admit: testAdmission,
+    resolveAttachments: async () => [],
     route: vi.fn(async () => ({
       user: { id: "test-user", type: "user.message", timestamp: new Date().toISOString(), conversationId: "test", changeId: "", text: "test" },
       assistant: null,
