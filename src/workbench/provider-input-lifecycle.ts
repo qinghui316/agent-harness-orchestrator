@@ -6,6 +6,7 @@ import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbenc
 import type { CanonicalTimelineEnvelope } from "./canonical-timeline-contract.js";
 import { CanonicalTimelineDelivery, type CanonicalTimelinePublisher } from "./canonical-timeline-delivery.js";
 import { toCanonicalTimelineMessage } from "./canonical-timeline-message.js";
+import { projectCanonicalTimelineEnvelope } from "./canonical-timeline-projector.js";
 import type { TopicThreadEntry, WorkbenchProviderUserInputRequest } from "./types.js";
 
 export async function persistProviderUserInputRequest(
@@ -40,6 +41,14 @@ export async function persistProviderUserInputRequest(
   };
   const database = await openProjectRuntimeWorkbenchDatabase(runtime);
   try {
+    const existing = database.timeline.readMessage(runtime.projectId, request.conversationId, entry.id);
+    if (existing) {
+      const raw = JSON.parse(existing.rawJson) as { providerUserInput?: WorkbenchProviderUserInputRequest };
+      if (!raw.providerUserInput || !sameProviderUserInputIdentity(raw.providerUserInput, request)) {
+        throw new Error("Provider user input request identity conflicts with persisted Timeline evidence.");
+      }
+      return projectCanonicalTimelineEnvelope(existing, productMode);
+    }
     return new CanonicalTimelineDelivery(database, productMode, publisher).append(toCanonicalTimelineMessage(runtime.projectId, request.conversationId, entry));
   } finally {
     database.close();
@@ -63,7 +72,9 @@ export interface ProviderInputLifecycleOwnerOptions {
 }
 
 export class ProviderInputLifecycleOwner {
-  private readonly requestKeys = new Map<string, string>();
+  private readonly requests = new Map<string, WorkbenchProviderUserInputRequest>();
+  private readonly earlyResolutions = new Map<string, ProviderUserInputResolution>();
+  private readonly resolutions = new Map<string, ProviderUserInputResolution>();
   private readonly pending = new Map<string, Promise<unknown>>();
 
   constructor(private readonly options: ProviderInputLifecycleOwnerOptions) {}
@@ -72,8 +83,7 @@ export class ProviderInputLifecycleOwner {
     try {
       this.assertCallbackIdentity(request);
       const requestKey = providerUserInputRequestKey(this.options.runId, request);
-      this.requestKeys.set(request.requestId, requestKey);
-      const persistence = persistProviderUserInputRequest(this.options.runtime, {
+      const normalized: WorkbenchProviderUserInputRequest = {
         providerId: request.providerId,
         attemptId: request.attemptId,
         requestKey,
@@ -90,7 +100,28 @@ export class ProviderInputLifecycleOwner {
         questions: request.questions,
         ...(request.expiresAt ? { expiresAt: request.expiresAt } : {}),
         status: "pending",
-      }, this.options.productMode, this.options.publisher).then(() => this.options.onUpdated?.());
+      };
+      const existing = this.requests.get(request.requestId);
+      if (existing) {
+        if (!sameProviderUserInputIdentity(existing, normalized)) {
+          throw new Error("Provider user input requestId was reused with different Turn lineage.");
+        }
+        return;
+      }
+      this.requests.set(request.requestId, normalized);
+      const persistence = persistProviderUserInputRequest(
+        this.options.runtime,
+        normalized,
+        this.options.productMode,
+        this.options.publisher,
+      ).then(async () => {
+        const earlyResolution = this.earlyResolutions.get(request.requestId);
+        if (earlyResolution) {
+          this.earlyResolutions.delete(request.requestId);
+          await this.resolvePersistedRequest(earlyResolution, requestKey);
+        }
+        await this.options.onUpdated?.();
+      });
       this.track(request.requestId, persistence);
     } catch (cause) {
       this.options.onError?.(asError(cause));
@@ -98,8 +129,30 @@ export class ProviderInputLifecycleOwner {
   };
 
   readonly onResolved = (resolution: ProviderUserInputResolution): void => {
-    const work = this.resolveRequest(resolution);
-    this.track(`resolved:${resolution.requestId}`, work);
+    try {
+      this.assertResolutionIdentity(resolution);
+      const knownResolution = this.resolutions.get(resolution.requestId);
+      if (knownResolution) {
+        if (!sameProviderUserInputResolutionIdentity(knownResolution, resolution)) {
+          throw new Error("Provider user input resolution identity changed for the same requestId.");
+        }
+        return;
+      }
+      this.resolutions.set(resolution.requestId, resolution);
+      const request = this.requests.get(resolution.requestId);
+      if (!request) {
+        const existing = this.earlyResolutions.get(resolution.requestId);
+        if (existing && !sameProviderUserInputResolutionIdentity(existing, resolution)) {
+          throw new Error("Provider user input resolution identity changed before its request arrived.");
+        }
+        this.earlyResolutions.set(resolution.requestId, resolution);
+        return;
+      }
+      const work = this.resolveRequest(resolution, request);
+      this.track(`resolved:${resolution.requestId}`, work);
+    } catch (cause) {
+      this.options.onError?.(asError(cause));
+    }
   };
 
   async terminalize(): Promise<void> {
@@ -117,19 +170,22 @@ export class ProviderInputLifecycleOwner {
     } finally {
       database.close();
     }
+    this.earlyResolutions.clear();
     await this.options.onUpdated?.();
   }
 
-  private async resolveRequest(resolution: ProviderUserInputResolution): Promise<void> {
-    if (resolution.providerId !== this.options.providerId
-      || resolution.runId !== this.options.runId
-      || resolution.attemptId !== this.options.attemptId
-      || resolution.runtimeScopeId !== this.options.runtimeScopeId) {
-      throw new Error("Provider user input resolution does not match the active Turn identity.");
-    }
+  private async resolveRequest(
+    resolution: ProviderUserInputResolution,
+    request: WorkbenchProviderUserInputRequest,
+  ): Promise<void> {
     await this.pending.get(resolution.requestId);
-    const requestKey = this.requestKeys.get(resolution.requestId);
-    if (!requestKey) return;
+    await this.resolvePersistedRequest(resolution, request.requestKey);
+  }
+
+  private async resolvePersistedRequest(
+    resolution: ProviderUserInputResolution,
+    requestKey: string,
+  ): Promise<void> {
     const database = await openProjectRuntimeWorkbenchDatabase(this.options.runtime);
     try {
       const current = database.interactions.readProviderUserInputRequest(
@@ -137,7 +193,11 @@ export class ProviderInputLifecycleOwner {
         this.options.conversationId,
         requestKey,
       );
-      if (!current || current.status === "submitted" || current.status === "interrupted" || current.status === "superseded") return;
+      if (!current) throw new Error("Provider user input resolution arrived without persisted request evidence.");
+      if ((resolution.threadId ?? null) !== (current.threadId ?? null)) {
+        throw new Error("Provider user input resolution does not match the request thread lineage.");
+      }
+      if (current.status === "submitted" || current.status === "interrupted" || current.status === "superseded") return;
       const transition = database.interactions.transitionProviderUserInputRequest(
         this.options.projectId,
         this.options.conversationId,
@@ -160,6 +220,15 @@ export class ProviderInputLifecycleOwner {
     await this.options.onUpdated?.();
   }
 
+  private assertResolutionIdentity(resolution: ProviderUserInputResolution): void {
+    if (resolution.providerId !== this.options.providerId
+      || resolution.runId !== this.options.runId
+      || resolution.attemptId !== this.options.attemptId
+      || resolution.runtimeScopeId !== this.options.runtimeScopeId) {
+      throw new Error("Provider user input resolution does not match the active Turn identity.");
+    }
+  }
+
   private assertCallbackIdentity(request: ProviderUserInputRequest): void {
     if (request.providerId !== this.options.providerId
       || request.attemptId !== this.options.attemptId
@@ -175,6 +244,45 @@ export class ProviderInputLifecycleOwner {
       if (this.pending.get(key) === work) this.pending.delete(key);
     });
   }
+}
+
+function sameProviderUserInputIdentity(
+  left: WorkbenchProviderUserInputRequest,
+  right: WorkbenchProviderUserInputRequest,
+): boolean {
+  return JSON.stringify(providerUserInputIdentity(left)) === JSON.stringify(providerUserInputIdentity(right));
+}
+
+function providerUserInputIdentity(request: WorkbenchProviderUserInputRequest): Record<string, unknown> {
+  return {
+    providerId: request.providerId,
+    attemptId: request.attemptId,
+    requestKey: request.requestKey,
+    requestId: request.requestId,
+    threadId: request.threadId ?? null,
+    turnId: request.turnId ?? null,
+    itemId: request.itemId ?? null,
+    runId: request.runId,
+    runtimeScopeId: request.runtimeScopeId,
+    conversationId: request.conversationId,
+    graphScopeId: request.graphScopeId,
+    changeId: request.changeId ?? null,
+    agentRoleId: request.agentRoleId ?? null,
+    questions: request.questions,
+    expiresAt: request.expiresAt ?? null,
+  };
+}
+
+function sameProviderUserInputResolutionIdentity(
+  left: ProviderUserInputResolution,
+  right: ProviderUserInputResolution,
+): boolean {
+  return left.providerId === right.providerId
+    && left.requestId === right.requestId
+    && left.runtimeScopeId === right.runtimeScopeId
+    && left.runId === right.runId
+    && left.attemptId === right.attemptId
+    && (left.threadId ?? null) === (right.threadId ?? null);
 }
 
 export async function reconcileStaleProviderInputRequests(input: {
