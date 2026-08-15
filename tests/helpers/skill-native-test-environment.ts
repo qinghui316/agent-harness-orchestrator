@@ -102,14 +102,23 @@ if (appServerIndex >= 0) {
   let threadId = "thread-scheduler-fake-" + process.pid + "-0";
   let turnSequence = 0;
   const reply = (id, result) => console.log(JSON.stringify({ id, result }));
+  const reject = (id, method) => console.log(JSON.stringify({
+    id,
+    error: { code: -32601, message: "Unsupported fake Codex RPC method: " + method },
+  }));
   rl.on("line", (line) => {
     const request = JSON.parse(line);
     if (request.method === "initialize" || request.method === "skills/extraRoots/set") {
       reply(request.id, {});
     } else if (request.method === "skills/list") {
-      reply(request.id, { data: [{ skills: [] }] });
+      const requestedCwd = Array.isArray(request.params && request.params.cwds)
+        ? request.params.cwds[0]
+        : appCwd;
+      reply(request.id, { data: [{ cwd: requestedCwd, skills: [], errors: [] }] });
     } else if (request.method === "model/list") {
       reply(request.id, { data: [{ id: "fake-model", model: "fake-model", displayName: "Fake Model" }] });
+    } else if (request.method === "collaborationMode/list") {
+      reply(request.id, { data: [{ name: "Plan", mode: "plan", model: "fake-model", reasoning_effort: null }] });
     } else if (request.method === "thread/start" || request.method === "thread/resume") {
       appCwd = request.params.cwd || appCwd;
       if (request.method === "thread/start") threadId = "thread-scheduler-fake-" + process.pid + "-" + (++threadSequence);
@@ -130,6 +139,8 @@ if (appServerIndex >= 0) {
         console.log(JSON.stringify({ method: "item/completed", params: { threadId, turnId, item: { id: "message-scheduler-fake-" + process.pid + "-" + turnSequence, type: "agentMessage", text: responseText } } }));
         console.log(JSON.stringify({ method: "turn/completed", params: { threadId, turn: { id: turnId, status: "completed" } } }));
       });
+    } else {
+      reject(request.id, request.method);
     }
   });
 } else if (args[0] === "exec" || args.includes("exec")) {
