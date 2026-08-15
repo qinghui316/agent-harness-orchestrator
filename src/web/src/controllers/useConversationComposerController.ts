@@ -601,6 +601,7 @@ export function useConversationComposerController(
       portsRef.current.onError("当前 Agent 回合没有可验证的停止身份，请刷新后重试。");
       return;
     }
+    const stopIdentity = composerStopIdentity(currentScope);
     await runAction("conversation.interrupt", () => portsRef.current.actions.stop({
       projectId: currentScope.projectId!,
       conversationId: currentScope.conversation!.id,
@@ -609,7 +610,10 @@ export function useConversationComposerController(
         providerId: currentScope.runControlState!.providerId,
         expectedAttemptId: currentScope.runControlState!.attemptId,
       } : { prompt: submittedText.trim() || undefined }),
-    }), currentScope, submittedText, productMode !== "agent");
+    }), currentScope, submittedText, productMode !== "agent", (generation, actionScope) => (
+      composerActionOwnsCurrentScope(generation, actionScope, scopeGenerationRef, scopeRef)
+      && composerStopIdentity(scopeRef.current) === stopIdentity
+    ));
   }, []);
 
   async function applySkillOverrides(identity: SkillRequestIdentity, overrides: Record<string, boolean>): Promise<void> {
@@ -636,29 +640,33 @@ export function useConversationComposerController(
     actionScope: ConversationComposerScope,
     submittedText: string,
     clearSubmittedText: boolean,
+    ownsCurrentScope: (generation: number, actionScope: ConversationComposerScope) => boolean = (
+      generation,
+      actionScope,
+    ) => composerActionOwnsCurrentScope(generation, actionScope, scopeGenerationRef, scopeRef),
   ): Promise<void> {
     const token = portsRef.current.operation.begin(key);
     const generation = scopeGenerationRef.current;
-    if (composerActionOwnsCurrentScope(generation, actionScope, scopeGenerationRef, scopeRef)) {
+    if (ownsCurrentScope(generation, actionScope)) {
       portsRef.current.onError(null);
     }
     try {
       await action();
-      if (clearSubmittedText && composerActionOwnsCurrentScope(generation, actionScope, scopeGenerationRef, scopeRef)) {
+      if (clearSubmittedText && ownsCurrentScope(generation, actionScope)) {
         setComposerText((current) => current === submittedText ? "" : current);
       }
     } catch (cause) {
-      if (composerActionOwnsCurrentScope(generation, actionScope, scopeGenerationRef, scopeRef)) {
+      if (ownsCurrentScope(generation, actionScope)) {
         portsRef.current.onError(errorMessage(cause));
       }
       throw cause;
     } finally {
       if (actionScope.projectId && actionScope.conversation
-        && composerActionOwnsCurrentScope(generation, actionScope, scopeGenerationRef, scopeRef)) {
+        && ownsCurrentScope(generation, actionScope)) {
         await calibrateTimeline(
           actionScope.projectId,
           actionScope.conversation.id,
-          () => composerActionOwnsCurrentScope(generation, actionScope, scopeGenerationRef, scopeRef),
+          () => ownsCurrentScope(generation, actionScope),
         );
       }
       portsRef.current.operation.release(token);
@@ -834,6 +842,10 @@ function composerProductMode(scope: ConversationComposerScope): ProductMode {
 
 function composerScopeIdentity(scope: ConversationComposerScope): string {
   return skillRequestIdentityKey(skillRequestIdentity(scope));
+}
+
+function composerStopIdentity(scope: ConversationComposerScope): string {
+  return [composerScopeIdentity(scope), scope.runControlState?.attemptId ?? ""].join("\0");
 }
 
 function turnModeOwnerIdentity(scope: ConversationComposerScope): string {

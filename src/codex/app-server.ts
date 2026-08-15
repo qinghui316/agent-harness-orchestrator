@@ -12,6 +12,7 @@ import { CodexAppServerJsonRpcError, defaultCodexAppServerHostRegistry, type Cod
 import { CodexCollaborationNormalizer, type CodexChildLifecycleEvent } from "./collaboration-normalizer.js";
 
 const UNREGISTERED_CHILD_ROLE_ID = "unregistered-provider-child";
+const CODEX_TURN_INTERRUPT_TIMEOUT_MS = 5_000;
 
 export interface CodexAppServerCapabilities {
   available: boolean;
@@ -643,6 +644,7 @@ async function runCodexAppServerOperation(
   let terminalError: string | undefined;
   let targetFollowupObserved = false;
   let installActiveTurn: (() => void) | null = null;
+  let activeTurnTerminal = deferredSignal();
   const pendingServerRequests = new Map<string, {
     id: number;
     method: string;
@@ -748,7 +750,13 @@ async function runCodexAppServerOperation(
             await requestNativeGoalPause(activeThreadId, activeTurnId);
           } else {
             try {
-              await sendRequest("turn/interrupt", { threadId: activeThreadId, turnId: activeTurnId });
+              const lease = hostLease;
+              if (!lease) throw new Error("Codex app-server Host lease is unavailable.");
+              await lease.request(
+                "turn/interrupt",
+                { threadId: activeThreadId, turnId: activeTurnId },
+                { timeoutMs: CODEX_TURN_INTERRUPT_TIMEOUT_MS, resolveOn: activeTurnTerminal.promise },
+              );
             } catch (error) {
               if (error instanceof CodexAppServerJsonRpcError && error.method === "turn/interrupt") {
                 const rejection = new Error(error.rpcMessage, { cause: error });
@@ -1027,6 +1035,7 @@ async function runCodexAppServerOperation(
     if (isParentNotification && method === "turn/started") {
       const nextTurnId = stringValue((isRecord(params.turn) ? params.turn.id : undefined) ?? params.turnId);
       if (nextTurnId) {
+        if (turnId !== nextTurnId) activeTurnTerminal = deferredSignal();
         turnId = nextTurnId;
         activeTurnRunning = true;
         installActiveTurn?.();
@@ -1054,6 +1063,7 @@ async function runCodexAppServerOperation(
     }
     if (isParentNotification && method === "turn/completed") {
       activeTurnRunning = false;
+      activeTurnTerminal.resolve();
       const completedTurnId = stringValue((isRecord(params.turn) ? params.turn.id : undefined) ?? params.turnId);
       if (threadId && completedTurnId) hostLease?.clearActiveTurn(threadId, completedTurnId);
       const interrupted = completionStatus(params) === "interrupted";
@@ -1063,6 +1073,7 @@ async function runCodexAppServerOperation(
       }
     } else if (isParentNotification && method === "turn/failed") {
       activeTurnRunning = false;
+      activeTurnTerminal.resolve();
       terminalStatus = "failed";
       terminalError = JSON.stringify(params);
     } else if (isParentNotification && method === "item/completed") {
@@ -1734,6 +1745,12 @@ function completionStatus(params: Record<string, unknown>): string | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function deferredSignal(): { promise: Promise<void>; resolve(): void } {
+  let resolvePromise!: () => void;
+  const promise = new Promise<void>((resolve) => { resolvePromise = resolve; });
+  return { promise, resolve: resolvePromise };
 }
 
 function defaultNativeCollabStatus(): CodexNativeCollabConfigStatus {

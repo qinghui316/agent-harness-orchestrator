@@ -240,6 +240,73 @@ describe("DirectAgentConversationTurnStrategy", () => {
     );
   });
 
+  it("returns an idempotent terminal receipt without fabricating a missing ThreadLink run identity", async () => {
+    const created = await createAgentConversation(fixture, "terminal without provider thread");
+    const database = await openProjectRuntimeWorkbenchDatabase(fixture.paths);
+    try {
+      const conversation = database.conversations.readConversation(fixture.project.id, created.conversationId)!;
+      database.providerAttempts.createProviderAttempt({
+        projectId: fixture.project.id,
+        conversationId: created.conversationId,
+        attemptId: "attempt-terminal-without-thread",
+        productMode: "agent",
+        agentTurnMode: "default",
+        graphScopeId: conversation.currentGraphScopeId,
+        changeId: null,
+        agentTaskId: null,
+        roleId: "main-agent",
+        parentAgentSurfaceId: null,
+        operationProfile: "agent",
+        providerId: "codex",
+        nativeSessionId: null,
+        model: null,
+        capabilitySnapshot: capabilitySnapshot("agent"),
+        effectiveSkillInputs: [],
+        handoffHash: "terminal-without-thread-handoff",
+        deliveredThroughCompletedTurn: 0,
+        worktreeId: null,
+        status: "failed",
+        createdAt: "2026-08-15T00:00:00.000Z",
+        updatedAt: "2026-08-15T00:00:01.000Z",
+      });
+    } finally {
+      database.close();
+    }
+
+    const registry = new ProviderRegistry();
+    registry.register(fakeProvider().descriptor);
+    const turnControl = new ConversationTurnControlOwner({
+      providerRegistry: registry,
+      projectRuntimeCoordinator: {
+        resolve: async () => ({ state: "onboarding", project: fixture.project, paths: fixture.paths }),
+      },
+      onInvalidated: () => undefined,
+    });
+    const request = {
+      projectId: fixture.project.id,
+      productMode: "agent" as const,
+      conversationId: created.conversationId,
+      providerId: "codex",
+      expectedAttemptId: "attempt-terminal-without-thread",
+    };
+
+    await expect(turnControl.interrupt(fixture.project, request)).resolves.toEqual({
+      status: "already-terminal",
+      attemptId: request.expectedAttemptId,
+    });
+    turnControl.registerAttempt({
+      ...request,
+      expectedAttemptId: "attempt-newer-running",
+      graphScopeId: "graph-newer-running",
+      runId: "run-newer-running",
+      roleId: "main-agent",
+    });
+    await expect(turnControl.interrupt(fixture.project, request)).resolves.toEqual({
+      status: "already-terminal",
+      attemptId: request.expectedAttemptId,
+    });
+  });
+
   it("releases Turn control after the durable terminal commit before publishing terminal events", async () => {
     const provider = fakeProvider();
     const registry = new ProviderRegistry();

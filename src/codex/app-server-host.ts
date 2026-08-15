@@ -26,7 +26,7 @@ export interface CodexAppServerHostHandlers {
 }
 
 export interface CodexAppServerHostLease extends CodexAppServerHostIdentity {
-  request(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>>;
+  request(method: string, params: Record<string, unknown>, options?: CodexAppServerRequestOptions): Promise<Record<string, unknown>>;
   notify(method: string, params: Record<string, unknown>): void;
   respond(id: number, result: Record<string, unknown>): void;
   bindChild(parentThreadId: string, childThreadId: string): void;
@@ -40,7 +40,7 @@ export interface CodexAppServerHostLease extends CodexAppServerHostIdentity {
 export interface CodexAppServerChildControl extends CodexAppServerHostIdentity {
   parentThreadId: string;
   parentTurnId: string;
-  request(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>>;
+  request(method: string, params: Record<string, unknown>, options?: CodexAppServerRequestOptions): Promise<Record<string, unknown>>;
   closeChild(): void;
   release(): void;
 }
@@ -49,6 +49,18 @@ interface PendingRequest {
   method: string;
   resolve(value: Record<string, unknown>): void;
   reject(error: Error): void;
+}
+
+export interface CodexAppServerRequestOptions {
+  timeoutMs?: number;
+  resolveOn?: Promise<void>;
+}
+
+export class CodexAppServerRequestTimeoutError extends Error {
+  constructor(readonly method: string, readonly timeoutMs: number) {
+    super(`Codex app-server ${method} request timed out after ${timeoutMs}ms.`);
+    this.name = "CodexAppServerRequestTimeout";
+  }
 }
 
 export class CodexAppServerJsonRpcError extends Error {
@@ -116,7 +128,7 @@ export class CodexAppServerHost {
       generation,
       pid: this.child?.pid ?? null,
       cwd: this.cwd,
-      request: (method, params) => this.request(method, params, generation),
+      request: (method, params, options) => this.request(method, params, generation, options),
       notify: (method, params) => this.notify(method, params, generation),
       respond: (id, result) => this.respond(id, result, generation),
       bindChild: (parentThreadId, childThreadId) => this.bindChild(parentThreadId, childThreadId, generation),
@@ -169,7 +181,7 @@ export class CodexAppServerHost {
       cwd: this.cwd,
       parentThreadId,
       parentTurnId: this.activeTurnId,
-      request: (method, params) => this.request(method, params, generation),
+      request: (method, params, options) => this.request(method, params, generation, options),
       closeChild: () => this.closeChild(parentThreadId, childThreadId, generation),
       release: () => {
         if (released) return;
@@ -289,13 +301,45 @@ export class CodexAppServerHost {
     }
   }
 
-  private request(method: string, params: Record<string, unknown>, generation: number): Promise<Record<string, unknown>> {
+  private request(
+    method: string,
+    params: Record<string, unknown>,
+    generation: number,
+    options: CodexAppServerRequestOptions = {},
+  ): Promise<Record<string, unknown>> {
     this.assertGeneration(generation);
     const stdin = this.child?.stdin;
     if (!stdin?.writable) return Promise.reject(new Error("Codex app-server Host stdin is not writable."));
     const id = this.requestId++;
     stdin.write(`${JSON.stringify({ id, method, params })}\n`);
-    return new Promise((resolve, reject) => this.pending.set(id, { method, resolve, reject }));
+    return new Promise((resolve, reject) => {
+      const timeoutMs = options.timeoutMs;
+      const timer = typeof timeoutMs === "number" && timeoutMs > 0
+        ? setTimeout(() => {
+          const pending = this.pending.get(id);
+          if (!pending) return;
+          this.pending.delete(id);
+          pending.reject(new CodexAppServerRequestTimeoutError(method, timeoutMs));
+        }, timeoutMs)
+        : null;
+      this.pending.set(id, {
+        method,
+        resolve: (value) => {
+          if (timer) clearTimeout(timer);
+          resolve(value);
+        },
+        reject: (error) => {
+          if (timer) clearTimeout(timer);
+          reject(error);
+        },
+      });
+      void options.resolveOn?.then(() => {
+        const pending = this.pending.get(id);
+        if (!pending) return;
+        this.pending.delete(id);
+        pending.resolve({});
+      });
+    });
   }
 
   private notify(method: string, params: Record<string, unknown>, generation: number): void {

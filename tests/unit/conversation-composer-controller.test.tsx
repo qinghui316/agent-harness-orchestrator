@@ -857,6 +857,66 @@ describe("Conversation composer controller", () => {
     expect(ports.timeline.calibrate).not.toHaveBeenCalled();
   });
 
+  it("does not leak a late Stop response into a newer Attempt in the same Conversation", async () => {
+    let rejectStop!: (cause: Error) => void;
+    const ports = composerPorts();
+    ports.actions.stop.mockImplementation(() => new Promise<void>((_resolve, reject) => { rejectStop = reject; }));
+    const scopeA = conversationScope({
+      productMode: "agent",
+      running: true,
+      runControlState: { state: "running", canStop: true, providerId: "codex", attemptId: "attempt-a" },
+      conversation: { id: "agent-conversation", productMode: "agent", state: "active", selectedProviderId: "codex" },
+    });
+    const { result, rerender } = renderHook(
+      ({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
+      { initialProps: { scope: scopeA } },
+    );
+    act(() => result.current.setComposerText("next attempt draft"));
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.stop(); });
+    await waitFor(() => expect(ports.actions.stop).toHaveBeenCalledOnce());
+
+    rerender({ scope: {
+      ...scopeA,
+      runControlState: { state: "running", canStop: true, providerId: "codex", attemptId: "attempt-b" },
+    } });
+    await act(async () => {
+      rejectStop(new Error("late attempt-a stop failure"));
+      await expect(pending).rejects.toThrow("late attempt-a stop failure");
+    });
+
+    expect(result.current.composerText).toBe("next attempt draft");
+    expect(ports.onError).not.toHaveBeenCalledWith("late attempt-a stop failure");
+    expect(ports.timeline.calibrate).not.toHaveBeenCalled();
+  });
+
+  it("keeps a Stop response current when the same Attempt moves from running to stopping", async () => {
+    let resolveStop!: () => void;
+    const ports = composerPorts();
+    ports.actions.stop.mockImplementation(() => new Promise<void>((resolve) => { resolveStop = resolve; }));
+    const scope = conversationScope({
+      productMode: "agent",
+      running: true,
+      runControlState: { state: "running", canStop: true, providerId: "codex", attemptId: "attempt-same" },
+      conversation: { id: "agent-conversation", productMode: "agent", state: "active", selectedProviderId: "codex" },
+    });
+    const { result, rerender } = renderHook(
+      ({ current }: { current: ConversationComposerScope }) => useConversationComposerController(current, ports),
+      { initialProps: { current: scope } },
+    );
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.stop(); });
+    await waitFor(() => expect(ports.actions.stop).toHaveBeenCalledOnce());
+
+    rerender({ current: {
+      ...scope,
+      runControlState: { state: "stopping", canStop: true, providerId: "codex", attemptId: "attempt-same" },
+    } });
+    await act(async () => { resolveStop(); await pending; });
+
+    expect(ports.timeline.calibrate).toHaveBeenCalledWith("repo", "agent-conversation", "main-agent");
+  });
+
   it("disables Agent steer and preserves all draft state while stopping the exact Attempt", async () => {
     const ports = composerPorts();
     const { result } = renderHook(() => useConversationComposerController(conversationScope({

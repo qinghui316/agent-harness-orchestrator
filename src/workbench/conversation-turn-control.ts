@@ -14,11 +14,9 @@ export interface ConversationTurnInterruptRequest {
   expectedAttemptId: string;
 }
 
-export interface ConversationTurnInterruptReceipt {
-  status: "pending" | "interrupt-requested" | "already-terminal";
-  attemptId: string;
-  runId: string;
-}
+export type ConversationTurnInterruptReceipt =
+  | { status: "pending" | "interrupt-requested"; attemptId: string; runId: string }
+  | { status: "already-terminal"; attemptId: string; runId?: string };
 
 export interface ConversationTurnControlState {
   state: "idle" | "running" | "stopping";
@@ -119,10 +117,11 @@ export class ConversationTurnControlOwner {
             && candidate.graphScopeId === attempt.graphScopeId);
         const runId = durableLink?.runId
           ?? (entry && sameRequest(entry.registration, request) ? entry.registration.runId : undefined);
-        if (!runId) {
-          throw conflict("Terminal Attempt has no durable run identity for an interrupt receipt.");
-        }
-        return { status: "already-terminal", attemptId: attempt.attemptId, runId };
+        return {
+          status: "already-terminal",
+          attemptId: attempt.attemptId,
+          ...(runId ? { runId } : {}),
+        };
       }
       if (!entry || !sameRequest(entry.registration, request)) {
         throw conflict("The requested Attempt is not owned by a current-process Provider Turn.");

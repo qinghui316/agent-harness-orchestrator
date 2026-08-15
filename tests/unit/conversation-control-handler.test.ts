@@ -71,7 +71,6 @@ describe("conversation interrupt handler", () => {
     const interruptProviderTurn = vi.fn(async () => ({
       status: "already-terminal" as const,
       attemptId: "attempt-terminal",
-      runId: "run-provider-terminal",
     }));
     const findRunningRunForChange = vi.fn(async () => null);
 

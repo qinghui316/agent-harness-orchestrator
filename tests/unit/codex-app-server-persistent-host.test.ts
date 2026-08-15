@@ -19,6 +19,7 @@ const tempDirs: string[] = [];
 
 beforeEach(() => spawnMock.mockReset());
 afterEach(async () => {
+  vi.useRealTimers();
   defaultCodexAppServerHostRegistry.disposeAll("persistent Host test cleanup");
   await Promise.all(tempDirs.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
@@ -401,6 +402,50 @@ describe("Codex persistent app-server Host", () => {
       error: "Codex app-server Host exited with 17.",
     });
   });
+
+  it("bounds an interrupt whose JSON-RPC response never arrives and ignores a late response", async () => {
+    const cwd = await tempDir();
+    const server = new PersistentCollaborationServer(4565, true);
+    server.holdNextInterruptResponse();
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+    const options = await turnOptions(cwd, "interrupt-timeout-run", null);
+    const turn = runCodexAppServerTurn(options);
+    await vi.waitFor(() => expect(getActiveCodexAppServerTurn(options.runtimeScopeId)).not.toBeNull());
+
+    vi.useFakeTimers();
+    const interruption = getActiveCodexAppServerTurn(options.runtimeScopeId)!.interrupt("user stop");
+    const timeoutAssertion = expect(interruption).rejects.toMatchObject({
+      name: "CodexAppServerRequestTimeout",
+      method: "turn/interrupt",
+      timeoutMs: 5_000,
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+    await timeoutAssertion;
+
+    server.respondToHeldInterrupt();
+    server.completeParent();
+    await vi.advanceTimersByTimeAsync(100);
+    await expect(turn).resolves.toMatchObject({ status: "completed" });
+    expect(server.interruptParams).toEqual([{ threadId: "thread-main", turnId: "turn-main-1" }]);
+  });
+
+  it("settles an interrupt when the exact Turn becomes terminal before its JSON-RPC response", async () => {
+    const cwd = await tempDir();
+    const server = new PersistentCollaborationServer(4566, true);
+    server.holdNextInterruptResponse();
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+    const options = await turnOptions(cwd, "interrupt-terminal-race-run", null);
+    const turn = runCodexAppServerTurn(options);
+    await vi.waitFor(() => expect(getActiveCodexAppServerTurn(options.runtimeScopeId)).not.toBeNull());
+
+    const interruption = getActiveCodexAppServerTurn(options.runtimeScopeId)!.interrupt("user stop");
+    server.completeParent();
+
+    await expect(interruption).resolves.toBeUndefined();
+    await expect(turn).resolves.toMatchObject({ status: "completed" });
+    server.respondToHeldInterrupt();
+    expect(server.interruptParams).toEqual([{ threadId: "thread-main", turnId: "turn-main-1" }]);
+  });
 });
 
 async function tempDir(): Promise<string> {
@@ -446,6 +491,8 @@ class PersistentCollaborationServer extends EventEmitter {
   private turnCount = 0;
   private nextInterruptError: string | null = null;
   private crashInterrupt = false;
+  private holdInterruptResponse = false;
+  private heldInterruptId: number | null = null;
 
   constructor(
     pid: number,
@@ -484,6 +531,17 @@ class PersistentCollaborationServer extends EventEmitter {
 
   crashOnNextInterrupt(): void {
     this.crashInterrupt = true;
+  }
+
+  holdNextInterruptResponse(): void {
+    this.holdInterruptResponse = true;
+  }
+
+  respondToHeldInterrupt(): void {
+    if (this.heldInterruptId === null) throw new Error("No held interrupt response is available.");
+    const id = this.heldInterruptId;
+    this.heldInterruptId = null;
+    this.respond(id, {});
   }
 
   private drain(): void {
@@ -581,6 +639,11 @@ class PersistentCollaborationServer extends EventEmitter {
       }
       case "turn/interrupt":
         this.interruptParams.push({ threadId: String(params.threadId), turnId: String(params.turnId) });
+        if (this.holdInterruptResponse) {
+          this.holdInterruptResponse = false;
+          this.heldInterruptId = id;
+          return;
+        }
         if (this.crashInterrupt) {
           this.crashInterrupt = false;
           queueMicrotask(() => this.crash());
