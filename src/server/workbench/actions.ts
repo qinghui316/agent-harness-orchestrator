@@ -273,6 +273,7 @@ function workflowPorts(turnRouter: ConversationTurnRoutingPort) {
       postConversationMessage(ownerProject, conversationId, input, live, { turnRouter })
     ),
     continueMainAgentTurn: turnRouter.continueMainAgentTurn,
+    interruptMainAgentTurn: turnRouter.interruptMainAgentTurn,
   };
 }
 

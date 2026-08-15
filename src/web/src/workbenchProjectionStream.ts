@@ -28,6 +28,9 @@ export type WorkbenchProjectionRoutePorts = {
       reason: Extract<WorkbenchLiveEvent, { event: "agent-surfaces.invalidated" }>["data"]["reason"];
     }) => void;
   };
+  turnControl?: {
+    invalidate: (projectId: string, data: Extract<WorkbenchLiveEvent, { event: "conversation.turn-control.invalidated" }>["data"]) => void;
+  };
   error?: {
     received: (projectId: string, data: Extract<WorkbenchLiveEvent, { event: "error" }>["data"]) => void;
   };
@@ -59,6 +62,9 @@ export function routeWorkbenchProjectionEvent(
     case "agent-surfaces.invalidated":
       ports.agentSurfaces.invalidate({ projectId, ...event.data });
       return { handled: true, event: event.event };
+    case "conversation.turn-control.invalidated":
+      ports.turnControl?.invalidate(projectId, event.data);
+      return { handled: Boolean(ports.turnControl), event: event.event };
     case "snapshot":
       ports.snapshot.received(projectId, event.data);
       return { handled: true, event: event.event };

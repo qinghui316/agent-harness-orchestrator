@@ -230,6 +230,18 @@ export interface ProviderRuntimeHostRef {
   pid: number | null;
 }
 
+export interface ProviderTurnStartedIdentity {
+  projectId: string;
+  conversationId?: string;
+  runtimeScopeId: string;
+  providerId: ProviderId;
+  attemptId: string;
+  runId: string;
+  roleId: string;
+  sessionId: string;
+  turnId: string;
+}
+
 export interface ProviderTurnRequest {
   providerId: ProviderId;
   operationProfile: ProviderOperationProfile;
@@ -250,6 +262,7 @@ export interface ProviderTurnRequest {
   existingSession?: ProviderSessionRef | null;
   timeoutMs?: number;
   onRealtimeEvent?: (event: ProviderRealtimeEvent) => void;
+  onTurnStarted?: (identity: ProviderTurnStartedIdentity) => void;
   onChildLifecycleEvent?: (event: ProviderChildLifecycleEvent) => void;
   onChildThreadResult?: (result: ProviderChildThreadResult) => void;
   onUserInputRequest?: (request: ProviderUserInputRequest) => void;

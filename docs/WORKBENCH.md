@@ -71,6 +71,19 @@ the exact active Provider turn, secret values are persisted only as redacted
 placeholders, and an unproven submission remains `submitting` rather than being
 replayed.
 
+An active ordinary Agent turn exposes Stop only after the snapshot can bind the
+current graph's durable running Main Attempt to the process-local Provider turn.
+Stop uses a short JSON request carrying the asserted Provider and Attempt; the
+server revalidates Conversation, mode, graph, Session, and active-turn identity
+before invoking the adapter. A request made before the Provider turn ID exists
+remains pending and is sent once when that ID arrives. Repeated requests share
+one submission, explicit Provider rejection permits retry, and an uncertain
+transport remains stopping. The Agent Composer keeps its text, attachments,
+Skills, and Default/Plan selection, and does not offer live Steer while a turn
+is running. Harness keeps its existing stop-and-continue surface, using the same
+Provider control owner when a Provider turn exists and the local-run fallback
+otherwise.
+
 ## 1. Purpose
 
 The AHO Workbench should feel like a Codex-style development workspace, not a traditional admin console, ticket board, or raw agent terminal.

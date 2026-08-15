@@ -19,6 +19,12 @@ export interface ConversationComposerScope {
   } | null;
   managed: boolean;
   running: boolean;
+  runControlState?: {
+    state?: "idle" | "running" | "stopping";
+    canStop: boolean;
+    providerId?: string;
+    attemptId?: string;
+  };
   selectedProviderId: string | null;
   providerCount: number;
   providerCapabilities?: ProviderCapabilitySnapshot[];
@@ -77,6 +83,9 @@ export interface ComposerMessageRequest {
 export interface ComposerActionRequest {
   projectId: string;
   conversationId: string;
+  productMode: ProductMode;
+  providerId?: string;
+  expectedAttemptId?: string;
   prompt?: string;
 }
 
@@ -503,9 +512,14 @@ export function useConversationComposerController(
     }
     const outboundMessage = prepared.text || defaultAttachmentPrompt(attachmentIds.length);
     if (currentScope.running) {
+      if (composerProductMode(currentScope) === "agent") {
+        portsRef.current.onError("当前 Agent 回合正在运行；请先停止当前回合，再发送下一条消息。");
+        return;
+      }
       await runAction("conversation.steer", () => portsRef.current.actions.steer({
         projectId: currentScope.projectId!,
         conversationId: currentScope.conversation!.id,
+        productMode: composerProductMode(currentScope),
         prompt: outboundMessage,
       }), currentScope, draft.composerText, true);
       if (composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) setFileRefs([]);
@@ -579,11 +593,23 @@ export function useConversationComposerController(
     const currentScope = scopeRef.current;
     if (!currentScope.projectId || !currentScope.conversation) return;
     const submittedText = stateRef.current.composerText;
+    const productMode = composerProductMode(currentScope);
+    if (productMode === "agent"
+      && (!currentScope.runControlState?.canStop
+        || !currentScope.runControlState.providerId
+        || !currentScope.runControlState.attemptId)) {
+      portsRef.current.onError("当前 Agent 回合没有可验证的停止身份，请刷新后重试。");
+      return;
+    }
     await runAction("conversation.interrupt", () => portsRef.current.actions.stop({
       projectId: currentScope.projectId!,
       conversationId: currentScope.conversation!.id,
-      prompt: submittedText.trim() || undefined,
-    }), currentScope, submittedText, true);
+      productMode,
+      ...(productMode === "agent" ? {
+        providerId: currentScope.runControlState!.providerId,
+        expectedAttemptId: currentScope.runControlState!.attemptId,
+      } : { prompt: submittedText.trim() || undefined }),
+    }), currentScope, submittedText, productMode !== "agent");
   }, []);
 
   async function applySkillOverrides(identity: SkillRequestIdentity, overrides: Record<string, boolean>): Promise<void> {

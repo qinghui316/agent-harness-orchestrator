@@ -22,7 +22,7 @@ import { sendWorkbenchActionLive } from "./live-actions.js";
 import { readCreateTopicBody, sendConversationMessageLive, sendCreateTopicLive } from "./topic-messages.js";
 import { executeWorkbenchAction } from "./actions.js";
 import { sendProjectLiveEvents } from "./project-live-events.js";
-import type { IntakeRequest, UpdateConversationTitleRequest, WorkbenchActionRequest, WorkbenchServerContext } from "./types.js";
+import type { ConversationTurnInterruptBody, IntakeRequest, UpdateConversationTitleRequest, WorkbenchActionRequest, WorkbenchServerContext } from "./types.js";
 
 export async function handleProjectWorkbenchApi(context: WorkbenchServerContext, input: WorkbenchProjectInput, request: IncomingMessage, response: ServerResponse, rest: string, url: URL): Promise<void> {
   if (request.method === "GET" && rest === "events/live") {
@@ -189,6 +189,32 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
       context.turnRouter,
       context.providerRegistry,
     );
+    return;
+  }
+  const turnInterruptMatch = rest.match(/^conversations\/([^/]+)\/turn\/interrupt$/);
+  if (request.method === "POST" && turnInterruptMatch?.[1]) {
+    assertRegisteredProject(input);
+    const body = await readJsonBody<ConversationTurnInterruptBody>(request);
+    const productMode = requireProductMode(typeof body.productMode === "string" ? body.productMode : null);
+    if (productMode !== "agent") {
+      const error = new Error("The direct Conversation interrupt endpoint is available only in Agent mode.");
+      error.name = "Conflict";
+      throw error;
+    }
+    if (typeof body.providerId !== "string" || !body.providerId.trim()
+      || typeof body.expectedAttemptId !== "string" || !body.expectedAttemptId.trim()) {
+      const error = new Error("Conversation interrupt requires providerId and expectedAttemptId.");
+      error.name = "BadRequest";
+      throw error;
+    }
+    const conversationId = decodeURIComponent(turnInterruptMatch[1]);
+    sendJson(response, 200, await context.turnControl.interrupt(input.project, {
+      projectId: input.project.id,
+      productMode,
+      conversationId,
+      providerId: body.providerId.trim(),
+      expectedAttemptId: body.expectedAttemptId.trim(),
+    }));
     return;
   }
   const topicMessagesLiveMatch = rest.match(/^topics\/([^/]+)\/messages\/live$/);

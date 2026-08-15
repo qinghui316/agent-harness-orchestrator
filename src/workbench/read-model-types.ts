@@ -17,7 +17,7 @@ import type {
 } from "../types/index.js";
 import type { ApplyReadinessKind } from "../apply/manager.js";
 import type { HighImpactApprovalScope } from "../workflow-actions/high-impact-approval.js";
-import type { AgentTurnMode, ProductMode } from "../provider-runtime/index.js";
+import type { AgentTurnMode, ProductMode, ProviderId } from "../provider-runtime/index.js";
 import type { StoredProviderAttempt } from "./persistence/contracts.js";
 import type {
   WorkbenchSchedulerClaimReconcilePlanSummary,
@@ -62,6 +62,7 @@ export interface WorkbenchProjectInput {
   project: ManagedProject | null;
   path: string;
   runtimeStateResolver?: (project: ManagedProject) => Promise<import("../project-runtime/coordinator.js").ProjectRuntimeState>;
+  turnControlStateResolver?: (projectId: string, conversationId: string, attemptId?: string) => import("./conversation-turn-control.js").ConversationTurnControlState;
 }
 
 export interface WorkbenchProjectHarnessStatus {
@@ -870,7 +871,11 @@ export interface WorkbenchResultReview {
 }
 
 export interface WorkbenchRunControlState {
+  state?: "idle" | "running" | "stopping";
   canStop: boolean;
+  providerId?: ProviderId;
+  attemptId?: string;
+  runId?: string;
   stopActionType?: ThreadStreamAction["actionType"];
   pendingFeedbackCount: number;
   explanation: string;

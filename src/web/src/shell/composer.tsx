@@ -69,7 +69,9 @@ export function TopicComposer({
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [openContextKind, setOpenContextKind] = useState<ComposerContextKind | null>(null);
   const runningConversation = Boolean(actionRunning) || currentWorkpadStatus === "running";
-  const canStop = runningConversation && Boolean(onStopAndContinue) && !value.trim();
+  const canStop = runningConversation
+    && Boolean(onStopAndContinue)
+    && (productMode === "agent" || !value.trim());
   const hasAttachments = (attachments?.length ?? 0) > 0;
   const contextSummary = useMemo(() => buildComposerContextSummary({
     skills,
@@ -192,7 +194,9 @@ export function TopicComposer({
           void onAttachFiles?.(files);
         }}
         disabled={Boolean(disabledReason)}
-        placeholder={disabledReason ?? (runningConversation ? "补充要求；支持实时引导时会发送给当前执行" : "输入问题或下一步需求")}
+        placeholder={disabledReason ?? (runningConversation
+          ? productMode === "agent" ? "当前回合运行中；输入会保留到下一回合" : "补充要求；支持实时引导时会发送给当前执行"
+          : "输入问题或下一步需求")}
       />
     </ComposerFrame>
   );

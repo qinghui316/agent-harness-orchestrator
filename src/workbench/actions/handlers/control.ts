@@ -7,6 +7,10 @@ import type { WorkbenchLiveSink } from "../../types.js";
 
 export interface ConversationControlDeps {
   findRunningRunForChange(project: ManagedProject, changeId: string): Promise<RunMetadata | null>;
+  interruptProviderTurn?: (
+    project: ManagedProject,
+    conversationId: string,
+  ) => Promise<import("../../conversation-turn-control.js").ConversationTurnInterruptReceipt | null>;
 }
 
 export async function stopRunningPipeline(
@@ -86,32 +90,34 @@ export async function steerConversation(
 export async function interruptConversation(
   project: ManagedProject,
   changeId: string,
+  conversationId: string | undefined,
   prompt: string | undefined,
   live: WorkbenchLiveSink | undefined,
   deps: ConversationControlDeps,
 ): Promise<unknown> {
-  const activeTurn = defaultProviderRegistry.findActiveTurn(changeId);
-  if (!activeTurn) {
+  const receipt = conversationId && deps.interruptProviderTurn
+    ? await deps.interruptProviderTurn(project, conversationId)
+    : null;
+  if (!receipt) {
     return stopRunningPipeline(project, changeId, prompt, live, deps);
   }
   const message = prompt?.trim();
   if (message) {
-    await appendCanonicalTimelineEntry(project, changeId, { type: "user.message", text: message, status: "interrupt-requested", runId: activeTurn.runId }, live);
+    await appendCanonicalTimelineEntry(project, changeId, { type: "user.message", text: message, status: "interrupt-requested", runId: receipt.runId }, live);
   }
-  await activeTurn.interrupt(message || "User requested interrupt from the main conversation.");
   await appendCanonicalTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "interrupt-requested",
-    runId: activeTurn.runId,
+    runId: receipt.runId,
     text: "已请求停止当前执行。停止证据会保留，你可以继续用自然语言说明下一步。",
   }, live);
   emitAssistantEvent(live, {
-    runId: activeTurn.runId,
+    runId: receipt.runId,
     kind: "status",
     phase: "interrupt-requested",
     title: "已请求停止当前执行",
     summary: "AHO sent an interrupt request to the active provider turn.",
     isError: true,
   });
-  return { status: "interrupt-requested", realtime: true, runId: activeTurn.runId, roleId: activeTurn.roleId };
+  return { status: receipt.status, realtime: true, runId: receipt.runId, roleId: "main-agent" };
 }

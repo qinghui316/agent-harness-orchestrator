@@ -8,6 +8,7 @@ import type { ProjectRuntimeCoordinatorPort } from "../../project-runtime/coordi
 import type { ProviderRegistry } from "../../provider-runtime/registry.js";
 import type { WorkbenchProjectRemovalPort } from "./project-removal.js";
 import type { ConversationTurnRoutingPort } from "../../workbench/conversation-turn-contract.js";
+import type { ConversationTurnControlOwner } from "../../workbench/conversation-turn-control.js";
 
 export interface WorkbenchServeOptions {
   host?: string;
@@ -18,6 +19,7 @@ export interface WorkbenchServeOptions {
   projectRuntimeCoordinator?: ProjectRuntimeCoordinatorPort;
   providerRegistry?: ProviderRegistry;
   projectRemoval?: WorkbenchProjectRemovalPort;
+  turnControl?: ConversationTurnControlOwner;
 }
 
 export interface WorkbenchServerHandle {
@@ -35,6 +37,7 @@ export interface WorkbenchServerContext {
   projectRemoval: WorkbenchProjectRemovalPort;
   terminalRuntime: TerminalRuntime;
   turnRouter: ConversationTurnRoutingPort;
+  turnControl: ConversationTurnControlOwner;
 }
 
 export interface WorkbenchActionRequest {
@@ -169,6 +172,12 @@ export interface TopicMessageRequest {
   agentSurfaceId?: TopicMessageInput["agentSurfaceId"];
   productMode: ProductMode;
   agentTurnMode?: TopicMessageInput["agentTurnMode"];
+}
+
+export interface ConversationTurnInterruptBody {
+  productMode?: unknown;
+  providerId?: unknown;
+  expectedAttemptId?: unknown;
 }
 
 export interface FolderDialogResult {

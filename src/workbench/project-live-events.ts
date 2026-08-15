@@ -13,6 +13,13 @@ export function publishAgentSurfacesInvalidated(projectId: string, data: AgentSu
   publishProjectLiveEvent(projectId, { event: "agent-surfaces.invalidated", data });
 }
 
+export function publishConversationTurnControlInvalidated(projectId: string, data: {
+  conversationId: string;
+  attemptId: string;
+}): void {
+  publishProjectLiveEvent(projectId, { event: "conversation.turn-control.invalidated", data });
+}
+
 export function subscribeProjectLiveEvents(projectId: string, subscriber: ProjectLiveSubscriber): () => void {
   const projectSubscribers = subscribers.get(projectId) ?? new Set<ProjectLiveSubscriber>();
   projectSubscribers.add(subscriber);

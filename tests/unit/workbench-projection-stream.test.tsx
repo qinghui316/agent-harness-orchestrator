@@ -22,6 +22,7 @@ describe("WorkbenchProjectionStream owner", () => {
     routeWorkbenchProjectionEvent("project-a", topicUpdatedEvent(), ports);
     routeWorkbenchProjectionEvent("project-a", interactionEvent(), ports);
     routeWorkbenchProjectionEvent("project-a", surfaceInvalidationEvent(), ports);
+    routeWorkbenchProjectionEvent("project-a", turnControlInvalidationEvent(), ports);
     routeWorkbenchProjectionEvent("project-a", snapshotEvent(), ports);
     routeWorkbenchProjectionEvent("project-a", errorEvent(), ports);
     const diagnostic = routeWorkbenchProjectionEvent("project-a", {
@@ -37,6 +38,10 @@ describe("WorkbenchProjectionStream owner", () => {
     expect(ports.error?.received).toHaveBeenCalledTimes(1);
     expect(ports.agentSurfaces.invalidate).toHaveBeenCalledTimes(1);
     expect(ports.agentSurfaces.invalidate).toHaveBeenCalledWith({ projectId: "project-a", conversationId: "conversation-a", graphScopeId: "scope-a", reason: "attempt-updated" });
+    expect(ports.turnControl?.invalidate).toHaveBeenCalledWith("project-a", {
+      conversationId: "conversation-a",
+      attemptId: "attempt-a",
+    });
     expect(diagnostic).toEqual({ handled: false, event: "run.status" });
   });
 
@@ -105,6 +110,7 @@ function createPorts(): WorkbenchProjectionRoutePorts {
     interaction: { updated: vi.fn() },
     snapshot: { received: vi.fn() },
     agentSurfaces: { invalidate: vi.fn() },
+    turnControl: { invalidate: vi.fn() },
     error: { received: vi.fn() },
   };
 }
@@ -159,6 +165,13 @@ function surfaceInvalidationEvent(): WorkbenchLiveEvent {
   return {
     event: "agent-surfaces.invalidated",
     data: { conversationId: "conversation-a", graphScopeId: "scope-a", reason: "attempt-updated" },
+  };
+}
+
+function turnControlInvalidationEvent(): WorkbenchLiveEvent {
+  return {
+    event: "conversation.turn-control.invalidated",
+    data: { conversationId: "conversation-a", attemptId: "attempt-a" },
   };
 }
 

@@ -25,6 +25,8 @@ import { createTopicAttachment } from "../../src/workbench/attachments.js";
 import { AgentNativeChildLifecycleService, runAgentNativeChildFollowup } from "../../src/workbench/agent-native-child-lifecycle-service.js";
 import { createAssistantTranscriptCapture } from "../../src/workbench/live-transcript.js";
 import { DirectAgentConversationTurnStrategy } from "../../src/workbench/direct-agent-conversation-turn-strategy.js";
+import { ConversationTurnControlOwner } from "../../src/workbench/conversation-turn-control.js";
+import { reconcileStaleAgentMainAttempts } from "../../src/workbench/agent-main-attempt-recovery.js";
 import { TurnAttachmentResolver } from "../../src/workbench/turn-attachment-resolver.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { WorkbenchUnitOfWork } from "../../src/workbench/persistence/unit-of-work.js";
@@ -135,6 +137,210 @@ describe("DirectAgentConversationTurnStrategy", () => {
       expect.objectContaining({ type: "user.message", text: "Read the current project marker." }),
       expect.objectContaining({ type: "assistant.message", text: "Direct Agent completed without realtime text.", status: "completed" }),
     ]);
+  });
+
+  it("deduplicates a pending Stop before Provider Turn identity and settles interrupted without advancing sequence", async () => {
+    const allowProviderStart = deferred<void>();
+    const providerEntered = deferred<void>();
+    const provider = fakeProvider({
+      beforeActive: allowProviderStart.promise,
+      onEntered: () => providerEntered.resolve(),
+      status: "interrupted",
+    });
+    const registry = new ProviderRegistry();
+    registry.register(provider.descriptor);
+    const turnControl = new ConversationTurnControlOwner({
+      providerRegistry: registry,
+      projectRuntimeCoordinator: {
+        resolve: async () => ({ state: "onboarding", project: fixture.project, paths: fixture.paths }),
+      },
+      onInvalidated: () => undefined,
+    });
+    const strategy = new DirectAgentConversationTurnStrategy({
+      providerRegistry: registry,
+      resolveRuntimePaths: () => fixture.paths,
+      turnControl,
+    });
+    const input = await initialTurnInput(fixture, "stop this turn");
+    const running = strategy.execute(input, { skillContext: { resolve: async () => skillResolution() } });
+    await providerEntered.promise;
+    const request = provider.requests[0]!;
+
+    await expect(turnControl.interrupt(fixture.project, {
+      projectId: fixture.project.id,
+      productMode: "agent",
+      conversationId: input.conversation.conversationId,
+      providerId: "codex",
+      expectedAttemptId: "wrong-attempt",
+    })).rejects.toMatchObject({ name: "Conflict" });
+    const stopRequest = {
+      projectId: fixture.project.id,
+      productMode: "agent" as const,
+      conversationId: input.conversation.conversationId,
+      providerId: "codex",
+      expectedAttemptId: request.attemptId,
+    };
+    await expect(turnControl.interrupt(fixture.project, stopRequest)).resolves.toMatchObject({ status: "pending" });
+    await expect(turnControl.interrupt(fixture.project, stopRequest)).resolves.toMatchObject({ status: "pending" });
+
+    allowProviderStart.resolve();
+    await expect(running).resolves.toMatchObject({ mode: "chat" });
+    expect(provider.interrupts).toBe(1);
+    expect(turnControl.state(fixture.project.id, input.conversation.conversationId)).toEqual({ state: "idle", canInterrupt: false });
+    const database = await openProjectRuntimeWorkbenchDatabase(fixture.paths);
+    try {
+      expect(database.providerAttempts.readProviderAttempt(fixture.project.id, request.attemptId)?.status).toBe("interrupted");
+      expect(database.conversations.readConversation(fixture.project.id, input.conversation.conversationId)?.completedTurnSequence).toBe(0);
+    } finally {
+      database.close();
+    }
+    await expect(turnControl.interrupt(fixture.project, stopRequest)).resolves.toEqual({
+      status: "already-terminal",
+      attemptId: request.attemptId,
+      runId: request.runId,
+    });
+  });
+
+  it("rejects a duplicate Turn registration when any exact identity field changes", () => {
+    const registry = new ProviderRegistry();
+    registry.register(fakeProvider().descriptor);
+    const turnControl = new ConversationTurnControlOwner({
+      providerRegistry: registry,
+      projectRuntimeCoordinator: {
+        resolve: async () => ({ state: "onboarding", project: fixture.project, paths: fixture.paths }),
+      },
+      onInvalidated: () => undefined,
+    });
+    const registration = {
+      projectId: fixture.project.id,
+      productMode: "agent" as const,
+      conversationId: "conversation-registration",
+      providerId: "codex" as const,
+      expectedAttemptId: "attempt-registration",
+      graphScopeId: "scope-registration",
+      runId: "run-registration",
+      roleId: "main-agent" as const,
+    };
+
+    turnControl.registerAttempt(registration);
+    expect(() => turnControl.registerAttempt({ ...registration, runId: "run-other" })).toThrowError(
+      expect.objectContaining({ name: "Conflict" }),
+    );
+  });
+
+  it("fails a stale Agent main Attempt on restart and marks its Provider binding stale", async () => {
+    const created = await createAgentConversation(fixture, "restart recovery");
+    const database = await openProjectRuntimeWorkbenchDatabase(fixture.paths);
+    try {
+      const conversation = database.conversations.readConversation(fixture.project.id, created.conversationId)!;
+      database.providerAttempts.createProviderAttempt({
+        projectId: fixture.project.id,
+        conversationId: created.conversationId,
+        attemptId: "attempt-restart-stale",
+        productMode: "agent",
+        agentTurnMode: "default",
+        graphScopeId: conversation.currentGraphScopeId,
+        changeId: null,
+        agentTaskId: null,
+        roleId: "main-agent",
+        parentAgentSurfaceId: null,
+        operationProfile: "agent",
+        providerId: "codex",
+        nativeSessionId: "session-restart-stale",
+        model: null,
+        capabilitySnapshot: capabilitySnapshot("agent"),
+        effectiveSkillInputs: [],
+        handoffHash: "restart-handoff",
+        deliveredThroughCompletedTurn: 0,
+        worktreeId: null,
+        status: "running",
+        createdAt: "2026-08-15T00:00:00.000Z",
+        updatedAt: "2026-08-15T00:00:00.000Z",
+      });
+      database.providerAttempts.writeConversationProviderBinding({
+        projectId: fixture.project.id,
+        conversationId: created.conversationId,
+        providerId: "codex",
+        nativeSessionId: "session-restart-stale",
+        lastDeliveredCompletedTurn: 0,
+        preferredModel: null,
+        lastUsedAt: "2026-08-15T00:00:00.000Z",
+        bindingStatus: "ready",
+      });
+    } finally {
+      database.close();
+    }
+    const registry = new ProviderRegistry();
+    registry.register(fakeProvider().descriptor);
+
+    await expect(reconcileStaleAgentMainAttempts({
+      project: fixture.project,
+      providerRegistry: registry,
+      runtimeState: { state: "onboarding", project: fixture.project, paths: fixture.paths },
+    })).resolves.toEqual({ failed: 1, diagnostics: [] });
+
+    const recovered = await openProjectRuntimeWorkbenchDatabase(fixture.paths);
+    try {
+      expect(recovered.providerAttempts.readProviderAttempt(fixture.project.id, "attempt-restart-stale")?.status).toBe("failed");
+      expect(recovered.providerAttempts.readConversationProviderBinding(fixture.project.id, created.conversationId, "codex")?.bindingStatus).toBe("stale");
+      expect(recovered.conversations.readConversation(fixture.project.id, created.conversationId)?.completedTurnSequence).toBe(0);
+      expect(recovered.timeline.listConversationMessages(fixture.project.id, created.conversationId)).toEqual(expect.arrayContaining([
+        expect.objectContaining({ status: "failed", error: "restart-active-turn-unavailable" }),
+      ]));
+    } finally {
+      recovered.close();
+    }
+  });
+
+  it.each([
+    { kind: "rejected", errorName: "ProviderInterruptRejected", expectedState: "running", expectedCallsAfterRetry: 2 },
+    { kind: "uncertain", errorName: "Error", expectedState: "stopping", expectedCallsAfterRetry: 1 },
+  ] as const)("handles $kind Provider interrupt transport without unsafe rollback", async ({ errorName, expectedState, expectedCallsAfterRetry }) => {
+    const releaseProvider = deferred<void>();
+    const providerEntered = deferred<void>();
+    const interruptError = new Error(errorName === "ProviderInterruptRejected" ? "interrupt rejected" : "interrupt timeout");
+    interruptError.name = errorName;
+    const provider = fakeProvider({
+      waitForRelease: releaseProvider.promise,
+      onEntered: () => providerEntered.resolve(),
+      interruptErrors: [interruptError],
+    });
+    const registry = new ProviderRegistry();
+    registry.register(provider.descriptor);
+    const turnControl = new ConversationTurnControlOwner({
+      providerRegistry: registry,
+      projectRuntimeCoordinator: {
+        resolve: async () => ({ state: "onboarding", project: fixture.project, paths: fixture.paths }),
+      },
+      onInvalidated: () => undefined,
+    });
+    const strategy = new DirectAgentConversationTurnStrategy({
+      providerRegistry: registry,
+      resolveRuntimePaths: () => fixture.paths,
+      turnControl,
+    });
+    const input = await initialTurnInput(fixture, "interrupt transport");
+    const running = strategy.execute(input, { skillContext: { resolve: async () => skillResolution() } });
+    await providerEntered.promise;
+    const request = provider.requests[0]!;
+    const stopRequest = {
+      projectId: fixture.project.id,
+      productMode: "agent" as const,
+      conversationId: input.conversation.conversationId,
+      providerId: "codex",
+      expectedAttemptId: request.attemptId,
+    };
+
+    await expect(turnControl.interrupt(fixture.project, stopRequest)).rejects.toThrow(interruptError.message);
+    expect(turnControl.state(fixture.project.id, input.conversation.conversationId)).toMatchObject({ state: expectedState });
+    if (errorName === "ProviderInterruptRejected") {
+      await expect(turnControl.interrupt(fixture.project, stopRequest)).resolves.toMatchObject({ status: "interrupt-requested" });
+    } else {
+      await expect(turnControl.interrupt(fixture.project, stopRequest)).rejects.toThrow(interruptError.message);
+    }
+    expect(provider.interrupts).toBe(expectedCallsAfterRetry);
+    releaseProvider.resolve();
+    await running;
   });
 
   it("uses completed planText as the canonical Plan result instead of realtime shadow text", async () => {
@@ -905,6 +1111,8 @@ interface FakeProviderBehavior {
   userInput?: boolean;
   userInputResolved?: boolean;
   waitForRelease?: Promise<void>;
+  beforeActive?: Promise<void>;
+  interruptErrors?: Error[];
   onEntered?: () => void;
   skills?: ProviderNativeSkill[];
   childCapability?: boolean;
@@ -989,6 +1197,10 @@ function fakeProvider(behavior: FakeProviderBehavior = {}): {
       runTurn: async (request) => {
         requests.push(request);
         if (behavior.throwError) throw new Error(behavior.throwError);
+        if (behavior.beforeActive) {
+          behavior.onEntered?.();
+          await behavior.beforeActive;
+        }
         const sessionId = request.existingSession?.sessionId ?? `session-${requests.length}`;
         active = {
           providerId,
@@ -1000,10 +1212,25 @@ function fakeProvider(behavior: FakeProviderBehavior = {}): {
           turnId: "turn-1",
           startedAt: new Date().toISOString(),
           steer: async () => undefined,
-          interrupt: async () => { interrupts += 1; },
+          interrupt: async () => {
+            interrupts += 1;
+            const error = behavior.interruptErrors?.shift();
+            if (error) throw error;
+          },
           respondToUserInput: async () => undefined,
         };
-        behavior.onEntered?.();
+        request.onTurnStarted?.({
+          projectId: request.projectId,
+          ...(request.conversationId ? { conversationId: request.conversationId } : {}),
+          runtimeScopeId: request.runtimeScopeId!,
+          providerId,
+          attemptId: request.attemptId,
+          runId: request.runId,
+          roleId: request.roleId,
+          sessionId,
+          turnId: "turn-1",
+        });
+        if (!behavior.beforeActive) behavior.onEntered?.();
         if (behavior.waitForRelease) await behavior.waitForRelease;
         if (behavior.realtime) {
           const childThreadId = `${sessionId}-child-1`;

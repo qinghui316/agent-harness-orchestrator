@@ -57,6 +57,7 @@ async function handleApiRequest(context: WorkbenchServerContext, request: Incomi
     const input = {
       ...resolvedInput,
       runtimeStateResolver: (project: ManagedProject) => context.projectRuntimeCoordinator.resolve(project),
+      turnControlStateResolver: (projectId: string, conversationId: string, attemptId?: string) => context.turnControl.state(projectId, conversationId, attemptId),
     };
     await handleProjectWorkbenchApi(context, input, request, response, projectWorkbench.rest, url);
     return;

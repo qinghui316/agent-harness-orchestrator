@@ -19,6 +19,7 @@ export async function handleDirectWorkbenchApi(context: WorkbenchServerContext, 
     ? {
       ...context.input,
       runtimeStateResolver: (project: NonNullable<typeof context.input.project>) => context.projectRuntimeCoordinator.resolve(project),
+      turnControlStateResolver: (projectId: string, conversationId: string, attemptId?: string) => context.turnControl.state(projectId, conversationId, attemptId),
     }
     : context.input;
   if (request.method === "GET" && url.pathname === "/api/workbench/snapshot") {

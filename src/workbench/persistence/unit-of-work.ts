@@ -611,6 +611,42 @@ export class WorkbenchUnitOfWork {
       : this.timeline.appendMessage(message))();
   }
 
+  commitAgentMainAttemptRecovery(input: {
+    projectId: string;
+    conversationId: string;
+    attemptId: string;
+    providerId: string;
+    graphScopeId: string | null;
+    nativeSessionId: string | null;
+    updatedAt: string;
+    timelineMessage: StoredTopicMessageWrite;
+  }): StoredTopicMessage {
+    return this.db.transaction(() => {
+      const conversation = this.conversations.readConversation(input.projectId, input.conversationId);
+      const attempt = this.providerAttempts.readProviderAttempt(input.projectId, input.attemptId);
+      if (!conversation
+        || conversation.productMode !== "agent"
+        || !attempt
+        || attempt.conversationId !== input.conversationId
+        || attempt.productMode !== "agent"
+        || attempt.roleId !== "main-agent"
+        || attempt.operationProfile !== "agent"
+        || attempt.providerId !== input.providerId
+        || attempt.graphScopeId !== input.graphScopeId
+        || attempt.nativeSessionId !== input.nativeSessionId
+        || (attempt.status !== "queued" && attempt.status !== "running")) {
+        throw new Error("Restart recovery Agent main Attempt identity is mismatched.");
+      }
+      const row = this.timeline.readMessage(input.timelineMessage.projectId, input.timelineMessage.conversationId, input.timelineMessage.id)
+        ? this.timeline.updateMessage(input.timelineMessage)
+        : this.timeline.appendMessage(input.timelineMessage);
+      this.providerAttempts.completeProviderAttempt(input.projectId, input.attemptId, "failed", input.nativeSessionId, input.updatedAt);
+      const binding = this.providerAttempts.readConversationProviderBinding(input.projectId, input.conversationId, input.providerId);
+      if (binding) this.providerAttempts.writeConversationProviderBinding({ ...binding, bindingStatus: "stale", lastUsedAt: input.updatedAt });
+      return row;
+    })();
+  }
+
   commitConversationProviderSwitch(
     point: StoredProviderResumePoint,
     binding: StoredConversationProviderBinding,

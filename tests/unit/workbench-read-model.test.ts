@@ -35,6 +35,7 @@ import {
   type SkillNativeWorkbenchFixture,
 } from "../helpers/skill-native-workbench-fixture.js";
 import { prepareSkillNativeApplyFixture } from "../helpers/skill-native-apply-fixture.js";
+import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 
 let skillNativeFixture: SkillNativeWorkbenchFixture;
 
@@ -175,6 +176,88 @@ async function writeCreatedPrDraftPackage(landingPackageId: string, id: string):
 }
 
 describe("workbench read-model projections", () => {
+  it("projects exact Agent Turn control only while the durable main Attempt is running", async () => {
+    const created = await createWorkbenchConversation(project(), {
+      body: "Run until stopped.",
+      productMode: "agent",
+      providerId: "codex",
+      clientRequestId: "read-model-agent-stop",
+    }, undefined, { runMainAgent: false });
+    const database = await openProjectRuntimeWorkbenchDatabase(skillNativeFixture.runtime);
+    const attemptId = "attempt-agent-stop";
+    try {
+      const conversation = database.conversations.readConversation(project().id, created.conversationId)!;
+      database.providerAttempts.createProviderAttempt({
+        projectId: project().id,
+        conversationId: created.conversationId,
+        attemptId,
+        productMode: "agent",
+        agentTurnMode: "default",
+        graphScopeId: conversation.currentGraphScopeId,
+        changeId: null,
+        agentTaskId: null,
+        roleId: "main-agent",
+        parentAgentSurfaceId: null,
+        operationProfile: "agent",
+        providerId: "codex",
+        nativeSessionId: "session-agent-stop",
+        model: null,
+        capabilitySnapshot: {
+          providerId: "codex",
+          displayName: "Codex",
+          productMode: "agent",
+          status: "ready",
+          runnable: true,
+          checkedAt: "2026-08-15T00:00:00.000Z",
+          snapshotHash: "snapshot-agent-stop",
+          snapshotVersion: 1,
+          effectiveModel: "gpt-test",
+          effectiveModelSource: "provider-default",
+          degradedReasons: [],
+          capabilities: [],
+        },
+        effectiveSkillInputs: [],
+        handoffHash: "handoff-agent-stop",
+        deliveredThroughCompletedTurn: 0,
+        worktreeId: null,
+        status: "running",
+        createdAt: "2026-08-15T00:00:00.000Z",
+        updatedAt: "2026-08-15T00:00:00.000Z",
+      });
+    } finally {
+      database.close();
+    }
+    const input = {
+      project: project(),
+      path: getTempDir(),
+      turnControlStateResolver: () => ({
+        state: "stopping" as const,
+        canInterrupt: true,
+        providerId: "codex",
+        attemptId,
+        runId: "run-agent-stop",
+      }),
+    };
+
+    const running = await getWorkbenchSnapshot(input, { topicId: created.conversationId, productMode: "agent" });
+    expect(running.center.workpad.runControlState).toMatchObject({
+      state: "stopping",
+      canStop: true,
+      providerId: "codex",
+      attemptId,
+      runId: "run-agent-stop",
+    });
+
+    const terminal = await openProjectRuntimeWorkbenchDatabase(skillNativeFixture.runtime);
+    try {
+      terminal.providerAttempts.completeProviderAttempt(project().id, attemptId, "interrupted", "session-agent-stop", "2026-08-15T00:01:00.000Z");
+    } finally {
+      terminal.close();
+    }
+    const settled = await getWorkbenchSnapshot(input, { topicId: created.conversationId, productMode: "agent" });
+    expect(settled.center.workpad.runControlState).toBeUndefined();
+  });
+
   it("lists active and archived changes as topics", async () => {
     const archived = await createConversationChangeFixture(project(), { title: "Archive Me" });
     await executeWorkbenchAction({ project: project(), path: getTempDir() }, {

@@ -30,6 +30,7 @@ import type {
 } from "./conversation-turn-contract.js";
 import type { TopicMessageResult, TopicThreadEntry } from "./types.js";
 import { TurnAttachmentResolver } from "./turn-attachment-resolver.js";
+import type { ConversationTurnControlOwner, ConversationTurnRegistration } from "./conversation-turn-control.js";
 
 type DirectAgentProviderRegistry = Pick<ProviderRegistry, "findActiveTurn" | "get">;
 type OpenWorkbenchDatabase = typeof openProjectRuntimeWorkbenchDatabase;
@@ -41,6 +42,7 @@ export interface DirectAgentConversationTurnStrategyOptions {
   openDatabase?: OpenWorkbenchDatabase;
   resolveRuntimePaths?: (projectId: string) => ProjectRuntimePaths;
   attachmentResolver?: TurnAttachmentResolver;
+  turnControl?: ConversationTurnControlOwner;
 }
 
 export class DirectAgentConversationTurnStrategy implements ConversationTurnStrategy {
@@ -50,6 +52,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
   private readonly openDatabase: OpenWorkbenchDatabase;
   private readonly resolveRuntimePaths: (projectId: string) => ProjectRuntimePaths;
   private readonly attachmentResolver: TurnAttachmentResolver;
+  private readonly turnControl?: ConversationTurnControlOwner;
 
   constructor(options: DirectAgentConversationTurnStrategyOptions) {
     this.providerRegistry = options.providerRegistry;
@@ -58,6 +61,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
     this.attachmentResolver = options.attachmentResolver ?? new TurnAttachmentResolver({
       resolveRuntimePaths: this.resolveRuntimePaths,
     });
+    this.turnControl = options.turnControl;
   }
 
   preflight(input: ConversationTurnStrategyPreflightInput): void {
@@ -126,6 +130,16 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
     const skillInputs = [...skillContext.skillInputs];
     const handoffHash = directAgentHandoffHash(input, skillContext, attachmentResolution);
     const mainTimelineId = `assistant:${conversation.conversationId}:${input.providerId}:${runId}:main`;
+    const turnRegistration: ConversationTurnRegistration = {
+      projectId: paths.projectId,
+      productMode: "agent",
+      conversationId: conversation.conversationId,
+      providerId: input.providerId,
+      expectedAttemptId: attemptId,
+      graphScopeId,
+      runId,
+      roleId: "main-agent",
+    };
     const delivery = new CanonicalTimelineDelivery(database, "agent", input.live);
     const capture = createAssistantTranscriptCapture(input.live, (snapshot) => {
       try {
@@ -307,6 +321,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
         updatedAt: startedAt,
       });
       attemptCreated = true;
+      this.turnControl?.registerAttempt(turnRegistration);
       if (existingSessionId) {
         bindMainThread(database, paths.projectId, attemptId, existingSessionId, runId);
         liveMainThreadId = existingSessionId;
@@ -388,6 +403,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
           }
           forwardProviderRealtimeEvent(event, capture.sink, { productMode: "agent", graphScopeId });
         },
+        onTurnStarted: this.turnControl?.onTurnStarted,
         onChildLifecycleEvent: (event) => {
           try {
             if (!liveMainThreadId) {
@@ -543,6 +559,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
       if (terminalFailure) throw new AggregateError([failure, terminalFailure], "Direct Agent Turn and terminal recovery both failed.");
       throw failure;
     } finally {
+      this.turnControl?.release(turnRegistration);
       database.close();
     }
   }

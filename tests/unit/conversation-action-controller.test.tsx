@@ -131,6 +131,28 @@ describe("Conversation action controller", () => {
     );
   });
 
+  it("owns the exact Agent Turn interrupt JSON request outside the App shell", async () => {
+    const harness = controllerHarness();
+    const { result } = renderHook(() => useConversationActionController(harness.options));
+
+    await act(async () => result.current.interruptAgentTurn({
+      projectId: "repo-1",
+      conversationId: "conversation-1",
+      providerId: "codex",
+      expectedAttemptId: "attempt-1",
+    }));
+
+    expect(harness.ports.postJson).toHaveBeenCalledWith(
+      "/api/projects/repo-1/workbench/conversations/conversation-1/turn/interrupt",
+      {
+        productMode: "agent",
+        providerId: "codex",
+        expectedAttemptId: "attempt-1",
+      },
+    );
+    expect(harness.ports.consumeLiveStream).not.toHaveBeenCalled();
+  });
+
   it("keeps interaction drafts scope-isolated and settles through projection plus calibration", async () => {
     const harness = controllerHarness();
     const events: WorkbenchLiveEvent[] = [

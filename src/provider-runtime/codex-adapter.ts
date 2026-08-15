@@ -60,6 +60,20 @@ export async function runCodexTurn(request: ProviderTurnRequest): Promise<Provid
       const mapped = mapRealtime(request, event);
       if (mapped) request.onRealtimeEvent?.(mapped);
     } : undefined,
+    onTurnStarted: request.onTurnStarted ? ({ threadId, turnId }) => {
+      if (!isProjectGenerationCurrent(request.projectId, projectGeneration)) return;
+      request.onTurnStarted?.({
+        projectId: request.projectId,
+        ...(request.conversationId ? { conversationId: request.conversationId } : {}),
+        runtimeScopeId,
+        providerId: CODEX_PROVIDER_ID,
+        attemptId: request.attemptId,
+        runId: request.runId,
+        roleId: request.roleId,
+        sessionId: threadId,
+        turnId,
+      });
+    } : undefined,
     onChildLifecycleEvent: request.onChildLifecycleEvent
       ? (event) => {
         if (isProjectGenerationCurrent(request.projectId, projectGeneration)) {

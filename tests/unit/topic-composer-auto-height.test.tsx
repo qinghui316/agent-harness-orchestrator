@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TopicComposer } from "../../src/web/src/shell/composer.js";
 
@@ -69,6 +69,27 @@ describe("Topic Composer height", () => {
     expect(textarea.style.overflowY).toBe("hidden");
     if (descriptor) Object.defineProperty(HTMLTextAreaElement.prototype, "scrollHeight", descriptor);
     else delete (HTMLTextAreaElement.prototype as { scrollHeight?: number }).scrollHeight;
+  });
+
+  it("keeps the Agent primary action as Stop while a draft is present", () => {
+    const onSend = vi.fn(async () => undefined);
+    const onStop = vi.fn(async () => undefined);
+    render(<TopicComposer
+      value="keep this for the next turn"
+      onChange={vi.fn()}
+      modelLabel="gpt"
+      projectId="project"
+      productMode="agent"
+      onSend={onSend}
+      onStopAndContinue={onStop}
+      actionRunning={null}
+      currentWorkpadStatus="running"
+    />);
+
+    fireEvent.click(screen.getByRole("button", { name: "停止当前执行" }));
+    expect(onStop).toHaveBeenCalledOnce();
+    expect(onSend).not.toHaveBeenCalled();
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("keep this for the next turn");
   });
 });
 

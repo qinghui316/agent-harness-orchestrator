@@ -18,6 +18,7 @@ import { buildProjectScopedMainAgentPrompt } from "../../src/workbench/main-agen
 import { resolveTopicAttachments } from "../../src/workbench/attachments.js";
 import type { ConversationTurnRoutingPort } from "../../src/workbench/conversation-turn-contract.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
+import type { ConversationTurnControlOwner } from "../../src/workbench/conversation-turn-control.js";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
 import { createFakeCodexRuntime } from "../helpers/fake-codex-runtime.js";
 import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
@@ -110,6 +111,47 @@ describe("workbench server", () => {
 
     const page = await fetch(`${handle!.url}/`);
     expect(await page.text()).toContain("AHO");
+  });
+
+  it("serves the exact Agent Turn interrupt JSON contract and rejects Harness mode before the Owner", async () => {
+    await new Promise<void>((resolve) => handle!.server.close(() => resolve()));
+    const interrupt = vi.fn(async () => ({ status: "interrupt-requested" as const, attemptId: "attempt-agent", runId: "run-agent" }));
+    const turnControl = {
+      interrupt,
+      state: () => ({ state: "idle" as const, canInterrupt: false }),
+      registerAttempt: () => undefined,
+      release: () => undefined,
+      onTurnStarted: () => undefined,
+    } as unknown as ConversationTurnControlOwner;
+    handle = await startWorkbenchServer({ project: project(), path: tempDir }, {
+      port: 0,
+      staticRoot,
+      turnControl,
+    });
+    const endpoint = `${handle.url}/api/projects/repo/workbench/conversations/conversation-agent/turn/interrupt`;
+
+    const wrongMode = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ productMode: "harness", providerId: "codex", expectedAttemptId: "attempt-agent" }),
+    });
+    expect(wrongMode.status).toBe(409);
+    expect(interrupt).not.toHaveBeenCalled();
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ productMode: "agent", providerId: "codex", expectedAttemptId: "attempt-agent" }),
+    });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ status: "interrupt-requested", attemptId: "attempt-agent", runId: "run-agent" });
+    expect(interrupt).toHaveBeenCalledWith(project(), {
+      projectId: "repo",
+      productMode: "agent",
+      conversationId: "conversation-agent",
+      providerId: "codex",
+      expectedAttemptId: "attempt-agent",
+    });
   });
 
   it("requires mode-aware reads and makes first-send creation idempotent", async () => {

@@ -20,6 +20,8 @@ import { reconcileStaleAgentNativeChildren } from "../workbench/agent-native-chi
 import { ProjectSkillRuntimeContextResolver } from "../skill/project-skill-runtime-context-resolver.js";
 import { createConversationTurnRouter } from "../workbench/conversation-turn-router.js";
 import { reconcileStaleProviderInputRequests } from "../workbench/provider-input-lifecycle.js";
+import { ConversationTurnControlOwner } from "../workbench/conversation-turn-control.js";
+import { reconcileStaleAgentMainAttempts } from "../workbench/agent-main-attempt-recovery.js";
 
 export type { WorkbenchServeOptions, WorkbenchServerHandle } from "./workbench/types.js";
 export { executeWorkbenchAction } from "./workbench/actions.js";
@@ -42,15 +44,24 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
     providerRegistry,
     projectRuntimeCoordinator,
   });
+  const turnControl = options.turnControl ?? new ConversationTurnControlOwner({
+    providerRegistry,
+    projectRuntimeCoordinator,
+  });
   const turnRouter = createConversationTurnRouter({
     skillContext,
     providerRegistry,
     projectRuntimeCoordinator,
+    turnControl,
   });
   await projectRuntimeCoordinator.reconcileStartup();
   const restoredInput = await restoreDirectProjectInput(input, store);
   const composedInput = restoredInput
-    ? { ...restoredInput, runtimeStateResolver: (project: ManagedProject) => projectRuntimeCoordinator.resolve(project) }
+    ? {
+      ...restoredInput,
+      runtimeStateResolver: (project: ManagedProject) => projectRuntimeCoordinator.resolve(project),
+      turnControlStateResolver: (projectId: string, conversationId: string, attemptId?: string) => turnControl.state(projectId, conversationId, attemptId),
+    }
     : restoredInput;
   await recoverWorkbenchProjects(store, composedInput, projectRuntimeCoordinator, providerRegistry);
   const context: WorkbenchServerContext = {
@@ -62,6 +73,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
     projectRemoval,
     terminalRuntime,
     turnRouter,
+    turnControl,
   };
   const server = createServer((request, response) => {
     handleRequest(context, request, response).catch((error: unknown) => {
@@ -103,8 +115,9 @@ export async function recoverWorkbenchProjects(
     projects.push(directInput.project);
   }
   for (const project of projects) {
-    await reconcileStaleAgentNativeChildren({ project, providerRegistry });
     const runtime = await projectRuntimeCoordinator.resolve(project);
+    await reconcileStaleAgentMainAttempts({ project, providerRegistry, runtimeState: runtime });
+    await reconcileStaleAgentNativeChildren({ project, providerRegistry });
     const runtimePaths = runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
     await reconcileStaleProviderInputRequests({ runtime: runtimePaths, providerRegistry });
     if (runtime.state !== "ready") continue;

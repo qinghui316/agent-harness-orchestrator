@@ -98,6 +98,14 @@ function pointerClientX(event: { clientX?: number; pageX?: number; screenX?: num
   return 0;
 }
 
+function isEditableElement(element: Element | null): boolean {
+  if (!(element instanceof HTMLElement)) return false;
+  return element.isContentEditable
+    || element instanceof HTMLInputElement
+    || element instanceof HTMLTextAreaElement
+    || element instanceof HTMLSelectElement;
+}
+
 export function App(): ReactElement {
   const appMode = useAppModeController();
   const presentation = useMemo(() => modePresentationPolicy(appMode.productMode), [appMode.productMode]);
@@ -430,6 +438,22 @@ export function App(): ReactElement {
     await conversationActions.runWorkflowAction(actionType, { prompt: request.prompt });
   }
 
+  async function runComposerStopRequest(request: ComposerActionRequest): Promise<void> {
+    if (request.productMode !== "agent") {
+      await runComposerActionRequest("conversation.interrupt", request);
+      return;
+    }
+    if (!request.providerId || !request.expectedAttemptId) {
+      throw new Error("Agent Stop requires the exact current Provider and Attempt identity.");
+    }
+    await conversationActions.interruptAgentTurn({
+      projectId: request.projectId,
+      conversationId: request.conversationId,
+      providerId: request.providerId,
+      expectedAttemptId: request.expectedAttemptId,
+    });
+  }
+
 
   function openChildAgentWorkspace(agentSurfaceId: string): void {
     if (!agentSurfaceId || agentSurfaceId === "main-agent") return;
@@ -522,6 +546,12 @@ export function App(): ReactElement {
   const composerProviderOptions = providerCapabilities.map((provider) => ({ id: provider.providerId, label: provider.displayName }));
   const isPendingTopic = Boolean(activePendingConversation && !activePendingConversation.canonical);
   const activeWorkpad = activePendingConversation ? emptyWorkpad(activePendingConversation.title) : snapshot.center.workpad ?? emptyWorkpad(activeTopic?.title ?? projectDisplayName(snapshot.project));
+  const agentRunControl = appMode.productMode === "agent" ? activeWorkpad.runControlState : undefined;
+  const composerRunning = appMode.productMode === "agent"
+    ? Boolean(agentRunControl?.attemptId && agentRunControl.providerId && agentRunControl.state !== "idle")
+    : activeWorkpad.conversationLifecycle === "running"
+      || Boolean(activeWorkpad.runControlState?.canStop)
+      || currentWorkpadSummary(snapshot, activeTopic)?.runtimeStatus === "running";
   const selectedProjectStatus = useMemo(() => projects.find((item) => item.project?.id === selectedProjectId) ?? null, [projects, selectedProjectId]);
   const composer = useConversationComposerController({
     projectId: selectedProjectId,
@@ -534,9 +564,8 @@ export function App(): ReactElement {
       selectedProviderId: activeTopic.selectedProviderId,
     } : null,
     managed: Boolean(selectedProjectStatus?.managed),
-    running: activeWorkpad.conversationLifecycle === "running"
-      || Boolean(activeWorkpad.runControlState?.canStop)
-      || currentWorkpadSummary(snapshot, activeTopic)?.runtimeStatus === "running",
+    running: composerRunning,
+    runControlState: agentRunControl,
     selectedProviderId: composerProviderId,
     providerCount: providerCapabilities.length,
     providerCapabilities,
@@ -550,7 +579,7 @@ export function App(): ReactElement {
     },
     actions: {
       steer: (request) => runComposerActionRequest("conversation.steer", request),
-      stop: (request) => runComposerActionRequest("conversation.interrupt", request),
+      stop: runComposerStopRequest,
     },
     projection: {
       refreshConversation: async (projectId, conversationId) => { await refresh(projectId, conversationId); },
@@ -678,6 +707,12 @@ export function App(): ReactElement {
         }
       },
     },
+    turnControl: {
+      invalidate: (projectId, data) => {
+        if (selectedProjectIdRef.current !== projectId || activeTopic?.id !== data.conversationId) return;
+        void refresh(projectId, data.conversationId);
+      },
+    },
     error: {
       received: (projectId, data) => {
         if (selectedProjectIdRef.current !== projectId || isTransientReconnectMessage(data.message)) return;
@@ -723,6 +758,32 @@ export function App(): ReactElement {
     },
   });
   const activeConversationInteraction = snapshot.center.conversationInteractions?.items[0] ?? null;
+  useEffect(() => {
+    if (appMode.productMode !== "agent"
+      || !agentRunControl?.canStop
+      || agentRunControl.state === "stopping"
+      || !agentRunControl.attemptId
+      || !agentRunControl.providerId
+      || actionRunning
+      || activeConversationInteraction) return;
+    const handleEscape = (event: globalThis.KeyboardEvent): void => {
+      if (event.key !== "Escape" || event.isComposing || event.defaultPrevented) return;
+      if (document.querySelector('[role="dialog"], [aria-modal="true"]')) return;
+      if (isEditableElement(document.activeElement)) return;
+      event.preventDefault();
+      void stopAndContinueCurrentRun();
+    };
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [
+    actionRunning,
+    activeConversationInteraction,
+    agentRunControl?.attemptId,
+    agentRunControl?.canStop,
+    agentRunControl?.providerId,
+    agentRunControl?.state,
+    appMode.productMode,
+  ]);
   const pendingConfirmationCount = (activeConfirmationQueue.primary ? 1 : 0)
     + activeConfirmationQueue.otherDemands.length
     + activeConfirmationQueue.maintenance.length;
@@ -989,7 +1050,7 @@ export function App(): ReactElement {
                 <ConversationInteractionDock
                   interaction={activeConversationInteraction}
                   busy={Boolean(actionRunning?.startsWith("interaction."))}
-                  canStop={activeWorkpad.conversationLifecycle === "running" || Boolean(activeWorkpad.runControlState?.canStop)}
+                  canStop={appMode.productMode === "agent" ? Boolean(agentRunControl?.canStop) : activeWorkpad.conversationLifecycle === "running" || Boolean(activeWorkpad.runControlState?.canStop)}
                   initialDraft={conversationActions.getInteractionDraft(activeConversationInteraction.interactionId)}
                   onDraftChange={conversationActions.setInteractionDraft}
                   onSettle={settleConversationInteraction}
@@ -1021,7 +1082,7 @@ export function App(): ReactElement {
                   onSend={sendTopicMessage}
                   onStopAndContinue={stopAndContinueCurrentRun}
                   actionRunning={actionRunning}
-                  currentWorkpadStatus={activeWorkpad.conversationLifecycle === "running" || activeWorkpad.runControlState?.canStop ? "running" : currentWorkpadSummary(snapshot, activeTopic)?.runtimeStatus}
+                  currentWorkpadStatus={composerRunning ? "running" : currentWorkpadSummary(snapshot, activeTopic)?.runtimeStatus}
                   providerOptions={composerProviderOptions}
                   selectedProviderId={composerProviderId ?? activeTopic.selectedProviderId}
                   onSelectProvider={(providerId) => { void providerConfiguration.selectProvider(providerId); }}

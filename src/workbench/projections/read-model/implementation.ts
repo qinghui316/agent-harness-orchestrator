@@ -146,7 +146,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
       productMode,
     );
     if (productMode === "agent") {
-      return buildAgentModeSnapshot(input.project, runtimeState, options.topicId);
+      return buildAgentModeSnapshot(input, input.project, runtimeState, options.topicId);
     }
     if (runtimeState.state === "ready") {
       const planningSnapshot = await tryBuildSkillNativePlanningSnapshot({
@@ -252,6 +252,7 @@ export async function listWorkbenchTopics(input: WorkbenchProjectInput, productM
 }
 
 async function buildAgentModeSnapshot(
+  input: WorkbenchProjectInput,
   project: ManagedProject,
   runtime: Awaited<ReturnType<typeof resolveProjectRuntimeState>>,
   topicId?: string,
@@ -322,7 +323,7 @@ async function buildAgentModeSnapshot(
       contentFingerprint: runtime.resolution.harness.contentFingerprint,
       runtimeAvailable: true as const,
     } : diagnosticProjectHarnessStatus({ project, path: project.path }, runtime);
-    const workpad = {
+    const workpad: WorkbenchWorkpad = {
       ...buildDiagnosticWorkpad(project.name, [], []),
       title: selectedTopic?.title ?? "Agent",
       subtitle: project.name,
@@ -332,6 +333,34 @@ async function buildAgentModeSnapshot(
       blockers: [],
       warnings: [],
     };
+    const runningMainAttempt = selected?.currentGraphScopeId
+      ? [...database.providerAttempts.listProviderAttempts(paths.projectId, selected.conversationId)]
+        .reverse()
+        .find((attempt) => attempt.productMode === "agent"
+          && attempt.operationProfile === "agent"
+          && attempt.roleId === "main-agent"
+          && attempt.graphScopeId === selected.currentGraphScopeId
+          && attempt.status === "running")
+      : undefined;
+    const turnControl = selected && runningMainAttempt
+      ? input.turnControlStateResolver?.(paths.projectId, selected.conversationId, runningMainAttempt.attemptId)
+      : undefined;
+    if (runningMainAttempt) {
+      workpad.conversationLifecycle = "running" as const;
+      workpad.runControlState = {
+        state: turnControl?.state ?? "running",
+        canStop: turnControl?.canInterrupt ?? false,
+        providerId: runningMainAttempt.providerId,
+        attemptId: runningMainAttempt.attemptId,
+        ...(turnControl?.runId ? { runId: turnControl.runId } : {}),
+        pendingFeedbackCount: 0,
+        explanation: turnControl?.state === "stopping"
+          ? "正在停止当前 Agent 回合。"
+          : turnControl?.canInterrupt
+            ? "可以停止当前 Agent 回合，当前输入会保留用于下一回合。"
+            : "当前 Agent 回合正在启动，等待精确控制身份。",
+      };
+    }
     const conversationInteractions = selected?.currentGraphScopeId
       ? await buildConversationInteractionQueue(
           paths,

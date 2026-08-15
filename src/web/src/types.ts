@@ -713,7 +713,7 @@ export type Workpad = {
     applyReadiness: { ready: boolean; kind?: string; label: string; message?: string; blockingIssues: string[]; warnings: string[] };
     evidence: Array<{ id: string; label: string; source: string; status?: string; artifact?: string; timestamp?: string }>;
   };
-  runControlState?: { canStop: boolean; stopActionType?: ThreadStreamAction["actionType"]; pendingFeedbackCount: number; explanation: string };
+  runControlState?: { state?: "idle" | "running" | "stopping"; canStop: boolean; providerId?: ProviderId; attemptId?: string; runId?: string; stopActionType?: ThreadStreamAction["actionType"]; pendingFeedbackCount: number; explanation: string };
   intake: {
     goal: string;
     currentUnderstanding: string;
@@ -1621,6 +1621,7 @@ export type WorkbenchLiveEvent =
   | { event: "timeline.patch"; data: CanonicalTimelineEnvelope }
   | { event: "conversation.interactions.updated"; data: ConversationInteractionQueue }
   | { event: "agent-surfaces.invalidated"; data: AgentSurfacesInvalidated }
+  | { event: "conversation.turn-control.invalidated"; data: { conversationId: string; attemptId: string } }
   | { event: "run.started"; data: WorkbenchLiveIdentity & { runId: string; actionType?: string; runtime?: string; taskIds?: string[] } }
   | { event: "run.status"; data: WorkbenchLiveIdentity & { actionRunId?: string; status: string; label?: string } }
   | { event: "assistant.delta"; data: WorkbenchLiveIdentity & { delta: string } }

@@ -58,6 +58,7 @@ import type {
   WorkbenchLiveSink,
 } from "./types.js";
 import { defaultProjectRuntimeActivityRegistry } from "../project-runtime/activity.js";
+import type { ConversationTurnControlOwner, ConversationTurnRegistration } from "./conversation-turn-control.js";
 export function buildProjectScopedMainAgentPrompt(userMessage: string): string {
   return userMessage;
 }
@@ -74,6 +75,7 @@ export function runProjectScopedMainAgentTurn(
     providerRegistry: ProviderRegistry;
     runtimeState: ProjectRuntimeState;
     turnSkillResolution: import("./conversation-turn-contract.js").TurnSkillContextResolution | null;
+    turnControl?: ConversationTurnControlOwner;
   },
 ): Promise<TopicThreadEntry> {
   return defaultProjectRuntimeActivityRegistry.run(project.id, () => runProjectScopedMainAgentTurnActivity(
@@ -98,6 +100,7 @@ async function runProjectScopedMainAgentTurnActivity(
     providerRegistry: ProviderRegistry;
     runtimeState: ProjectRuntimeState;
     turnSkillResolution: import("./conversation-turn-contract.js").TurnSkillContextResolution | null;
+    turnControl?: ConversationTurnControlOwner;
   },
 ): Promise<TopicThreadEntry> {
   const runtimeState = options.runtimeState;
@@ -325,6 +328,16 @@ async function runProjectScopedMainAgentTurnActivity(
     attemptStore.close();
   }
   publishAgentSurfacesInvalidated(projectId, { conversationId, graphScopeId, reason: "attempt-updated" });
+  const turnRegistration: ConversationTurnRegistration = {
+    projectId,
+    productMode: "harness",
+    conversationId,
+    providerId: providerId!,
+    expectedAttemptId: attemptId,
+    graphScopeId,
+    runId,
+    roleId: "main-agent",
+  };
   canonicalStore = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
   canonicalDelivery = new CanonicalTimelineDelivery(canonicalStore, "harness", live);
   if (mainSessionId) {
@@ -419,8 +432,10 @@ async function runProjectScopedMainAgentTurnActivity(
       canonicalPersistenceError ??= error;
     },
   });
+  options.turnControl?.registerAttempt(turnRegistration);
   try {
-    result = await provider.conversation.runTurn({
+    try {
+      result = await provider.conversation.runTurn({
     providerId: providerId!,
     operationProfile: "main",
     attemptId,
@@ -635,6 +650,7 @@ async function runProjectScopedMainAgentTurnActivity(
         : event;
       forwardProviderRealtimeEvent(canonicalEvent, capture.sink, { productMode: "harness", graphScopeId });
     },
+    onTurnStarted: options.turnControl?.onTurnStarted,
     onChildLifecycleEvent: (event) => {
       const child = childLifecycleOwner.onLifecycle(event);
       if (!child) return;
@@ -659,24 +675,24 @@ async function runProjectScopedMainAgentTurnActivity(
     onUserInputResolved: providerInputLifecycle.onResolved,
     onError: (error) => capture.sink.emit({ event: "error", data: { projectId, productMode: "harness", conversationId, runId, message: error instanceof Error ? error.message : String(error) } }),
     model: capabilitySnapshot.effectiveModel ? { providerId: providerId!, modelId: capabilitySnapshot.effectiveModel } : null,
-    });
-    await providerInputLifecycle.terminalize();
-  } catch (error) {
-    canonicalStore?.close();
-    canonicalStore = null;
-    canonicalDelivery = null;
-    await providerInputLifecycle?.terminalize().catch(() => undefined);
-    const failedAttemptStore = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
-    try {
-      commitFailedProviderTurn(failedAttemptStore, null);
-    } finally {
-      failedAttemptStore.close();
+      });
+      await providerInputLifecycle.terminalize();
+    } catch (error) {
+      canonicalStore?.close();
+      canonicalStore = null;
+      canonicalDelivery = null;
+      await providerInputLifecycle?.terminalize().catch(() => undefined);
+      const failedAttemptStore = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
+      try {
+        commitFailedProviderTurn(failedAttemptStore, null);
+      } finally {
+        failedAttemptStore.close();
+      }
+      if (publishTerminalRows() > 0) {
+        await emitInteractionUpdate();
+      }
+      throw error;
     }
-    if (publishTerminalRows() > 0) {
-      await emitInteractionUpdate();
-    }
-    throw error;
-  }
   if (canonicalPersistenceError) {
     canonicalStore.close();
     canonicalStore = null;
@@ -922,17 +938,20 @@ async function runProjectScopedMainAgentTurnActivity(
       await emitInteractionUpdate();
     }
   }
-  return assistant ?? planReferenceMarker ?? latestChildMessage ?? {
-    id: `assistant:${conversationId}:${runId}:empty`,
-    type: "assistant.message",
-    timestamp: new Date().toISOString(),
-    conversationId,
-    graphScopeId,
-    changeId: "",
-    text: "",
-    runId,
-    blocks: [],
-  };
+    return assistant ?? planReferenceMarker ?? latestChildMessage ?? {
+      id: `assistant:${conversationId}:${runId}:empty`,
+      type: "assistant.message",
+      timestamp: new Date().toISOString(),
+      conversationId,
+      graphScopeId,
+      changeId: "",
+      text: "",
+      runId,
+      blocks: [],
+    };
+  } finally {
+    options.turnControl?.release(turnRegistration);
+  }
 }
 
 function projectScopedPlanningStatusMessage(conversationId: string, graphScopeId: string, runId: string, text: string, childThreadId: string, providerId: string): TopicThreadEntry {

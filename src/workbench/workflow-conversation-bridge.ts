@@ -19,6 +19,7 @@ import { collectAllConversationThreadEntries, readConversationThread as readThre
 import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import { resolveConversationId } from "./conversation-identity.js";
 import type { TopicMessageResult, TopicThreadEntry, ValidatedPlanHandoffIntent, WorkbenchLiveSink, WorkbenchWorkflowActionRequest, WorkbenchWorkflowActionResult, WorkbenchWorkflowActionType } from "./types.js";
+import type { ConversationTurnRoutingPort } from "./conversation-turn-contract.js";
 
 export interface WorkflowConversationPorts {
   postConversationMessage?: (
@@ -35,6 +36,7 @@ export interface WorkflowConversationPorts {
     planHandoff?: ValidatedPlanHandoffIntent,
     options?: { goalResume?: { deliveryKey: string; contextText: string }; graphScopeId?: string },
   ) => Promise<TopicThreadEntry>;
+  interruptMainAgentTurn?: ConversationTurnRoutingPort["interruptMainAgentTurn"];
 }
 
 const PROJECT_SCOPED_WORKFLOW_ACTIONS = new Set<WorkbenchWorkflowActionType>([
@@ -188,6 +190,7 @@ function buildWorkflowActionHandlers(ports: WorkflowConversationPorts): ReturnTy
   return buildWorkbenchActionHandlers({
     postConversationMessage: requirePostConversationMessage(ports),
     findRunningRunForChange,
+    interruptProviderTurn: ports.interruptMainAgentTurn,
     continueTopicGoal: async (project, changeId, prompt, live) => {
       const conversationId = await resolveConversationId(project, changeId);
       const continuation = prompt?.trim() || "Continue the current accepted objective from the latest project evidence.";

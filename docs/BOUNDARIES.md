@@ -127,6 +127,23 @@ transport outcome stays `submitting`, and terminal or restart recovery
 interrupts requests without live-turn proof. Secret answer plaintext must not
 enter SQLite, Timeline, SSE, or logs.
 
+`ConversationTurnControlOwner` is the single provider-neutral owner for stopping
+current Main turns in either product mode. SQLite Conversation, ProviderAttempt,
+ThreadLink, and Timeline rows remain durable truth; the Owner retains only
+process-local running/pending/submitting deduplication and never persists a
+second control state machine. Public requests carry project, mode, Conversation,
+Provider, and expected Attempt identities, while native thread/turn IDs remain
+inside adapters. Stop before native Turn start is queued against the exact
+Attempt, unknown transport stays stopping, and only an explicit Provider
+rejection may restore running. Agent Stop does not require Harness readiness;
+Harness uses this owner before its existing local-run stop fallback.
+
+After Workbench restart, Agent Main Attempts left queued or running require
+exact active Provider proof. Without it, startup recovery atomically marks the
+Attempt failed, records a bounded Timeline diagnostic, and marks its Session
+binding stale without advancing the completed-turn sequence. This recovery does
+not claim live-process continuation and does not alter Harness workflow state.
+
 Generic Workbench, Workflow, AgentTask, and UI modules must not import provider
 raw protocol modules or branch on provider names. Unsupported capabilities fail
 before an attempt starts. When exactly one provider is registered it may be the

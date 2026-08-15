@@ -59,6 +59,12 @@ export interface ConversationActionController {
   executeDecisionAction: (action: DecisionAction, context: DecisionContext) => Promise<void>;
   requestDecisionFeedback: (context: DecisionContext, action: DecisionAction, feedback: string) => Promise<void>;
   runWorkflowAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
+  interruptAgentTurn: (request: {
+    projectId: string;
+    conversationId: string;
+    providerId: string;
+    expectedAttemptId: string;
+  }) => Promise<void>;
   settleInteraction: (interactionId: string, settlement: ConversationInteractionSettlement) => Promise<void>;
   getInteractionDraft: (interactionId: string) => ConversationInteractionDraft | undefined;
   setInteractionDraft: (interactionId: string, draft: ConversationInteractionDraft) => void;
@@ -226,6 +232,22 @@ export function useConversationActionController({
     }
   }, [runWorkflowAction]);
 
+  const interruptAgentTurn = useCallback(async (request: {
+    projectId: string;
+    conversationId: string;
+    providerId: string;
+    expectedAttemptId: string;
+  }): Promise<void> => {
+    await (portsRef.current.postJson ?? postJson)(
+      `/api/projects/${encodeURIComponent(request.projectId)}/workbench/conversations/${encodeURIComponent(request.conversationId)}/turn/interrupt`,
+      {
+        productMode: "agent",
+        providerId: request.providerId,
+        expectedAttemptId: request.expectedAttemptId,
+      },
+    );
+  }, []);
+
   const requestDecisionFeedback = useCallback(async (
     context: DecisionContext,
     action: DecisionAction,
@@ -345,6 +367,7 @@ export function useConversationActionController({
     executeDecisionAction,
     requestDecisionFeedback,
     runWorkflowAction,
+    interruptAgentTurn,
     settleInteraction,
     getInteractionDraft,
     setInteractionDraft,

@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const spawnMock = vi.hoisted(() => vi.fn());
 vi.mock("cross-spawn", () => ({ default: spawnMock }));
 
-import { runCodexAppServerChildClose, runCodexAppServerChildTurn, runCodexAppServerTurn } from "../../src/codex/app-server.js";
+import { getActiveCodexAppServerTurn, runCodexAppServerChildClose, runCodexAppServerChildTurn, runCodexAppServerTurn } from "../../src/codex/app-server.js";
 import { CodexAppServerHost, CodexAppServerHostRegistry, defaultCodexAppServerHostRegistry } from "../../src/codex/app-server-host.js";
 import { listCodexRuntimeModels } from "../../src/codex/model-settings.js";
 import { defaultProjectRemovalFence } from "../../src/project-runtime/removal.js";
@@ -315,6 +315,26 @@ describe("Codex persistent app-server Host", () => {
       defaultProjectRemovalFence.activateAfterRegistration(base.projectId);
     }
   });
+
+  it("publishes one started identity and sends an exact turn interrupt wire request", async () => {
+    const cwd = await tempDir();
+    const server = new PersistentCollaborationServer(4561, true);
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+    const options = await turnOptions(cwd, "interrupt-wire-run", null);
+    const started: Array<{ threadId: string; turnId: string }> = [];
+    const turn = runCodexAppServerTurn({
+      ...options,
+      onTurnStarted: (identity) => started.push(identity),
+    });
+    await vi.waitFor(() => expect(started).toEqual([{ threadId: "thread-main", turnId: "turn-main-1" }]));
+    const active = getActiveCodexAppServerTurn(options.runtimeScopeId);
+    expect(active).not.toBeNull();
+
+    await active!.interrupt("user stop");
+    await expect(turn).resolves.toMatchObject({ status: "interrupted", threadId: "thread-main", turnId: "turn-main-1" });
+    expect(server.interruptParams).toEqual([{ threadId: "thread-main", turnId: "turn-main-1" }]);
+    expect(started).toHaveLength(1);
+  });
 });
 
 async function tempDir(): Promise<string> {
@@ -353,6 +373,7 @@ class PersistentCollaborationServer extends EventEmitter {
   readonly followupPrompts: string[] = [];
   readonly closePrompts: string[] = [];
   readonly turnInputs: unknown[][] = [];
+  readonly interruptParams: Array<{ threadId: string; turnId: string }> = [];
   readonly pid: number;
   killCount = 0;
   private input = "";
@@ -482,6 +503,11 @@ class PersistentCollaborationServer extends EventEmitter {
         this.notify("turn/completed", { threadId: "thread-main", turn: { id: "turn-main-1", status: "completed" } });
         return;
       }
+      case "turn/interrupt":
+        this.interruptParams.push({ threadId: String(params.threadId), turnId: String(params.turnId) });
+        this.respond(id, {});
+        this.notify("turn/completed", { threadId: String(params.threadId), turn: { id: String(params.turnId), status: "interrupted" } });
+        return;
       case "thread/archive":
         this.closePrompts.push(JSON.stringify(params));
         this.respond(id, {});

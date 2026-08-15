@@ -624,6 +624,17 @@ active Provider-turn proof. The HTTP settlement service receives the composed
 Provider Registry and does not import a default adapter. This owner does not
 change Harness clarification or formal Plan handoff authority.
 
+`ConversationTurnControlOwner` is composed beside the Router and Provider
+Registry. Direct Agent and Harness Main register the same provider-neutral
+Attempt/run identity after the running Attempt is durable; adapters register the
+native active Turn before synchronously announcing `onTurnStarted`. The Owner
+then sends at most one interrupt, projects running/stopping as reload-only state,
+and releases registration only after terminal persistence. The Agent JSON Stop
+route and Harness action bridge both delegate to this Owner, while Codex-private
+`threadId` and `turnId` remain behind the adapter. Startup recovery runs before
+HTTP listen and fails stale Agent Main Attempts that lack exact current-process
+active-turn proof; it does not add a schema or a durable control table.
+
 Plan-document and workspace-resource projection follows the same read-only
 direction. The exact provider-qualified final Planning-child item owns the
 visible Plan body and immutable document identity; proposal files and accepted

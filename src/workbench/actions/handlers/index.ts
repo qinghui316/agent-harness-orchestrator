@@ -26,6 +26,10 @@ import type { TopicMessageResult, WorkbenchLiveSink } from "../../types.js";
 export interface WorkbenchActionHandlerDeps {
   postConversationMessage(project: ManagedProject, conversationId: string, input: string, live?: WorkbenchLiveSink): Promise<TopicMessageResult>;
   findRunningRunForChange(project: ManagedProject, changeId: string): Promise<RunMetadata | null>;
+  interruptProviderTurn?: (
+    project: ManagedProject,
+    conversationId: string,
+  ) => Promise<import("../../conversation-turn-control.js").ConversationTurnInterruptReceipt | null>;
   continueTopicGoal(project: ManagedProject, changeId: string, prompt: string | undefined, live?: WorkbenchLiveSink): Promise<unknown>;
 }
 
@@ -75,7 +79,14 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
   "role.pipeline.continue": runMainAgentExecutionContinue,
   "role.pipeline.reconcile": runMainAgentExecutionReconcile,
   "conversation.steer": async (project, changeId, request, live) => steerConversation(project, changeId, request.prompt, live, deps),
-  "conversation.interrupt": async (project, changeId, request, live) => interruptConversation(project, changeId, request.prompt, live, deps),
+  "conversation.interrupt": async (project, changeId, request, live, conversationId) => interruptConversation(
+    project,
+    changeId,
+    conversationId,
+    request.prompt,
+    live,
+    deps,
+  ),
   "conversation.continue": async (project, changeId, request, live) => deps.continueTopicGoal(project, changeId, request.prompt, live),
   "result.refresh-rework": async (project, changeId, request, live) => {
     if (!request.worktreeId) throw new Error("result.refresh-rework requires worktreeId.");

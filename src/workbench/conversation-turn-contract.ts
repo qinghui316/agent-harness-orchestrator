@@ -157,6 +157,10 @@ export interface ConversationTurnRoutingPort {
     conversationId: string;
     targetProviderId: ProviderId;
   }) => Promise<import("./provider-switch.js").ProviderSwitchResult>;
+  interruptMainAgentTurn?: (
+    project: ManagedProject,
+    conversationId: string,
+  ) => Promise<import("./conversation-turn-control.js").ConversationTurnInterruptReceipt | null>;
   continueMainAgentTurn?: ConversationTurnContinuationPort;
   runAgentNativeChildFollowup?: (input: {
     project: ManagedProject;

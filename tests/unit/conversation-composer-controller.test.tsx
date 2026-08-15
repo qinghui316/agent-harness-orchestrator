@@ -809,6 +809,7 @@ describe("Conversation composer controller", () => {
     expect(ports.actions.steer).toHaveBeenCalledWith({
       projectId: "repo",
       conversationId: "conversation-1",
+      productMode: "harness",
       prompt: "follow up",
     });
     expect(result.current.composerText).toBe("");
@@ -818,6 +819,7 @@ describe("Conversation composer controller", () => {
     expect(ports.actions.stop).toHaveBeenCalledWith({
       projectId: "repo",
       conversationId: "conversation-1",
+      productMode: "harness",
       prompt: "stop context",
     });
     expect(ports.projection.refreshConversation).not.toHaveBeenCalled();
@@ -829,11 +831,14 @@ describe("Conversation composer controller", () => {
     ports.actions[action].mockImplementation(() => new Promise<void>((_resolve, reject) => { rejectAction = reject; }));
     const { result, rerender } = renderHook(
       ({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
-      { initialProps: { scope: conversationScope({
-        productMode: "agent",
-        running: true,
-        conversation: { id: "agent-conversation", productMode: "agent", state: "active", selectedProviderId: "codex" },
-      }) } },
+      { initialProps: { scope: action === "steer"
+        ? conversationScope({ productMode: "harness", running: true })
+        : conversationScope({
+          productMode: "agent",
+          running: true,
+          runControlState: { state: "running", canStop: true, providerId: "codex", attemptId: "attempt-1" },
+          conversation: { id: "agent-conversation", productMode: "agent", state: "active", selectedProviderId: "codex" },
+        }) } },
     );
     act(() => result.current.setComposerText("old action"));
     let pending!: Promise<void>;
@@ -850,6 +855,36 @@ describe("Conversation composer controller", () => {
     expect(result.current.composerText).toBe("new mode draft");
     expect(ports.onError).not.toHaveBeenCalledWith(`late ${action} failure`);
     expect(ports.timeline.calibrate).not.toHaveBeenCalled();
+  });
+
+  it("disables Agent steer and preserves all draft state while stopping the exact Attempt", async () => {
+    const ports = composerPorts();
+    const { result } = renderHook(() => useConversationComposerController(conversationScope({
+      productMode: "agent",
+      running: true,
+      runControlState: { state: "running", canStop: true, providerId: "codex", attemptId: "attempt-1" },
+      conversation: { id: "agent-conversation", productMode: "agent", state: "active", selectedProviderId: "codex" },
+    }), ports));
+    act(() => {
+      result.current.setComposerText("next turn draft");
+      result.current.setAttachments([attachment("attachment-1")]);
+    });
+
+    await act(async () => result.current.send());
+    expect(ports.actions.steer).not.toHaveBeenCalled();
+    expect(result.current.composerText).toBe("next turn draft");
+    expect(result.current.attachments).toHaveLength(1);
+
+    await act(async () => result.current.stop());
+    expect(ports.actions.stop).toHaveBeenCalledWith({
+      projectId: "repo",
+      conversationId: "agent-conversation",
+      productMode: "agent",
+      providerId: "codex",
+      expectedAttemptId: "attempt-1",
+    });
+    expect(result.current.composerText).toBe("next turn draft");
+    expect(result.current.attachments).toHaveLength(1);
   });
 });
 

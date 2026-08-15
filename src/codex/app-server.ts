@@ -171,6 +171,7 @@ export interface CodexAppServerTurnOptions {
   timeoutMs?: number;
   onNotification?: CodexAppServerNotificationHandler;
   onRealtimeEvent?: (event: CodexAppServerRealtimeEvent) => void;
+  onTurnStarted?: (identity: { threadId: string; turnId: string }) => void;
   onChildLifecycleEvent?: (event: CodexChildLifecycleEvent) => void;
   onChildThreadResult?: (result: CodexAppServerChildThreadResult) => void;
   onUserInputRequest?: CodexAppServerUserInputRequestHandler;
@@ -641,6 +642,7 @@ async function runCodexAppServerOperation(
   let terminalStatus: CodexAppServerTurnResult["status"] | null = null;
   let terminalError: string | undefined;
   let targetFollowupObserved = false;
+  let installActiveTurn: (() => void) | null = null;
   const pendingServerRequests = new Map<string, {
     id: number;
     method: string;
@@ -723,7 +725,8 @@ async function runCodexAppServerOperation(
     }
     await writeSession("started");
 
-    const installActiveTurn = (): void => {
+    let lastPublishedStartedTurnId: string | null = null;
+    installActiveTurn = (): void => {
       if (!threadId || !turnId) throw new Error("Cannot expose a Codex turn before thread and turn ids are known.");
       const activeThreadId = threadId;
       const activeTurnId = turnId;
@@ -751,7 +754,14 @@ async function runCodexAppServerOperation(
           await sendServerRequestResult(requestId, normalizeUserInputResponse(response), expected);
         },
       });
+      if (lastPublishedStartedTurnId !== activeTurnId) {
+        lastPublishedStartedTurnId = activeTurnId;
+        options.onTurnStarted?.({ threadId: activeThreadId, turnId: activeTurnId });
+      }
     };
+    // A resumed Goal may emit turn/started before thread/resume returns and the
+    // active-turn installer is composed. Publish that already-observed Turn now.
+    if (activeTurnRunning && turnId) installActiveTurn();
 
     const waitingGoalContinuation = goalBeforeSession && isResumableGoalStatus(goalBeforeSession.status) ? options.goalResume ?? null : null;
     if (waitingGoalContinuation && goalBeforeSession && !terminalStatus) {
@@ -1010,25 +1020,7 @@ async function runCodexAppServerOperation(
       if (nextTurnId) {
         turnId = nextTurnId;
         activeTurnRunning = true;
-        if (threadId) hostLease?.setActiveTurn(threadId, nextTurnId);
-        activeTurns.set(activeScopeId, {
-          ...(options.changeId ? { changeId: options.changeId } : {}),
-          runtimeScopeId: activeScopeId,
-          roleId: options.roleId,
-          runId: options.runId,
-          threadId: threadId ?? "",
-          turnId,
-          startedAt,
-          steer: async (input: string) => sendRequest("turn/steer", { threadId, expectedTurnId: turnId, input: [userTextInput(input)] }).then(() => undefined),
-          interrupt: async () => {
-            if (options.goalSession) {
-              await requestNativeGoalPause(threadId ?? "", turnId ?? "");
-            } else {
-              await sendRequest("turn/interrupt", { threadId, turnId });
-            }
-          },
-          respondToUserInput: async (requestId: string, response: CodexAppServerUserInputResponse, expected) => sendServerRequestResult(requestId, normalizeUserInputResponse(response), expected),
-        });
+        installActiveTurn?.();
         void writeSession("running");
         if (goalPauseRequested && threadId) {
           void sendRequest("turn/interrupt", { threadId, turnId: nextTurnId }).catch(() => undefined);
