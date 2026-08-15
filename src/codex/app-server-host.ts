@@ -57,12 +57,18 @@ export class CodexAppServerJsonRpcError extends Error {
   readonly rpcMessage: string;
 
   constructor(readonly method: string, error: Record<string, unknown>) {
-    super(JSON.stringify(error));
+    const rpcMessage = boundedRpcErrorMessage(error);
+    super(rpcMessage);
     this.name = "CodexAppServerJsonRpcError";
     this.code = typeof error.code === "number" ? error.code : null;
     this.data = error.data;
-    this.rpcMessage = typeof error.message === "string" ? error.message : this.message;
+    this.rpcMessage = rpcMessage;
   }
+}
+
+function boundedRpcErrorMessage(error: Record<string, unknown>): string {
+  const message = typeof error.message === "string" ? error.message : JSON.stringify(error);
+  return message.replace(/[\r\n]+/g, " ").slice(0, 500);
 }
 
 export class CodexAppServerHost {

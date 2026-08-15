@@ -66,6 +66,39 @@ describe("conversation interrupt handler", () => {
     expect(interruptProviderTurn).toHaveBeenCalledOnce();
     expect(findRunningRunForChange).toHaveBeenCalledOnce();
   });
+
+  it("uses the local-run fallback when the Provider Turn becomes terminal during Stop", async () => {
+    const interruptProviderTurn = vi.fn(async () => ({
+      status: "already-terminal" as const,
+      attemptId: "attempt-terminal",
+      runId: "run-provider-terminal",
+    }));
+    const findRunningRunForChange = vi.fn(async () => null);
+
+    await expect(interruptConversation(
+      project(),
+      "change-1",
+      "conversation-1",
+      undefined,
+      undefined,
+      { interruptProviderTurn, findRunningRunForChange },
+    )).resolves.toMatchObject({ status: "already-completed" });
+
+    expect(interruptProviderTurn).toHaveBeenCalledOnce();
+    expect(findRunningRunForChange).toHaveBeenCalledOnce();
+    expect(mocks.append).toHaveBeenCalledWith(
+      project(),
+      "change-1",
+      expect.objectContaining({ status: "stop-not-needed" }),
+      undefined,
+    );
+    expect(mocks.append).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ status: "interrupt-requested" }),
+      expect.anything(),
+    );
+  });
 });
 
 function project(): ManagedProject {

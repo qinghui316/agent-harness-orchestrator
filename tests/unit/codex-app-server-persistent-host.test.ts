@@ -360,6 +360,30 @@ describe("Codex persistent app-server Host", () => {
     ]);
   });
 
+  it("bounds an explicit interrupt rejection message", async () => {
+    const cwd = await tempDir();
+    const server = new PersistentCollaborationServer(4564, true);
+    server.rejectNextInterrupt(`rejected\n${"x".repeat(800)}`);
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+    const options = await turnOptions(cwd, "interrupt-bounded-rejection-run", null);
+    const turn = runCodexAppServerTurn(options);
+    await vi.waitFor(() => expect(getActiveCodexAppServerTurn(options.runtimeScopeId)).not.toBeNull());
+
+    const active = getActiveCodexAppServerTurn(options.runtimeScopeId)!;
+    let failure: Error | null = null;
+    try {
+      await active.interrupt("user stop");
+    } catch (error) {
+      failure = error as Error;
+    }
+    expect(failure).toMatchObject({ name: "ProviderInterruptRejected" });
+    expect(failure?.message).toHaveLength(500);
+    expect(failure?.message).not.toContain("\n");
+
+    await active.interrupt("retry user stop");
+    await expect(turn).resolves.toMatchObject({ status: "interrupted" });
+  });
+
   it("keeps an interrupt connection loss classified as an uncertain transport failure", async () => {
     const cwd = await tempDir();
     const server = new PersistentCollaborationServer(4563, true);

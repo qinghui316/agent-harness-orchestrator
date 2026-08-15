@@ -98,7 +98,7 @@ export async function interruptConversation(
   const receipt = conversationId && deps.interruptProviderTurn
     ? await deps.interruptProviderTurn(project, conversationId)
     : null;
-  if (!receipt) {
+  if (!receipt || receipt.status === "already-terminal") {
     return stopRunningPipeline(project, changeId, prompt, live, deps);
   }
   const message = prompt?.trim();
