@@ -1523,10 +1523,7 @@ function fileInputs(files: CodexAppServerTurnOptions["fileInputs"]): Record<stri
 }
 
 function redactManagedAttachmentPaths(line: string, options: CodexAppServerTurnOptions): string {
-  return managedAttachmentPaths(options).reduce((sanitized, path) => {
-    const escaped = JSON.stringify(path).slice(1, -1);
-    return sanitized.split(path).join("[managed-attachment]").split(escaped).join("[managed-attachment]");
-  }, line);
+  return redactManagedAttachmentText(line, managedAttachmentPaths(options));
 }
 
 function sanitizeManagedAttachmentPayload(
@@ -1546,12 +1543,22 @@ function sanitizeManagedAttachmentPayload(
 
 function redactManagedAttachmentValue(value: unknown, paths: readonly string[]): unknown {
   if (typeof value === "string") {
-    return paths.reduce((sanitized, path) => sanitized.split(path).join("[managed-attachment]"), value);
+    return redactManagedAttachmentText(value, paths);
   }
   if (Array.isArray(value)) return value.map((item) => redactManagedAttachmentValue(item, paths));
   if (!isRecord(value)) return value;
   for (const [key, item] of Object.entries(value)) value[key] = redactManagedAttachmentValue(item, paths);
   return value;
+}
+
+function redactManagedAttachmentText(value: string, paths: readonly string[]): string {
+  return paths.reduce((sanitized, path) => {
+    const pattern = path
+      .split(/[\\/]+/)
+      .map((segment) => segment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      .join("[\\\\/]+");
+    return pattern ? sanitized.replace(new RegExp(pattern, "gi"), "[managed-attachment]") : sanitized;
+  }, value);
 }
 
 function isManagedAttachmentCommand(item: Record<string, unknown>, roots: readonly string[]): boolean {

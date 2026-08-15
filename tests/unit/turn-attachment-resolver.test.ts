@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -74,6 +74,24 @@ describe("TurnAttachmentResolver", () => {
     }, { workbenchRoot: fixture.workbenchRoot });
     await expect(fixture.resolver.resolve(fixture.project, [{ ...text, storagePath: "../outside.txt" }]))
       .rejects.toMatchObject({ name: "BadRequest" });
+  });
+
+  it("returns the canonical managed path instead of a lexical link path", async () => {
+    const fixture = await createFixture();
+    const text = await createTopicAttachment(fixture.project, {
+      fileName: "marker.txt",
+      mediaType: "text/plain",
+      data: Buffer.from("marker").toString("base64"),
+    }, { workbenchRoot: fixture.workbenchRoot });
+    const managedDirectory = join(fixture.workbenchRoot, "attachments", text.id);
+    const canonicalDirectory = join(fixture.workbenchRoot, "attachments", `${text.id}-canonical`);
+    await mkdir(canonicalDirectory);
+    await writeFile(join(canonicalDirectory, "content.txt"), "marker", "utf8");
+    await rm(managedDirectory, { recursive: true, force: true });
+    await symlink(canonicalDirectory, managedDirectory, process.platform === "win32" ? "junction" : "dir");
+
+    const resolution = await fixture.resolver.resolve(fixture.project, [text]);
+    expect(resolution.fileInputs[0]?.path).toBe(await realpath(join(canonicalDirectory, "content.txt")));
   });
 
   it("fails closed when metadata points at another attachment directory", async () => {

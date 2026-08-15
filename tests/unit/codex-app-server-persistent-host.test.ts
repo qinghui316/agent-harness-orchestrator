@@ -31,6 +31,7 @@ describe("Codex persistent app-server Host", () => {
     spawnMock.mockReturnValue(server as unknown as ChildProcess);
     const options = await turnOptions(cwd, "attachment-run", null);
     const realtimeEvents: string[] = [];
+    const alternateManagedPath = managedFile.replace(/\\/g, "/").toUpperCase();
 
     await runCodexAppServerTurn({
       ...options,
@@ -46,9 +47,11 @@ describe("Codex persistent app-server Host", () => {
     ]);
     const events = await readFile(options.paths.events, "utf8");
     expect(events).not.toContain(join(cwd, "managed"));
+    expect(events).not.toContain(alternateManagedPath);
     expect(events).not.toContain("AHO_ATTACHMENT_PRIVATE_TEXT");
     expect(events).not.toContain("storagePath");
     expect(realtimeEvents.join("\n")).not.toContain(join(cwd, "managed"));
+    expect(realtimeEvents.join("\n")).not.toContain(alternateManagedPath);
     expect(realtimeEvents.join("\n")).not.toContain("AHO_ATTACHMENT_PRIVATE_TEXT");
     expect(realtimeEvents.join("\n")).not.toContain("storagePath");
     expect(realtimeEvents.join("\n")).toContain("[managed-attachment]");
@@ -421,15 +424,17 @@ class PersistentCollaborationServer extends EventEmitter {
         this.respond(id, { turn: { id: turnId } });
         this.notify("turn/started", { threadId: "thread-main", turn: { id: turnId } });
         if (this.managedPathLeak) {
+          const alternateManagedPath = this.managedPathLeak.replace(/\\/g, "/").toUpperCase();
           this.notify("item/completed", {
             threadId: "thread-main",
             turnId,
             item: {
               id: "managed-path-command",
               type: "commandExecution",
-              command: `Get-Content ${this.managedPathLeak}`,
-              cwd: dirname(this.managedPathLeak),
-              aggregatedOutput: `storagePath=${this.managedPathLeak}\nAHO_ATTACHMENT_PRIVATE_TEXT`,
+              command: `Get-Content ${alternateManagedPath}`,
+              cwd: dirname(this.managedPathLeak).replace(/\\/g, "/").toUpperCase(),
+              aggregatedOutput: `storagePath=${alternateManagedPath}\nAHO_ATTACHMENT_PRIVATE_TEXT`,
+              raw: { error: `failed to read ${alternateManagedPath}` },
               exitCode: 0,
             },
           });

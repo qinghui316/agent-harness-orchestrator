@@ -113,10 +113,10 @@ async function verifyAttachment(workbenchRoot: string, attachment: TopicAttachme
     || !isContainedPath(managedRoot, canonicalPath)) {
     throw badRequest(`Attachment content escaped its managed directory: ${attachment.id}`);
   }
-  const file = await stat(path).catch(() => null);
+  const file = await stat(canonicalPath).catch(() => null);
   if (!file?.isFile()) throw badRequest(`Attachment content was not found: ${attachment.id}`);
   if (file.size !== attachment.size) throw conflict(`Attachment size changed after upload: ${attachment.id}`);
-  const contentHash = createHash("sha256").update(await readFile(path)).digest("hex");
+  const contentHash = createHash("sha256").update(await readFile(canonicalPath)).digest("hex");
   if (contentHash !== attachment.hash) throw conflict(`Attachment content changed after upload: ${attachment.id}`);
   return { path: canonicalPath };
 }
