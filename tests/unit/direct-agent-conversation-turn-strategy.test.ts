@@ -199,6 +199,18 @@ describe("DirectAgentConversationTurnStrategy", () => {
       attemptId: request.attemptId,
       runId: request.runId,
     });
+    turnControl.registerAttempt({
+      ...stopRequest,
+      expectedAttemptId: "attempt-new-turn",
+      graphScopeId: "graph-new-turn",
+      runId: "run-new-turn",
+      roleId: "main-agent",
+    });
+    await expect(turnControl.interrupt(fixture.project, stopRequest)).resolves.toEqual({
+      status: "already-terminal",
+      attemptId: request.attemptId,
+      runId: request.runId,
+    });
   });
 
   it("rejects a duplicate Turn registration when any exact identity field changes", () => {

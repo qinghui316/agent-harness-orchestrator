@@ -117,7 +117,8 @@ export class ConversationTurnControlOwner {
             && candidate.providerId === attempt.providerId
             && candidate.roleId === "main-agent"
             && candidate.graphScopeId === attempt.graphScopeId);
-        const runId = entry?.registration.runId ?? durableLink?.runId;
+        const runId = durableLink?.runId
+          ?? (entry && sameRequest(entry.registration, request) ? entry.registration.runId : undefined);
         if (!runId) {
           throw conflict("Terminal Attempt has no durable run identity for an interrupt receipt.");
         }
