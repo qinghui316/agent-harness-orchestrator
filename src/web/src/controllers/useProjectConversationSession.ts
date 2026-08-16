@@ -193,7 +193,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     setProjects(list);
     if (!projectId) return;
     const status = findProject(list, projectId);
-    if (!status?.managed) {
+    if (!canLoadWorkbenchSnapshot(status, requestProductMode)) {
       const next = snapshotForProject(status, requestProductMode);
       setSnapshot(next);
       setStream(null);
@@ -207,6 +207,11 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     setSnapshot(next);
     setProjectModeSnapshots((current) => cacheSnapshot(current, projectId, requestProductMode, next));
     const resolvedConversationId = next.center.selectedTopic?.id ?? null;
+    const pending = pendingDemandRef.current;
+    if (pending?.canonical && pending.id === resolvedConversationId) {
+      setPendingDemandConversation(null);
+      pendingDemandRef.current = null;
+    }
     if (stateRef.current.selectedTopic !== resolvedConversationId) {
       setSelectedTopic(resolvedConversationId);
       navigation(portsRef.current).syncLocation(projectId, resolvedConversationId);
@@ -278,7 +283,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     setSelectedTopic(conversationId);
     setExpandedProjects(new Set([projectId]));
     navigation(currentPorts).persistProjectId(projectId);
-    if (selectedStatus?.managed) {
+    if (canLoadWorkbenchSnapshot(selectedStatus, requestProductMode)) {
       await refreshAtGeneration(projectId, conversationId, generation, requestProductMode);
     } else if (isCurrentSelection(generation, requestProductMode, requestGenerationRef, productModeRef)) {
       const next = snapshotForProject(selectedStatus, requestProductMode);
@@ -306,7 +311,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
       return;
     }
     const status = findProject(stateRef.current.projects, projectId);
-    if (!status?.managed) {
+    if (!canLoadWorkbenchSnapshot(status, productModeRef.current)) {
       reportError("请先初始化这个项目，再新建需求对话。");
       return;
     }
@@ -341,7 +346,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     });
     if (!shouldOpen || projectModeSnapshots[cacheKey]) return;
     const status = findProject(stateRef.current.projects, projectId);
-    if (!status?.managed) return;
+    if (!canLoadWorkbenchSnapshot(status, requestProductMode)) return;
     const generation = (folderRequestGenerationsRef.current.get(cacheKey) ?? 0) + 1;
     const selectionGeneration = requestGenerationRef.current;
     folderRequestGenerationsRef.current.set(cacheKey, generation);
@@ -559,11 +564,24 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
             return;
           }
           if (!boundConversationId) return;
-          if (canApplyToCurrentSelection() && eventMatchesConversationScope(event, {
+          const exactTurnControlInvalidation = event.event === "conversation.turn-control.invalidated"
+            && event.data.conversationId === boundConversationId;
+          if (canApplyToCurrentSelection() && (exactTurnControlInvalidation || eventMatchesConversationScope(event, {
             projectId: request.projectId,
             productMode: request.productMode,
             conversationId: boundConversationId,
-          })) routeEvent(request.projectId, event);
+          }))) {
+            routeEvent(request.projectId, event);
+            if (event.event === "conversation.turn-control.invalidated") {
+              requestGeneration = ++requestGenerationRef.current;
+              void refreshAtGeneration(
+                request.projectId,
+                boundConversationId,
+                requestGeneration,
+                request.productMode,
+              ).catch(reportError);
+            }
+          }
         });
       if (!boundConversationId) throw new Error("Demand conversation was not created.");
       if (!canApplyToCurrentSelection()) return { projectId: request.projectId, conversationId: boundConversationId };
@@ -598,7 +616,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
       navigation(portsRef.current).syncLocation(stateRef.current.selectedProjectId, previousConversationId);
       throw cause;
     }
-  }, [beginPendingDemand, rekeyPendingDemand, reportError]);
+  }, [beginPendingDemand, refreshAtGeneration, rekeyPendingDemand, reportError]);
 
   const acceptCanonicalConversation = useCallback((input: {
     projectId: string;
@@ -607,9 +625,10 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     conversationId: string;
     title: string;
     selectedProviderId?: string;
-  }): void => {
-    if (!input.productMode || !input.clientRequestId) return;
-    rekeyPendingDemand({ ...input, productMode: input.productMode, clientRequestId: input.clientRequestId });
+  }): boolean => {
+    if (!input.productMode || !input.clientRequestId) return false;
+    const result = rekeyPendingDemand({ ...input, productMode: input.productMode, clientRequestId: input.clientRequestId });
+    return result === "rekeyed" || result === "already-canonical";
   }, [rekeyPendingDemand]);
 
   const reconcileConversationTitle = useCallback((projectId: string, conversation: Topic): void => {
@@ -748,7 +767,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     } else {
       setSnapshot(snapshotForProject(status, targetProductMode));
     }
-    if (!status?.managed) return;
+    if (!canLoadWorkbenchSnapshot(status, targetProductMode)) return;
     await refreshAtGeneration(projectId, null, generation, targetProductMode);
   }, [projectModeSnapshots, refreshAtGeneration]);
 
@@ -954,6 +973,13 @@ function nonEmpty(value: string | null): string | null {
 
 function findProject(projects: ProjectStatus[], projectId: string | null): ProjectStatus | null {
   return projectId ? projects.find((item) => item.project?.id === projectId) ?? null : null;
+}
+
+function canLoadWorkbenchSnapshot(
+  status: ProjectStatus | null | undefined,
+  productMode: ProductMode,
+): status is ProjectStatus {
+  return Boolean(status?.project && (productMode === "agent" || status.managed));
 }
 
 function withoutSetValue(values: Set<string>, value: string): Set<string> {

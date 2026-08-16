@@ -71,18 +71,23 @@ the exact active Provider turn, secret values are persisted only as redacted
 placeholders, and an unproven submission remains `submitting` rather than being
 replayed.
 
-An active ordinary Agent turn exposes Stop only after the snapshot can bind the
-current graph's durable running Main Attempt to the process-local Provider turn.
-Stop uses a short JSON request carrying the asserted Provider and Attempt; the
-server revalidates Conversation, mode, graph, Session, and active-turn identity
-before invoking the adapter. A request made before the Provider turn ID exists
-remains pending and is sent once when that ID arrives. Repeated requests share
-one submission, explicit Provider rejection permits retry, and an uncertain
-transport remains stopping. The Agent Composer keeps its text, attachments,
-Skills, and Default/Plan selection, and does not offer live Steer while a turn
-is running. Harness keeps its existing stop-and-continue surface, using the same
-Provider control owner when a Provider turn exists and the local-run fallback
-otherwise.
+An active ordinary Agent turn exposes Stop and text Steer only after the snapshot
+can bind the current graph's durable running Main Attempt to the process-local
+Provider turn. Both use short JSON requests carrying the asserted Provider and
+Attempt; the server revalidates Conversation, mode, graph, Session, and
+active-turn identity before invoking the adapter. Stop requested before the
+Provider turn ID exists remains pending and is sent once when that ID arrives.
+Repeated requests share one submission, explicit Provider rejection permits
+retry, and uncertain transport remains stopping or submitting. `turn.steer` is
+optional and does not affect Provider readiness. Provider acceptance precedes
+canonical `steering-sent` evidence; retries after an evidence-write failure only
+repair that evidence and never resend the Provider request. Running Steer sends
+only the captured trimmed text and clears it only after success; attachments,
+Skills, file references, and Default/Plan selection remain for the next turn.
+Stop remains a separate control and takes priority over new Steer requests.
+Harness uses the same Provider control owner for active Provider turns and keeps
+its existing pending-feedback/local-run fallback only when no Provider Attempt
+owns the current execution.
 
 ## 1. Purpose
 

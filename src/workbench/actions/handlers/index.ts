@@ -30,6 +30,12 @@ export interface WorkbenchActionHandlerDeps {
     project: ManagedProject,
     conversationId: string,
   ) => Promise<import("../../conversation-turn-control.js").ConversationTurnInterruptReceipt | null>;
+  steerProviderTurn?: (
+    project: ManagedProject,
+    conversationId: string,
+    clientRequestId: string,
+    text: string,
+  ) => Promise<import("../../conversation-turn-control.js").ConversationTurnSteerReceipt | null>;
   continueTopicGoal(project: ManagedProject, changeId: string, prompt: string | undefined, live?: WorkbenchLiveSink): Promise<unknown>;
 }
 
@@ -78,7 +84,15 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
   "role.pipeline.stop": runMainAgentExecutionStop,
   "role.pipeline.continue": runMainAgentExecutionContinue,
   "role.pipeline.reconcile": runMainAgentExecutionReconcile,
-  "conversation.steer": async (project, changeId, request, live) => steerConversation(project, changeId, request.prompt, live, deps),
+  "conversation.steer": async (project, changeId, request, live, conversationId) => steerConversation(
+    project,
+    changeId,
+    conversationId,
+    request.prompt,
+    request.clientRequestId,
+    live,
+    deps,
+  ),
   "conversation.interrupt": async (project, changeId, request, live, conversationId) => interruptConversation(
     project,
     changeId,

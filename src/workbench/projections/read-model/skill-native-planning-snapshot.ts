@@ -739,6 +739,8 @@ function applySkillNativeWorkpadEvidence(
     codingPackages: buildCodingPackages(topic, taskGraph),
     runControlState: {
       canStop: active,
+      canSteer: active,
+      steerState: "idle",
       stopActionType: active ? "conversation.interrupt" : undefined,
       pendingFeedbackCount: topic.threadItems.filter((item) => item.kind === "user-message" && item.status === "pending-feedback").length,
       explanation: active

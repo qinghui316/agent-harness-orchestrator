@@ -337,6 +337,7 @@ async function runProjectScopedMainAgentTurnActivity(
     graphScopeId,
     runId,
     roleId: "main-agent",
+    canSteer: capabilitySnapshot.capabilities.some((capability) => capability.key === "turn.steer" && capability.runtime === "ready"),
   };
   canonicalStore = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
   canonicalDelivery = new CanonicalTimelineDelivery(canonicalStore, "harness", live);

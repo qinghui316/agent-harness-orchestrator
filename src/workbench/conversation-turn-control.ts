@@ -1,10 +1,14 @@
+import { createHash } from "node:crypto";
 import type { ProductMode, ProviderId } from "../provider-runtime/index.js";
 import type { ActiveProviderTurn, ProviderTurnStartedIdentity } from "../provider-runtime/contracts.js";
 import type { ProviderRegistry } from "../provider-runtime/registry.js";
 import type { ProjectRuntimeCoordinatorPort } from "../project-runtime/coordinator.js";
 import type { ManagedProject } from "../types/index.js";
+import type { StoredProviderAttempt } from "./persistence/contracts.js";
 import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import { publishConversationTurnControlInvalidated } from "./project-live-events.js";
+
+const MAX_STEER_CLIENT_REQUEST_ID_LENGTH = 200;
 
 export interface ConversationTurnInterruptRequest {
   projectId: string;
@@ -14,13 +18,24 @@ export interface ConversationTurnInterruptRequest {
   expectedAttemptId: string;
 }
 
+export interface ConversationTurnSteerRequest extends ConversationTurnInterruptRequest {
+  clientRequestId: string;
+  text: string;
+}
+
 export type ConversationTurnInterruptReceipt =
   | { status: "pending" | "interrupt-requested"; attemptId: string; runId: string }
+  | { status: "already-terminal"; attemptId: string; runId?: string };
+
+export type ConversationTurnSteerReceipt =
+  | { status: "steer-accepted"; attemptId: string; runId: string }
   | { status: "already-terminal"; attemptId: string; runId?: string };
 
 export interface ConversationTurnControlState {
   state: "idle" | "running" | "stopping";
   canInterrupt: boolean;
+  canSteer: boolean;
+  steerState: "idle" | "submitting";
   providerId?: ProviderId;
   attemptId?: string;
   runId?: string;
@@ -30,13 +45,22 @@ export interface ConversationTurnRegistration extends ConversationTurnInterruptR
   graphScopeId: string;
   runId: string;
   roleId: "main-agent";
+  canSteer: boolean;
 }
+
+type SteerEntry = {
+  textHash: string;
+  phase: "submitting" | "accepted";
+  receipt: ConversationTurnSteerReceipt | null;
+  submission: Promise<ConversationTurnSteerReceipt> | null;
+};
 
 type ControlEntry = {
   registration: ConversationTurnRegistration;
   started: ProviderTurnStartedIdentity | null;
-  phase: "running" | "pending" | "submitting";
-  submission: Promise<ConversationTurnInterruptReceipt> | null;
+  interruptPhase: "running" | "pending" | "submitting";
+  interruptSubmission: Promise<ConversationTurnInterruptReceipt> | null;
+  steers: Map<string, SteerEntry>;
 };
 
 export class ConversationTurnControlOwner {
@@ -54,7 +78,13 @@ export class ConversationTurnControlOwner {
     if (current && !sameRegistration(current.registration, registration)) {
       throw conflict("Conversation Turn control is already registered with different Turn identity.");
     }
-    this.entries.set(key, current ?? { registration: { ...registration }, started: null, phase: "running", submission: null });
+    this.entries.set(key, current ?? {
+      registration: { ...registration },
+      started: null,
+      interruptPhase: "running",
+      interruptSubmission: null,
+      steers: new Map(),
+    });
     this.invalidate(registration);
   }
 
@@ -63,7 +93,8 @@ export class ConversationTurnControlOwner {
     const entry = this.entries.get(controlKey(identity.projectId, identity.conversationId));
     if (!entry || !sameStartedIdentity(entry.registration, identity)) return;
     entry.started = { ...identity };
-    if (entry.phase === "pending") void this.submit(entry).catch(() => undefined);
+    if (entry.interruptPhase === "pending") void this.submitInterrupt(entry).catch(() => undefined);
+    else this.invalidate(entry.registration);
   };
 
   release(registration: ConversationTurnRegistration): void {
@@ -77,11 +108,21 @@ export class ConversationTurnControlOwner {
   state(projectId: string, conversationId: string, expectedAttemptId?: string): ConversationTurnControlState {
     const entry = this.entries.get(controlKey(projectId, conversationId));
     if (!entry || (expectedAttemptId && entry.registration.expectedAttemptId !== expectedAttemptId)) {
-      return { state: "idle", canInterrupt: false };
+      return { state: "idle", canInterrupt: false, canSteer: false, steerState: "idle" };
     }
+    const steerState = [...entry.steers.values()].some((steer) => steer.phase === "submitting")
+      ? "submitting"
+      : "idle";
+    const stopping = entry.interruptPhase !== "running";
     return {
-      state: entry.phase === "running" ? "running" : "stopping",
+      state: stopping ? "stopping" : "running",
       canInterrupt: true,
+      canSteer: !stopping
+        && steerState === "idle"
+        && entry.registration.canSteer
+        && Boolean(entry.started)
+        && this.hasExactActiveTurn(entry.registration),
+      steerState,
       providerId: entry.registration.providerId,
       attemptId: entry.registration.expectedAttemptId,
       runId: entry.registration.runId,
@@ -89,7 +130,76 @@ export class ConversationTurnControlOwner {
   }
 
   async interrupt(project: ManagedProject, request: ConversationTurnInterruptRequest): Promise<ConversationTurnInterruptReceipt> {
-    if (project.id !== request.projectId) throw conflict("Interrupt project identity does not match the selected project.");
+    const { attempt, entry, runId } = await this.validateCurrentTurn(project, request);
+    if (attempt.status !== "queued" && attempt.status !== "running") {
+      return { status: "already-terminal", attemptId: attempt.attemptId, ...(runId ? { runId } : {}) };
+    }
+    if (!entry || !sameRequest(entry.registration, request)) {
+      throw conflict("The requested Attempt is not owned by a current-process Provider Turn.");
+    }
+    if (attempt.nativeSessionId && entry.started && attempt.nativeSessionId !== entry.started.sessionId) {
+      throw conflict("The durable Provider Session does not match the started Turn identity.");
+    }
+    if (entry.interruptPhase === "pending") {
+      return { status: "pending", attemptId: request.expectedAttemptId, runId: entry.registration.runId };
+    }
+    if (entry.interruptSubmission) return entry.interruptSubmission;
+    const active = this.exactActiveTurn(entry.registration);
+    if (!active) {
+      entry.interruptPhase = "pending";
+      this.invalidate(entry.registration);
+      return { status: "pending", attemptId: request.expectedAttemptId, runId: entry.registration.runId };
+    }
+    return this.submitInterrupt(entry, active);
+  }
+
+  async steer(project: ManagedProject, request: ConversationTurnSteerRequest): Promise<ConversationTurnSteerReceipt> {
+    const text = request.text.trim();
+    const clientRequestId = request.clientRequestId.trim();
+    if (!clientRequestId || clientRequestId.length > MAX_STEER_CLIENT_REQUEST_ID_LENGTH || !text) {
+      throw badRequest("Conversation steering requires text and a clientRequestId of at most 200 characters.");
+    }
+    const normalized = { ...request, clientRequestId, text };
+    const { attempt, entry, runId } = await this.validateCurrentTurn(project, normalized);
+    if (attempt.status !== "queued" && attempt.status !== "running") {
+      return { status: "already-terminal", attemptId: attempt.attemptId, ...(runId ? { runId } : {}) };
+    }
+    if (!entry || !sameRequest(entry.registration, normalized)) {
+      throw conflict("The requested Attempt is not owned by a current-process Provider Turn.");
+    }
+    if (attempt.nativeSessionId && entry.started && attempt.nativeSessionId !== entry.started.sessionId) {
+      throw conflict("The durable Provider Session does not match the started Turn identity.");
+    }
+    if (!entry.registration.canSteer) throw conflict("The current Provider Turn does not support realtime steering.");
+    if (entry.interruptPhase !== "running") throw conflict("The current Provider Turn is stopping and cannot be steered.");
+
+    const textHash = createHash("sha256").update(text, "utf8").digest("hex");
+    const existing = entry.steers.get(normalized.clientRequestId);
+    if (existing) {
+      if (existing.textHash !== textHash) throw conflict("The steering request id is already bound to different text.");
+      if (existing.receipt) return existing.receipt;
+      if (existing.submission) return existing.submission;
+    }
+    if ([...entry.steers.values()].some((candidate) => candidate.phase === "submitting")) {
+      throw conflict("A steering submission is still awaiting a definite Provider outcome.");
+    }
+
+    const active = this.exactActiveTurn(entry.registration);
+    if (!active) throw conflict("The requested Attempt is not backed by an active Provider Turn.");
+    const steer: SteerEntry = existing ?? { textHash, phase: "submitting", receipt: null, submission: null };
+    entry.steers.set(normalized.clientRequestId, steer);
+    return this.submitSteer(entry, normalized.clientRequestId, steer, active, text);
+  }
+
+  private async validateCurrentTurn(
+    project: ManagedProject,
+    request: ConversationTurnInterruptRequest,
+  ): Promise<{
+    attempt: StoredProviderAttempt;
+    entry: ControlEntry | null;
+    runId: string | undefined;
+  }> {
+    if (project.id !== request.projectId) throw conflict("Turn control project identity does not match the selected project.");
     const runtime = await this.options.projectRuntimeCoordinator.resolve(project);
     const paths = runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
     const database = await openProjectRuntimeWorkbenchDatabase(paths, { providerRegistry: this.options.providerRegistry });
@@ -97,59 +207,39 @@ export class ConversationTurnControlOwner {
       const conversation = database.conversations.readConversation(paths.projectId, request.conversationId);
       const attempt = database.providerAttempts.readProviderAttempt(paths.projectId, request.expectedAttemptId);
       if (!conversation || conversation.deletedAt) throw notFound("Conversation not found.");
-      if (conversation.productMode !== request.productMode
+      if (!attempt
+        || conversation.productMode !== request.productMode
         || conversation.selectedProviderId !== request.providerId
-        || attempt?.projectId !== paths.projectId
+        || attempt.projectId !== paths.projectId
         || attempt.conversationId !== conversation.conversationId
         || attempt.productMode !== request.productMode
         || attempt.providerId !== request.providerId
         || attempt.roleId !== "main-agent"
         || attempt.graphScopeId !== conversation.currentGraphScopeId) {
-        throw conflict("Interrupt request does not match the current Conversation and main Attempt.");
+        throw conflict("Turn control request does not match the current Conversation and main Attempt.");
       }
-      const entry = this.entries.get(controlKey(paths.projectId, conversation.conversationId));
-      if (attempt.status !== "queued" && attempt.status !== "running") {
-        const durableLink = database.providerAttempts
-          .listProviderThreads(paths.projectId, conversation.conversationId)
-          .find((candidate) => candidate.attemptId === attempt.attemptId
-            && candidate.providerId === attempt.providerId
-            && candidate.roleId === "main-agent"
-            && candidate.graphScopeId === attempt.graphScopeId);
-        const runId = durableLink?.runId
-          ?? (entry && sameRequest(entry.registration, request) ? entry.registration.runId : undefined);
-        return {
-          status: "already-terminal",
-          attemptId: attempt.attemptId,
-          ...(runId ? { runId } : {}),
-        };
-      }
-      if (!entry || !sameRequest(entry.registration, request)) {
-        throw conflict("The requested Attempt is not owned by a current-process Provider Turn.");
-      }
-      if (attempt.nativeSessionId && entry.started && attempt.nativeSessionId !== entry.started.sessionId) {
-        throw conflict("The durable Provider Session does not match the started Turn identity.");
-      }
-      if (entry.phase === "pending") {
-        return { status: "pending", attemptId: request.expectedAttemptId, runId: entry.registration.runId };
-      }
-      if (entry.submission) return entry.submission;
-      const active = this.exactActiveTurn(entry.registration);
-      if (!active) {
-        entry.phase = "pending";
-        this.invalidate(entry.registration);
-        return { status: "pending", attemptId: request.expectedAttemptId, runId: entry.registration.runId };
-      }
-      return this.submit(entry, active);
+      const entry = this.entries.get(controlKey(paths.projectId, conversation.conversationId)) ?? null;
+      const durableLink = database.providerAttempts
+        .listProviderThreads(paths.projectId, conversation.conversationId)
+        .find((candidate) => candidate.attemptId === attempt.attemptId
+          && candidate.providerId === attempt.providerId
+          && candidate.roleId === "main-agent"
+          && candidate.graphScopeId === attempt.graphScopeId);
+      return {
+        attempt,
+        entry,
+        runId: durableLink?.runId ?? (entry && sameRequest(entry.registration, request) ? entry.registration.runId : undefined),
+      };
     } finally {
       database.close();
     }
   }
 
-  private submit(entry: ControlEntry, knownActive?: ActiveProviderTurn): Promise<ConversationTurnInterruptReceipt> {
-    if (entry.submission) return entry.submission;
+  private submitInterrupt(entry: ControlEntry, knownActive?: ActiveProviderTurn): Promise<ConversationTurnInterruptReceipt> {
+    if (entry.interruptSubmission) return entry.interruptSubmission;
     const active = knownActive ?? this.exactActiveTurn(entry.registration);
     if (!active) {
-      entry.phase = "pending";
+      entry.interruptPhase = "pending";
       this.invalidate(entry.registration);
       return Promise.resolve({
         status: "pending",
@@ -157,9 +247,9 @@ export class ConversationTurnControlOwner {
         runId: entry.registration.runId,
       });
     }
-    entry.phase = "submitting";
+    entry.interruptPhase = "submitting";
     this.invalidate(entry.registration);
-    entry.submission = active.interrupt("User requested interrupt from the owning Conversation.")
+    entry.interruptSubmission = active.interrupt("User requested interrupt from the owning Conversation.")
       .then((result) => result.status === "already-terminal"
         ? {
           status: "already-terminal" as const,
@@ -173,13 +263,54 @@ export class ConversationTurnControlOwner {
         })
       .catch((error: unknown) => {
         if (error instanceof Error && error.name === "ProviderInterruptRejected") {
-          entry.phase = "running";
-          entry.submission = null;
+          entry.interruptPhase = "running";
+          entry.interruptSubmission = null;
           this.invalidate(entry.registration);
         }
         throw error;
       });
-    return entry.submission;
+    return entry.interruptSubmission;
+  }
+
+  private submitSteer(
+    entry: ControlEntry,
+    clientRequestId: string,
+    steer: SteerEntry,
+    active: ActiveProviderTurn,
+    text: string,
+  ): Promise<ConversationTurnSteerReceipt> {
+    if (steer.submission) return steer.submission;
+    steer.phase = "submitting";
+    this.invalidate(entry.registration);
+    steer.submission = active.steer(text)
+      .then(() => {
+        const current = this.entries.get(controlKey(entry.registration.projectId, entry.registration.conversationId));
+        if (current !== entry) {
+          return {
+            status: "already-terminal" as const,
+            attemptId: entry.registration.expectedAttemptId,
+            runId: entry.registration.runId,
+          };
+        }
+        const receipt = {
+          status: "steer-accepted" as const,
+          attemptId: entry.registration.expectedAttemptId,
+          runId: entry.registration.runId,
+        };
+        steer.phase = "accepted";
+        steer.receipt = receipt;
+        steer.submission = null;
+        this.invalidate(entry.registration);
+        return receipt;
+      })
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.name === "ProviderSteerRejected") {
+          entry.steers.delete(clientRequestId);
+          this.invalidate(entry.registration);
+        }
+        throw error;
+      });
+    return steer.submission;
   }
 
   private exactActiveTurn(registration: ConversationTurnRegistration): ActiveProviderTurn | null {
@@ -198,6 +329,14 @@ export class ConversationTurnControlOwner {
       throw conflict("Active Provider Turn does not match the registered Conversation Attempt.");
     }
     return active;
+  }
+
+  private hasExactActiveTurn(registration: ConversationTurnRegistration): boolean {
+    try {
+      return Boolean(this.exactActiveTurn(registration));
+    } catch {
+      return false;
+    }
   }
 
   private invalidate(registration: ConversationTurnRegistration): void {
@@ -220,7 +359,8 @@ function sameRegistration(left: ConversationTurnRegistration, right: Conversatio
   return sameRequest(left, right)
     && left.graphScopeId === right.graphScopeId
     && left.runId === right.runId
-    && left.roleId === right.roleId;
+    && left.roleId === right.roleId
+    && Boolean(left.canSteer) === Boolean(right.canSteer);
 }
 
 function sameStartedIdentity(registration: ConversationTurnRegistration, identity: ProviderTurnStartedIdentity): boolean {
@@ -246,5 +386,11 @@ function conflict(message: string): Error {
 function notFound(message: string): Error {
   const error = new Error(message);
   error.name = "NotFound";
+  return error;
+}
+
+function badRequest(message: string): Error {
+  const error = new Error(message);
+  error.name = "BadRequest";
   return error;
 }

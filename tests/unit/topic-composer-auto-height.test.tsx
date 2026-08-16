@@ -71,7 +71,7 @@ describe("Topic Composer height", () => {
     else delete (HTMLTextAreaElement.prototype as { scrollHeight?: number }).scrollHeight;
   });
 
-  it("keeps the Agent primary action as Stop while a draft is present", () => {
+  it("keeps Agent steer and Stop as independent running actions", () => {
     const onSend = vi.fn(async () => undefined);
     const onStop = vi.fn(async () => undefined);
     render(<TopicComposer
@@ -84,12 +84,40 @@ describe("Topic Composer height", () => {
       onStopAndContinue={onStop}
       actionRunning={null}
       currentWorkpadStatus="running"
+      runControlState={{ state: "running", canStop: true, canSteer: true, steerState: "idle" }}
     />);
+
+    fireEvent.click(screen.getByRole("button", { name: "发送给当前执行" }));
+    expect(onSend).toHaveBeenCalledOnce();
+    expect(onStop).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "停止当前执行" }));
     expect(onStop).toHaveBeenCalledOnce();
-    expect(onSend).not.toHaveBeenCalled();
     expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("keep this for the next turn");
+  });
+
+  it("disables Agent steer while submitting without disabling Stop", () => {
+    const onSend = vi.fn(async () => undefined);
+    const onStop = vi.fn(async () => undefined);
+    render(<TopicComposer
+      value="keep this text"
+      onChange={vi.fn()}
+      modelLabel="gpt"
+      projectId="project"
+      productMode="agent"
+      onSend={onSend}
+      onStopAndContinue={onStop}
+      actionRunning={null}
+      currentWorkpadStatus="running"
+      runControlState={{ state: "running", canStop: true, canSteer: false, steerState: "submitting" }}
+    />);
+
+    expect(screen.getByRole("button", { name: "正在发送给当前执行" }).hasAttribute("disabled")).toBe(true);
+    const stop = screen.getByRole("button", { name: "停止当前执行" });
+    expect(stop.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(stop);
+    expect(onStop).toHaveBeenCalledOnce();
+    expect(onSend).not.toHaveBeenCalled();
   });
 });
 

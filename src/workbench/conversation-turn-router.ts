@@ -219,6 +219,44 @@ export class ConversationTurnRouter {
     }
   };
 
+  readonly steerMainAgentTurn: NonNullable<ConversationTurnRoutingPort["steerMainAgentTurn"]> = async (
+    project,
+    conversationId,
+    clientRequestId,
+    text,
+  ) => {
+    if (!this.turnControl) return null;
+    const runtime = await this.requireRuntimeState(project);
+    const paths = runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      const conversation = database.conversations.readConversation(paths.projectId, conversationId);
+      if (!conversation || conversation.deletedAt) throw notFound("Conversation not found.");
+      if (conversation.productMode !== "harness") throw conflict("Harness Turn steering requires a Harness Conversation.");
+      const attempt = [...database.providerAttempts.listProviderAttempts(paths.projectId, conversation.conversationId)]
+        .reverse()
+        .find((candidate) => candidate.productMode === "harness"
+          && candidate.operationProfile === "main"
+          && candidate.roleId === "main-agent"
+          && candidate.graphScopeId === conversation.currentGraphScopeId
+          && (candidate.status === "queued" || candidate.status === "running"));
+      if (!attempt) return null;
+      const state = this.turnControl.state(paths.projectId, conversation.conversationId, attempt.attemptId);
+      if (state.state === "idle") throw conflict("The current Harness Attempt is not owned by a current-process Provider Turn.");
+      return this.turnControl.steer(project, {
+        projectId: paths.projectId,
+        productMode: "harness",
+        conversationId: conversation.conversationId,
+        providerId: attempt.providerId,
+        expectedAttemptId: attempt.attemptId,
+        clientRequestId,
+        text,
+      });
+    } finally {
+      database.close();
+    }
+  };
+
   readonly runAgentNativeChildFollowup: NonNullable<ConversationTurnRoutingPort["runAgentNativeChildFollowup"]> = async (input) => {
     const { runAgentNativeChildFollowup } = await import("./agent-native-child-lifecycle-service.js");
     return runAgentNativeChildFollowup({ ...input, providerRegistry: this.providerRegistry });

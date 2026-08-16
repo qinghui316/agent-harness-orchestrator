@@ -127,6 +127,46 @@ describe("Conversation composer controller", () => {
     expect(ports.operation.release).toHaveBeenCalledWith(expect.objectContaining({ key: "topic.create" }));
   });
 
+  it("calibrates a committed single-Provider Conversation when capability discovery was still loading", async () => {
+    const ports = composerPorts();
+    const creation = deferred<{ projectId: string; conversationId: string }>();
+    ports.session.createConversation.mockImplementation(() => creation.promise);
+    const initial = homeScope({
+      productMode: "agent",
+      selectedProviderId: null,
+      providerCapabilities: undefined,
+      providerCapabilitiesLoading: true,
+    });
+    const { result, rerender } = renderHook(
+      ({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
+      { initialProps: { scope: initial } },
+    );
+    act(() => result.current.setComposerText("plan this safely"));
+
+    let request!: Promise<unknown>;
+    act(() => { request = result.current.createConversation(); });
+    rerender({ scope: conversationScope({
+      productMode: "agent",
+      selectedProviderId: null,
+      providerCount: 1,
+      providerCapabilities: [providerCapability("codex", true)],
+      conversation: {
+        id: "conversation-single-provider",
+        productMode: "agent",
+        state: "active",
+        selectedProviderId: "codex",
+      },
+    }) });
+    await act(async () => {
+      creation.resolve({ projectId: "repo", conversationId: "conversation-single-provider" });
+      await request;
+    });
+
+    expect(ports.session.createConversation).toHaveBeenCalledWith(expect.objectContaining({ providerId: undefined }));
+    expect(ports.projection.refreshConversation).toHaveBeenCalledWith("repo", "conversation-single-provider");
+    expect(ports.timeline.calibrate).toHaveBeenCalledWith("repo", "conversation-single-provider", "main-agent");
+  });
+
   it("cleans transient uploads on failed creation while preserving the user's draft", async () => {
     const ports = composerPorts();
     ports.session.createConversation.mockRejectedValue(new Error("create failed"));
@@ -792,7 +832,7 @@ describe("Conversation composer controller", () => {
     expect(ports.onError).not.toHaveBeenCalledWith("stale Skill mutation failed");
   });
 
-  it("blocks running attachments, steers text, and keeps stop separate from projection ownership", async () => {
+  it("steers only running text while retaining attachments and keeping Stop separate", async () => {
     const ports = composerPorts();
     const runningScope = conversationScope({ running: true, selectedProviderId: "codex" });
     const { result } = renderHook(() => useConversationComposerController(runningScope, ports));
@@ -801,18 +841,17 @@ describe("Conversation composer controller", () => {
       result.current.setAttachments([attachment("attachment-1")]);
     });
     await act(async () => result.current.send());
-    expect(ports.actions.steer).not.toHaveBeenCalled();
-    expect(ports.onError).toHaveBeenLastCalledWith("当前执行中暂不支持追加附件；请等待执行暂停后再发送。");
-
-    act(() => result.current.setAttachments([]));
-    await act(async () => result.current.send());
     expect(ports.actions.steer).toHaveBeenCalledWith({
       projectId: "repo",
       conversationId: "conversation-1",
       productMode: "harness",
+      providerId: undefined,
+      expectedAttemptId: undefined,
+      clientRequestId: "request-1",
       prompt: "follow up",
     });
     expect(result.current.composerText).toBe("");
+    expect(result.current.attachments).toEqual([attachment("attachment-1")]);
 
     act(() => result.current.setComposerText("stop context"));
     await act(async () => result.current.stop());
@@ -823,6 +862,32 @@ describe("Conversation composer controller", () => {
       prompt: "stop context",
     });
     expect(ports.projection.refreshConversation).not.toHaveBeenCalled();
+  });
+
+  it("reuses the same steering request id when a failed submission is retried unchanged", async () => {
+    const ports = composerPorts();
+    ports.ids.createClientRequestId
+      .mockReturnValueOnce("steer-retry-id")
+      .mockReturnValueOnce("unexpected-new-id");
+    ports.actions.steer
+      .mockRejectedValueOnce(new Error("evidence write failed"))
+      .mockResolvedValueOnce(undefined);
+    const { result } = renderHook(() => useConversationComposerController(
+      conversationScope({ running: true }),
+      ports,
+    ));
+    act(() => result.current.setComposerText("same steer"));
+
+    await act(async () => {
+      await expect(result.current.send()).rejects.toThrow("evidence write failed");
+    });
+    expect(result.current.composerText).toBe("same steer");
+    await act(async () => result.current.send());
+
+    expect(ports.ids.createClientRequestId).toHaveBeenCalledOnce();
+    expect(ports.actions.steer).toHaveBeenNthCalledWith(1, expect.objectContaining({ clientRequestId: "steer-retry-id" }));
+    expect(ports.actions.steer).toHaveBeenNthCalledWith(2, expect.objectContaining({ clientRequestId: "steer-retry-id" }));
+    expect(result.current.composerText).toBe("");
   });
 
   it.each(["steer", "stop"] as const)("does not leak a late %s failure into a new mode scope", async (action) => {

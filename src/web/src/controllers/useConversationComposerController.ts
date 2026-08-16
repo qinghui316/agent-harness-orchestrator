@@ -22,6 +22,8 @@ export interface ConversationComposerScope {
   runControlState?: {
     state?: "idle" | "running" | "stopping";
     canStop: boolean;
+    canSteer?: boolean;
+    steerState?: "idle" | "submitting";
     providerId?: string;
     attemptId?: string;
   };
@@ -86,6 +88,7 @@ export interface ComposerActionRequest {
   productMode: ProductMode;
   providerId?: string;
   expectedAttemptId?: string;
+  clientRequestId?: string;
   prompt?: string;
 }
 
@@ -155,6 +158,7 @@ export function useConversationComposerController(
   const skillRequestGenerationRef = useRef(0);
   const draftRequestGenerationRef = useRef(0);
   const attachmentSelectionGenerationRef = useRef(0);
+  const steerRetryRef = useRef<{ key: string; clientRequestId: string } | null>(null);
   const scopeIdentityRef = useRef(composerScopeIdentity(scope));
   const turnModeOwnerIdentityRef = useRef<string | null>(null);
   const confirmedTurnModesRef = useRef(new Map<string, AgentTurnMode>());
@@ -363,7 +367,7 @@ export function useConversationComposerController(
     const generation = scopeGenerationRef.current;
     const capturedProjectId = currentScope.projectId;
     const capturedProductMode = composerProductMode(currentScope);
-    const capturedProviderId = currentScope.selectedProviderId ?? currentScope.conversation?.selectedProviderId ?? null;
+    const capturedProviderId = effectiveComposerProviderId(currentScope);
     const capturedAgentTurnMode = stateRef.current.agentTurnMode;
     const clientRequestId = (portsRef.current.ids ?? defaultComposerIds).createClientRequestId();
     const body = input.body ?? stateRef.current.composerText;
@@ -495,9 +499,43 @@ export function useConversationComposerController(
       conversationId: currentScope.conversation.id,
       draftSkillOverrides: draft.draftSkillOverrides,
     });
-    await applySkillOverrides(capturedSkillIdentity, prepared.skillOverrides);
-    if (Object.keys(prepared.skillOverrides).length > 0) {
-      await reloadSkills(capturedSkillIdentity.projectId, capturedSkillIdentity);
+    if (currentScope.running) {
+      if (!prepared.text) {
+        portsRef.current.onError("实时引导只发送文本；附件和其他选择会保留到下一回合。");
+        return;
+      }
+      const productMode = composerProductMode(currentScope);
+      if (currentScope.runControlState?.state === "stopping") {
+        portsRef.current.onError("当前执行正在停止，暂时不能发送实时引导。");
+        return;
+      }
+      if (productMode === "agent"
+        && (!currentScope.runControlState?.canSteer
+          || !currentScope.runControlState.providerId
+          || !currentScope.runControlState.attemptId)) {
+        portsRef.current.onError("当前 Agent 或 Provider 暂不支持向运行中的回合发送补充。");
+        return;
+      }
+      const steerIdentity = composerStopIdentity(currentScope);
+      const retryKey = `${steerIdentity}\0${prepared.text}`;
+      const clientRequestId = steerRetryRef.current?.key === retryKey
+        ? steerRetryRef.current.clientRequestId
+        : (portsRef.current.ids ?? defaultComposerIds).createClientRequestId();
+      steerRetryRef.current = { key: retryKey, clientRequestId };
+      await runAction("conversation.steer", () => portsRef.current.actions.steer({
+          projectId: currentScope.projectId!,
+          conversationId: currentScope.conversation!.id,
+          productMode,
+          providerId: currentScope.runControlState?.providerId,
+          expectedAttemptId: currentScope.runControlState?.attemptId,
+          clientRequestId,
+          prompt: prepared.text,
+        }), currentScope, draft.composerText, true, (actionGeneration, actionScope) => (
+          composerActionOwnsCurrentScope(actionGeneration, actionScope, scopeGenerationRef, scopeRef)
+          && composerStopIdentity(scopeRef.current) === steerIdentity
+        ));
+      if (steerRetryRef.current?.key === retryKey) steerRetryRef.current = null;
+      return;
     }
     if (!prepared.text && attachmentIds.length === 0) {
       if (composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) {
@@ -506,25 +544,11 @@ export function useConversationComposerController(
       }
       return;
     }
-    if (currentScope.running && attachmentIds.length > 0) {
-      portsRef.current.onError("当前执行中暂不支持追加附件；请等待执行暂停后再发送。");
-      return;
+    await applySkillOverrides(capturedSkillIdentity, prepared.skillOverrides);
+    if (Object.keys(prepared.skillOverrides).length > 0) {
+      await reloadSkills(capturedSkillIdentity.projectId, capturedSkillIdentity);
     }
     const outboundMessage = prepared.text || defaultAttachmentPrompt(attachmentIds.length);
-    if (currentScope.running) {
-      if (composerProductMode(currentScope) === "agent") {
-        portsRef.current.onError("当前 Agent 回合正在运行；请先停止当前回合，再发送下一条消息。");
-        return;
-      }
-      await runAction("conversation.steer", () => portsRef.current.actions.steer({
-        projectId: currentScope.projectId!,
-        conversationId: currentScope.conversation!.id,
-        productMode: composerProductMode(currentScope),
-        prompt: outboundMessage,
-      }), currentScope, draft.composerText, true);
-      if (composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) setFileRefs([]);
-      return;
-    }
     const turnModeError = resolveAgentTurnModeDisabledReason(currentScope, capturedAgentTurnMode);
     if (turnModeError) {
       portsRef.current.onError(turnModeError);
@@ -869,7 +893,7 @@ export function resolveAgentTurnModeDisabledReason(
   if (composerProductMode(scope) !== "agent" || agentTurnMode === "default" || scope.running) return null;
   if (scope.providerCapabilitiesLoading) return "正在检查当前 Agent 是否支持 Plan 模式。";
   if (scope.providerCapabilitiesError) return `无法确认 Plan 模式能力：${scope.providerCapabilitiesError}`;
-  const providerId = scope.selectedProviderId ?? scope.conversation?.selectedProviderId ?? null;
+  const providerId = effectiveComposerProviderId(scope);
   if (!providerId) return "请先选择支持 Plan 模式的 Agent。";
   const snapshot = scope.providerCapabilities?.find((candidate) => candidate.providerId === providerId);
   const plan = snapshot?.capabilities.find((capability) => capability.key === "turn.plan");
@@ -886,7 +910,7 @@ export function resolveAttachmentCapabilityDisabledReason(
   if (composerProductMode(scope) !== "agent" || attachments.length === 0 || scope.running) return null;
   if (scope.providerCapabilitiesLoading) return "正在检查当前 Agent 是否支持附件输入。";
   if (scope.providerCapabilitiesError) return `无法确认附件能力：${scope.providerCapabilitiesError}`;
-  const providerId = scope.selectedProviderId ?? scope.conversation?.selectedProviderId ?? null;
+  const providerId = effectiveComposerProviderId(scope);
   if (!providerId) return "请先选择支持附件输入的 Agent。";
   const snapshot = scope.providerCapabilities?.find((candidate) => candidate.providerId === providerId);
   if (!snapshot) return "无法确认当前 Agent 的附件能力。";
@@ -903,6 +927,12 @@ export function resolveAttachmentCapabilityDisabledReason(
 function topicAttachmentCapabilityProbe(file: File): Pick<TopicAttachment, "kind"> {
   const image = file.type.startsWith("image/");
   return { kind: image ? "image" : "text" };
+}
+
+function effectiveComposerProviderId(scope: ConversationComposerScope): string | null {
+  return scope.selectedProviderId
+    ?? scope.conversation?.selectedProviderId
+    ?? (scope.providerCount === 1 ? scope.providerCapabilities?.[0]?.providerId ?? null : null);
 }
 
 const defaultComposerDraftApi = {
@@ -968,12 +998,16 @@ function composerRequestOwnsCurrentScope(
   committedConversationId?: string,
 ): boolean {
   const currentScope = currentScopeRef.current;
+  const committedSingleProviderDefault = providerId === null
+    && Boolean(committedConversationId)
+    && currentScope.conversation?.id === committedConversationId
+    && currentScope.providerCount === 1;
   return (generation === generationRef.current
       || Boolean(committedConversationId && currentScope.conversation?.id === committedConversationId))
     && currentScope.projectId !== null
     && projectIds.includes(currentScope.projectId)
     && composerProductMode(currentScope) === productMode
-    && (currentScope.conversation?.selectedProviderId ?? currentScope.selectedProviderId ?? null) === providerId;
+    && (effectiveComposerProviderId(currentScope) === providerId || committedSingleProviderDefault);
 }
 
 function composerActionOwnsCurrentScope(

@@ -161,6 +161,12 @@ export interface ConversationTurnRoutingPort {
     project: ManagedProject,
     conversationId: string,
   ) => Promise<import("./conversation-turn-control.js").ConversationTurnInterruptReceipt | null>;
+  steerMainAgentTurn?: (
+    project: ManagedProject,
+    conversationId: string,
+    clientRequestId: string,
+    text: string,
+  ) => Promise<import("./conversation-turn-control.js").ConversationTurnSteerReceipt | null>;
   continueMainAgentTurn?: ConversationTurnContinuationPort;
   runAgentNativeChildFollowup?: (input: {
     project: ManagedProject;

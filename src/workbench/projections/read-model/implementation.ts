@@ -154,7 +154,10 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
         resolution: runtimeState.resolution,
         topicId: options.topicId,
       });
-      if (planningSnapshot) return planningSnapshot;
+      if (planningSnapshot) {
+        await calibrateHarnessTurnControl(input, runtimeState.resolution, planningSnapshot);
+        return planningSnapshot;
+      }
       throw new CurrentProjectConversationUnavailableError();
     }
   }
@@ -188,6 +191,45 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
     harnessGaps: gaps,
     warnings,
   };
+}
+
+async function calibrateHarnessTurnControl(
+  input: WorkbenchProjectInput,
+  resolution: ProjectRuntimeResolution,
+  snapshot: WorkbenchSnapshot,
+): Promise<void> {
+  const conversationId = snapshot.center.selectedTopic?.id;
+  const graphScopeId = snapshot.center.selectedTopic?.graphScopeId;
+  if (!conversationId || !graphScopeId || !snapshot.center.workpad.runControlState) return;
+  const database = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
+  try {
+    const attempt = [...database.providerAttempts.listProviderAttempts(resolution.paths.projectId, conversationId)]
+      .reverse()
+      .find((candidate) => candidate.productMode === "harness"
+        && candidate.operationProfile === "main"
+        && candidate.roleId === "main-agent"
+        && candidate.graphScopeId === graphScopeId
+        && (candidate.status === "queued" || candidate.status === "running"));
+    if (!attempt) return;
+    const control = input.turnControlStateResolver?.(resolution.paths.projectId, conversationId, attempt.attemptId);
+    snapshot.center.workpad.runControlState = {
+      ...snapshot.center.workpad.runControlState,
+      state: control?.state ?? "running",
+      canStop: control?.canInterrupt ?? false,
+      canSteer: control?.canSteer ?? false,
+      steerState: control?.steerState ?? "idle",
+      providerId: attempt.providerId,
+      attemptId: attempt.attemptId,
+      ...(control?.runId ? { runId: control.runId } : {}),
+      explanation: control?.state === "stopping"
+        ? "正在停止当前 Harness Provider 回合。"
+        : control?.canSteer
+          ? "可以向当前 Harness Provider 回合发送文本补充，也可以停止当前执行。"
+          : "当前 Harness Provider 回合没有可用的实时控制身份。",
+    };
+  } finally {
+    database.close();
+  }
 }
 
 async function requireReadyProjectRuntime(input: WorkbenchProjectInput): Promise<ProjectRuntimeResolution> {
@@ -350,14 +392,18 @@ async function buildAgentModeSnapshot(
       workpad.runControlState = {
         state: turnControl?.state ?? "running",
         canStop: turnControl?.canInterrupt ?? false,
+        canSteer: turnControl?.canSteer ?? false,
+        steerState: turnControl?.steerState ?? "idle",
         providerId: runningMainAttempt.providerId,
         attemptId: runningMainAttempt.attemptId,
         ...(turnControl?.runId ? { runId: turnControl.runId } : {}),
         pendingFeedbackCount: 0,
         explanation: turnControl?.state === "stopping"
           ? "正在停止当前 Agent 回合。"
-          : turnControl?.canInterrupt
-            ? "可以停止当前 Agent 回合，当前输入会保留用于下一回合。"
+          : turnControl?.canSteer
+            ? "可以向当前 Agent 回合发送文本补充，也可以停止当前执行。"
+            : turnControl?.canInterrupt
+              ? "可以停止当前 Agent 回合；当前 Provider 暂不支持实时引导。"
             : "当前 Agent 回合正在启动，等待精确控制身份。",
       };
     }

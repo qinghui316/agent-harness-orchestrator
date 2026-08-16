@@ -154,6 +154,55 @@ describe("workbench server", () => {
     });
   });
 
+  it("serves the exact Agent Turn steer JSON contract and rejects invalid identity before the Owner", async () => {
+    await new Promise<void>((resolve) => handle!.server.close(() => resolve()));
+    const steer = vi.fn(async () => ({ status: "already-terminal" as const, attemptId: "attempt-agent", runId: "run-agent" }));
+    const turnControl = {
+      steer,
+      state: () => ({ state: "idle" as const, canInterrupt: false, canSteer: false, steerState: "idle" as const }),
+      registerAttempt: () => undefined,
+      release: () => undefined,
+      onTurnStarted: () => undefined,
+    } as unknown as ConversationTurnControlOwner;
+    handle = await startWorkbenchServer({ project: project(), path: tempDir }, {
+      port: 0,
+      staticRoot,
+      turnControl,
+    });
+    const endpoint = `${handle.url}/api/projects/repo/workbench/conversations/conversation-agent/turn/steer`;
+
+    const wrongMode = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ productMode: "harness", providerId: "codex", expectedAttemptId: "attempt-agent", clientRequestId: "steer-1", text: "constraint" }),
+    });
+    expect(wrongMode.status).toBe(409);
+    const incomplete = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ productMode: "agent", providerId: "codex", expectedAttemptId: "attempt-agent", text: "constraint" }),
+    });
+    expect(incomplete.status).toBe(400);
+    expect(steer).not.toHaveBeenCalled();
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ productMode: "agent", providerId: "codex", expectedAttemptId: "attempt-agent", clientRequestId: "steer-1", text: " constraint " }),
+    });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ status: "already-terminal", attemptId: "attempt-agent", runId: "run-agent" });
+    expect(steer).toHaveBeenCalledWith(project(), {
+      projectId: "repo",
+      productMode: "agent",
+      conversationId: "conversation-agent",
+      providerId: "codex",
+      expectedAttemptId: "attempt-agent",
+      clientRequestId: "steer-1",
+      text: "constraint",
+    });
+  });
+
   it("requires mode-aware reads and makes first-send creation idempotent", async () => {
     expect((await fetch(`${handle!.url}/api/projects/repo/workbench/topics`)).status).toBe(400);
     expect((await fetch(`${handle!.url}/api/projects/repo/workbench/snapshot?productMode=invalid`)).status).toBe(400);

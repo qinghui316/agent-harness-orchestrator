@@ -179,7 +179,7 @@ describe("Workbench App owner composition", () => {
     expect(screen.getByRole("button", { name: "Agent" }).getAttribute("aria-pressed")).toBe("true");
 
     fireEvent.click(screen.getByRole("button", { name: "打开右侧工具" }));
-    expect(screen.getByTestId("right-tool-launcher-agent")).toBeTruthy();
+    expect(await screen.findByTestId("right-tool-launcher-agent")).toBeTruthy();
     expect(screen.queryByTestId("right-tool-launcher-confirm")).toBeNull();
     expect(screen.getByTestId("right-tool-launcher-files")).toBeTruthy();
     expect(screen.getByTestId("right-tool-launcher-git")).toBeTruthy();

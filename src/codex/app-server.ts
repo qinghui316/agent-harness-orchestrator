@@ -743,7 +743,16 @@ async function runCodexAppServerOperation(
         turnId: activeTurnId,
         startedAt,
         steer: async (input: string) => {
-          await sendRequest("turn/steer", { threadId: activeThreadId, expectedTurnId: activeTurnId, input: [userTextInput(input)] });
+          try {
+            await sendRequest("turn/steer", { threadId: activeThreadId, expectedTurnId: activeTurnId, input: [userTextInput(input)] });
+          } catch (error) {
+            if (error instanceof CodexAppServerJsonRpcError && error.method === "turn/steer") {
+              const rejection = new Error(error.rpcMessage, { cause: error });
+              rejection.name = "ProviderSteerRejected";
+              throw rejection;
+            }
+            throw error;
+          }
         },
         interrupt: async (reason?: string) => {
           void reason;

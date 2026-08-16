@@ -67,6 +67,34 @@ export function useCanonicalTimelineController(onError: (message: string) => voi
   const ingestEnvelope = useCallback((projectId: string, envelope: CanonicalTimelineEnvelope): void => {
     dispatch({ type: "envelope.received", projectId, envelope });
   }, []);
+  const showOptimisticSteer = useCallback((scope: CanonicalTimelineScope, clientRequestId: string, text: string): void => {
+    const messageId = `optimistic-steer:${clientRequestId}`;
+    const timestamp = new Date().toISOString();
+    dispatch({
+      type: "optimistic.received",
+      scope,
+      envelope: {
+        ...scope,
+        messageId,
+        position: Number.MAX_SAFE_INTEGER,
+        revision: 1,
+        orderClass: "sequence",
+        cells: [{
+          id: messageId,
+          kind: "user-message",
+          source: "user",
+          agentSurfaceId: scope.agentSurfaceId,
+          timestamp,
+          text,
+          status: "submitting",
+          realtime: true,
+        }],
+      },
+    });
+  }, []);
+  const discardOptimisticSteer = useCallback((scope: CanonicalTimelineScope, clientRequestId: string): void => {
+    dispatch({ type: "optimistic.discarded", scope, messageId: `optimistic-steer:${clientRequestId}` });
+  }, []);
   const clearProject = useCallback((projectId: string) => {
     dispatch({ type: "project.cleaned", projectId });
   }, []);
@@ -74,5 +102,14 @@ export function useCanonicalTimelineController(onError: (message: string) => voi
     dispatch({ type: "conversation.cleaned", projectId, conversationId });
   }, []);
 
-  return { state, loadLatest, loadEarlier, ingestEnvelope, clearProject, clearConversation };
+  return {
+    state,
+    loadLatest,
+    loadEarlier,
+    ingestEnvelope,
+    showOptimisticSteer,
+    discardOptimisticSteer,
+    clearProject,
+    clearConversation,
+  };
 }

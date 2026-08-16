@@ -1,5 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, useState, type ReactElement } from "react";
-import { Send, X } from "lucide-react";
+import { Send, Square } from "lucide-react";
 import type { AgentTurnMode, ProductMode, SkillListItem, TopicAttachment, TopicFileReference, WorkpadRuntimeStatus } from "../types.js";
 import { ComposerAttachButton, ComposerAttachmentList, filesFromDrop, hasFileDrag, imageFilesFromPaste } from "./ComposerAttachments.js";
 import { ComposerControls } from "./ComposerControls.js";
@@ -33,6 +33,7 @@ export function TopicComposer({
   onStopAndContinue,
   actionRunning,
   currentWorkpadStatus,
+  runControlState,
   providerOptions,
   selectedProviderId,
   onSelectProvider,
@@ -61,6 +62,12 @@ export function TopicComposer({
   onStopAndContinue?: () => Promise<void>;
   actionRunning: string | null;
   currentWorkpadStatus?: WorkpadRuntimeStatus;
+  runControlState?: {
+    state?: "idle" | "running" | "stopping";
+    canStop: boolean;
+    canSteer?: boolean;
+    steerState?: "idle" | "submitting";
+  };
   providerOptions?: Array<{ id: string; label: string }>;
   selectedProviderId?: string;
   onSelectProvider?: (providerId: string) => void;
@@ -71,7 +78,7 @@ export function TopicComposer({
   const runningConversation = Boolean(actionRunning) || currentWorkpadStatus === "running";
   const canStop = runningConversation
     && Boolean(onStopAndContinue)
-    && (productMode === "agent" || !value.trim());
+    && Boolean(runControlState?.canStop);
   const hasAttachments = (attachments?.length ?? 0) > 0;
   const contextSummary = useMemo(() => buildComposerContextSummary({
     skills,
@@ -80,9 +87,23 @@ export function TopicComposer({
     attachments,
   }), [skills, activeSkillIds, selectedFileRefs, attachments]);
   const canSend = Boolean(value.trim()) || hasAttachments;
-  const sendDisabled = Boolean(disabledReason) || Boolean(agentTurnModeDisabledReason) || (!canSend && !canStop);
-  const buttonTitle = canStop ? "停止当前执行" : runningConversation ? "发送给当前执行" : "发送";
-  const buttonIcon = canStop ? <X size={16} /> : <Send size={16} />;
+  const steeringUnavailable = runningConversation
+    && (!value.trim()
+      || !runControlState?.canSteer
+      || runControlState.steerState === "submitting"
+      || runControlState.state === "stopping");
+  const sendDisabled = Boolean(disabledReason)
+    || (!runningConversation && Boolean(agentTurnModeDisabledReason))
+    || (runningConversation ? steeringUnavailable : !canSend);
+  const buttonTitle = runningConversation
+    ? runControlState?.state === "stopping"
+      ? "当前执行正在停止"
+      : runControlState?.steerState === "submitting"
+        ? "正在发送给当前执行"
+        : runControlState?.canSteer
+          ? "发送给当前执行"
+          : "当前执行不支持实时引导"
+    : "发送";
   useLayoutEffect(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
@@ -102,8 +123,7 @@ export function TopicComposer({
     return () => observer.disconnect();
   }, []);
   function submit(): void {
-    if (canStop) void onStopAndContinue?.();
-    else void onSend();
+    void onSend();
   }
   return (
     <ComposerFrame
@@ -146,13 +166,22 @@ export function TopicComposer({
       toolbar={<>
         <ComposerAttachButton disabled={Boolean(disabledReason)} onAttachFiles={onAttachFiles} />
         <span className="composer-spacer" />
+        {canStop ? <button
+          className="composer-stop"
+          type="button"
+          title="停止当前执行"
+          aria-label="停止当前执行"
+          onClick={() => void onStopAndContinue?.()}
+        >
+          <Square size={14} fill="currentColor" />
+        </button> : null}
         <button
           className={`composer-send ${actionRunning ? "running" : ""}`}
           disabled={sendDisabled}
-          title={agentTurnModeDisabledReason ?? buttonTitle}
+          title={!runningConversation && agentTurnModeDisabledReason ? agentTurnModeDisabledReason : buttonTitle}
           onClick={submit}
         >
-          {buttonIcon}
+          <Send size={16} />
         </button>
       </>}
     >
@@ -195,7 +224,7 @@ export function TopicComposer({
         }}
         disabled={Boolean(disabledReason)}
         placeholder={disabledReason ?? (runningConversation
-          ? productMode === "agent" ? "当前回合运行中；输入会保留到下一回合" : "补充要求；支持实时引导时会发送给当前执行"
+          ? runControlState?.canSteer ? "补充当前执行" : "当前回合运行中"
           : "输入问题或下一步需求")}
       />
     </ComposerFrame>

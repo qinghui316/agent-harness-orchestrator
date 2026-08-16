@@ -128,15 +128,23 @@ interrupts requests without live-turn proof. Secret answer plaintext must not
 enter SQLite, Timeline, SSE, or logs.
 
 `ConversationTurnControlOwner` is the single provider-neutral owner for stopping
-current Main turns in either product mode. SQLite Conversation, ProviderAttempt,
-ThreadLink, and Timeline rows remain durable truth; the Owner retains only
-process-local running/pending/submitting deduplication and never persists a
-second control state machine. Public requests carry project, mode, Conversation,
-Provider, and expected Attempt identities, while native thread/turn IDs remain
-inside adapters. Stop before native Turn start is queued against the exact
-Attempt, unknown transport stays stopping, and only an explicit Provider
-rejection may restore running. Agent Stop does not require Harness readiness;
-Harness uses this owner before its existing local-run stop fallback.
+and steering current Main turns in either product mode. SQLite Conversation,
+ProviderAttempt, ThreadLink, and Timeline rows remain durable truth; the Owner
+retains only process-local active-turn identity and interrupt/Steer submission
+deduplication and never persists a second control state machine. Public requests
+carry project, mode, Conversation, Provider, expected Attempt, and bounded client
+request identities, while native thread/turn IDs remain inside adapters. Stop
+before native Turn start is queued against the exact Attempt, unknown interrupt
+transport stays stopping, and only an explicit Provider rejection may restore
+running. Steer additionally proves the current graph, run, Session, runtime
+scope, and Provider turn, and requires the optional `turn.steer` capability.
+Provider acceptance precedes canonical `steering-sent` evidence; an uncertain
+submission cannot be replayed, while an accepted request whose evidence write
+failed may only retry the idempotent evidence write. Steer carries trimmed text
+only. Attachments, Skills, file references, and Agent turn mode remain next-turn
+inputs. Agent control does not require Harness readiness or use pending-feedback;
+Harness uses the shared owner for an active Provider Turn and retains its local
+pending-feedback fallback only when no Provider Attempt owns the execution.
 
 After Workbench restart, Agent Main Attempts left queued or running require
 exact active Provider proof. Without it, startup recovery atomically marks the

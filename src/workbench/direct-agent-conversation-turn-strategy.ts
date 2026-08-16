@@ -139,6 +139,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
       graphScopeId,
       runId,
       roleId: "main-agent",
+      canSteer: capabilitySnapshot.capabilities.some((capability) => capability.key === "turn.steer" && capability.runtime === "ready"),
     };
     const delivery = new CanonicalTimelineDelivery(database, "agent", input.live);
     const capture = createAssistantTranscriptCapture(input.live, (snapshot) => {

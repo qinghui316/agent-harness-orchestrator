@@ -324,6 +324,21 @@ describe("Project conversation session owner", () => {
   it("binds topic.created only to the exact create request identity", async () => {
     const fixture = ownerFixture();
     const routed: WorkbenchLiveEvent[] = [];
+    fixture.api.loadSnapshot.mockImplementation(async (projectId: string, productMode: ProductMode, conversationId: string | null) => {
+      const next = snapshot(projectId, conversationId, undefined, productMode);
+      if (!conversationId) {
+        next.left.topics = [{
+          id: "conv-correct",
+          productMode,
+          title: "Correct",
+          state: "active",
+          selectedProviderId: "codex",
+          demandId: "conv-correct",
+          graphScopeId: "scope-1",
+        }];
+      }
+      return next;
+    });
     let finishStream!: () => void;
     const streamPending = new Promise<void>((resolve) => { finishStream = resolve; });
     fixture.api.createDemandConversation.mockImplementation(async (_input, onEvent) => {
@@ -363,6 +378,10 @@ describe("Project conversation session owner", () => {
         event: "run.status",
         data: { projectId: "repo-1", productMode: "agent", conversationId: "conv-correct", status: "running" },
       });
+      onEvent({
+        event: "conversation.turn-control.invalidated",
+        data: { conversationId: "conv-correct", attemptId: "attempt-correct" },
+      });
       await streamPending;
     });
     const { result } = renderHook(() => useProjectConversationSession({
@@ -399,14 +418,11 @@ describe("Project conversation session owner", () => {
     });
 
     await waitFor(() => expect(result.current.selectedTopic).toBe("conv-correct"));
-    expect(result.current.pendingDemandConversation).toMatchObject({
-      id: "conv-correct",
-      clientRequestId: "request-correct",
-      canonical: true,
-    });
-    expect(routed.map((event) => event.event)).toEqual(["topic.created", "run.status"]);
+    expect(routed.map((event) => event.event)).toEqual(["topic.created", "run.status", "conversation.turn-control.invalidated"]);
     expect(routed[0]?.data.clientRequestId).toBe("request-correct");
     expect(routed.every((event) => event.data.conversationId === "conv-correct")).toBe(true);
+    await waitFor(() => expect(fixture.api.loadSnapshot).toHaveBeenCalledWith("repo-1", "agent", "conv-correct"));
+    await waitFor(() => expect(result.current.pendingDemandConversation).toBeNull());
     expect(fixture.navigation.syncLocation.mock.calls.filter(([, conversationId]) => conversationId === "conv-correct")).toHaveLength(1);
 
     act(() => result.current.acceptCanonicalConversation({
@@ -417,7 +433,7 @@ describe("Project conversation session owner", () => {
       title: "Wrong Conversation",
     }));
     expect(result.current.selectedTopic).toBe("conv-correct");
-    expect(result.current.pendingDemandConversation?.id).toBe("conv-correct");
+    expect(result.current.pendingDemandConversation).toBeNull();
     expect(fixture.navigation.syncLocation.mock.calls.some(([, conversationId]) => (
       conversationId === "conv-conflict" || conversationId === "conv-same-request-wrong-conversation"
     ))).toBe(false);
@@ -652,6 +668,36 @@ describe("Project conversation session owner", () => {
     });
     expect(result.current.selectedProjectId).toBe("registered");
     expect(result.current.selectedTopic).toBe("registered-conversation");
+  });
+
+  it("loads Agent snapshots without Harness readiness while keeping Harness diagnostic-only", async () => {
+    const status: ProjectStatus = {
+      project: { id: "agent-only", name: "Agent only", path: "C:/agent-only" },
+      path: "C:/agent-only",
+      pathExists: true,
+      isGitRepo: true,
+      managed: false,
+      harness: {
+        projectPath: "C:/agent-only",
+        managed: false,
+        readiness: "missing",
+        activeChanges: [],
+        pendingEvolution: false,
+        components: [],
+      },
+    };
+    const agentFixture = ownerFixture({ restore: { projectId: "agent-only", topicId: null, orchestrationOpen: false, settingsOpen: false } });
+    agentFixture.api.loadProjects.mockResolvedValue([status]);
+    const agent = renderHook(() => useProjectConversationSession({ ...agentFixture.ports, productMode: "agent", autoLoad: false }));
+    await act(async () => { await agent.result.current.loadApp(); });
+    expect(agentFixture.api.loadSnapshot).toHaveBeenCalledWith("agent-only", "agent", null);
+
+    const harnessFixture = ownerFixture({ restore: { projectId: "agent-only", topicId: null, orchestrationOpen: false, settingsOpen: false } });
+    harnessFixture.api.loadProjects.mockResolvedValue([status]);
+    const harness = renderHook(() => useProjectConversationSession({ ...harnessFixture.ports, productMode: "harness", autoLoad: false }));
+    await act(async () => { await harness.result.current.loadApp(); });
+    expect(harnessFixture.api.loadSnapshot).not.toHaveBeenCalled();
+    expect(harness.result.current.snapshot.warnings).toContain("首次需求会根据项目情况建立必要工作说明。");
   });
 
   it("keeps committed identity when the live stream fails after topic.created", async () => {

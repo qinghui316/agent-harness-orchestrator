@@ -65,6 +65,8 @@ export type CanonicalTimelineState = {
 
 export type CanonicalTimelineAction =
   | { type: "envelope.received"; projectId: string; envelope: CanonicalTimelineEnvelope }
+  | { type: "optimistic.received"; scope: CanonicalTimelineScope; envelope: CanonicalTimelineEnvelope }
+  | { type: "optimistic.discarded"; scope: CanonicalTimelineScope; messageId: string }
   | { type: "request.started"; scope: CanonicalTimelineScope; requestKind: CanonicalTimelineRequestKind; generation: number }
   | {
     type: "page.received";
@@ -122,6 +124,10 @@ export function canonicalTimelineReducer(
   switch (action.type) {
     case "envelope.received":
       return receiveEnvelope(state, action.projectId, action.envelope);
+    case "optimistic.received":
+      return receiveOptimisticEnvelope(state, action.scope, action.envelope);
+    case "optimistic.discarded":
+      return discardOptimisticEnvelope(state, action.scope, action.messageId);
     case "request.started":
       return startRequest(state, action.scope, action.requestKind, action.generation);
     case "page.received":
@@ -141,6 +147,43 @@ export function canonicalTimelineReducer(
         ? state
         : { surfaces: {}, lastMutation: cleanupMutation("*") };
   }
+}
+
+function receiveOptimisticEnvelope(
+  state: CanonicalTimelineState,
+  scope: CanonicalTimelineScope,
+  envelope: CanonicalTimelineEnvelope,
+): CanonicalTimelineState {
+  assertEnvelope(envelope);
+  if (!sameScope(scope, scopeForEnvelope(scope.projectId, envelope))) {
+    throw new Error("Optimistic Timeline envelope scope does not match its selected surface.");
+  }
+  const key = canonicalTimelineScopeKey(scope);
+  const surface = state.surfaces[key] ?? emptySurface(scope);
+  if (surface.envelopes[envelope.messageId]) return state;
+  const mutation = mutationFor(key, "append-tail", surface.watermark, [envelope.messageId], [], []);
+  return putSurface(state, {
+    ...surface,
+    envelopes: {
+      ...surface.envelopes,
+      [envelope.messageId]: { envelope: cloneEnvelope(envelope), lane: "realtime" },
+    },
+    lastMutation: mutation,
+  }, mutation);
+}
+
+function discardOptimisticEnvelope(
+  state: CanonicalTimelineState,
+  scope: CanonicalTimelineScope,
+  messageId: string,
+): CanonicalTimelineState {
+  const key = canonicalTimelineScopeKey(scope);
+  const surface = state.surfaces[key];
+  if (!surface?.envelopes[messageId]) return state;
+  const envelopes = { ...surface.envelopes };
+  delete envelopes[messageId];
+  const mutation = mutationFor(key, "calibrate", surface.watermark, [], [], [messageId]);
+  return putSurface(state, { ...surface, envelopes, lastMutation: mutation }, mutation);
 }
 
 function startRequest(

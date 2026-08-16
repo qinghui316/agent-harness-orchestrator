@@ -917,6 +917,23 @@
   background: var(--accent);
 }
 
+.composer-stop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--danger);
+  cursor: pointer;
+}
+
+.composer-stop:hover {
+  background: var(--bg-hover);
+}
+
 
 .agent-workspace-composer {
   width: 100%;

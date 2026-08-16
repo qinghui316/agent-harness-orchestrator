@@ -186,7 +186,12 @@ describe("DirectAgentConversationTurnStrategy", () => {
     allowProviderStart.resolve();
     await expect(running).resolves.toMatchObject({ mode: "chat" });
     expect(provider.interrupts).toBe(1);
-    expect(turnControl.state(fixture.project.id, input.conversation.conversationId)).toEqual({ state: "idle", canInterrupt: false });
+    expect(turnControl.state(fixture.project.id, input.conversation.conversationId)).toEqual({
+      state: "idle",
+      canInterrupt: false,
+      canSteer: false,
+      steerState: "idle",
+    });
     const database = await openProjectRuntimeWorkbenchDatabase(fixture.paths);
     try {
       expect(database.providerAttempts.readProviderAttempt(fixture.project.id, request.attemptId)?.status).toBe("interrupted");
@@ -211,6 +216,77 @@ describe("DirectAgentConversationTurnStrategy", () => {
       attemptId: request.attemptId,
       runId: request.runId,
     });
+  });
+
+  it("steers the exact active Turn once, retries explicit rejection, and fences uncertain transport", async () => {
+    const releaseProvider = deferred<void>();
+    const providerEntered = deferred<void>();
+    const rejected = new Error("steer rejected");
+    rejected.name = "ProviderSteerRejected";
+    const uncertain = new Error("transport disconnected");
+    const provider = fakeProvider({
+      waitForRelease: releaseProvider.promise,
+      onEntered: () => providerEntered.resolve(),
+      steerErrors: [rejected, undefined, uncertain],
+    });
+    const registry = new ProviderRegistry();
+    registry.register(provider.descriptor);
+    const turnControl = new ConversationTurnControlOwner({
+      providerRegistry: registry,
+      projectRuntimeCoordinator: {
+        resolve: async () => ({ state: "onboarding", project: fixture.project, paths: fixture.paths }),
+      },
+      onInvalidated: () => undefined,
+    });
+    const strategy = new DirectAgentConversationTurnStrategy({
+      providerRegistry: registry,
+      resolveRuntimePaths: () => fixture.paths,
+      turnControl,
+    });
+    const input = await initialTurnInput(fixture, "steer this turn");
+    const running = strategy.execute(input, { skillContext: { resolve: async () => skillResolution() } });
+    await providerEntered.promise;
+    const attempt = provider.requests[0]!;
+    expect(turnControl.state(fixture.project.id, input.conversation.conversationId, attempt.attemptId)).toMatchObject({
+      state: "running",
+      canSteer: true,
+      steerState: "idle",
+    });
+    const baseRequest = {
+      projectId: fixture.project.id,
+      productMode: "agent" as const,
+      conversationId: input.conversation.conversationId,
+      providerId: "codex",
+      expectedAttemptId: attempt.attemptId,
+    };
+
+    const rejectedRequest = { ...baseRequest, clientRequestId: "steer-rejected", text: "first correction" };
+    await expect(turnControl.steer(fixture.project, {
+      ...baseRequest,
+      clientRequestId: "x".repeat(201),
+      text: "bounded identity",
+    })).rejects.toMatchObject({ name: "BadRequest" });
+    await expect(turnControl.steer(fixture.project, rejectedRequest)).rejects.toBe(rejected);
+    await expect(turnControl.steer(fixture.project, rejectedRequest)).resolves.toMatchObject({ status: "steer-accepted" });
+    await expect(turnControl.steer(fixture.project, rejectedRequest)).resolves.toMatchObject({ status: "steer-accepted" });
+    await expect(turnControl.steer(fixture.project, { ...rejectedRequest, text: "different correction" })).rejects.toMatchObject({ name: "Conflict" });
+
+    const uncertainRequest = { ...baseRequest, clientRequestId: "steer-uncertain", text: "uncertain correction" };
+    await expect(turnControl.steer(fixture.project, uncertainRequest)).rejects.toBe(uncertain);
+    await expect(turnControl.steer(fixture.project, uncertainRequest)).rejects.toBe(uncertain);
+    await expect(turnControl.steer(fixture.project, {
+      ...baseRequest,
+      clientRequestId: "steer-after-uncertain",
+      text: "must not overtake uncertain transport",
+    })).rejects.toMatchObject({ name: "Conflict" });
+    expect(provider.steers).toEqual(["first correction", "first correction", "uncertain correction"]);
+    expect(turnControl.state(fixture.project.id, input.conversation.conversationId, attempt.attemptId)).toMatchObject({
+      canSteer: false,
+      steerState: "submitting",
+    });
+
+    releaseProvider.resolve();
+    await expect(running).resolves.toMatchObject({ mode: "chat" });
   });
 
   it("rejects a duplicate Turn registration when any exact identity field changes", () => {
@@ -1282,6 +1358,7 @@ interface FakeProviderBehavior {
   beforeActive?: Promise<void>;
   interruptErrors?: Error[];
   interruptResult?: "interrupt-requested" | "already-terminal";
+  steerErrors?: Array<Error | undefined>;
   onEntered?: () => void;
   skills?: ProviderNativeSkill[];
   childCapability?: boolean;
@@ -1306,6 +1383,7 @@ function fakeProvider(behavior: FakeProviderBehavior = {}): {
   descriptor: ProviderDescriptor;
   requests: ProviderTurnRequest[];
   interrupts: number;
+  steers: string[];
   inspectedChildren: string[];
   continuedChildren: string[];
   inspectedLineages: Array<{ parent: string; target: string }>;
@@ -1315,6 +1393,7 @@ function fakeProvider(behavior: FakeProviderBehavior = {}): {
   const requests: ProviderTurnRequest[] = [];
   let active: ActiveProviderTurn | null = null;
   let interrupts = 0;
+  const steers: string[] = [];
   const inspectedChildren: string[] = [];
   const continuedChildren: string[] = [];
   const inspectedLineages: Array<{ parent: string; target: string }> = [];
@@ -1380,7 +1459,11 @@ function fakeProvider(behavior: FakeProviderBehavior = {}): {
           session: { providerId, sessionId },
           turnId: "turn-1",
           startedAt: new Date().toISOString(),
-          steer: async () => undefined,
+          steer: async (input) => {
+            steers.push(input);
+            const error = behavior.steerErrors?.shift();
+            if (error) throw error;
+          },
           interrupt: async () => {
             interrupts += 1;
             const error = behavior.interruptErrors?.shift();
@@ -1563,6 +1646,7 @@ function fakeProvider(behavior: FakeProviderBehavior = {}): {
     inspectedLineages,
     continuedLineages,
     get interrupts() { return interrupts; },
+    steers,
   };
 }
 
@@ -1599,6 +1683,7 @@ function errorMessages(error: unknown): string[] {
 
 function capabilitySnapshot(productMode: "agent" | "harness", childCapability = true): ProviderCapabilitySnapshot {
   const keys = new Set<ProviderCapabilityKey>(Object.values(PROVIDER_OPERATION_CAPABILITIES).flat());
+  keys.add("turn.steer");
   if (!childCapability) {
     keys.delete("child.spawn");
     keys.delete("child.result");

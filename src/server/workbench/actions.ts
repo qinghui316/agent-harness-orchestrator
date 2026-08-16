@@ -117,6 +117,7 @@ async function executeWorkflowAction(input: WorkbenchProjectInput & { project: M
   if (!turnRouter) throw new Error("Workbench Workflow turn routing is not composed.");
   const result = await runWorkbenchWorkflowAction(input.project, {
     actionType,
+    clientRequestId: body.clientRequestId,
     changeId: body.changeId,
     graphScopeId: body.graphScopeId,
     prompt: body.prompt,

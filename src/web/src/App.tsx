@@ -136,6 +136,7 @@ export function App(): ReactElement {
   const [rightToolRailWidth, setRightToolRailWidth] = useState(RIGHT_RAIL_DEFAULT_WIDTH);
   const [projectionVersion, setProjectionVersion] = useState(0);
   const selectedProjectIdRef = useRef<string | null>(null);
+  const selectedConversationIdRef = useRef<string | null>(null);
   const projectionEventRouterRef = useRef<(projectId: string, event: WorkbenchLiveEvent) => void>(() => undefined);
   const session = useProjectConversationSession({
     productMode: appMode.productMode,
@@ -435,7 +436,43 @@ export function App(): ReactElement {
   }
 
   async function runComposerActionRequest(actionType: "conversation.steer" | "conversation.interrupt", request: ComposerActionRequest): Promise<void> {
-    await conversationActions.runWorkflowAction(actionType, { prompt: request.prompt });
+    await conversationActions.runWorkflowAction(actionType, {
+      prompt: request.prompt,
+      clientRequestId: request.clientRequestId,
+    });
+  }
+
+  async function runComposerSteerRequest(request: ComposerActionRequest): Promise<void> {
+    if (!request.clientRequestId || !request.prompt) throw new Error("Conversation steering requires request and text identity.");
+    const timelineScope = {
+      projectId: request.projectId,
+      productMode: request.productMode,
+      conversationId: request.conversationId,
+      agentSurfaceId: "main-agent",
+    } as const;
+    timeline.showOptimisticSteer(timelineScope, request.clientRequestId, request.prompt);
+    try {
+      if (request.productMode !== "agent") {
+        await runComposerActionRequest("conversation.steer", request);
+      } else {
+        if (!request.providerId || !request.expectedAttemptId) {
+          throw new Error("Agent steering requires the exact Provider and Attempt identity.");
+        }
+        await conversationActions.steerAgentTurn({
+          projectId: request.projectId,
+          conversationId: request.conversationId,
+          providerId: request.providerId,
+          expectedAttemptId: request.expectedAttemptId,
+          clientRequestId: request.clientRequestId,
+          text: request.prompt,
+        });
+      }
+      await timeline.loadLatest(timelineScope);
+      timeline.discardOptimisticSteer(timelineScope, request.clientRequestId);
+    } catch (error) {
+      timeline.discardOptimisticSteer(timelineScope, request.clientRequestId);
+      throw error;
+    }
   }
 
   async function runComposerStopRequest(request: ComposerActionRequest): Promise<void> {
@@ -528,6 +565,7 @@ export function App(): ReactElement {
   const loadingWorkspaceResourceIds = workspaceResources.loadingResourceIds;
   const activeTopicIsConversation = activeTopic?.kind === "conversation";
   selectedProjectIdRef.current = selectedProjectId;
+  selectedConversationIdRef.current = activeTopic?.id ?? null;
   const selectedProjectDefaultProviderId = projects.find((item) => item.project?.id === selectedProjectId)?.project?.defaultProviderId ?? null;
   const providerConfiguration = useProviderConfigurationController({
     projectId: selectedProjectId,
@@ -546,7 +584,8 @@ export function App(): ReactElement {
   const composerProviderOptions = providerCapabilities.map((provider) => ({ id: provider.providerId, label: provider.displayName }));
   const isPendingTopic = Boolean(activePendingConversation && !activePendingConversation.canonical);
   const activeWorkpad = activePendingConversation ? emptyWorkpad(activePendingConversation.title) : snapshot.center.workpad ?? emptyWorkpad(activeTopic?.title ?? projectDisplayName(snapshot.project));
-  const agentRunControl = appMode.productMode === "agent" ? activeWorkpad.runControlState : undefined;
+  const conversationRunControl = activeWorkpad.runControlState;
+  const agentRunControl = appMode.productMode === "agent" ? conversationRunControl : undefined;
   const composerRunning = appMode.productMode === "agent"
     ? Boolean(agentRunControl?.attemptId && agentRunControl.providerId && agentRunControl.state !== "idle")
     : activeWorkpad.conversationLifecycle === "running"
@@ -565,7 +604,7 @@ export function App(): ReactElement {
     } : null,
     managed: Boolean(selectedProjectStatus?.managed),
     running: composerRunning,
-    runControlState: agentRunControl,
+    runControlState: conversationRunControl,
     selectedProviderId: composerProviderId,
     providerCount: providerCapabilities.length,
     providerCapabilities,
@@ -578,7 +617,7 @@ export function App(): ReactElement {
       createConversation: (request) => session.createDemandConversation(request, routeProjectionEventForProject),
     },
     actions: {
-      steer: (request) => runComposerActionRequest("conversation.steer", request),
+      steer: runComposerSteerRequest,
       stop: runComposerStopRequest,
     },
     projection: {
@@ -674,12 +713,18 @@ export function App(): ReactElement {
       created: (projectId, data) => {
         const topicId = data.topic.conversationId ?? data.topic.id ?? data.topic.changeId;
         if (!topicId) return;
-        session.acceptCanonicalConversation({
+        const accepted = session.acceptCanonicalConversation({
           projectId,
+          productMode: data.productMode,
+          clientRequestId: data.clientRequestId,
           conversationId: topicId,
           title: data.topic.title,
           selectedProviderId: data.topic.selectedProviderId,
         });
+        if (accepted) {
+          selectedConversationIdRef.current = topicId;
+          void refresh(projectId, topicId);
+        }
       },
       updated: (projectId, data) => {
         session.reconcileConversationTitle(projectId, data.conversation);
@@ -709,7 +754,7 @@ export function App(): ReactElement {
     },
     turnControl: {
       invalidate: (projectId, data) => {
-        if (selectedProjectIdRef.current !== projectId || activeTopic?.id !== data.conversationId) return;
+        if (selectedProjectIdRef.current !== projectId || selectedConversationIdRef.current !== data.conversationId) return;
         void refresh(projectId, data.conversationId);
       },
     },
@@ -1083,6 +1128,7 @@ export function App(): ReactElement {
                   onStopAndContinue={stopAndContinueCurrentRun}
                   actionRunning={actionRunning}
                   currentWorkpadStatus={composerRunning ? "running" : currentWorkpadSummary(snapshot, activeTopic)?.runtimeStatus}
+                  runControlState={activeWorkpad.runControlState}
                   providerOptions={composerProviderOptions}
                   selectedProviderId={composerProviderId ?? activeTopic.selectedProviderId}
                   onSelectProvider={(providerId) => { void providerConfiguration.selectProvider(providerId); }}

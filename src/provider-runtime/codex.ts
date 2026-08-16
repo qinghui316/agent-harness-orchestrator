@@ -161,6 +161,7 @@ export async function getCodexProviderCapabilitySnapshot(project: ManagedProject
     { key: "turn.start", label: "启动回合", spec: "supported", runtime: appServerReady ? "ready" : "unavailable", summary: "Codex app-server 可启动原生回合。" },
     { key: "turn.resume", label: "续接回合", spec: "supported", runtime: appServerReady ? "ready" : "degraded", summary: "Codex app-server 可续接原生会话。" },
     { key: "turn.interrupt", label: "中断回合", spec: "supported", runtime: appServerReady ? "ready" : "unavailable", summary: "Codex app-server 支持中断当前回合。" },
+    { key: "turn.steer", label: "实时引导", spec: "supported", runtime: appServerReady ? "ready" : "unavailable", summary: "Codex app-server 支持向当前回合发送文本补充。" },
     { key: "turn.user-input", label: "用户问答", spec: "supported", runtime: appServerReady ? "ready" : "unavailable", summary: "Codex app-server 可路由用户回答。" },
     {
       key: "turn.plan",

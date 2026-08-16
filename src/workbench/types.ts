@@ -344,6 +344,7 @@ export interface ValidatedPlanHandoffIntent extends PlanHandoffIntent {
 
 export interface WorkbenchWorkflowActionRequest {
   actionType: WorkbenchWorkflowActionType;
+  clientRequestId?: string;
   changeId?: string;
   graphScopeId?: string;
   prompt?: string;

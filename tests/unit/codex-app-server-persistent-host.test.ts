@@ -337,6 +337,36 @@ describe("Codex persistent app-server Host", () => {
     expect(started).toHaveLength(1);
   });
 
+  it("sends exact turn steer input and classifies an explicit rejection as retryable", async () => {
+    const cwd = await tempDir();
+    const server = new PersistentCollaborationServer(4567, true);
+    server.rejectNextSteer("turn cannot accept steering");
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+    const options = await turnOptions(cwd, "steer-wire-run", null);
+    const turn = runCodexAppServerTurn(options);
+    await vi.waitFor(() => expect(getActiveCodexAppServerTurn(options.runtimeScopeId)).not.toBeNull());
+
+    const active = getActiveCodexAppServerTurn(options.runtimeScopeId)!;
+    await expect(active.steer("first steer")).rejects.toMatchObject({
+      name: "ProviderSteerRejected",
+      message: "turn cannot accept steering",
+    });
+    await expect(active.steer("retry steer")).resolves.toBeUndefined();
+    await expect(turn).resolves.toMatchObject({ status: "completed" });
+    expect(server.steerParams).toEqual([
+      {
+        threadId: "thread-main",
+        expectedTurnId: "turn-main-1",
+        input: [{ type: "text", text: "first steer", text_elements: [] }],
+      },
+      {
+        threadId: "thread-main",
+        expectedTurnId: "turn-main-1",
+        input: [{ type: "text", text: "retry steer", text_elements: [] }],
+      },
+    ]);
+  });
+
   it("classifies an explicit interrupt error response as a retryable Provider rejection", async () => {
     const cwd = await tempDir();
     const server = new PersistentCollaborationServer(4562, true);
@@ -484,12 +514,14 @@ class PersistentCollaborationServer extends EventEmitter {
   readonly followupPrompts: string[] = [];
   readonly closePrompts: string[] = [];
   readonly turnInputs: unknown[][] = [];
+  readonly steerParams: Array<Record<string, unknown>> = [];
   readonly interruptParams: Array<{ threadId: string; turnId: string }> = [];
   readonly pid: number;
   killCount = 0;
   private input = "";
   private turnCount = 0;
   private nextInterruptError: string | null = null;
+  private nextSteerError: string | null = null;
   private crashInterrupt = false;
   private holdInterruptResponse = false;
   private heldInterruptId: number | null = null;
@@ -527,6 +559,10 @@ class PersistentCollaborationServer extends EventEmitter {
 
   rejectNextInterrupt(message: string): void {
     this.nextInterruptError = message;
+  }
+
+  rejectNextSteer(message: string): void {
+    this.nextSteerError = message;
   }
 
   crashOnNextInterrupt(): void {
@@ -615,6 +651,13 @@ class PersistentCollaborationServer extends EventEmitter {
         return;
       }
       case "turn/steer": {
+        this.steerParams.push({ ...params });
+        if (this.nextSteerError) {
+          const message = this.nextSteerError;
+          this.nextSteerError = null;
+          this.reject(id, { code: -32000, message });
+          return;
+        }
         const prompt = JSON.stringify(params.input ?? []);
         this.respond(id, {});
         this.followupPrompts.push(prompt);

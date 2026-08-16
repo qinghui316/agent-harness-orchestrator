@@ -3,17 +3,73 @@ import type { ManagedProject } from "../../src/types/index.js";
 
 const mocks = vi.hoisted(() => ({
   append: vi.fn(async () => undefined),
+  upsert: vi.fn(),
+  close: vi.fn(),
 }));
 
 vi.mock("../../src/workbench/canonical-timeline-command.js", () => ({
   appendCanonicalTimelineEntry: mocks.append,
+  openCanonicalTimelineWriter: vi.fn(async () => ({ upsert: mocks.upsert, close: mocks.close })),
 }));
 
-import { interruptConversation } from "../../src/workbench/actions/handlers/control.js";
+import { interruptConversation, steerConversation } from "../../src/workbench/actions/handlers/control.js";
 
 describe("conversation interrupt handler", () => {
   beforeEach(() => {
     mocks.append.mockClear();
+    mocks.upsert.mockClear();
+    mocks.close.mockClear();
+  });
+
+  it("persists steering evidence only after the shared Provider Turn owner accepts it", async () => {
+    const order: string[] = [];
+    const steerProviderTurn = vi.fn(async () => {
+      order.push("provider-accepted");
+      return { status: "steer-accepted" as const, attemptId: "attempt-provider", runId: "run-provider" };
+    });
+    mocks.upsert.mockImplementation(() => { order.push("timeline-upsert"); });
+    const findRunningRunForChange = vi.fn(async () => {
+      throw new Error("local fallback must not run");
+    });
+
+    await expect(steerConversation(
+      project(),
+      "change-1",
+      "conversation-1",
+      "  add one constraint  ",
+      "request-1",
+      undefined,
+      { steerProviderTurn, findRunningRunForChange },
+    )).resolves.toMatchObject({ status: "steered", realtime: true, runId: "run-provider" });
+
+    expect(order).toEqual(["provider-accepted", "timeline-upsert", "timeline-upsert"]);
+    expect(steerProviderTurn).toHaveBeenCalledWith(project(), "conversation-1", "request-1", "add one constraint");
+    expect(mocks.upsert).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: "steer:request-1:user", status: "steering-sent" }));
+    expect(mocks.upsert).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: "steer:request-1:ack", status: "steering-sent" }));
+    expect(mocks.close).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the Harness pending-feedback fallback only when no Provider Turn is owned", async () => {
+    const steerProviderTurn = vi.fn(async () => null);
+    const findRunningRunForChange = vi.fn(async () => ({ id: "run-local" } as never));
+
+    await expect(steerConversation(
+      project(),
+      "change-1",
+      "conversation-1",
+      "next round",
+      "request-2",
+      undefined,
+      { steerProviderTurn, findRunningRunForChange },
+    )).resolves.toMatchObject({ status: "pending-feedback", realtime: false });
+
+    expect(mocks.upsert).not.toHaveBeenCalled();
+    expect(mocks.append).toHaveBeenCalledWith(
+      project(),
+      "change-1",
+      expect.objectContaining({ status: "pending-feedback", runId: "run-local" }),
+      undefined,
+    );
   });
 
   it("uses the shared Provider Turn owner before considering the local-run fallback", async () => {

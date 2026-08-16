@@ -1,8 +1,7 @@
-﻿import { defaultProviderRegistry } from "../../../provider-runtime/index.js";
 import { requestRunStop } from "../../../run/control.js";
 import type { ManagedProject, RunMetadata } from "../../../types/index.js";
+import { appendCanonicalTimelineEntry, openCanonicalTimelineWriter } from "../../canonical-timeline-command.js";
 import { emitAssistantEvent } from "../../live-events.js";
-import { appendCanonicalTimelineEntry } from "../../canonical-timeline-command.js";
 import type { WorkbenchLiveSink } from "../../types.js";
 
 export interface ConversationControlDeps {
@@ -11,6 +10,12 @@ export interface ConversationControlDeps {
     project: ManagedProject,
     conversationId: string,
   ) => Promise<import("../../conversation-turn-control.js").ConversationTurnInterruptReceipt | null>;
+  steerProviderTurn?: (
+    project: ManagedProject,
+    conversationId: string,
+    clientRequestId: string,
+    text: string,
+  ) => Promise<import("../../conversation-turn-control.js").ConversationTurnSteerReceipt | null>;
 }
 
 export async function stopRunningPipeline(
@@ -51,14 +56,20 @@ export async function stopRunningPipeline(
 export async function steerConversation(
   project: ManagedProject,
   changeId: string,
+  conversationId: string | undefined,
   prompt: string | undefined,
+  clientRequestId: string | undefined,
   live: WorkbenchLiveSink | undefined,
   deps: ConversationControlDeps,
 ): Promise<unknown> {
   const message = prompt?.trim();
   if (!message) throw new Error("conversation.steer requires prompt.");
-  const activeTurn = defaultProviderRegistry.findActiveTurn(changeId);
-  if (!activeTurn) {
+  const requestId = clientRequestId?.trim();
+  if (!requestId) throw new Error("conversation.steer requires clientRequestId.");
+  const receipt = conversationId && deps.steerProviderTurn
+    ? await deps.steerProviderTurn(project, conversationId, requestId, message)
+    : null;
+  if (!receipt) {
     const runningRun = await deps.findRunningRunForChange(project, changeId);
     await appendCanonicalTimelineEntry(project, changeId, { type: "user.message", text: message, status: "pending-feedback", runId: runningRun?.id }, live);
     await appendCanonicalTimelineEntry(project, changeId, {
@@ -69,22 +80,40 @@ export async function steerConversation(
     }, live);
     return { status: "pending-feedback", realtime: false };
   }
-  await appendCanonicalTimelineEntry(project, changeId, { type: "user.message", text: message, status: "steering-sent", runId: activeTurn.runId }, live);
-  await activeTurn.steer(message);
-  await appendCanonicalTimelineEntry(project, changeId, {
-    type: "assistant.message",
-    status: "steering-sent",
-    runId: activeTurn.runId,
-    text: "已发送给当前执行。",
-  }, live);
+  if (receipt.status === "already-terminal") return { ...receipt, realtime: false };
+
+  const writer = await openCanonicalTimelineWriter(project, changeId, live);
+  const timestamp = new Date().toISOString();
+  try {
+    writer.upsert({
+      id: `steer:${requestId}:user`,
+      type: "user.message",
+      timestamp,
+      changeId,
+      text: message,
+      status: "steering-sent",
+      runId: receipt.runId,
+    });
+    writer.upsert({
+      id: `steer:${requestId}:ack`,
+      type: "assistant.message",
+      timestamp,
+      changeId,
+      status: "steering-sent",
+      runId: receipt.runId,
+      text: "已发送给当前执行。",
+    });
+  } finally {
+    writer.close();
+  }
   emitAssistantEvent(live, {
-    runId: activeTurn.runId,
+    runId: receipt.runId,
     kind: "status",
     phase: "steered",
     title: "已发送给当前执行",
     summary: "这条输入已发送给当前运行中的 Agent。",
   });
-  return { status: "steered", realtime: true, runId: activeTurn.runId, roleId: activeTurn.roleId };
+  return { status: "steered", realtime: true, runId: receipt.runId, roleId: "main-agent" };
 }
 
 export async function interruptConversation(

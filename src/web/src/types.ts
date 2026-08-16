@@ -713,7 +713,7 @@ export type Workpad = {
     applyReadiness: { ready: boolean; kind?: string; label: string; message?: string; blockingIssues: string[]; warnings: string[] };
     evidence: Array<{ id: string; label: string; source: string; status?: string; artifact?: string; timestamp?: string }>;
   };
-  runControlState?: { state?: "idle" | "running" | "stopping"; canStop: boolean; providerId?: ProviderId; attemptId?: string; runId?: string; stopActionType?: ThreadStreamAction["actionType"]; pendingFeedbackCount: number; explanation: string };
+  runControlState?: { state?: "idle" | "running" | "stopping"; canStop: boolean; canSteer?: boolean; steerState?: "idle" | "submitting"; providerId?: ProviderId; attemptId?: string; runId?: string; stopActionType?: ThreadStreamAction["actionType"]; pendingFeedbackCount: number; explanation: string };
   intake: {
     goal: string;
     currentUnderstanding: string;

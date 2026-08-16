@@ -43,6 +43,7 @@ export interface WorkbenchServerContext {
 export interface WorkbenchActionRequest {
   action?: WorkbenchApprovalAction;
   actionType?: WorkbenchWorkflowActionRequest["actionType"];
+  clientRequestId?: string;
   changeId?: string;
   graphScopeId?: string;
   prompt?: string;
@@ -178,6 +179,11 @@ export interface ConversationTurnInterruptBody {
   productMode?: unknown;
   providerId?: unknown;
   expectedAttemptId?: unknown;
+}
+
+export interface ConversationTurnSteerBody extends ConversationTurnInterruptBody {
+  clientRequestId?: unknown;
+  text?: unknown;
 }
 
 export interface FolderDialogResult {

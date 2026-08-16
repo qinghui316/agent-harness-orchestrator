@@ -35,6 +35,42 @@ describe("canonical Timeline Store", () => {
     ]);
   });
 
+  it("keeps optimistic steering ephemeral until canonical calibration or explicit discard", () => {
+    const optimistic = {
+      ...envelope("optimistic-steer:request-1", Number.MAX_SAFE_INTEGER, 1),
+      cells: [{
+        ...envelope("optimistic-steer:request-1", Number.MAX_SAFE_INTEGER, 1).cells[0],
+        kind: "user-message" as const,
+        source: "user" as const,
+        text: "temporary steer",
+        status: "submitting",
+        realtime: true,
+      }],
+    };
+    let state = canonicalTimelineReducer(createCanonicalTimelineState(), {
+      type: "optimistic.received",
+      scope: mainScope,
+      envelope: optimistic,
+    });
+    expect(texts(state)).toEqual(["temporary steer"]);
+    expect(selectCanonicalTimelineSurface(state, mainScope)?.watermark).toBe(0);
+
+    state = loadPage(state, "latest", page(1, [envelope("steer:request-1:user", 10, 1)]));
+    expect(texts(state)).toEqual(["steer:request-1:user@1"]);
+
+    state = canonicalTimelineReducer(state, {
+      type: "optimistic.received",
+      scope: mainScope,
+      envelope: { ...optimistic, messageId: "optimistic-steer:request-2" },
+    });
+    state = canonicalTimelineReducer(state, {
+      type: "optimistic.discarded",
+      scope: mainScope,
+      messageId: "optimistic-steer:request-2",
+    });
+    expect(selectCanonicalTimelineEnvelopes(state, mainScope).map((item) => item.messageId)).toEqual(["steer:request-1:user"]);
+  });
+
   it("orders out-of-order delivery by canonical order and rejects stale revisions", () => {
     let state = createCanonicalTimelineState();
     state = receive(state, envelope("third", 30, 3));

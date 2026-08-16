@@ -65,6 +65,14 @@ export interface ConversationActionController {
     providerId: string;
     expectedAttemptId: string;
   }) => Promise<void>;
+  steerAgentTurn: (request: {
+    projectId: string;
+    conversationId: string;
+    providerId: string;
+    expectedAttemptId: string;
+    clientRequestId: string;
+    text: string;
+  }) => Promise<void>;
   settleInteraction: (interactionId: string, settlement: ConversationInteractionSettlement) => Promise<void>;
   getInteractionDraft: (interactionId: string) => ConversationInteractionDraft | undefined;
   setInteractionDraft: (interactionId: string, draft: ConversationInteractionDraft) => void;
@@ -248,6 +256,26 @@ export function useConversationActionController({
     );
   }, []);
 
+  const steerAgentTurn = useCallback(async (request: {
+    projectId: string;
+    conversationId: string;
+    providerId: string;
+    expectedAttemptId: string;
+    clientRequestId: string;
+    text: string;
+  }): Promise<void> => {
+    await (portsRef.current.postJson ?? postJson)(
+      `/api/projects/${encodeURIComponent(request.projectId)}/workbench/conversations/${encodeURIComponent(request.conversationId)}/turn/steer`,
+      {
+        productMode: "agent",
+        providerId: request.providerId,
+        expectedAttemptId: request.expectedAttemptId,
+        clientRequestId: request.clientRequestId,
+        text: request.text,
+      },
+    );
+  }, []);
+
   const requestDecisionFeedback = useCallback(async (
     context: DecisionContext,
     action: DecisionAction,
@@ -368,6 +396,7 @@ export function useConversationActionController({
     requestDecisionFeedback,
     runWorkflowAction,
     interruptAgentTurn,
+    steerAgentTurn,
     settleInteraction,
     getInteractionDraft,
     setInteractionDraft,

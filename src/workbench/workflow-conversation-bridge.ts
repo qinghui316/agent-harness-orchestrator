@@ -37,6 +37,7 @@ export interface WorkflowConversationPorts {
     options?: { goalResume?: { deliveryKey: string; contextText: string }; graphScopeId?: string },
   ) => Promise<TopicThreadEntry>;
   interruptMainAgentTurn?: ConversationTurnRoutingPort["interruptMainAgentTurn"];
+  steerMainAgentTurn?: ConversationTurnRoutingPort["steerMainAgentTurn"];
 }
 
 const PROJECT_SCOPED_WORKFLOW_ACTIONS = new Set<WorkbenchWorkflowActionType>([
@@ -191,6 +192,7 @@ function buildWorkflowActionHandlers(ports: WorkflowConversationPorts): ReturnTy
     postConversationMessage: requirePostConversationMessage(ports),
     findRunningRunForChange,
     interruptProviderTurn: ports.interruptMainAgentTurn,
+    steerProviderTurn: ports.steerMainAgentTurn,
     continueTopicGoal: async (project, changeId, prompt, live) => {
       const conversationId = await resolveConversationId(project, changeId);
       const continuation = prompt?.trim() || "Continue the current accepted objective from the latest project evidence.";

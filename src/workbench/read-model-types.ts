@@ -873,6 +873,8 @@ export interface WorkbenchResultReview {
 export interface WorkbenchRunControlState {
   state?: "idle" | "running" | "stopping";
   canStop: boolean;
+  canSteer?: boolean;
+  steerState?: "idle" | "submitting";
   providerId?: ProviderId;
   attemptId?: string;
   runId?: string;

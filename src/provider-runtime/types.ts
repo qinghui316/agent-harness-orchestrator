@@ -7,6 +7,7 @@ export type ProviderCapabilityKey =
   | "turn.start"
   | "turn.resume"
   | "turn.interrupt"
+  | "turn.steer"
   | "turn.user-input"
   | "turn.plan"
   | "stream.text"

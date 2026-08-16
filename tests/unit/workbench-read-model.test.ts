@@ -233,6 +233,8 @@ describe("workbench read-model projections", () => {
       turnControlStateResolver: () => ({
         state: "stopping" as const,
         canInterrupt: true,
+        canSteer: false,
+        steerState: "submitting" as const,
         providerId: "codex",
         attemptId,
         runId: "run-agent-stop",
@@ -243,6 +245,8 @@ describe("workbench read-model projections", () => {
     expect(running.center.workpad.runControlState).toMatchObject({
       state: "stopping",
       canStop: true,
+      canSteer: false,
+      steerState: "submitting",
       providerId: "codex",
       attemptId,
       runId: "run-agent-stop",
@@ -256,6 +260,78 @@ describe("workbench read-model projections", () => {
     }
     const settled = await getWorkbenchSnapshot(input, { topicId: created.conversationId, productMode: "agent" });
     expect(settled.center.workpad.runControlState).toBeUndefined();
+  });
+
+  it("calibrates Harness Provider Turn control with exact Attempt identity", async () => {
+    const created = await createConversationChangeFixture(project(), { title: "Harness steer control" });
+    const database = await openProjectRuntimeWorkbenchDatabase(skillNativeFixture.runtime);
+    const attemptId = "attempt-harness-steer";
+    try {
+      const conversation = database.conversations.readConversation(project().id, created.conversationId)!;
+      database.providerAttempts.createProviderAttempt({
+        projectId: project().id,
+        conversationId: created.conversationId,
+        attemptId,
+        productMode: "harness",
+        agentTurnMode: null,
+        graphScopeId: conversation.currentGraphScopeId,
+        changeId: created.changeId,
+        agentTaskId: null,
+        roleId: "main-agent",
+        parentAgentSurfaceId: null,
+        operationProfile: "main",
+        providerId: "codex",
+        nativeSessionId: "session-harness-steer",
+        model: null,
+        capabilitySnapshot: {
+          providerId: "codex",
+          displayName: "Codex",
+          productMode: "harness",
+          status: "ready",
+          runnable: true,
+          checkedAt: "2026-08-16T00:00:00.000Z",
+          snapshotHash: "snapshot-harness-steer",
+          snapshotVersion: 1,
+          effectiveModel: "gpt-test",
+          effectiveModelSource: "provider-default",
+          degradedReasons: [],
+          capabilities: [],
+        },
+        effectiveSkillInputs: [],
+        handoffHash: "handoff-harness-steer",
+        deliveredThroughCompletedTurn: 0,
+        worktreeId: null,
+        status: "running",
+        createdAt: "2026-08-16T00:00:00.000Z",
+        updatedAt: "2026-08-16T00:00:00.000Z",
+      });
+    } finally {
+      database.close();
+    }
+
+    const snapshot = await getWorkbenchSnapshot({
+      project: project(),
+      path: getTempDir(),
+      turnControlStateResolver: () => ({
+        state: "running",
+        canInterrupt: true,
+        canSteer: true,
+        steerState: "idle",
+        providerId: "codex",
+        attemptId,
+        runId: "run-harness-steer",
+      }),
+    }, { topicId: created.conversationId, productMode: "harness" });
+
+    expect(snapshot.center.workpad.runControlState).toMatchObject({
+      state: "running",
+      canStop: true,
+      canSteer: true,
+      steerState: "idle",
+      providerId: "codex",
+      attemptId,
+      runId: "run-harness-steer",
+    });
   });
 
   it("lists active and archived changes as topics", async () => {

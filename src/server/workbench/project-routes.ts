@@ -1,6 +1,9 @@
 ﻿import type { IncomingMessage, ServerResponse } from "node:http";
 import { createWorkbenchConversation, updateWorkbenchConversationTitle } from "../../workbench/conversation-service.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../workbench/persistence/open-workbench-database.js";
+import { CanonicalTimelineDelivery } from "../../workbench/canonical-timeline-delivery.js";
+import { toCanonicalTimelineMessage } from "../../workbench/canonical-timeline-message.js";
+import type { ConversationTurnSteerRequest } from "../../workbench/conversation-turn-control.js";
 import { assertAgentTurnMode } from "../../provider-runtime/index.js";
 import {
   getWorkbenchSnapshot,
@@ -22,7 +25,7 @@ import { sendWorkbenchActionLive } from "./live-actions.js";
 import { readCreateTopicBody, sendConversationMessageLive, sendCreateTopicLive } from "./topic-messages.js";
 import { executeWorkbenchAction } from "./actions.js";
 import { sendProjectLiveEvents } from "./project-live-events.js";
-import type { ConversationTurnInterruptBody, IntakeRequest, UpdateConversationTitleRequest, WorkbenchActionRequest, WorkbenchServerContext } from "./types.js";
+import type { ConversationTurnInterruptBody, ConversationTurnSteerBody, IntakeRequest, UpdateConversationTitleRequest, WorkbenchActionRequest, WorkbenchServerContext } from "./types.js";
 
 export async function handleProjectWorkbenchApi(context: WorkbenchServerContext, input: WorkbenchProjectInput, request: IncomingMessage, response: ServerResponse, rest: string, url: URL): Promise<void> {
   if (request.method === "GET" && rest === "events/live") {
@@ -217,6 +220,41 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
     }));
     return;
   }
+  const turnSteerMatch = rest.match(/^conversations\/([^/]+)\/turn\/steer$/);
+  if (request.method === "POST" && turnSteerMatch?.[1]) {
+    assertRegisteredProject(input);
+    const body = await readJsonBody<ConversationTurnSteerBody>(request);
+    const productMode = requireProductMode(typeof body.productMode === "string" ? body.productMode : null);
+    if (productMode !== "agent") {
+      const error = new Error("The direct Conversation steering endpoint is available only in Agent mode.");
+      error.name = "Conflict";
+      throw error;
+    }
+    if (typeof body.providerId !== "string" || !body.providerId.trim()
+      || typeof body.expectedAttemptId !== "string" || !body.expectedAttemptId.trim()
+      || typeof body.clientRequestId !== "string" || !body.clientRequestId.trim()
+      || typeof body.text !== "string" || !body.text.trim()) {
+      const error = new Error("Conversation steering requires providerId, expectedAttemptId, clientRequestId, and text.");
+      error.name = "BadRequest";
+      throw error;
+    }
+    const conversationId = decodeURIComponent(turnSteerMatch[1]);
+    const steerRequest = {
+      projectId: input.project.id,
+      productMode,
+      conversationId,
+      providerId: body.providerId.trim(),
+      expectedAttemptId: body.expectedAttemptId.trim(),
+      clientRequestId: body.clientRequestId.trim(),
+      text: body.text.trim(),
+    } as const;
+    const receipt = await context.turnControl.steer(input.project, steerRequest);
+    if (receipt.status === "steer-accepted") {
+      await persistAgentSteer(input, steerRequest, receipt.runId);
+    }
+    sendJson(response, 200, receipt);
+    return;
+  }
   const topicMessagesLiveMatch = rest.match(/^topics\/([^/]+)\/messages\/live$/);
   if (request.method === "POST" && topicMessagesLiveMatch?.[1]) {
     assertRegisteredProject(input);
@@ -269,4 +307,62 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
     return;
   }
   sendJson(response, 404, { error: "Not found." });
+}
+
+async function persistAgentSteer(
+  input: WorkbenchProjectInput & { project: NonNullable<WorkbenchProjectInput["project"]> },
+  request: ConversationTurnSteerRequest,
+  runId: string,
+): Promise<void> {
+  const runtime = await input.runtimeStateResolver!(input.project);
+  const paths = runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
+  const database = await openProjectRuntimeWorkbenchDatabase(paths);
+  try {
+    const conversation = database.conversations.readConversation(paths.projectId, request.conversationId);
+    const attempt = database.providerAttempts.readProviderAttempt(paths.projectId, request.expectedAttemptId);
+    if (!conversation || conversation.deletedAt
+      || conversation.productMode !== "agent"
+      || conversation.selectedProviderId !== request.providerId
+      || attempt?.conversationId !== conversation.conversationId
+      || attempt.graphScopeId !== conversation.currentGraphScopeId
+      || attempt.providerId !== request.providerId
+      || attempt.roleId !== "main-agent") {
+      const error = new Error("Accepted steering evidence no longer matches the current Agent Turn.");
+      error.name = "Conflict";
+      throw error;
+    }
+    const userId = `steer:${request.clientRequestId}:user`;
+    const ackId = `steer:${request.clientRequestId}:ack`;
+    const timestamp = database.timeline.readMessage(paths.projectId, conversation.conversationId, userId)?.timestamp
+      ?? new Date().toISOString();
+    const delivery = new CanonicalTimelineDelivery(database, "agent");
+    delivery.upsert(toCanonicalTimelineMessage(paths.projectId, conversation.conversationId, {
+      id: userId,
+      type: "user.message",
+      timestamp,
+      changeId: "",
+      conversationId: conversation.conversationId,
+      graphScopeId: conversation.currentGraphScopeId ?? undefined,
+      text: request.text,
+      status: "steering-sent",
+      runId,
+      providerId: request.providerId,
+      agentSurfaceId: "main-agent",
+    }));
+    delivery.upsert(toCanonicalTimelineMessage(paths.projectId, conversation.conversationId, {
+      id: ackId,
+      type: "assistant.message",
+      timestamp,
+      changeId: "",
+      conversationId: conversation.conversationId,
+      graphScopeId: conversation.currentGraphScopeId ?? undefined,
+      text: "已发送给当前执行。",
+      status: "steering-sent",
+      runId,
+      providerId: request.providerId,
+      agentSurfaceId: "main-agent",
+    }));
+  } finally {
+    database.close();
+  }
 }
