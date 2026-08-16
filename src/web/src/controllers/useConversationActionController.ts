@@ -55,6 +55,11 @@ export interface UseConversationActionControllerOptions {
   ports: ConversationActionPorts;
 }
 
+export type ConversationSteerOutcome =
+  | { status: "accepted" }
+  | { status: "pending-feedback" }
+  | { status: "already-terminal" };
+
 export interface ConversationActionController {
   executeDecisionAction: (action: DecisionAction, context: DecisionContext) => Promise<void>;
   requestDecisionFeedback: (context: DecisionContext, action: DecisionAction, feedback: string) => Promise<void>;
@@ -72,7 +77,13 @@ export interface ConversationActionController {
     expectedAttemptId: string;
     clientRequestId: string;
     text: string;
-  }) => Promise<void>;
+  }) => Promise<ConversationSteerOutcome>;
+  steerHarnessTurn: (request: {
+    projectId: string;
+    conversationId: string;
+    clientRequestId: string;
+    text: string;
+  }) => Promise<ConversationSteerOutcome>;
   settleInteraction: (interactionId: string, settlement: ConversationInteractionSettlement) => Promise<void>;
   getInteractionDraft: (interactionId: string) => ConversationInteractionDraft | undefined;
   setInteractionDraft: (interactionId: string, draft: ConversationInteractionDraft) => void;
@@ -263,8 +274,8 @@ export function useConversationActionController({
     expectedAttemptId: string;
     clientRequestId: string;
     text: string;
-  }): Promise<void> => {
-    await (portsRef.current.postJson ?? postJson)(
+  }): Promise<ConversationSteerOutcome> => {
+    const receipt = await (portsRef.current.postJson ?? postJson)<unknown>(
       `/api/projects/${encodeURIComponent(request.projectId)}/workbench/conversations/${encodeURIComponent(request.conversationId)}/turn/steer`,
       {
         productMode: "agent",
@@ -274,6 +285,31 @@ export function useConversationActionController({
         text: request.text,
       },
     );
+    return conversationSteerOutcome(receipt);
+  }, []);
+
+  const steerHarnessTurn = useCallback(async (request: {
+    projectId: string;
+    conversationId: string;
+    clientRequestId: string;
+    text: string;
+  }): Promise<ConversationSteerOutcome> => {
+    const actionPorts = portsRef.current;
+    const response = await (actionPorts.postJson ?? postJson)<{ result: unknown; snapshot: Snapshot }>(
+      `/api/projects/${encodeURIComponent(request.projectId)}/workbench/actions`,
+      {
+        actionType: "conversation.steer",
+        changeId: request.conversationId,
+        confirm: true,
+        clientRequestId: request.clientRequestId,
+        prompt: request.text,
+      },
+    );
+    if (isCurrentScope(request.projectId, request.conversationId)) {
+      actionPorts.applySnapshot(response.snapshot);
+      actionPorts.cacheProjectSnapshot(request.projectId, response.snapshot);
+    }
+    return conversationSteerOutcome(response.result);
   }, []);
 
   const requestDecisionFeedback = useCallback(async (
@@ -397,11 +433,22 @@ export function useConversationActionController({
     runWorkflowAction,
     interruptAgentTurn,
     steerAgentTurn,
+    steerHarnessTurn,
     settleInteraction,
     getInteractionDraft,
     setInteractionDraft,
     clearInteractionDrafts,
   };
+}
+
+function conversationSteerOutcome(value: unknown): ConversationSteerOutcome {
+  const status = value && typeof value === "object" && "status" in value
+    ? (value as { status?: unknown }).status
+    : undefined;
+  if (status === "steer-accepted" || status === "steered") return { status: "accepted" };
+  if (status === "pending-feedback") return { status: "pending-feedback" };
+  if (status === "already-terminal") return { status: "already-terminal" };
+  throw new Error("Conversation steering returned an invalid settlement.");
 }
 
 export function preserveSelectedWorkbenchTopic(next: Snapshot, previous: Snapshot): Snapshot {

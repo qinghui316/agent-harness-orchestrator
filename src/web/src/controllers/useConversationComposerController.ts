@@ -4,6 +4,7 @@ import { extractInlineFileMentions } from "../shell/file-mentions.js";
 import { extractInlineSkillMentions } from "../shell/skill-mentions.js";
 import type { AgentTurnMode, ProductMode, ProviderCapabilitySnapshot, SkillListItem, TopicAttachment, TopicFileReference, WorkbenchLiveEvent } from "../types.js";
 import type { WorkbenchOperationToken } from "./useGlobalOperationGate.js";
+import type { ConversationSteerOutcome } from "./useConversationActionController.js";
 
 export type ComposerTransition = "project-changed" | "conversation-changed" | "new-conversation";
 
@@ -109,7 +110,7 @@ export interface ConversationComposerPorts {
   };
   actions: {
     sendMessage?(request: ComposerMessageRequest): Promise<void>;
-    steer(request: ComposerActionRequest): Promise<void>;
+    steer(request: ComposerActionRequest): Promise<ConversationSteerOutcome>;
     stop(request: ComposerActionRequest): Promise<void>;
   };
   projection: {
@@ -522,7 +523,7 @@ export function useConversationComposerController(
         ? steerRetryRef.current.clientRequestId
         : (portsRef.current.ids ?? defaultComposerIds).createClientRequestId();
       steerRetryRef.current = { key: retryKey, clientRequestId };
-      await runAction("conversation.steer", () => portsRef.current.actions.steer({
+      const outcome = await runAction("conversation.steer", () => portsRef.current.actions.steer({
           projectId: currentScope.projectId!,
           conversationId: currentScope.conversation!.id,
           productMode,
@@ -533,7 +534,12 @@ export function useConversationComposerController(
         }), currentScope, draft.composerText, true, (actionGeneration, actionScope) => (
           composerActionOwnsCurrentScope(actionGeneration, actionScope, scopeGenerationRef, scopeRef)
           && composerStopIdentity(scopeRef.current) === steerIdentity
-        ));
+        ), (result) => result.status !== "already-terminal");
+      if (outcome.status === "already-terminal"
+        && composerActionOwnsCurrentScope(scopeGenerationRef.current, currentScope, scopeGenerationRef, scopeRef)
+        && composerStopIdentity(scopeRef.current) === steerIdentity) {
+        portsRef.current.onError("当前执行已结束，这条文本已保留，可作为下一回合发送。");
+      }
       if (steerRetryRef.current?.key === retryKey) steerRetryRef.current = null;
       return;
     }
@@ -658,9 +664,9 @@ export function useConversationComposerController(
     }
   }
 
-  async function runAction(
+  async function runAction<TResult>(
     key: string,
-    action: () => Promise<void>,
+    action: () => Promise<TResult>,
     actionScope: ConversationComposerScope,
     submittedText: string,
     clearSubmittedText: boolean,
@@ -668,17 +674,19 @@ export function useConversationComposerController(
       generation,
       actionScope,
     ) => composerActionOwnsCurrentScope(generation, actionScope, scopeGenerationRef, scopeRef),
-  ): Promise<void> {
+    shouldClearSubmittedText: (result: TResult) => boolean = () => true,
+  ): Promise<TResult> {
     const token = portsRef.current.operation.begin(key);
     const generation = scopeGenerationRef.current;
     if (ownsCurrentScope(generation, actionScope)) {
       portsRef.current.onError(null);
     }
     try {
-      await action();
-      if (clearSubmittedText && ownsCurrentScope(generation, actionScope)) {
+      const result = await action();
+      if (clearSubmittedText && shouldClearSubmittedText(result) && ownsCurrentScope(generation, actionScope)) {
         setComposerText((current) => current === submittedText ? "" : current);
       }
+      return result;
     } catch (cause) {
       if (ownsCurrentScope(generation, actionScope)) {
         portsRef.current.onError(errorMessage(cause));

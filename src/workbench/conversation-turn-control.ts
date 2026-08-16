@@ -31,6 +31,16 @@ export type ConversationTurnSteerReceipt =
   | { status: "steer-accepted"; attemptId: string; runId: string }
   | { status: "already-terminal"; attemptId: string; runId?: string };
 
+export function conversationSteerTimelineIds(attemptId: string, clientRequestId: string): {
+  userId: string;
+  ackId: string;
+} {
+  return {
+    userId: `steer:${attemptId}:${clientRequestId}:user`,
+    ackId: `steer:${attemptId}:${clientRequestId}:ack`,
+  };
+}
+
 export interface ConversationTurnControlState {
   state: "idle" | "running" | "stopping";
   canInterrupt: boolean;

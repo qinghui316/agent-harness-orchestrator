@@ -26,6 +26,7 @@ import { readCreateTopicBody, sendConversationMessageLive, sendCreateTopicLive }
 import { executeWorkbenchAction } from "./actions.js";
 import { sendProjectLiveEvents } from "./project-live-events.js";
 import type { ConversationTurnInterruptBody, ConversationTurnSteerBody, IntakeRequest, UpdateConversationTitleRequest, WorkbenchActionRequest, WorkbenchServerContext } from "./types.js";
+import { conversationSteerTimelineIds } from "../../workbench/conversation-turn-control.js";
 
 export async function handleProjectWorkbenchApi(context: WorkbenchServerContext, input: WorkbenchProjectInput, request: IncomingMessage, response: ServerResponse, rest: string, url: URL): Promise<void> {
   if (request.method === "GET" && rest === "events/live") {
@@ -331,8 +332,7 @@ async function persistAgentSteer(
       error.name = "Conflict";
       throw error;
     }
-    const userId = `steer:${request.clientRequestId}:user`;
-    const ackId = `steer:${request.clientRequestId}:ack`;
+    const { userId, ackId } = conversationSteerTimelineIds(request.expectedAttemptId, request.clientRequestId);
     const timestamp = database.timeline.readMessage(paths.projectId, conversation.conversationId, userId)?.timestamp
       ?? new Date().toISOString();
     const delivery = new CanonicalTimelineDelivery(database, "agent");

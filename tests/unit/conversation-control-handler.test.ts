@@ -44,9 +44,29 @@ describe("conversation interrupt handler", () => {
 
     expect(order).toEqual(["provider-accepted", "timeline-upsert", "timeline-upsert"]);
     expect(steerProviderTurn).toHaveBeenCalledWith(project(), "conversation-1", "request-1", "add one constraint");
-    expect(mocks.upsert).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: "steer:request-1:user", status: "steering-sent" }));
-    expect(mocks.upsert).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: "steer:request-1:ack", status: "steering-sent" }));
+    expect(mocks.upsert).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: "steer:attempt-provider:request-1:user", status: "steering-sent" }));
+    expect(mocks.upsert).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: "steer:attempt-provider:request-1:ack", status: "steering-sent" }));
     expect(mocks.close).toHaveBeenCalledOnce();
+  });
+
+  it("keeps canonical steering evidence distinct when a client request id is reused by a later Turn", async () => {
+    const attempts = ["attempt-first", "attempt-second"];
+    const steerProviderTurn = vi.fn(async () => ({
+      status: "steer-accepted" as const,
+      attemptId: attempts.shift()!,
+      runId: "run-provider",
+    }));
+    const deps = { steerProviderTurn, findRunningRunForChange: vi.fn() };
+
+    await steerConversation(project(), "change-1", "conversation-1", "first", "reused-request", undefined, deps);
+    await steerConversation(project(), "change-1", "conversation-1", "second", "reused-request", undefined, deps);
+
+    expect(mocks.upsert.mock.calls.map(([message]) => message.id)).toEqual([
+      "steer:attempt-first:reused-request:user",
+      "steer:attempt-first:reused-request:ack",
+      "steer:attempt-second:reused-request:user",
+      "steer:attempt-second:reused-request:ack",
+    ]);
   });
 
   it("keeps the Harness pending-feedback fallback only when no Provider Turn is owned", async () => {

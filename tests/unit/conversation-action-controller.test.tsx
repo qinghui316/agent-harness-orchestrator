@@ -155,16 +155,18 @@ describe("Conversation action controller", () => {
 
   it("owns the exact Agent Turn steer JSON request without opening an action stream", async () => {
     const harness = controllerHarness();
+    harness.ports.postJson = vi.fn(async () => ({ status: "steer-accepted" }));
     const { result } = renderHook(() => useConversationActionController(harness.options));
 
-    await act(async () => result.current.steerAgentTurn({
+    let outcome;
+    await act(async () => { outcome = await result.current.steerAgentTurn({
       projectId: "repo-1",
       conversationId: "conversation-1",
       providerId: "codex",
       expectedAttemptId: "attempt-1",
       clientRequestId: "steer-1",
       text: "add one constraint",
-    }));
+    }); });
 
     expect(harness.ports.postJson).toHaveBeenCalledWith(
       "/api/projects/repo-1/workbench/conversations/conversation-1/turn/steer",
@@ -176,6 +178,33 @@ describe("Conversation action controller", () => {
         text: "add one constraint",
       },
     );
+    expect(outcome).toEqual({ status: "accepted" });
+    expect(harness.ports.consumeLiveStream).not.toHaveBeenCalled();
+  });
+
+  it("returns terminal Agent and Harness steering settlements without hiding them behind transport success", async () => {
+    const harness = controllerHarness();
+    harness.ports.postJson = vi.fn(async (url: string) => url.endsWith("/turn/steer")
+      ? { status: "already-terminal", attemptId: "attempt-1" }
+      : { result: { status: "already-terminal", attemptId: "attempt-1" }, snapshot: snapshot("conversation-1") });
+    const { result } = renderHook(() => useConversationActionController(harness.options));
+
+    await expect(result.current.steerAgentTurn({
+      projectId: "repo-1",
+      conversationId: "conversation-1",
+      providerId: "codex",
+      expectedAttemptId: "attempt-1",
+      clientRequestId: "steer-agent",
+      text: "agent text",
+    })).resolves.toEqual({ status: "already-terminal" });
+    await expect(result.current.steerHarnessTurn({
+      projectId: "repo-1",
+      conversationId: "conversation-1",
+      clientRequestId: "steer-harness",
+      text: "harness text",
+    })).resolves.toEqual({ status: "already-terminal" });
+
+    expect(harness.ports.applySnapshot).toHaveBeenCalledOnce();
     expect(harness.ports.consumeLiveStream).not.toHaveBeenCalled();
   });
 

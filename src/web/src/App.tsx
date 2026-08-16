@@ -442,7 +442,7 @@ export function App(): ReactElement {
     });
   }
 
-  async function runComposerSteerRequest(request: ComposerActionRequest): Promise<void> {
+  async function runComposerSteerRequest(request: ComposerActionRequest) {
     if (!request.clientRequestId || !request.prompt) throw new Error("Conversation steering requires request and text identity.");
     const timelineScope = {
       projectId: request.projectId,
@@ -453,12 +453,20 @@ export function App(): ReactElement {
     timeline.showOptimisticSteer(timelineScope, request.clientRequestId, request.prompt);
     try {
       if (request.productMode !== "agent") {
-        await runComposerActionRequest("conversation.steer", request);
+        const outcome = await conversationActions.steerHarnessTurn({
+          projectId: request.projectId,
+          conversationId: request.conversationId,
+          clientRequestId: request.clientRequestId,
+          text: request.prompt,
+        });
+        await timeline.loadLatest(timelineScope);
+        timeline.discardOptimisticSteer(timelineScope, request.clientRequestId);
+        return outcome;
       } else {
         if (!request.providerId || !request.expectedAttemptId) {
           throw new Error("Agent steering requires the exact Provider and Attempt identity.");
         }
-        await conversationActions.steerAgentTurn({
+        const outcome = await conversationActions.steerAgentTurn({
           projectId: request.projectId,
           conversationId: request.conversationId,
           providerId: request.providerId,
@@ -466,9 +474,10 @@ export function App(): ReactElement {
           clientRequestId: request.clientRequestId,
           text: request.prompt,
         });
+        await timeline.loadLatest(timelineScope);
+        timeline.discardOptimisticSteer(timelineScope, request.clientRequestId);
+        return outcome;
       }
-      await timeline.loadLatest(timelineScope);
-      timeline.discardOptimisticSteer(timelineScope, request.clientRequestId);
     } catch (error) {
       timeline.discardOptimisticSteer(timelineScope, request.clientRequestId);
       throw error;

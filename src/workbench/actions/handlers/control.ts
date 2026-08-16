@@ -3,6 +3,7 @@ import type { ManagedProject, RunMetadata } from "../../../types/index.js";
 import { appendCanonicalTimelineEntry, openCanonicalTimelineWriter } from "../../canonical-timeline-command.js";
 import { emitAssistantEvent } from "../../live-events.js";
 import type { WorkbenchLiveSink } from "../../types.js";
+import { conversationSteerTimelineIds } from "../../conversation-turn-control.js";
 
 export interface ConversationControlDeps {
   findRunningRunForChange(project: ManagedProject, changeId: string): Promise<RunMetadata | null>;
@@ -84,9 +85,10 @@ export async function steerConversation(
 
   const writer = await openCanonicalTimelineWriter(project, changeId, live);
   const timestamp = new Date().toISOString();
+  const { userId, ackId } = conversationSteerTimelineIds(receipt.attemptId, requestId);
   try {
     writer.upsert({
-      id: `steer:${requestId}:user`,
+      id: userId,
       type: "user.message",
       timestamp,
       changeId,
@@ -95,7 +97,7 @@ export async function steerConversation(
       runId: receipt.runId,
     });
     writer.upsert({
-      id: `steer:${requestId}:ack`,
+      id: ackId,
       type: "assistant.message",
       timestamp,
       changeId,

@@ -871,7 +871,7 @@ describe("Conversation composer controller", () => {
       .mockReturnValueOnce("unexpected-new-id");
     ports.actions.steer
       .mockRejectedValueOnce(new Error("evidence write failed"))
-      .mockResolvedValueOnce(undefined);
+      .mockResolvedValueOnce({ status: "accepted" });
     const { result } = renderHook(() => useConversationComposerController(
       conversationScope({ running: true }),
       ports,
@@ -888,6 +888,26 @@ describe("Conversation composer controller", () => {
     expect(ports.actions.steer).toHaveBeenNthCalledWith(1, expect.objectContaining({ clientRequestId: "steer-retry-id" }));
     expect(ports.actions.steer).toHaveBeenNthCalledWith(2, expect.objectContaining({ clientRequestId: "steer-retry-id" }));
     expect(result.current.composerText).toBe("");
+  });
+
+  it.each(["agent", "harness"] as const)("preserves %s text when the Turn becomes terminal before steering settles", async (productMode) => {
+    const ports = composerPorts();
+    ports.actions.steer.mockResolvedValue({ status: "already-terminal" });
+    const scope = productMode === "agent"
+      ? conversationScope({
+          productMode,
+          running: true,
+          runControlState: { state: "running", canStop: true, canSteer: true, providerId: "codex", attemptId: "attempt-1" },
+          conversation: { id: "conversation-1", productMode, state: "active", selectedProviderId: "codex" },
+        })
+      : conversationScope({ productMode, running: true });
+    const { result } = renderHook(() => useConversationComposerController(scope, ports));
+    act(() => result.current.setComposerText("send this next"));
+
+    await act(async () => result.current.send());
+
+    expect(result.current.composerText).toBe("send this next");
+    expect(ports.onError).toHaveBeenLastCalledWith("当前执行已结束，这条文本已保留，可作为下一回合发送。");
   });
 
   it.each(["steer", "stop"] as const)("does not leak a late %s failure into a new mode scope", async (action) => {
@@ -1068,7 +1088,7 @@ function composerPorts(): ConversationComposerPorts & {
     },
     actions: {
       sendMessage: vi.fn(async () => undefined),
-      steer: vi.fn(async () => undefined),
+      steer: vi.fn(async () => ({ status: "accepted" as const })),
       stop: vi.fn(async () => undefined),
     },
     projection: { refreshConversation: vi.fn(async () => undefined) },
