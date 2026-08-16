@@ -309,7 +309,7 @@ export function useConversationActionController({
       actionPorts.applySnapshot(response.snapshot);
       actionPorts.cacheProjectSnapshot(request.projectId, response.snapshot);
     }
-    return conversationSteerOutcome(response.result);
+    return conversationSteerOutcomeFromWorkflowAction(response.result);
   }, []);
 
   const requestDecisionFeedback = useCallback(async (
@@ -449,6 +449,22 @@ function conversationSteerOutcome(value: unknown): ConversationSteerOutcome {
   if (status === "pending-feedback") return { status: "pending-feedback" };
   if (status === "already-terminal") return { status: "already-terminal" };
   throw new Error("Conversation steering returned an invalid settlement.");
+}
+
+function conversationSteerOutcomeFromWorkflowAction(value: unknown): ConversationSteerOutcome {
+  if (!value || typeof value !== "object") {
+    throw new Error("Conversation steering returned an invalid workflow settlement.");
+  }
+  const action = value as { status?: unknown; result?: unknown; error?: unknown };
+  if (action.status === "failed") {
+    throw new Error(typeof action.error === "string" && action.error.trim()
+      ? action.error
+      : "Conversation steering failed.");
+  }
+  if (action.status !== "completed") {
+    throw new Error("Conversation steering returned an invalid workflow settlement.");
+  }
+  return conversationSteerOutcome(action.result);
 }
 
 export function preserveSelectedWorkbenchTopic(next: Snapshot, previous: Snapshot): Snapshot {

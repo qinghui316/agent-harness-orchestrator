@@ -186,7 +186,15 @@ describe("Conversation action controller", () => {
     const harness = controllerHarness();
     harness.ports.postJson = vi.fn(async (url: string) => url.endsWith("/turn/steer")
       ? { status: "already-terminal", attemptId: "attempt-1" }
-      : { result: { status: "already-terminal", attemptId: "attempt-1" }, snapshot: snapshot("conversation-1") });
+      : {
+          result: {
+            actionRunId: "action-1",
+            actionType: "conversation.steer",
+            status: "completed",
+            result: { status: "already-terminal", attemptId: "attempt-1" },
+          },
+          snapshot: snapshot("conversation-1"),
+        });
     const { result } = renderHook(() => useConversationActionController(harness.options));
 
     await expect(result.current.steerAgentTurn({
@@ -206,6 +214,51 @@ describe("Conversation action controller", () => {
 
     expect(harness.ports.applySnapshot).toHaveBeenCalledOnce();
     expect(harness.ports.consumeLiveStream).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["steered", "accepted"],
+    ["pending-feedback", "pending-feedback"],
+  ] as const)("unwraps the Harness %s workflow settlement", async (serverStatus, expectedStatus) => {
+    const harness = controllerHarness();
+    harness.ports.postJson = vi.fn(async () => ({
+      result: {
+        actionRunId: "action-1",
+        actionType: "conversation.steer",
+        status: "completed",
+        result: { status: serverStatus },
+      },
+      snapshot: snapshot("conversation-1"),
+    }));
+    const { result } = renderHook(() => useConversationActionController(harness.options));
+
+    await expect(result.current.steerHarnessTurn({
+      projectId: "repo-1",
+      conversationId: "conversation-1",
+      clientRequestId: `steer-${serverStatus}`,
+      text: "harness text",
+    })).resolves.toEqual({ status: expectedStatus });
+  });
+
+  it("surfaces a failed Harness workflow settlement without treating it as accepted", async () => {
+    const harness = controllerHarness();
+    harness.ports.postJson = vi.fn(async () => ({
+      result: {
+        actionRunId: "action-1",
+        actionType: "conversation.steer",
+        status: "failed",
+        error: "Harness steering failed upstream.",
+      },
+      snapshot: snapshot("conversation-1"),
+    }));
+    const { result } = renderHook(() => useConversationActionController(harness.options));
+
+    await expect(result.current.steerHarnessTurn({
+      projectId: "repo-1",
+      conversationId: "conversation-1",
+      clientRequestId: "steer-failed",
+      text: "harness text",
+    })).rejects.toThrow("Harness steering failed upstream.");
   });
 
   it("keeps interaction drafts scope-isolated and settles through projection plus calibration", async () => {
