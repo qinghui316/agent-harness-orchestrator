@@ -71,6 +71,18 @@ the exact active Provider turn, secret values are persisted only as redacted
 placeholders, and an unproven submission remains `submitting` rather than being
 replayed.
 
+Ordinary Agent turns may also expose the selected Provider's native command,
+file-change, and temporary-permission approvals through that same interaction
+lifecycle. The Dock stores and displays only a provider-neutral, redacted
+summary; the adapter retains the private request and constructs the exact
+response. Default turns can grant only the request's bounded current-turn
+permissions. Plan turns remain read-only, so file changes and filesystem-write
+permission requests can only be declined or stopped. Command and file approvals
+may offer a Provider-supported session choice, but it cannot expand a later
+Plan sandbox. Harness Main and Planning turns always run with Provider approval
+disabled. These Agent interactions never enter the Harness confirmation queue
+or create Change, workflow, authorization, Apply, Integration, I2, or E1 facts.
+
 An active ordinary Agent turn exposes Stop and text Steer only after the snapshot
 can bind the current graph's durable running Main Attempt to the process-local
 Provider turn. Both use short JSON requests carrying the asserted Provider and

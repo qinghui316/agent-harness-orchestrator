@@ -4,8 +4,11 @@ import {
   ChevronRight,
   Eye,
   EyeOff,
+  FilePenLine,
   Pencil,
+  ShieldCheck,
   Square,
+  Terminal,
   X,
 } from "lucide-react";
 import {
@@ -87,12 +90,13 @@ function ConversationInteractionDockBody({
   }
 
   async function close(): Promise<void> {
+    if (interaction.kind === "provider-approval") return;
     await settle({ action: "skip" });
   }
 
   useEffect(() => {
     function handleEscape(event: globalThis.KeyboardEvent): void {
-      if (event.key !== "Escape" || busy || pendingAction !== null) return;
+      if (event.key !== "Escape" || interaction.kind === "provider-approval" || busy || pendingAction !== null) return;
       event.preventDefault();
       void close();
     }
@@ -108,6 +112,60 @@ function ConversationInteractionDockBody({
     } finally {
       setPendingAction(null);
     }
+  }
+
+  if (interaction.kind === "provider-approval") {
+    const Icon = interaction.approvalKind === "command-execution"
+      ? Terminal
+      : interaction.approvalKind === "file-change"
+        ? FilePenLine
+        : ShieldCheck;
+    const summary = interaction.summary;
+    return (
+      <DockShell
+        title={interaction.title}
+        disabled={disabled}
+        canStop={canStop}
+        stopping={pendingAction === "stop"}
+        onStop={() => void stop()}
+      >
+        <div className="interaction-dock-question interaction-dock-approval" data-approval-kind={interaction.approvalKind}>
+          <div className="interaction-dock-approval-heading">
+            <Icon size={18} aria-hidden="true" />
+            <strong>{interaction.reason || approvalDescription(interaction.approvalKind)}</strong>
+          </div>
+          {summary.command ? <pre className="interaction-dock-approval-command">{summary.command}</pre> : null}
+          {summary.cwd ? <p><strong>工作目录</strong><span>{summary.cwd}</span></p> : null}
+          {summary.paths?.map((path) => <p key={path}><strong>目标</strong><span>{path}</span></p>)}
+          {summary.network ? <p><strong>网络</strong><span>允许当前回合访问网络</span></p> : null}
+          {summary.readPaths?.map((path) => <p key={`read:${path}`}><strong>读取</strong><span>{path}</span></p>)}
+          {summary.writePaths?.map((path) => <p key={`write:${path}`}><strong>写入</strong><span>{path}</span></p>)}
+          {interaction.readOnlyBlocked ? <p className="interaction-dock-approval-blocked">Plan 回合保持只读，无法批准该写入请求。</p> : null}
+          <div className="interaction-dock-footer interaction-dock-footer-start">
+            {interaction.availableDecisions.includes("approve-once") ? (
+              <button type="button" className="interaction-dock-primary" disabled={disabled} onClick={() => void settle({ action: "approve-once" })}>
+                {pendingAction === "approve-once" ? "正在提交" : "仅本次允许"}
+              </button>
+            ) : null}
+            {interaction.availableDecisions.includes("approve-for-session") ? (
+              <button type="button" className="interaction-dock-secondary" disabled={disabled} onClick={() => void settle({ action: "approve-for-session" })}>
+                {pendingAction === "approve-for-session" ? "正在提交" : "本会话允许"}
+              </button>
+            ) : null}
+            {interaction.availableDecisions.includes("decline") ? (
+              <button type="button" className="interaction-dock-link" disabled={disabled} onClick={() => void settle({ action: "decline" })}>
+                {pendingAction === "decline" ? "正在拒绝" : "拒绝"}
+              </button>
+            ) : null}
+            {interaction.availableDecisions.includes("cancel-turn") ? (
+              <button type="button" className="interaction-dock-link" disabled={disabled} onClick={() => void settle({ action: "cancel-turn" })}>
+                {pendingAction === "cancel-turn" ? "正在停止" : "拒绝并停止"}
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </DockShell>
+    );
   }
 
   if (interaction.kind === "plan") {
@@ -325,7 +383,7 @@ function DockShell({
   canStop: boolean;
   stopping: boolean;
   navigation?: ReactElement;
-  onClose: () => void;
+  onClose?: () => void;
   onStop: () => void;
   children: ReactNode;
 }): ReactElement {
@@ -345,7 +403,7 @@ function DockShell({
           >
             <Square size={15} fill="currentColor" aria-hidden="true" />
           </button> : null}
-          <button
+          {onClose ? <button
             type="button"
             className="interaction-dock-icon-button"
             disabled={disabled}
@@ -354,12 +412,18 @@ function DockShell({
             onClick={onClose}
           >
             <X size={18} aria-hidden="true" />
-          </button>
+          </button> : null}
         </div>
       </header>
       <div className="interaction-dock-body">{children}</div>
     </section>
   );
+}
+
+function approvalDescription(kind: "command-execution" | "file-change" | "permissions"): string {
+  if (kind === "command-execution") return "Agent 请求运行该命令";
+  if (kind === "file-change") return "Agent 请求应用文件修改";
+  return "Agent 请求扩展当前回合的权限";
 }
 
 function QuestionEditor({

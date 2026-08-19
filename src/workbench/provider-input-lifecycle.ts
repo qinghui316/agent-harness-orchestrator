@@ -1,5 +1,5 @@
 import { agentThreadSurfaceId } from "../provider-runtime/agent-surface-id.js";
-import type { ProductMode, ProviderUserInputRequest, ProviderUserInputResolution } from "../provider-runtime/index.js";
+import type { ProductMode, ProviderApprovalRequest, ProviderApprovalResolution, ProviderUserInputRequest, ProviderUserInputResolution } from "../provider-runtime/index.js";
 import type { ProviderRegistry } from "../provider-runtime/registry.js";
 import type { ProjectWorkbenchPathPort } from "../project-runtime/paths.js";
 import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
@@ -7,7 +7,7 @@ import type { CanonicalTimelineEnvelope } from "./canonical-timeline-contract.js
 import { CanonicalTimelineDelivery, type CanonicalTimelinePublisher } from "./canonical-timeline-delivery.js";
 import { toCanonicalTimelineMessage } from "./canonical-timeline-message.js";
 import { projectCanonicalTimelineEnvelope } from "./canonical-timeline-projector.js";
-import type { TopicThreadEntry, WorkbenchProviderUserInputRequest } from "./types.js";
+import type { TopicThreadEntry, WorkbenchProviderApprovalRequest, WorkbenchProviderUserInputRequest } from "./types.js";
 
 export async function persistProviderUserInputRequest(
   runtime: ProjectWorkbenchPathPort,
@@ -55,7 +55,47 @@ export async function persistProviderUserInputRequest(
   }
 }
 
-export interface ProviderInputLifecycleOwnerOptions {
+export async function persistProviderApprovalRequest(
+  runtime: ProjectWorkbenchPathPort,
+  request: WorkbenchProviderApprovalRequest,
+  publisher?: CanonicalTimelinePublisher,
+): Promise<CanonicalTimelineEnvelope> {
+  const entry: TopicThreadEntry = {
+    id: `provider-approval:${request.requestKey}`,
+    type: "assistant.message",
+    timestamp: new Date().toISOString(),
+    conversationId: request.conversationId,
+    graphScopeId: request.graphScopeId,
+    changeId: "",
+    runId: request.runId,
+    providerId: request.providerId,
+    attemptId: request.attemptId,
+    sessionId: request.threadId,
+    threadId: request.threadId,
+    turnId: request.turnId,
+    itemId: request.itemId,
+    agentRoleId: request.agentRoleId,
+    agentSurfaceId: request.agentRoleId === "main-agent" ? "main-agent" : agentThreadSurfaceId(request.providerId, request.threadId),
+    status: request.status,
+    providerApproval: request,
+  };
+  const database = await openProjectRuntimeWorkbenchDatabase(runtime);
+  try {
+    const existing = database.timeline.readMessage(runtime.projectId, request.conversationId, entry.id);
+    if (existing) {
+      const raw = JSON.parse(existing.rawJson) as { providerApproval?: WorkbenchProviderApprovalRequest };
+      if (!raw.providerApproval || !sameProviderApprovalIdentity(raw.providerApproval, request)) {
+        throw new Error("Provider approval identity conflicts with persisted Timeline evidence.");
+      }
+      return projectCanonicalTimelineEnvelope(existing, "agent");
+    }
+    return new CanonicalTimelineDelivery(database, "agent", publisher).append(toCanonicalTimelineMessage(runtime.projectId, request.conversationId, entry));
+  } finally {
+    database.close();
+  }
+}
+
+export interface ProviderInteractionLifecycleOwnerOptions {
   runtime: ProjectWorkbenchPathPort;
   productMode: ProductMode;
   projectId: string;
@@ -69,15 +109,21 @@ export interface ProviderInputLifecycleOwnerOptions {
   publisher?: CanonicalTimelinePublisher;
   onUpdated?: () => void | Promise<void>;
   onError?: (error: Error) => void;
+  resolveApprovalIdentity?: (threadId: string) => { attemptId: string; roleId: string } | null;
+  onUnexpectedApproval?: (request: ProviderApprovalRequest) => void | Promise<void>;
+  agentTurnMode?: "default" | "plan";
 }
 
-export class ProviderInputLifecycleOwner {
+export class ProviderInteractionLifecycleOwner {
   private readonly requests = new Map<string, WorkbenchProviderUserInputRequest>();
   private readonly earlyResolutions = new Map<string, ProviderUserInputResolution>();
   private readonly resolutions = new Map<string, ProviderUserInputResolution>();
   private readonly pending = new Map<string, Promise<unknown>>();
+  private readonly approvals = new Map<string, WorkbenchProviderApprovalRequest>();
+  private readonly earlyApprovalResolutions = new Map<string, ProviderApprovalResolution>();
+  private readonly approvalResolutions = new Map<string, ProviderApprovalResolution>();
 
-  constructor(private readonly options: ProviderInputLifecycleOwnerOptions) {}
+  constructor(private readonly options: ProviderInteractionLifecycleOwnerOptions) {}
 
   readonly onRequest = (request: ProviderUserInputRequest): void => {
     try {
@@ -155,6 +201,83 @@ export class ProviderInputLifecycleOwner {
     }
   };
 
+  readonly onApprovalRequest = (request: ProviderApprovalRequest): void => {
+    try {
+      if (this.options.productMode !== "agent") {
+        const work = Promise.resolve(this.options.onUnexpectedApproval?.(request))
+          .then(() => { throw new Error("Provider approval is forbidden outside Direct Agent mode."); });
+        this.track(`unexpected-approval:${request.requestId}`, work);
+        return;
+      }
+      this.assertApprovalCallbackIdentity(request);
+      const identity = this.options.resolveApprovalIdentity?.(request.threadId);
+      if (!identity) throw new Error("Provider approval thread cannot be resolved to an exact Agent Attempt.");
+      const requestKey = providerApprovalRequestKey(request.runId, request);
+      const normalized: WorkbenchProviderApprovalRequest = {
+        providerId: request.providerId,
+        requestKey,
+        requestId: request.requestId,
+        kind: request.kind,
+        threadId: request.threadId,
+        turnId: request.turnId,
+        itemId: request.itemId,
+        runId: request.runId,
+        runtimeScopeId: request.runtimeScopeId,
+        conversationId: this.options.conversationId,
+        graphScopeId: this.options.graphScopeId,
+        attemptId: identity.attemptId,
+        agentRoleId: identity.roleId,
+        agentTurnMode: this.options.agentTurnMode ?? "default",
+        ...(request.reason ? { reason: request.reason } : {}),
+        summary: request.summary,
+        availableDecisions: request.availableDecisions.filter((decision) => (
+          this.options.agentTurnMode !== "plan"
+          || (!request.summary.includesWrite && request.kind !== "file-change")
+          || decision === "decline"
+          || decision === "cancel-turn"
+        )),
+        status: "pending",
+      };
+      const existing = this.approvals.get(request.requestId);
+      if (existing) {
+        if (!sameProviderApprovalIdentity(existing, normalized)) throw new Error("Provider approval requestId was reused with different Turn lineage.");
+        return;
+      }
+      this.approvals.set(request.requestId, normalized);
+      const persistence = persistProviderApprovalRequest(this.options.runtime, normalized, this.options.publisher).then(async () => {
+        const early = this.earlyApprovalResolutions.get(request.requestId);
+        if (early) {
+          this.earlyApprovalResolutions.delete(request.requestId);
+          await this.resolvePersistedApproval(early, requestKey);
+        }
+        await this.options.onUpdated?.();
+      });
+      this.track(`approval:${request.requestId}`, persistence);
+    } catch (cause) {
+      this.options.onError?.(asError(cause));
+    }
+  };
+
+  readonly onApprovalResolved = (resolution: ProviderApprovalResolution): void => {
+    try {
+      this.assertApprovalResolutionIdentity(resolution);
+      const known = this.approvalResolutions.get(resolution.requestId);
+      if (known) {
+        if (!sameProviderApprovalResolutionIdentity(known, resolution)) throw new Error("Provider approval resolution identity changed for the same requestId.");
+        return;
+      }
+      this.approvalResolutions.set(resolution.requestId, resolution);
+      const request = this.approvals.get(resolution.requestId);
+      if (!request) {
+        this.earlyApprovalResolutions.set(resolution.requestId, resolution);
+        return;
+      }
+      this.track(`approval-resolved:${resolution.requestId}`, this.resolveApproval(resolution, request));
+    } catch (cause) {
+      this.options.onError?.(asError(cause));
+    }
+  };
+
   async terminalize(): Promise<void> {
     await Promise.allSettled(this.pending.values());
     const database = await openProjectRuntimeWorkbenchDatabase(this.options.runtime);
@@ -165,12 +288,19 @@ export class ProviderInputLifecycleOwner {
         this.options.runId,
         new Date().toISOString(),
       );
+      rows.push(...database.interactions.terminalizeProviderApprovalRequests(
+        this.options.projectId,
+        this.options.conversationId,
+        this.options.runId,
+        new Date().toISOString(),
+      ));
       const delivery = new CanonicalTimelineDelivery(database, this.options.productMode, this.options.publisher);
       delivery.publishCommittedMany(rows);
     } finally {
       database.close();
     }
     this.earlyResolutions.clear();
+    this.earlyApprovalResolutions.clear();
     await this.options.onUpdated?.();
   }
 
@@ -238,6 +368,47 @@ export class ProviderInputLifecycleOwner {
     }
   }
 
+  private async resolveApproval(resolution: ProviderApprovalResolution, request: WorkbenchProviderApprovalRequest): Promise<void> {
+    await this.pending.get(`approval:${resolution.requestId}`);
+    await this.resolvePersistedApproval(resolution, request.requestKey);
+  }
+
+  private async resolvePersistedApproval(resolution: ProviderApprovalResolution, requestKey: string): Promise<void> {
+    const database = await openProjectRuntimeWorkbenchDatabase(this.options.runtime);
+    try {
+      const current = database.interactions.readProviderApprovalRequest(this.options.projectId, this.options.conversationId, requestKey);
+      if (!current) throw new Error("Provider approval resolution arrived without persisted request evidence.");
+      if (resolution.threadId !== current.threadId || resolution.turnId !== current.turnId) throw new Error("Provider approval resolution does not match persisted Turn lineage.");
+      if (current.status === "submitted" || current.status === "interrupted" || current.status === "superseded") return;
+      const transition = database.interactions.transitionProviderApprovalRequest(
+        this.options.projectId,
+        this.options.conversationId,
+        this.options.graphScopeId,
+        requestKey,
+        current.status,
+        "submitted",
+        current.decision,
+        new Date().toISOString(),
+      );
+      new CanonicalTimelineDelivery(database, "agent", this.options.publisher).publishCommitted(transition.row);
+    } finally {
+      database.close();
+    }
+    await this.options.onUpdated?.();
+  }
+
+  private assertApprovalCallbackIdentity(request: ProviderApprovalRequest): void {
+    if (request.providerId !== this.options.providerId || request.runId !== this.options.runId || request.runtimeScopeId !== this.options.runtimeScopeId) {
+      throw new Error("Provider approval request does not match the active Turn identity.");
+    }
+  }
+
+  private assertApprovalResolutionIdentity(resolution: ProviderApprovalResolution): void {
+    if (resolution.providerId !== this.options.providerId || resolution.runId !== this.options.runId || resolution.runtimeScopeId !== this.options.runtimeScopeId) {
+      throw new Error("Provider approval resolution does not match the active Turn identity.");
+    }
+  }
+
   private track(key: string, work: Promise<unknown>): void {
     this.pending.set(key, work);
     void work.catch((cause) => this.options.onError?.(asError(cause))).finally(() => {
@@ -245,6 +416,9 @@ export class ProviderInputLifecycleOwner {
     });
   }
 }
+
+export { ProviderInteractionLifecycleOwner as ProviderInputLifecycleOwner };
+export type ProviderInputLifecycleOwnerOptions = ProviderInteractionLifecycleOwnerOptions;
 
 function sameProviderUserInputIdentity(
   left: WorkbenchProviderUserInputRequest,
@@ -285,6 +459,20 @@ function sameProviderUserInputResolutionIdentity(
     && (left.threadId ?? null) === (right.threadId ?? null);
 }
 
+function sameProviderApprovalIdentity(left: WorkbenchProviderApprovalRequest, right: WorkbenchProviderApprovalRequest): boolean {
+  return JSON.stringify({ ...left, status: undefined, decision: undefined, submittedAt: undefined })
+    === JSON.stringify({ ...right, status: undefined, decision: undefined, submittedAt: undefined });
+}
+
+function sameProviderApprovalResolutionIdentity(left: ProviderApprovalResolution, right: ProviderApprovalResolution): boolean {
+  return left.providerId === right.providerId
+    && left.requestId === right.requestId
+    && left.runtimeScopeId === right.runtimeScopeId
+    && left.runId === right.runId
+    && left.threadId === right.threadId
+    && left.turnId === right.turnId;
+}
+
 export async function reconcileStaleProviderInputRequests(input: {
   runtime: ProjectWorkbenchPathPort;
   providerRegistry: ProviderRegistry;
@@ -300,9 +488,34 @@ export async function reconcileStaleProviderInputRequests(input: {
     for (const conversation of conversations) {
       for (const row of database.timeline.listConversationMessages(input.runtime.projectId, conversation.conversationId)) {
         let request: WorkbenchProviderUserInputRequest | undefined;
+        let approval: WorkbenchProviderApprovalRequest | undefined;
         try {
-          request = (JSON.parse(row.rawJson) as { providerUserInput?: WorkbenchProviderUserInputRequest }).providerUserInput;
+          const raw = JSON.parse(row.rawJson) as { providerUserInput?: WorkbenchProviderUserInputRequest; providerApproval?: WorkbenchProviderApprovalRequest };
+          request = raw.providerUserInput;
+          approval = raw.providerApproval;
         } catch {
+          continue;
+        }
+        if (approval && (approval.status === "pending" || approval.status === "submitting")) {
+          const active = input.providerRegistry.findActiveTurn(approval.runtimeScopeId);
+          if (active
+            && active.providerId === approval.providerId
+            && active.attemptId === approval.attemptId
+            && active.runId === approval.runId
+            && active.turnId === approval.turnId
+            && active.session.sessionId === approval.threadId
+            && active.roleId === approval.agentRoleId) continue;
+          const updated = database.interactions.interruptStaleProviderApprovalRequest(
+            input.runtime.projectId,
+            conversation.conversationId,
+            approval.requestKey,
+            approval.status,
+            new Date().toISOString(),
+          );
+          if (updated) {
+            interrupted += 1;
+            if (diagnostics.length < 20) diagnostics.push(`${conversation.conversationId}:${approval.providerId}:${approval.attemptId}:${approval.requestId}`);
+          }
           continue;
         }
         if (!request || (request.status !== "pending" && request.status !== "submitting")) continue;
@@ -342,6 +555,15 @@ export function providerUserInputRequestKey(
   request: Pick<ProviderUserInputRequest, "requestId" | "threadId" | "turnId" | "itemId">,
 ): string {
   return [runId, request.threadId ?? "main", request.turnId ?? "turn", request.itemId ?? "item", request.requestId]
+    .map((part) => encodeURIComponent(part))
+    .join(":");
+}
+
+export function providerApprovalRequestKey(
+  runId: string,
+  request: Pick<ProviderApprovalRequest, "requestId" | "threadId" | "turnId" | "itemId" | "kind">,
+): string {
+  return [runId, request.threadId, request.turnId, request.itemId, request.kind, request.requestId]
     .map((part) => encodeURIComponent(part))
     .join(":");
 }

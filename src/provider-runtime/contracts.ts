@@ -132,6 +132,47 @@ export interface ProviderUserInputResolution {
   threadId?: string;
 }
 
+export type ProviderApprovalKind = "command-execution" | "file-change" | "permissions";
+export type ProviderApprovalDecision = "approve-once" | "approve-for-session" | "decline" | "cancel-turn";
+
+export interface ProviderApprovalSummary {
+  title: string;
+  command?: string;
+  cwd?: string;
+  paths?: string[];
+  network?: boolean;
+  readPaths?: string[];
+  writePaths?: string[];
+  includesWrite: boolean;
+}
+
+export interface ProviderApprovalRequest {
+  providerId: ProviderId;
+  requestId: string;
+  kind: ProviderApprovalKind;
+  attemptId: string;
+  runId: string;
+  runtimeScopeId: string;
+  sessionId?: string;
+  threadId: string;
+  turnId: string;
+  itemId: string;
+  roleId: string;
+  reason?: string;
+  summary: ProviderApprovalSummary;
+  availableDecisions: readonly ProviderApprovalDecision[];
+}
+
+export interface ProviderApprovalResolution {
+  providerId: ProviderId;
+  requestId: string;
+  attemptId: string;
+  runId: string;
+  runtimeScopeId: string;
+  threadId: string;
+  turnId: string;
+}
+
 export interface ProviderChildThreadResult {
   providerId: ProviderId;
   activityId?: string;
@@ -267,6 +308,9 @@ export interface ProviderTurnRequest {
   onChildThreadResult?: (result: ProviderChildThreadResult) => void;
   onUserInputRequest?: (request: ProviderUserInputRequest) => void;
   onUserInputResolved?: (resolution: ProviderUserInputResolution) => void;
+  approvalMode?: "never" | "on-request";
+  onApprovalRequest?: (request: ProviderApprovalRequest) => void;
+  onApprovalResolved?: (resolution: ProviderApprovalResolution) => void;
   tools?: ProviderToolSpec[];
   onToolCall?: (call: ProviderToolCall) => Promise<ProviderToolResult>;
   onObjectiveUpdate?: (objective: ProviderObjectiveState) => void;
@@ -352,6 +396,7 @@ export interface ActiveProviderTurn {
   steer(input: string): Promise<void>;
   interrupt(reason?: string): Promise<{ status: "interrupt-requested" | "already-terminal" }>;
   respondToUserInput(requestId: string, response: ProviderUserInputResponse, expected?: { runId: string; sessionId?: string; turnId?: string }): Promise<void>;
+  respondToApproval(requestId: string, decision: ProviderApprovalDecision, expected: { runId: string; sessionId?: string; turnId: string }): Promise<void>;
 }
 
 export interface ConversationProviderPort {

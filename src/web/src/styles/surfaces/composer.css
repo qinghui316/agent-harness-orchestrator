@@ -164,6 +164,44 @@
   gap: 8px;
 }
 
+.interaction-dock-approval {
+  gap: 10px;
+}
+
+.interaction-dock-approval-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.interaction-dock-approval p {
+  display: grid;
+  grid-template-columns: minmax(64px, auto) minmax(0, 1fr);
+  gap: 10px;
+  margin: 0;
+}
+
+.interaction-dock-approval p span,
+.interaction-dock-approval-command {
+  overflow-wrap: anywhere;
+}
+
+.interaction-dock-approval-command {
+  max-height: 128px;
+  margin: 0;
+  padding: 9px 10px;
+  overflow: auto;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-subtle);
+  font: inherit;
+  white-space: pre-wrap;
+}
+
+.interaction-dock-approval-blocked {
+  display: block !important;
+  color: var(--warning-text);
+}
+
 .interaction-dock-options {
   display: grid;
   gap: 1px;

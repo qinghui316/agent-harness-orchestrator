@@ -6,7 +6,7 @@ import { codexModelSettings, selectCodexModel } from "./codex-models.js";
 import { listCodexNativeSkills, setCodexNativeSkillEnabled } from "../codex/native-skills.js";
 import { defaultCodexAppServerHostRegistry } from "../codex/app-server-host.js";
 import { defaultProjectRemovalFence } from "../project-runtime/removal.js";
-import type { ActiveProviderTurn, ProviderChildCloseRequest, ProviderChildLifecycleEvent, ProviderChildSessionRequest, ProviderChildThreadResult, ProviderChildTurnRequest, ProviderDescriptor, ProviderObjectiveState, ProviderRealtimeEvent, ProviderTurnRequest, ProviderTurnResult, ProviderUserInputRequest } from "./contracts.js";
+import type { ActiveProviderTurn, ProviderApprovalRequest, ProviderChildCloseRequest, ProviderChildLifecycleEvent, ProviderChildSessionRequest, ProviderChildThreadResult, ProviderChildTurnRequest, ProviderDescriptor, ProviderObjectiveState, ProviderRealtimeEvent, ProviderTurnRequest, ProviderTurnResult, ProviderUserInputRequest } from "./contracts.js";
 import { agentThreadSurfaceId } from "./agent-surface-id.js";
 
 export const CODEX_PROVIDER_ID = "codex" as const;
@@ -95,6 +95,21 @@ export async function runCodexTurn(request: ProviderTurnRequest): Promise<Provid
       attemptId: request.attemptId,
       ...(input.threadId ? { threadId: input.threadId } : {}),
     }) : undefined),
+    approvalMode: request.approvalMode ?? "never",
+    onApprovalRequest: guardedProjectNotification(request.projectId, projectGeneration, request.onApprovalRequest
+      ? (approval) => request.onApprovalRequest?.(mapApproval(request, approval))
+      : undefined),
+    onApprovalResolved: guardedProjectNotification(request.projectId, projectGeneration, request.onApprovalResolved
+      ? (approval) => request.onApprovalResolved?.({
+        providerId: CODEX_PROVIDER_ID,
+        requestId: approval.requestId,
+        attemptId: request.attemptId,
+        runId: request.runId,
+        runtimeScopeId,
+        threadId: approval.threadId,
+        turnId: approval.turnId,
+      })
+      : undefined),
     dynamicTools: request.tools,
     onDynamicToolCall: request.onToolCall ? async (call) => {
       defaultProjectRemovalFence.assertCurrent(request.projectId, projectGeneration);
@@ -190,6 +205,21 @@ export async function runCodexChildTurn(request: ProviderChildTurnRequest): Prom
       : undefined,
     onChildThreadResult: guardedProjectNotification(request.projectId, projectGeneration, request.onChildThreadResult
       ? (child) => request.onChildThreadResult?.(mapChild(child))
+      : undefined),
+    approvalMode: request.approvalMode ?? "never",
+    onApprovalRequest: guardedProjectNotification(request.projectId, projectGeneration, request.onApprovalRequest
+      ? (approval) => request.onApprovalRequest?.(mapApproval(request, approval))
+      : undefined),
+    onApprovalResolved: guardedProjectNotification(request.projectId, projectGeneration, request.onApprovalResolved
+      ? (approval) => request.onApprovalResolved?.({
+        providerId: CODEX_PROVIDER_ID,
+        requestId: approval.requestId,
+        attemptId: request.attemptId,
+        runId: request.runId,
+        runtimeScopeId: request.runtimeScopeId ?? request.changeId ?? request.runId,
+        threadId: approval.threadId,
+        turnId: approval.turnId,
+      })
       : undefined),
     onError: guardedProjectNotification(request.projectId, projectGeneration, request.onError),
     model: request.model?.modelId,
@@ -327,6 +357,7 @@ function mapActiveCodexTurn(active: ActiveCodexAppServerTurn): ActiveProviderTur
     steer: active.steer,
     interrupt: active.interrupt,
     respondToUserInput: (requestId, response, expected) => active.respondToUserInput(requestId, { answers: response.answers }, { runId: expected?.runId ?? active.runId, threadId: expected?.sessionId, turnId: expected?.turnId }),
+    respondToApproval: (requestId, decision, expected) => active.respondToApproval(requestId, decision, { runId: expected.runId, threadId: expected.sessionId, turnId: expected.turnId }),
   };
 }
 
@@ -422,6 +453,20 @@ function mapUserInput(request: ProviderTurnRequest, input: import("../codex/app-
       allowCustom: question.isOther !== false,
       options: question.options?.map((option) => ({ value: option.label, label: option.label, description: option.description })),
     })),
+  };
+}
+
+function mapApproval(
+  request: Pick<ProviderTurnRequest, "attemptId" | "runId" | "runtimeScopeId">,
+  approval: import("../codex/app-server.js").CodexAppServerApprovalRequest,
+): ProviderApprovalRequest {
+  return {
+    ...approval,
+    providerId: CODEX_PROVIDER_ID,
+    attemptId: request.attemptId,
+    runId: request.runId,
+    runtimeScopeId: request.runtimeScopeId ?? approval.runtimeScopeId,
+    sessionId: approval.threadId,
   };
 }
 

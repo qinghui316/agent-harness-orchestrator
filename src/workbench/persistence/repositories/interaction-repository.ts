@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import type { WorkbenchProviderUserInputRequest } from "../../types.js";
+import type { WorkbenchProviderApprovalRequest, WorkbenchProviderUserInputRequest } from "../../types.js";
 import type { StoredTopicMessage } from "../contracts.js";
 import type { TimelineRepository } from "./timeline-repository.js";
 
@@ -20,6 +20,7 @@ export class InteractionRepository {
         artifact?: string;
         status?: string;
         providerUserInput?: WorkbenchProviderUserInputRequest;
+        providerApproval?: WorkbenchProviderApprovalRequest;
         clarification?: { status?: string };
       };
       try {
@@ -31,6 +32,9 @@ export class InteractionRepository {
       let nextStatus: string | undefined;
       if (raw.providerUserInput && (raw.providerUserInput.status === "pending" || raw.providerUserInput.status === "submitting")) {
         raw.providerUserInput = { ...raw.providerUserInput, status: "superseded" };
+        nextStatus = "superseded";
+      } else if (raw.providerApproval && (raw.providerApproval.status === "pending" || raw.providerApproval.status === "submitting")) {
+        raw.providerApproval = { ...raw.providerApproval, status: "superseded" };
         nextStatus = "superseded";
       } else if (raw.clarification?.status === "pending") {
         raw.clarification = { ...raw.clarification, status: "expired" };
@@ -201,6 +205,110 @@ readProviderUserInputRequest(
         }),
       });
     })();
+  }
+
+  transitionProviderApprovalRequest(
+    projectId: string,
+    conversationId: string,
+    expectedGraphScopeId: string,
+    requestKey: string,
+    expectedStatus: WorkbenchProviderApprovalRequest["status"],
+    nextStatus: WorkbenchProviderApprovalRequest["status"],
+    decision: WorkbenchProviderApprovalRequest["decision"],
+    updatedAt: string,
+  ): { request: WorkbenchProviderApprovalRequest; row: StoredTopicMessage } {
+    return this.db.transaction(() => {
+      const activeScope = this.db.prepare(`
+        SELECT 1 FROM conversations c
+        INNER JOIN conversation_graph_scopes g ON g.project_id = c.project_id
+          AND g.conversation_id = c.conversation_id AND g.graph_scope_id = c.current_graph_scope_id
+        WHERE c.project_id = ? AND c.conversation_id = ? AND c.product_mode = 'agent'
+          AND c.state = 'active' AND c.deleted_at IS NULL
+          AND c.current_graph_scope_id = ? AND g.status = 'active'
+      `).get(projectId, conversationId, expectedGraphScopeId);
+      if (!activeScope) throw new Error("Provider approval no longer owns the current Direct Agent graph.");
+      const row = this.findProviderApprovalRow(projectId, conversationId, requestKey);
+      if (!row) throw new Error(`Provider approval request was not persisted: ${requestKey}.`);
+      const raw = JSON.parse(row.rawJson) as Record<string, unknown> & { providerApproval: WorkbenchProviderApprovalRequest };
+      if (raw.providerApproval.graphScopeId !== expectedGraphScopeId || raw.providerApproval.status !== expectedStatus) {
+        throw new Error("Provider approval request no longer matches the expected active state.");
+      }
+      const nextRequest: WorkbenchProviderApprovalRequest = {
+        ...raw.providerApproval,
+        status: nextStatus,
+        ...(decision ? { decision } : {}),
+        ...(nextStatus === "submitted" ? { submittedAt: updatedAt } : {}),
+      };
+      const updatedRow = this.timeline.updateMessage({
+        ...row,
+        timestamp: updatedAt,
+        status: nextStatus,
+        rawJson: JSON.stringify({ ...raw, timestamp: updatedAt, status: nextStatus, providerApproval: nextRequest }),
+      });
+      return { request: nextRequest, row: updatedRow };
+    })();
+  }
+
+  readProviderApprovalRequest(projectId: string, conversationId: string, requestKey: string): WorkbenchProviderApprovalRequest | null {
+    const row = this.findProviderApprovalRow(projectId, conversationId, requestKey);
+    if (!row) return null;
+    return (JSON.parse(row.rawJson) as { providerApproval?: WorkbenchProviderApprovalRequest }).providerApproval ?? null;
+  }
+
+  terminalizeProviderApprovalRequests(projectId: string, conversationId: string, runId: string, updatedAt: string): StoredTopicMessage[] {
+    return this.db.transaction(() => {
+      const updated: StoredTopicMessage[] = [];
+      for (const row of this.timeline.listConversationMessages(projectId, conversationId)) {
+        let raw: Record<string, unknown> & { providerApproval?: WorkbenchProviderApprovalRequest };
+        try { raw = JSON.parse(row.rawJson) as typeof raw; } catch { continue; }
+        const request = raw.providerApproval;
+        if (!request || request.runId !== runId || (request.status !== "pending" && request.status !== "submitting")) continue;
+        const nextRequest = { ...request, status: "interrupted" as const };
+        updated.push(this.timeline.updateMessage({
+          ...row,
+          timestamp: updatedAt,
+          status: "interrupted",
+          rawJson: JSON.stringify({ ...raw, timestamp: updatedAt, status: "interrupted", providerApproval: nextRequest }),
+        }));
+      }
+      return updated;
+    })();
+  }
+
+  interruptStaleProviderApprovalRequest(
+    projectId: string,
+    conversationId: string,
+    requestKey: string,
+    expectedStatus: "pending" | "submitting",
+    updatedAt: string,
+  ): StoredTopicMessage | null {
+    return this.db.transaction(() => {
+      const row = this.findProviderApprovalRow(projectId, conversationId, requestKey);
+      if (!row) return null;
+      const raw = JSON.parse(row.rawJson) as Record<string, unknown> & { providerApproval: WorkbenchProviderApprovalRequest };
+      if (raw.providerApproval.status !== expectedStatus) return null;
+      const nextRequest = { ...raw.providerApproval, status: "interrupted" as const };
+      return this.timeline.updateMessage({
+        ...row,
+        timestamp: updatedAt,
+        status: "interrupted",
+        rawJson: JSON.stringify({
+          ...raw,
+          timestamp: updatedAt,
+          status: "interrupted",
+          recoveryDiagnostic: "Provider approval was interrupted during startup because no exact active Provider Turn could be proven.",
+          providerApproval: nextRequest,
+        }),
+      });
+    })();
+  }
+
+  private findProviderApprovalRow(projectId: string, conversationId: string, requestKey: string): StoredTopicMessage | null {
+    return this.timeline.listConversationMessages(projectId, conversationId).reverse().find((message) => {
+      try {
+        return (JSON.parse(message.rawJson) as { providerApproval?: WorkbenchProviderApprovalRequest }).providerApproval?.requestKey === requestKey;
+      } catch { return false; }
+    }) ?? null;
   }
 
 updatePlanningMessageStatus(projectId: string, conversationId: string, artifact: string, status: string): StoredTopicMessage {

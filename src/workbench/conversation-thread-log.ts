@@ -92,6 +92,7 @@ export function fromStoredThreadMessage(row: StoredTopicMessage): TopicThreadEnt
     sessionId: typeof raw.sessionId === "string" ? raw.sessionId : undefined,
     attemptId: typeof raw.attemptId === "string" ? raw.attemptId : undefined,
     providerUserInput: isWorkbenchProviderUserInputRequest(raw.providerUserInput) ? raw.providerUserInput : undefined,
+    providerApproval: isWorkbenchProviderApprovalRequest(raw.providerApproval) ? raw.providerApproval : undefined,
     contextRefs: Array.isArray(raw.contextRefs) ? raw.contextRefs.filter(isTopicFileReference) : undefined,
     attachments: Array.isArray(raw.attachments) ? raw.attachments.filter(isTopicAttachment) : undefined,
     planHandoff: isValidatedPlanHandoffIntent(raw.planHandoff) ? raw.planHandoff : undefined,
@@ -204,6 +205,24 @@ function isWorkbenchProviderUserInputRequest(
       || value.status === "submitted"
       || value.status === "interrupted"
       || value.status === "superseded");
+}
+
+function isWorkbenchProviderApprovalRequest(value: unknown): value is import("./types.js").WorkbenchProviderApprovalRequest {
+  return isRecord(value)
+    && typeof value.providerId === "string"
+    && typeof value.requestKey === "string"
+    && typeof value.requestId === "string"
+    && (value.kind === "command-execution" || value.kind === "file-change" || value.kind === "permissions")
+    && typeof value.threadId === "string"
+    && typeof value.turnId === "string"
+    && typeof value.itemId === "string"
+    && typeof value.runId === "string"
+    && typeof value.runtimeScopeId === "string"
+    && typeof value.attemptId === "string"
+    && typeof value.agentRoleId === "string"
+    && isRecord(value.summary)
+    && Array.isArray(value.availableDecisions)
+    && ["pending", "submitting", "submitted", "interrupted", "superseded"].includes(String(value.status));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

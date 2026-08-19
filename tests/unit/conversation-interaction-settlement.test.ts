@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const providerAnswer = vi.hoisted(() => vi.fn());
+const providerApprovalAnswer = vi.hoisted(() => vi.fn());
 const activeTurn = vi.hoisted(() => vi.fn());
 const domainSettlement = vi.hoisted(() => ({
   resolved: null as unknown,
@@ -61,6 +62,7 @@ beforeEach(async () => {
   originalAhoHome = process.env.AHO_HOME;
   process.env.AHO_HOME = join(root, ".aho-home");
   providerAnswer.mockReset();
+  providerApprovalAnswer.mockReset();
   activeTurn.mockReset();
   domainSettlement.resolved = null;
   domainSettlement.answerClarification.mockReset();
@@ -78,6 +80,7 @@ beforeEach(async () => {
     steer: vi.fn(),
     interrupt: vi.fn(),
     respondToUserInput: providerAnswer,
+    respondToApproval: providerApprovalAnswer,
   }));
   await git(root, ["init"]);
   await git(root, ["config", "user.email", "aho-test@example.invalid"]);
@@ -202,6 +205,58 @@ describe("conversation interaction settlement", () => {
     await expect(settleConversationInteraction(project(), fixture.conversationId, fixture.interactionId, settlement, undefined, undefined, defaultProviderRegistry))
       .rejects.toThrow("提交结果尚未确认");
     expect(providerAnswer).toHaveBeenCalledTimes(1);
+  });
+
+  it("interrupts a stale Provider approval during startup recovery", async () => {
+    const pending = await providerApprovalInteraction("agent");
+    activeTurn.mockReturnValue(null);
+
+    const result = await reconcileStaleProviderInputRequests({ runtime, providerRegistry: defaultProviderRegistry });
+
+    expect(result.interrupted).toBe(1);
+    const store = await openProjectRuntimeWorkbenchDatabase(runtime);
+    try {
+      expect(store.interactions.readProviderApprovalRequest(project().id, pending.conversationId, "approval-key-1")?.status)
+        .toBe("interrupted");
+      expect(store.timeline.listConversationMessages(project().id, pending.conversationId)
+        .find((item) => item.id === "provider-approval-message")?.rawJson)
+        .toContain("no exact active Provider Turn could be proven");
+    } finally { store.close(); }
+  });
+
+  it("settles an exact Direct Agent Provider approval and keeps transport uncertainty submitting", async () => {
+    const fixture = await providerApprovalInteraction("agent");
+    providerApprovalAnswer.mockRejectedValueOnce(new Error("approval outcome unknown"));
+
+    await expect(settleConversationInteraction(project(), fixture.conversationId, fixture.interactionId, {
+      action: "approve-once",
+    }, undefined, undefined, defaultProviderRegistry)).rejects.toThrow("approval outcome unknown");
+
+    expect(providerApprovalAnswer).toHaveBeenCalledWith("approval-1", "approve-once", {
+      runId: "run-1",
+      threadId: "thread-main",
+      turnId: "turn-main",
+    });
+    const store = await openProjectRuntimeWorkbenchDatabase(runtime);
+    try {
+      expect(store.interactions.readProviderApprovalRequest(project().id, fixture.conversationId, "approval-key-1")).toMatchObject({
+        status: "submitting",
+        decision: "approve-once",
+      });
+    } finally { store.close(); }
+
+    await expect(settleConversationInteraction(project(), fixture.conversationId, fixture.interactionId, {
+      action: "approve-once",
+    }, undefined, undefined, defaultProviderRegistry)).rejects.toThrow("提交结果尚未确认");
+    expect(providerApprovalAnswer).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a forged Harness Provider approval before Provider transport", async () => {
+    const fixture = await providerApprovalInteraction("harness");
+    await expect(settleConversationInteraction(project(), fixture.conversationId, fixture.interactionId, {
+      action: "decline",
+    }, undefined, undefined, defaultProviderRegistry)).rejects.toThrow("仅属于普通 Agent Conversation");
+    expect(providerApprovalAnswer).not.toHaveBeenCalled();
   });
 
   it("rejects a stale interaction after the graph scope changes", async () => {
@@ -405,6 +460,97 @@ async function providerInteraction(status: "pending" | "submitting" = "pending")
   }
   const queue = await buildConversationInteractionQueue(runtime, conversation.conversationId, graphScopeId, "harness");
   return { conversationId: conversation.conversationId, interactionId: queue.items[0]!.interactionId };
+}
+
+async function providerApprovalInteraction(productMode: "agent" | "harness"): Promise<{ conversationId: string; interactionId: string }> {
+  const conversationId = `conversation-approval-${productMode}`;
+  const store = await openProjectRuntimeWorkbenchDatabase(runtime);
+  const now = new Date().toISOString();
+  const graphScopeId = `scope-approval-${productMode}`;
+  try {
+    store.conversations.createConversation({
+      projectId: project().id,
+      conversationId,
+      productMode,
+      agentTurnMode: productMode === "agent" ? "default" : null,
+      title: conversationId,
+      state: "active",
+      boundChangeId: null,
+      currentGraphScopeId: graphScopeId,
+      selectedProviderId: "codex",
+      completedTurnSequence: 0,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+    store.conversations.initializeConversationGraphScope(project().id, conversationId, graphScopeId, now);
+    store.providerAttempts.createProviderAttempt({
+      projectId: project().id,
+      conversationId,
+      attemptId: "run-1",
+      productMode,
+      agentTurnMode: productMode === "agent" ? "default" : null,
+      graphScopeId,
+      changeId: null,
+      agentTaskId: null,
+      roleId: "main-agent",
+      parentAgentSurfaceId: null,
+      operationProfile: productMode === "agent" ? "agent" : "main",
+      providerId: "codex",
+      nativeSessionId: null,
+      model: null,
+      capabilitySnapshot: { providerId: "codex", effectiveModel: "test" } as never,
+      effectiveSkillInputs: [],
+      handoffHash: "approval-fixture",
+      deliveredThroughCompletedTurn: 0,
+      worktreeId: null,
+      status: "running",
+      createdAt: now,
+      updatedAt: now,
+    });
+    store.providerAttempts.bindProviderAttemptThread(project().id, {
+      attemptId: "run-1",
+      threadId: "thread-main",
+      parentThreadId: null,
+      parentAgentSurfaceId: null,
+      runId: "run-1",
+    }, now);
+    const request = {
+      providerId: "codex" as const,
+      requestKey: "approval-key-1",
+      requestId: "approval-1",
+      kind: "command-execution" as const,
+      threadId: "thread-main",
+      turnId: "turn-main",
+      itemId: "command-1",
+      runId: "run-1",
+      runtimeScopeId: conversationId,
+      conversationId,
+      graphScopeId,
+      attemptId: "run-1",
+      agentRoleId: "main-agent",
+      agentTurnMode: "default" as const,
+      summary: { title: "运行命令", command: "npm test", includesWrite: false },
+      availableDecisions: ["approve-once", "decline"] as const,
+      status: "pending" as const,
+    };
+    store.timeline.appendMessage({
+      projectId: project().id,
+      conversationId,
+      agentSurfaceId: "main-agent",
+      id: "provider-approval-message",
+      changeId: "",
+      type: "assistant.message",
+      timestamp: now,
+      status: "pending",
+      rawJson: JSON.stringify({
+        id: "provider-approval-message", type: "assistant.message", timestamp: now,
+        conversationId, graphScopeId, changeId: "", status: "pending", providerApproval: request,
+      }),
+    });
+  } finally { store.close(); }
+  const queue = await buildConversationInteractionQueue(runtime, conversationId, graphScopeId, productMode);
+  return { conversationId, interactionId: queue.items[0]!.interactionId };
 }
 
 function project(): ManagedProject {

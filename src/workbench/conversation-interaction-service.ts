@@ -43,6 +43,10 @@ export async function settleConversationInteraction(
     if (!providerRegistry) throw new Error("Provider Registry is not composed for interaction settlement.");
     return settleProviderInput(paths, conversation, interactionId, resolved, settlement, providerRegistry, live);
   }
+  if (resolved.kind === "provider-approval") {
+    if (!providerRegistry) throw new Error("Provider Registry is not composed for interaction settlement.");
+    return settleProviderApproval(paths, conversation, interactionId, resolved, settlement, providerRegistry, live);
+  }
   requireReadyProjectRuntime(runtimeState);
   if (resolved.kind === "clarification") {
     const result = await settleClarification(project, resolved, settlement);
@@ -54,6 +58,47 @@ export async function settleConversationInteraction(
     return result;
   }
   return settlePlan(project, conversationId, resolved, settlement, live, turnRouter);
+}
+
+async function settleProviderApproval(
+  paths: import("../project-runtime/paths.js").ProjectRuntimePaths,
+  conversation: import("./persistence/contracts.js").StoredConversation,
+  interactionId: string,
+  resolved: Extract<Awaited<ReturnType<typeof resolveConversationInteraction>>, { kind: "provider-approval" }>,
+  settlement: ConversationInteractionSettlement,
+  providerRegistry: Pick<ProviderRegistry, "get">,
+  live?: WorkbenchLiveSink,
+): Promise<{ status: "submitting"; interactionId: string }> {
+  if (conversation.productMode !== "agent") throw conflict("Provider 审批仅属于普通 Agent Conversation。");
+  const decision = settlement.action;
+  if (decision !== "approve-once" && decision !== "approve-for-session" && decision !== "decline" && decision !== "cancel-turn") {
+    throw badRequest("该操作不适用于 Provider 审批。");
+  }
+  const request = resolved.source.request;
+  if (request.status === "submitting") throw conflict("该审批的提交结果尚未确认，请等待状态恢复。");
+  if (!request.availableDecisions.includes(decision)) throw conflict("该决定不属于当前 Provider 允许的选项。");
+  if (request.agentTurnMode === "plan" && (request.kind === "file-change" || request.summary.includesWrite)
+    && decision !== "decline" && decision !== "cancel-turn") {
+    throw conflict("Plan 回合不能批准文件修改或写权限。");
+  }
+  const submissionKey = `${conversation.projectId}:${conversation.conversationId}:${interactionId}`;
+  if (activeSettlements.has(submissionKey)) throw conflict("该审批正在提交，请勿重复操作。");
+  activeSettlements.add(submissionKey);
+  try {
+    const provider = providerRegistry.get(request.providerId);
+    const active = provider.conversation.getActiveTurn(request.runtimeScopeId);
+    await assertActiveProviderApprovalIdentity(paths, conversation, request, active);
+    if (!active) throw conflict("对应 Provider 审批的活动回合不可用。");
+    await transitionProviderApproval(paths, conversation, request, "pending", "submitting", decision, live);
+    await active.respondToApproval(request.requestId, decision, {
+      runId: request.runId,
+      sessionId: request.threadId,
+      turnId: request.turnId,
+    });
+    return { status: "submitting", interactionId };
+  } finally {
+    activeSettlements.delete(submissionKey);
+  }
 }
 
 async function settleProviderInput(
@@ -223,6 +268,38 @@ async function transitionProviderRequest(
   }
 }
 
+async function transitionProviderApproval(
+  paths: import("../project-runtime/paths.js").ProjectRuntimePaths,
+  conversation: import("./persistence/contracts.js").StoredConversation,
+  request: import("./types.js").WorkbenchProviderApprovalRequest,
+  expectedStatus: "pending" | "submitting",
+  nextStatus: "pending" | "submitting" | "submitted",
+  decision: import("../provider-runtime/index.js").ProviderApprovalDecision | undefined,
+  live?: WorkbenchLiveSink,
+): Promise<void> {
+  const store = await openProjectRuntimeWorkbenchDatabase(paths);
+  try {
+    const transition = store.interactions.transitionProviderApprovalRequest(
+      paths.projectId,
+      conversation.conversationId,
+      request.graphScopeId,
+      request.requestKey,
+      expectedStatus,
+      nextStatus,
+      decision,
+      new Date().toISOString(),
+    );
+    new CanonicalTimelineDelivery(store, conversation.productMode, live).publishCommitted(transition.row);
+    publishAgentSurfacesInvalidated(paths.projectId, {
+      conversationId: conversation.conversationId,
+      graphScopeId: conversation.currentGraphScopeId ?? undefined,
+      reason: "interaction-updated",
+    });
+  } finally {
+    store.close();
+  }
+}
+
 function requireRequestGraphScope(request: { graphScopeId?: string }): string {
   if (!request.graphScopeId) throw conflict("对应Agent问题缺少当前任务身份，无法提交。");
   return request.graphScopeId;
@@ -251,6 +328,44 @@ function assertActiveProviderInputIdentity(
     || request.graphScopeId !== conversation.currentGraphScopeId
     || request.requestId.trim() === "") {
     throw conflict("对应Agent回合当前不可用或身份不匹配，请恢复该任务后重试。");
+  }
+}
+
+async function assertActiveProviderApprovalIdentity(
+  paths: import("../project-runtime/paths.js").ProjectRuntimePaths,
+  conversation: import("./persistence/contracts.js").StoredConversation,
+  request: import("./types.js").WorkbenchProviderApprovalRequest,
+  active: ReturnType<import("../provider-runtime/index.js").ProviderDescriptor["conversation"]["getActiveTurn"]>,
+): Promise<void> {
+  if (!active
+    || conversation.productMode !== "agent"
+    || active.providerId !== request.providerId
+    || active.runId !== request.runId
+    || active.runtimeScopeId !== request.runtimeScopeId
+    || request.conversationId !== conversation.conversationId
+    || request.graphScopeId !== conversation.currentGraphScopeId
+    || !request.requestId.trim()) {
+    throw conflict("对应 Provider 审批的活动回合不可用或身份不匹配。");
+  }
+  const store = await openProjectRuntimeWorkbenchDatabase(paths);
+  try {
+    const attempt = store.providerAttempts.readProviderAttempt(paths.projectId, request.attemptId);
+    const link = store.providerAttempts.listProviderThreads(paths.projectId, conversation.conversationId)
+      .find((candidate) => candidate.attemptId === request.attemptId
+        && candidate.providerId === request.providerId
+        && candidate.providerThreadId === request.threadId
+        && candidate.roleId === request.agentRoleId);
+    if (!attempt || attempt.status !== "running" || attempt.graphScopeId !== request.graphScopeId || !link) {
+      throw conflict("对应 Provider 审批的 Agent Attempt 或 Thread lineage 不匹配。");
+    }
+    if (request.agentRoleId === "main-agent" && (
+      active.attemptId !== request.attemptId
+      || active.session.sessionId !== request.threadId
+      || active.turnId !== request.turnId
+      || active.roleId !== "main-agent"
+    )) throw conflict("对应 Provider 审批的主 Agent Turn 身份不匹配。");
+  } finally {
+    store.close();
   }
 }
 

@@ -1,4 +1,5 @@
 import type { ProductMode } from "../provider-runtime/index.js";
+import type { ProviderApprovalDecision, ProviderApprovalKind, ProviderApprovalSummary } from "../provider-runtime/index.js";
 
 export type ConversationQuestionInputMode = "single" | "multiple" | "text" | "secret";
 
@@ -41,9 +42,20 @@ export interface ClarificationConversationInteraction extends ConversationIntera
   title: string;
 }
 
+export interface ProviderApprovalConversationInteraction extends ConversationInteractionBase {
+  kind: "provider-approval";
+  title: string;
+  approvalKind: ProviderApprovalKind;
+  summary: ProviderApprovalSummary;
+  reason?: string;
+  availableDecisions: ProviderApprovalDecision[];
+  readOnlyBlocked: boolean;
+}
+
 export type ConversationInteraction =
   | PlanConversationInteraction
   | ProviderInputConversationInteraction
+  | ProviderApprovalConversationInteraction
   | ClarificationConversationInteraction;
 
 export interface ConversationInteractionQueue {
@@ -54,14 +66,14 @@ export interface ConversationInteractionQueue {
 }
 
 export interface ConversationInteractionSettlement {
-  action: "answer" | "skip" | "execute-plan" | "revise-plan";
+  action: "answer" | "skip" | "execute-plan" | "revise-plan" | ProviderApprovalDecision;
   answers?: Record<string, string | string[]>;
   skippedQuestionIds?: string[];
   feedback?: string;
 }
 
 export interface InteractionHistoryRecord {
-  kind: "provider-input" | "clarification" | "plan";
+  kind: "provider-input" | "provider-approval" | "clarification" | "plan";
   status: "pending" | "submitting" | "answered" | "skipped" | "interrupted" | "superseded";
   questions?: Array<{ questionId: string; title: string }>;
   answers?: Record<string, string | string[]>;

@@ -93,6 +93,38 @@ export interface CodexAppServerUserInputResolution {
   threadId?: string;
 }
 
+export type CodexAppServerApprovalKind = "command-execution" | "file-change" | "permissions";
+export type CodexAppServerApprovalDecision = "approve-once" | "approve-for-session" | "decline" | "cancel-turn";
+
+export interface CodexAppServerApprovalRequest {
+  requestId: string;
+  kind: CodexAppServerApprovalKind;
+  threadId: string;
+  turnId: string;
+  itemId: string;
+  runId: string;
+  runtimeScopeId: string;
+  roleId: string;
+  reason?: string;
+  summary: {
+    title: string;
+    command?: string;
+    cwd?: string;
+    paths?: string[];
+    network?: boolean;
+    readPaths?: string[];
+    writePaths?: string[];
+    includesWrite: boolean;
+  };
+  availableDecisions: CodexAppServerApprovalDecision[];
+}
+
+export interface CodexAppServerApprovalResolution {
+  requestId: string;
+  threadId: string;
+  turnId: string;
+}
+
 export interface CodexAppServerChildThreadResult {
   itemId?: string;
   parentThreadId: string;
@@ -178,6 +210,9 @@ export interface CodexAppServerTurnOptions {
   onChildThreadResult?: (result: CodexAppServerChildThreadResult) => void;
   onUserInputRequest?: CodexAppServerUserInputRequestHandler;
   onUserInputResolved?: (resolution: CodexAppServerUserInputResolution) => void;
+  approvalMode?: "never" | "on-request";
+  onApprovalRequest?: (request: CodexAppServerApprovalRequest) => void;
+  onApprovalResolved?: (resolution: CodexAppServerApprovalResolution) => void;
   dynamicTools?: CodexAppServerDynamicToolSpec[];
   onDynamicToolCall?: (call: CodexAppServerDynamicToolCall) => Promise<CodexAppServerDynamicToolResult>;
   onGoalUpdate?: (goal: CodexAppServerThreadGoal) => void;
@@ -249,6 +284,11 @@ export interface ActiveCodexAppServerTurn {
     requestId: string,
     response: CodexAppServerUserInputResponse,
     expected?: { runId: string; threadId?: string; turnId?: string },
+  ): Promise<void>;
+  respondToApproval(
+    requestId: string,
+    decision: CodexAppServerApprovalDecision,
+    expected: { runId: string; threadId?: string; turnId: string },
   ): Promise<void>;
 }
 
@@ -653,6 +693,10 @@ async function runCodexAppServerOperation(
     threadId?: string;
     turnId?: string;
   }>();
+  const pendingApprovalRequests = new Map<string, {
+    kind: CodexAppServerApprovalKind;
+    params: Record<string, unknown>;
+  }>();
 
   const writeSession = async (status: CodexAppServerSessionRecord["status"], error?: string): Promise<void> => {
     if (!threadId) return;
@@ -708,14 +752,15 @@ async function runCodexAppServerOperation(
           threadId,
           cwd: options.cwd,
           sandbox: options.sandboxPolicy,
-          approvalPolicy: "never",
+          approvalPolicy: options.approvalMode ?? "never",
+          ...(codexThreadFeatureConfig(options) ? { config: codexThreadFeatureConfig(options) } : {}),
           ...(options.runtimeWorkspaceRoots?.length ? { runtimeWorkspaceRoots: options.runtimeWorkspaceRoots } : {}),
         })
         : await sendRequest("thread/start", {
           cwd: options.cwd,
           sandbox: options.sandboxPolicy,
-          approvalPolicy: "never",
-          ...(options.enableDefaultModeUserInput ? { config: { "features.default_mode_request_user_input": true } } : {}),
+          approvalPolicy: options.approvalMode ?? "never",
+          ...(codexThreadFeatureConfig(options) ? { config: codexThreadFeatureConfig(options) } : {}),
           ...(options.runtimeWorkspaceRoots?.length ? { runtimeWorkspaceRoots: options.runtimeWorkspaceRoots } : {}),
           ...(options.developerInstructions?.trim() ? { developerInstructions: options.developerInstructions.trim() } : {}),
           ...(options.dynamicTools?.length ? { dynamicTools: options.dynamicTools } : {}),
@@ -785,6 +830,11 @@ async function runCodexAppServerOperation(
         respondToUserInput: async (requestId: string, response: CodexAppServerUserInputResponse, expected) => {
           await sendServerRequestResult(requestId, normalizeUserInputResponse(response), expected);
         },
+        respondToApproval: async (requestId, decision, expected) => {
+          const approval = pendingApprovalRequests.get(requestId);
+          if (!approval) throw new Error("Codex app-server approval request is no longer pending.");
+          await sendServerRequestResult(requestId, codexApprovalResponse(approval.kind, approval.params, decision), expected);
+        },
       });
       if (lastPublishedStartedTurnId !== activeTurnId) {
         lastPublishedStartedTurnId = activeTurnId;
@@ -823,7 +873,7 @@ async function runCodexAppServerOperation(
         input: [userTextInput(options.prompt), ...skillInputs(options.skillInputs), ...fileInputs(options.fileInputs), ...imageInputs(options.imageInputs)],
         cwd: options.cwd,
         sandboxPolicy: sandboxPolicyFor(options.sandboxPolicy, options.cwd, options.writableRoots),
-        approvalPolicy: "never",
+        approvalPolicy: options.approvalMode ?? "never",
         ...(options.runtimeWorkspaceRoots?.length ? { runtimeWorkspaceRoots: options.runtimeWorkspaceRoots } : {}),
         ...(options.additionalContext ? { additionalContext: options.additionalContext } : {}),
         ...(turnModel ? { model: turnModel } : {}),
@@ -900,7 +950,7 @@ async function runCodexAppServerOperation(
       eventStream.write(`${redactManagedAttachmentPaths(line, options)}\n`);
       return;
     }
-    eventStream.write(`${JSON.stringify(payload)}\n`);
+    eventStream.write(`${JSON.stringify(sanitizeProviderApprovalLogPayload(payload, options))}\n`);
     if (typeof payload.id === "number" && typeof payload.method === "string") {
       if (handleServerRequest(payload.id, payload.method, isRecord(payload.params) ? payload.params : {}, payload)) return;
     }
@@ -929,6 +979,31 @@ async function runCodexAppServerOperation(
           success: false,
         });
       });
+      return true;
+    }
+    const approvalKind = CODEX_APPROVAL_METHODS[method];
+    const approval = parseCodexApprovalRequest(String(id), method, params, options, threadId, turnId);
+    if (approvalKind && !approval) {
+      options.onError?.(new Error(`Malformed Codex approval request: ${method}.`));
+      void activeTurns.get(activeScopeId)?.interrupt("provider-approval-fail-closed").catch(() => undefined);
+      return true;
+    }
+    if (approval) {
+      options.onNotification?.({ method, params: { approval: approval.summary, kind: approval.kind }, raw: { method, id } });
+      if (options.approvalMode !== "on-request" || !options.onApprovalRequest || approval.availableDecisions.length === 0) {
+        options.onError?.(new Error(`Unsupported or disallowed Codex approval request: ${method}.`));
+        void activeTurns.get(activeScopeId)?.interrupt("provider-approval-fail-closed").catch(() => undefined);
+        return true;
+      }
+      pendingServerRequests.set(approval.requestId, {
+        id,
+        method,
+        runId: options.runId,
+        threadId: approval.threadId,
+        turnId: approval.turnId,
+      });
+      pendingApprovalRequests.set(approval.requestId, { kind: approval.kind, params });
+      options.onApprovalRequest(approval);
       return true;
     }
     if (method !== "item/tool/requestUserInput") {
@@ -968,8 +1043,16 @@ async function runCodexAppServerOperation(
       const resolvedRequestId = params.requestId ?? params.request_id;
       if (typeof resolvedRequestId === "string" || typeof resolvedRequestId === "number") {
         const requestId = String(resolvedRequestId);
+        const pendingApproval = pendingApprovalRequests.get(requestId);
         pendingServerRequests.delete(requestId);
-        options.onUserInputResolved?.({ requestId, ...(notificationThreadId ? { threadId: notificationThreadId } : {}) });
+        if (pendingApproval) {
+          pendingApprovalRequests.delete(requestId);
+          const approvalThreadId = stringValue(pendingApproval.params.threadId ?? pendingApproval.params.thread_id);
+          const approvalTurnId = stringValue(pendingApproval.params.turnId ?? pendingApproval.params.turn_id);
+          if (approvalThreadId && approvalTurnId) options.onApprovalResolved?.({ requestId, threadId: approvalThreadId, turnId: approvalTurnId });
+        } else {
+          options.onUserInputResolved?.({ requestId, ...(notificationThreadId ? { threadId: notificationThreadId } : {}) });
+        }
       }
     }
     const isParentNotification = !notificationThreadId || !threadId || notificationThreadId === threadId;
@@ -1742,7 +1825,190 @@ function parseUserInputQuestions(value: unknown): CodexAppServerUserInputQuestio
     .filter((question): question is CodexAppServerUserInputQuestion => Boolean(question));
 }
 
-  function normalizeUserInputResponse(response: CodexAppServerUserInputResponse): Record<string, unknown> {
+const CODEX_APPROVAL_METHODS: Readonly<Record<string, CodexAppServerApprovalKind>> = {
+  "item/commandExecution/requestApproval": "command-execution",
+  "item/fileChange/requestApproval": "file-change",
+  "item/permissions/requestApproval": "permissions",
+};
+
+export function parseCodexApprovalRequest(
+  requestId: string,
+  method: string,
+  params: Record<string, unknown>,
+  options: CodexAppServerTurnOptions,
+  fallbackThreadId: string | null,
+  fallbackTurnId: string | null,
+): CodexAppServerApprovalRequest | null {
+  const kind = CODEX_APPROVAL_METHODS[method];
+  if (!kind) return null;
+  const requestThreadId = stringValue(params.threadId ?? params.thread_id) ?? fallbackThreadId;
+  const requestTurnId = stringValue(params.turnId ?? params.turn_id) ?? fallbackTurnId;
+  const itemId = stringValue(params.itemId ?? params.item_id);
+  if (!requestThreadId || !requestTurnId || !itemId) return null;
+  const reason = sanitizeApprovalText(stringValue(params.reason));
+  const cwd = sanitizeApprovalText(stringValue(params.cwd));
+  const rawPermissions = kind === "command-execution"
+    ? params.additionalPermissions ?? params.additional_permissions
+    : params.permissions;
+  const permissions: Record<string, unknown> = isRecord(rawPermissions) ? rawPermissions : {};
+  const rawFileSystem = permissions.fileSystem ?? permissions.file_system;
+  const fileSystem: Record<string, unknown> = isRecord(rawFileSystem) ? rawFileSystem : {};
+  const readPaths = approvalPaths(fileSystem, "read");
+  const writePaths = approvalPaths(fileSystem, "write");
+  const entries = Array.isArray(fileSystem.entries) ? fileSystem.entries.filter(isRecord) : [];
+  let includesWrite = writePaths.length > 0;
+  for (const entry of entries) {
+    const path = approvalPath(entry.path);
+    const access = stringValue(entry.access);
+    if (access === "write") {
+      includesWrite = true;
+      if (path) writePaths.push(path);
+    } else if (access === "read" && path) readPaths.push(path);
+  }
+  const network = isRecord(permissions.network) && permissions.network.enabled === true;
+  const command = sanitizeApprovalText(stringValue(params.command));
+  const grantRoot = sanitizeApprovalText(stringValue(params.grantRoot ?? params.grant_root));
+  const availableDecisions = supportedCodexApprovalDecisions(kind, params.availableDecisions ?? params.available_decisions)
+    .filter((decision) => decision !== "approve-for-session" || !isRecord(rawPermissions));
+  return {
+    requestId,
+    kind,
+    threadId: requestThreadId,
+    turnId: requestTurnId,
+    itemId,
+    runId: options.runId,
+    runtimeScopeId: options.runtimeScopeId ?? options.changeId ?? options.runId,
+    roleId: options.roleId,
+    ...(reason ? { reason } : {}),
+    summary: {
+      title: kind === "command-execution" ? "运行命令" : kind === "file-change" ? "修改文件" : "扩展权限",
+      ...(command ? { command } : {}),
+      ...(cwd ? { cwd } : {}),
+      ...(grantRoot ? { paths: [grantRoot] } : {}),
+      ...(kind === "permissions" || isRecord(rawPermissions) ? {
+        network,
+        readPaths: uniqueBounded(readPaths),
+        writePaths: uniqueBounded(writePaths),
+      } : {}),
+      includesWrite: kind === "file-change" || includesWrite,
+    },
+    availableDecisions,
+  };
+}
+
+function supportedCodexApprovalDecisions(kind: CodexAppServerApprovalKind, raw: unknown): CodexAppServerApprovalDecision[] {
+  if (kind === "permissions") {
+    if (!Array.isArray(raw) || raw.length === 0) return ["approve-once", "decline"];
+    const supported = new Map<string, CodexAppServerApprovalDecision>([
+      ["accept", "approve-once"],
+      ["approveonce", "approve-once"],
+      ["approve-once", "approve-once"],
+      ["decline", "decline"],
+    ]);
+    return [...new Set(raw
+      .map((value) => typeof value === "string" ? supported.get(value.toLowerCase()) : undefined)
+      .filter((value): value is CodexAppServerApprovalDecision => Boolean(value)))];
+  }
+  const supported = new Map<string, CodexAppServerApprovalDecision>([
+    ["accept", "approve-once"],
+    ["acceptForSession", "approve-for-session"],
+    ["decline", "decline"],
+    ["cancel", "cancel-turn"],
+  ]);
+  if (!Array.isArray(raw) || raw.length === 0) return [...supported.values()];
+  return raw.map((value) => typeof value === "string" ? supported.get(value) : undefined)
+    .filter((value): value is CodexAppServerApprovalDecision => Boolean(value));
+}
+
+function codexThreadFeatureConfig(options: CodexAppServerTurnOptions): Record<string, boolean> | undefined {
+  const config: Record<string, boolean> = {};
+  if (options.enableDefaultModeUserInput) config["features.default_mode_request_user_input"] = true;
+  if (options.approvalMode === "on-request") config["features.request_permissions_tool"] = true;
+  return Object.keys(config).length > 0 ? config : undefined;
+}
+
+export function codexApprovalResponse(
+  kind: CodexAppServerApprovalKind,
+  params: Record<string, unknown>,
+  decision: CodexAppServerApprovalDecision,
+): Record<string, unknown> {
+  if (kind === "permissions") {
+    if (decision !== "approve-once" && decision !== "decline") throw new Error("Unsupported permissions approval decision.");
+    return {
+      permissions: decision === "approve-once" && isRecord(params.permissions) ? params.permissions : {},
+      scope: "turn",
+      ...(decision === "approve-once" ? { strictAutoReview: true } : {}),
+    };
+  }
+  const mapped = {
+    "approve-once": "accept",
+    "approve-for-session": "acceptForSession",
+    decline: "decline",
+    "cancel-turn": "cancel",
+  }[decision];
+  return { decision: mapped };
+}
+
+function approvalPaths(fileSystem: Record<string, unknown>, key: "read" | "write"): string[] {
+  const value = fileSystem[key];
+  return Array.isArray(value) ? value.map(approvalPath).filter((path): path is string => Boolean(path)) : [];
+}
+
+function approvalPath(value: unknown): string | undefined {
+  if (typeof value === "string") return sanitizeApprovalText(value);
+  if (!isRecord(value)) return undefined;
+  const direct = stringValue(value.path ?? value.pattern ?? value.value);
+  if (direct) return sanitizeApprovalText(direct);
+  if (isRecord(value.path)) return approvalPath(value.path);
+  const kind = stringValue(value.kind ?? value.type);
+  return kind ? `[${kind}]` : undefined;
+}
+
+function sanitizeApprovalText(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  return value
+    .replace(/\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|KEY))\s*=\s*([^\s&]+)/gi, "$1=[REDACTED]")
+    .replace(/(bearer\s+)[A-Za-z0-9._~+/-]+/gi, "$1[REDACTED]")
+    .replace(/(--(?:token|password|secret|api-key))(?:\s+|=)(?:"[^"]*"|'[^']*'|[^\s&]+)/gi, "$1=[REDACTED]")
+    .replace(/([?&](?:token|api_key|api-key|password|secret)=)[^&#\s]*/gi, "$1[REDACTED]")
+    .slice(0, 1_000);
+}
+
+function uniqueBounded(values: string[]): string[] {
+  return [...new Set(values)].slice(0, 20);
+}
+
+function sanitizeProviderApprovalLogPayload(
+  payload: Record<string, unknown>,
+  options: CodexAppServerTurnOptions,
+): Record<string, unknown> {
+  const method = stringValue(payload.method);
+  if (!method || !CODEX_APPROVAL_METHODS[method]) return payload;
+  const params = isRecord(payload.params) ? payload.params : {};
+  const request = parseCodexApprovalRequest(
+    String(payload.id ?? "approval"),
+    method,
+    params,
+    options,
+    null,
+    null,
+  );
+  return {
+    method,
+    id: payload.id,
+    params: request ? {
+      threadId: request.threadId,
+      turnId: request.turnId,
+      itemId: request.itemId,
+      kind: request.kind,
+      reason: request.reason,
+      summary: request.summary,
+      availableDecisions: request.availableDecisions,
+    } : { rejected: "malformed-provider-approval" },
+  };
+}
+
+function normalizeUserInputResponse(response: CodexAppServerUserInputResponse): Record<string, unknown> {
   const answers: Record<string, { answers: string[] }> = {};
   for (const [questionId, value] of Object.entries(response.answers)) {
     const answerList = Array.isArray(value) ? value : [value];

@@ -9,6 +9,7 @@ export type ProviderCapabilityKey =
   | "turn.interrupt"
   | "turn.steer"
   | "turn.user-input"
+  | "turn.approval"
   | "turn.plan"
   | "stream.text"
   | "stream.reasoning-summary"

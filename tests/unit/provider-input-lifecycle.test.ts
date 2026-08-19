@@ -2,10 +2,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ProductMode, ProviderUserInputRequest, ProviderUserInputResolution } from "../../src/provider-runtime/index.js";
+import type { ProductMode, ProviderApprovalRequest, ProviderApprovalResolution, ProviderUserInputRequest, ProviderUserInputResolution } from "../../src/provider-runtime/index.js";
 import { resolveProjectRuntimePaths, type ProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
-import { ProviderInputLifecycleOwner } from "../../src/workbench/provider-input-lifecycle.js";
+import { ProviderInputLifecycleOwner, ProviderInteractionLifecycleOwner, providerApprovalRequestKey } from "../../src/workbench/provider-input-lifecycle.js";
 
 const projectId = "provider-input-lifecycle-project";
 const conversationId = "conversation-1";
@@ -64,6 +64,93 @@ describe.each(["agent", "harness"] as const)("ProviderInputLifecycleOwner in %s 
   });
 });
 
+describe("ProviderInteractionLifecycleOwner approval branch", () => {
+  it("persists and resolves one exact Agent approval while filtering Plan writes", async () => {
+    await createConversation("agent");
+    const errors: Error[] = [];
+    const owner = new ProviderInteractionLifecycleOwner({
+      runtime, productMode: "agent", projectId, conversationId, graphScopeId,
+      runId: "run-1", providerId: "codex", attemptId: "attempt-1", runtimeScopeId: conversationId,
+      agentTurnMode: "plan",
+      resolveApprovalIdentity: () => ({ attemptId: "attempt-1", roleId: "main-agent" }),
+      onError: (error) => errors.push(error),
+    });
+    owner.onApprovalRequest(providerApproval());
+    owner.onApprovalRequest(providerApproval());
+    await expectApprovalStatus("pending");
+    const database = await openProjectRuntimeWorkbenchDatabase(runtime);
+    try {
+      const persisted = database.interactions.readProviderApprovalRequest(projectId, conversationId, approvalKey());
+      expect(persisted?.availableDecisions).toEqual(["decline", "cancel-turn"]);
+      expect(database.timeline.listConversationMessages(projectId, conversationId).filter((row) => row.id.startsWith("provider-approval:"))).toHaveLength(1);
+    } finally { database.close(); }
+    owner.onApprovalResolved(providerApprovalResolution());
+    await expectApprovalStatus("submitted");
+    expect(errors).toEqual([]);
+    await owner.terminalize();
+  });
+
+  it("fails closed and does not persist a Harness Provider approval", async () => {
+    await createConversation("harness");
+    const errors: Error[] = [];
+    const unexpected = vi.fn();
+    const owner = new ProviderInteractionLifecycleOwner({
+      runtime, productMode: "harness", projectId, conversationId, graphScopeId,
+      runId: "run-1", providerId: "codex", attemptId: "attempt-1", runtimeScopeId: conversationId,
+      onUnexpectedApproval: unexpected,
+      onError: (error) => errors.push(error),
+    });
+    owner.onApprovalRequest(providerApproval());
+    await vi.waitFor(() => expect(errors.at(-1)?.message).toContain("forbidden outside Direct Agent"));
+    expect(unexpected).toHaveBeenCalledOnce();
+    const database = await openProjectRuntimeWorkbenchDatabase(runtime);
+    try {
+      expect(database.timeline.listConversationMessages(projectId, conversationId).some((row) => row.id.startsWith("provider-approval:"))).toBe(false);
+    } finally { database.close(); }
+    await owner.terminalize();
+  });
+
+  it("keeps Plan read and network permission approval available while binding child lineage", async () => {
+    await createConversation("agent");
+    const errors: Error[] = [];
+    const owner = new ProviderInteractionLifecycleOwner({
+      runtime, productMode: "agent", projectId, conversationId, graphScopeId,
+      runId: "run-1", providerId: "codex", attemptId: "attempt-1", runtimeScopeId: conversationId,
+      agentTurnMode: "plan",
+      resolveApprovalIdentity: () => ({ attemptId: "attempt-child", roleId: "native-child-agent" }),
+      onError: (error) => errors.push(error),
+    });
+    const request = providerApproval({
+      kind: "permissions",
+      itemId: "permission-item",
+      summary: {
+        title: "Read dependency metadata",
+        network: true,
+        readPaths: ["C:\\shared-readonly"],
+        writePaths: [],
+        includesWrite: false,
+      },
+      availableDecisions: ["approve-once", "decline"],
+    });
+
+    owner.onApprovalRequest(request);
+    const key = providerApprovalRequestKey("run-1", request);
+    await vi.waitFor(async () => {
+      const database = await openProjectRuntimeWorkbenchDatabase(runtime);
+      try {
+        expect(database.interactions.readProviderApprovalRequest(projectId, conversationId, key)).toMatchObject({
+          attemptId: "attempt-child",
+          agentRoleId: "native-child-agent",
+          agentTurnMode: "plan",
+          availableDecisions: ["approve-once", "decline"],
+        });
+      } finally { database.close(); }
+    });
+    expect(errors).toEqual([]);
+    await owner.terminalize();
+  });
+});
+
 function lifecycleOwner(productMode: ProductMode, errors: Error[]): ProviderInputLifecycleOwner {
   return new ProviderInputLifecycleOwner({
     runtime,
@@ -111,6 +198,50 @@ function providerResolution(overrides: Partial<ProviderUserInputResolution> = {}
     threadId: "thread-1",
     ...overrides,
   };
+}
+
+function providerApproval(overrides: Partial<ProviderApprovalRequest> = {}): ProviderApprovalRequest {
+  return {
+    providerId: "codex",
+    requestId: "approval-1",
+    kind: "file-change",
+    attemptId: "attempt-1",
+    runId: "run-1",
+    runtimeScopeId: conversationId,
+    sessionId: "thread-1",
+    threadId: "thread-1",
+    turnId: "turn-1",
+    itemId: "item-approval",
+    roleId: "main-agent",
+    summary: { title: "Modify files", paths: ["C:\\repo\\file.ts"], includesWrite: true },
+    availableDecisions: ["approve-once", "approve-for-session", "decline", "cancel-turn"],
+    ...overrides,
+  };
+}
+
+function providerApprovalResolution(): ProviderApprovalResolution {
+  return {
+    providerId: "codex",
+    requestId: "approval-1",
+    attemptId: "attempt-1",
+    runId: "run-1",
+    runtimeScopeId: conversationId,
+    threadId: "thread-1",
+    turnId: "turn-1",
+  };
+}
+
+function approvalKey(): string {
+  return ["run-1", "thread-1", "turn-1", "item-approval", "file-change", "approval-1"].map(encodeURIComponent).join(":");
+}
+
+async function expectApprovalStatus(status: "pending" | "submitted" | "interrupted"): Promise<void> {
+  await vi.waitFor(async () => {
+    const database = await openProjectRuntimeWorkbenchDatabase(runtime);
+    try {
+      expect(database.interactions.readProviderApprovalRequest(projectId, conversationId, approvalKey())?.status).toBe(status);
+    } finally { database.close(); }
+  });
 }
 
 async function createConversation(productMode: ProductMode): Promise<void> {

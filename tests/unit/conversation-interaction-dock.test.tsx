@@ -239,4 +239,47 @@ describe("ConversationInteractionDock", () => {
       feedback: "补充回滚验证",
     });
   });
+
+  it("renders a Provider approval without a dismiss path and settles explicit decisions", async () => {
+    const approval: ConversationInteraction = {
+      ...baseInteraction,
+      interactionId: "interaction:approval",
+      kind: "provider-approval",
+      title: "运行命令",
+      questions: [],
+      canSkip: false,
+      approvalKind: "command-execution",
+      summary: { title: "运行命令", command: "npm test", cwd: "C:\\repo", includesWrite: false },
+      availableDecisions: ["approve-once", "approve-for-session", "decline", "cancel-turn"],
+      readOnlyBlocked: false,
+    };
+    const onSettle = vi.fn(async () => undefined);
+    render(<ConversationInteractionDock interaction={approval} busy={false} canStop onSettle={onSettle} onStop={vi.fn()} />);
+
+    expect(screen.queryByRole("button", { name: "关闭并跳过" })).toBeNull();
+    expect(screen.getByText("npm test")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "仅本次允许" }));
+    await waitFor(() => expect(onSettle).toHaveBeenCalledWith("interaction:approval", { action: "approve-once" }));
+  });
+
+  it("shows Plan write blocking with only decline and cancel decisions", () => {
+    const approval: ConversationInteraction = {
+      ...baseInteraction,
+      interactionId: "interaction:plan-write-approval",
+      kind: "provider-approval",
+      title: "修改文件",
+      questions: [],
+      canSkip: false,
+      approvalKind: "file-change",
+      summary: { title: "修改文件", paths: ["C:\\repo\\file.ts"], includesWrite: true },
+      availableDecisions: ["decline", "cancel-turn"],
+      readOnlyBlocked: true,
+    };
+    render(<ConversationInteractionDock interaction={approval} busy={false} onSettle={vi.fn()} onStop={vi.fn()} />);
+
+    expect(screen.getByText(/Plan 回合保持只读/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "仅本次允许" })).toBeNull();
+    expect(screen.getByRole("button", { name: "拒绝" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "拒绝并停止" })).toBeTruthy();
+  });
 });

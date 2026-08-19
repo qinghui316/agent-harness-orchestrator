@@ -45,7 +45,7 @@ import {
 } from "./provider-capture-persistence.js";
 import { ProviderChildLifecycleOwner } from "./provider-child-lifecycle-owner.js";
 import { listClosableChildAgents, runExactChildAgentClose } from "./provider-child-turn-coordinator.js";
-import { ProviderInputLifecycleOwner } from "./provider-input-lifecycle.js";
+import { ProviderInteractionLifecycleOwner } from "./provider-input-lifecycle.js";
 import { assembleSharedConversationContext } from "./shared-conversation-context.js";
 import { buildConversationInteractionQueue } from "./conversation-interactions.js";
 import { acceptCurrentConversationPlanningPackage, readPlannerChildProposal } from "./planning/planner-child-proposal.js";
@@ -136,7 +136,7 @@ async function runProjectScopedMainAgentTurnActivity(
     }
     return count;
   };
-  let providerInputLifecycle: ProviderInputLifecycleOwner | null = null;
+  let providerInputLifecycle: ProviderInteractionLifecycleOwner | null = null;
   await mkdir(directory, { recursive: true });
   const capture = createAssistantTranscriptCapture(live, (snapshot) => {
     if (!canonicalDelivery) return true;
@@ -417,7 +417,7 @@ async function runProjectScopedMainAgentTurnActivity(
     terminalCommittedRows.push(...terminal.interactionRows);
   };
   let result: ProviderTurnResult;
-  providerInputLifecycle = new ProviderInputLifecycleOwner({
+  providerInputLifecycle = new ProviderInteractionLifecycleOwner({
     runtime: resolution.paths,
     productMode: "harness",
     projectId,
@@ -433,6 +433,10 @@ async function runProjectScopedMainAgentTurnActivity(
     onError: (error) => {
       canonicalPersistenceError ??= error;
     },
+    onUnexpectedApproval: async () => {
+      const active = provider.conversation.getActiveTurn(conversationId);
+      await active?.interrupt("provider-approval-forbidden-in-harness");
+    },
   });
   options.turnControl?.registerAttempt(turnRegistration);
   try {
@@ -440,6 +444,7 @@ async function runProjectScopedMainAgentTurnActivity(
       result = await provider.conversation.runTurn({
     providerId: providerId!,
     operationProfile: "main",
+    approvalMode: "never",
     attemptId,
     projectId: project.id,
     conversationId,
@@ -675,6 +680,8 @@ async function runProjectScopedMainAgentTurnActivity(
     },
     onUserInputRequest: providerInputLifecycle.onRequest,
     onUserInputResolved: providerInputLifecycle.onResolved,
+    onApprovalRequest: providerInputLifecycle.onApprovalRequest,
+    onApprovalResolved: providerInputLifecycle.onApprovalResolved,
     onError: (error) => capture.sink.emit({ event: "error", data: { projectId, productMode: "harness", conversationId, runId, message: error instanceof Error ? error.message : String(error) } }),
     model: capabilitySnapshot.effectiveModel ? { providerId: providerId!, modelId: capabilitySnapshot.effectiveModel } : null,
       });

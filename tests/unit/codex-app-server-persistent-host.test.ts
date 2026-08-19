@@ -25,6 +25,84 @@ afterEach(async () => {
 });
 
 describe("Codex persistent app-server Host", () => {
+  it("routes a command approval through the exact active Turn and waits for Provider resolution", async () => {
+    const cwd = await tempDir();
+    const server = new PersistentCollaborationServer(4041, true);
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+    let started!: () => void;
+    const turnStarted = new Promise<void>((resolve) => { started = resolve; });
+    const approvals: import("../../src/codex/app-server.js").CodexAppServerApprovalRequest[] = [];
+    const resolutions: string[] = [];
+    const options = await turnOptions(cwd, "approval-run", null);
+    const run = runCodexAppServerTurn({
+      ...options,
+      approvalMode: "on-request",
+      onTurnStarted: () => started(),
+      onApprovalRequest: (request) => approvals.push(request),
+      onApprovalResolved: (resolution) => resolutions.push(resolution.requestId),
+    });
+    await turnStarted;
+    expect(server.threadParams[0]).toMatchObject({
+      approvalPolicy: "on-request",
+      config: { "features.request_permissions_tool": true },
+    });
+    server.sendApproval(901, "item/commandExecution/requestApproval", {
+      threadId: "thread-main",
+      turnId: "turn-main-1",
+      itemId: "command-1",
+      command: "TOKEN=private npm test",
+      cwd,
+      availableDecisions: ["accept", "acceptForSession", "decline", "cancel"],
+    });
+    await vi.waitFor(() => expect(approvals).toHaveLength(1));
+    expect(approvals[0]?.summary.command).toBe("TOKEN=[REDACTED] npm test");
+
+    const active = getActiveCodexAppServerTurn(options.runtimeScopeId);
+    await active?.respondToApproval("901", "approve-once", {
+      runId: options.runId,
+      threadId: "thread-main",
+      turnId: "turn-main-1",
+    });
+    expect(server.serverResponses).toContainEqual({ id: 901, result: { decision: "accept" } });
+    expect(resolutions).toEqual([]);
+    server.resolveApproval("901", "thread-main");
+    await vi.waitFor(() => expect(resolutions).toEqual(["901"]));
+    server.completeParent();
+    await run;
+
+    const events = await readFile(options.paths.events, "utf8");
+    expect(events).not.toContain("private");
+    expect(events).not.toContain("availableDecisions\":[\"accept\"");
+  });
+
+  it("fails closed when a recognized approval request has malformed Turn lineage", async () => {
+    const cwd = await tempDir();
+    const server = new PersistentCollaborationServer(4042, true);
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+    const errors: string[] = [];
+    const options = await turnOptions(cwd, "malformed-approval-run", null);
+    const run = runCodexAppServerTurn({
+      ...options,
+      approvalMode: "on-request",
+      onApprovalRequest: () => {
+        throw new Error("A malformed approval must not be presented.");
+      },
+      onError: (error) => errors.push(error.message),
+    });
+    await vi.waitFor(() => expect(getActiveCodexAppServerTurn(options.runtimeScopeId)).not.toBeNull());
+
+    server.sendApproval(902, "item/fileChange/requestApproval", {
+      threadId: "thread-main",
+      turnId: "turn-main-1",
+      reason: "missing item identity",
+    });
+
+    await expect(run).resolves.toMatchObject({ status: "interrupted" });
+    expect(errors).toContain("Malformed Codex approval request: item/fileChange/requestApproval.");
+    expect(server.interruptParams).toEqual([{ threadId: "thread-main", turnId: "turn-main-1" }]);
+    expect(server.serverResponses).not.toContainEqual(expect.objectContaining({ id: 902 }));
+  });
+
   it("maps managed images and files to private LocalImage and Mention inputs", async () => {
     const cwd = await tempDir();
     const managedFile = join(cwd, "managed", "marker.txt");
@@ -514,8 +592,10 @@ class PersistentCollaborationServer extends EventEmitter {
   readonly followupPrompts: string[] = [];
   readonly closePrompts: string[] = [];
   readonly turnInputs: unknown[][] = [];
+  readonly threadParams: Array<Record<string, unknown>> = [];
   readonly steerParams: Array<Record<string, unknown>> = [];
   readonly interruptParams: Array<{ threadId: string; turnId: string }> = [];
+  readonly serverResponses: Array<{ id: number; result: Record<string, unknown> }> = [];
   readonly pid: number;
   killCount = 0;
   private input = "";
@@ -557,6 +637,14 @@ class PersistentCollaborationServer extends EventEmitter {
     this.notify("turn/completed", { threadId: "thread-main", turn: { id: "turn-main-1", status: "completed" } });
   }
 
+  sendApproval(id: number, method: string, params: Record<string, unknown>): void {
+    this.stdout.write(`${JSON.stringify({ id, method, params })}\n`);
+  }
+
+  resolveApproval(requestId: string, threadId: string): void {
+    this.notify("serverRequest/resolved", { requestId, threadId });
+  }
+
   rejectNextInterrupt(message: string): void {
     this.nextInterruptError = message;
   }
@@ -591,7 +679,12 @@ class PersistentCollaborationServer extends EventEmitter {
   }
 
   private handle(message: Record<string, unknown>): void {
-    if (typeof message.method !== "string" || typeof message.id !== "number") return;
+    if (typeof message.method !== "string" || typeof message.id !== "number") {
+      if (typeof message.id === "number" && isTestRecord(message.result)) {
+        this.serverResponses.push({ id: message.id, result: message.result });
+      }
+      return;
+    }
     const id = message.id;
     const params = (message.params ?? {}) as Record<string, unknown>;
     this.methods.push(message.method);
@@ -604,6 +697,7 @@ class PersistentCollaborationServer extends EventEmitter {
         return;
       case "thread/start":
       case "thread/resume":
+        this.threadParams.push({ ...params });
         this.respond(id, { thread: { id: "thread-main" } });
         return;
       case "turn/start": {
@@ -732,4 +826,8 @@ class PersistentCollaborationServer extends EventEmitter {
   private notify(method: string, params: Record<string, unknown>): void {
     queueMicrotask(() => this.stdout.write(`${JSON.stringify({ method, params })}\n`));
   }
+}
+
+function isTestRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -127,6 +127,21 @@ transport outcome stays `submitting`, and terminal or restart recovery
 interrupts requests without live-turn proof. Secret answer plaintext must not
 enter SQLite, Timeline, SSE, or logs.
 
+The same provider-neutral lifecycle owner also manages native command,
+file-change, and permissions approvals, but only for `agent` Conversations.
+Adapters retain raw Provider requests and expose redacted summaries plus a
+bounded public decision set. Settlement must prove the exact Conversation,
+graph, Attempt, run, Session, thread, turn, item, request, Provider, and role
+lineage before transport. Default may grant only the exact temporary permission
+profile requested for the current turn; Plan cannot approve file changes or
+filesystem writes. Harness Main and Planning always send Provider approval
+policy `never`; an unexpected callback fails closed and cannot create a visible
+approval interaction. Provider approval is not a `WorkbenchApprovalItem`,
+ExecutionAuthorization, ToolPolicyGate decision, Harness confirmation, or
+permission-policy write. Uncertain transport remains submitting, terminal and
+restart recovery interrupt unproven requests, and raw permission objects,
+secrets, file bodies, and Provider callback state are never durable evidence.
+
 `ConversationTurnControlOwner` is the single provider-neutral owner for stopping
 and steering current Main turns in either product mode. SQLite Conversation,
 ProviderAttempt, ThreadLink, and Timeline rows remain durable truth; the Owner

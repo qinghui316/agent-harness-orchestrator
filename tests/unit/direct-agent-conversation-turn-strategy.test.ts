@@ -114,11 +114,14 @@ describe("DirectAgentConversationTurnStrategy", () => {
       skillInputs: skillContext.skillInputs,
       runtimeWorkspaceRoots: [fixture.project.path],
       writableRoots: [fixture.project.path],
+      approvalMode: "on-request",
     });
     expect(request.tools).toBeUndefined();
     expect(request.objectiveSession).toBeUndefined();
     expect(request.requiredNativeSkills).toBeUndefined();
     expect(request.additionalContext).toBeUndefined();
+    expect(request.onApprovalRequest).toEqual(expect.any(Function));
+    expect(request.onApprovalResolved).toEqual(expect.any(Function));
     expect(registry.findActiveTurn(input.conversation.conversationId)).toBeNull();
 
     const state = await readState(fixture.paths, fixture.project.id, input.conversation.conversationId);
@@ -1471,6 +1474,7 @@ function fakeProvider(behavior: FakeProviderBehavior = {}): {
             return { status: behavior.interruptResult ?? "interrupt-requested" };
           },
           respondToUserInput: async () => undefined,
+          respondToApproval: async () => undefined,
         };
         request.onTurnStarted?.({
           projectId: request.projectId,
@@ -1684,6 +1688,7 @@ function errorMessages(error: unknown): string[] {
 function capabilitySnapshot(productMode: "agent" | "harness", childCapability = true): ProviderCapabilitySnapshot {
   const keys = new Set<ProviderCapabilityKey>(Object.values(PROVIDER_OPERATION_CAPABILITIES).flat());
   keys.add("turn.steer");
+  keys.add("turn.approval");
   if (!childCapability) {
     keys.delete("child.spawn");
     keys.delete("child.result");

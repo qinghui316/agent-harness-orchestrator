@@ -212,6 +212,47 @@ function postConversationMessage(
 }
 
 describe("Workbench provider planning flow", () => {
+  it("keeps Harness Main Provider approval disabled and fails an unexpected callback closed", async () => {
+    let observedApprovalMode: "never" | "on-request" | undefined;
+    appServerTurn.mockImplementationOnce(async (options) => {
+      observedApprovalMode = options.approvalMode;
+      options.onApprovalRequest?.({
+        requestId: "forbidden-harness-approval",
+        kind: "command-execution",
+        threadId: "thread-harness-approval",
+        turnId: "turn-harness-approval",
+        itemId: "item-harness-approval",
+        runId: options.runId,
+        runtimeScopeId: options.runtimeScopeId ?? options.runId,
+        roleId: "main-agent",
+        summary: { title: "Run command", command: "npm test", includesWrite: false },
+        availableDecisions: ["approve-once", "decline"],
+      });
+      return {
+        status: "interrupted",
+        threadId: "thread-harness-approval",
+        turnId: "turn-harness-approval",
+        lastMessage: "",
+        childThreads: [],
+      };
+    });
+
+    const conversation = await createWorkbenchConversation(project(), {
+      body: "Keep Provider approval outside Harness governance.",
+    }, undefined, { runMainAgent: false });
+    await expect(postConversationMessage(
+      project(),
+      conversation.conversationId,
+      { mode: "chat", message: "Trigger the forbidden Provider approval callback." },
+    )).rejects.toThrow("Provider approval is forbidden outside Direct Agent mode.");
+
+    expect(observedApprovalMode).toBe("never");
+    const messages = await listConversationMessages(project(), conversation.conversationId);
+    expect(messages.some((message) => message.providerApproval)).toBe(false);
+    expect(buildConversationInteractionQueue(conversation.conversationId, messages).items)
+      .not.toEqual(expect.arrayContaining([expect.objectContaining({ kind: "provider-approval" })]));
+  });
+
   it("releases Harness Turn control after terminal commit before publishing terminal rows", async () => {
     const conversation = await createWorkbenchConversation(project(), {
       body: "Start without running Main yet.",

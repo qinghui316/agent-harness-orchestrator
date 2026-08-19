@@ -1,4 +1,4 @@
-import type { AgentTurnMode, ProductMode, ProviderId, ProviderReadableEvent, ProviderUserInputQuestion } from "../provider-runtime/index.js";
+import type { AgentTurnMode, ProductMode, ProviderApprovalDecision, ProviderApprovalKind, ProviderApprovalSummary, ProviderId, ProviderReadableEvent, ProviderUserInputQuestion } from "../provider-runtime/index.js";
 import type { ConversationInteractionQueue } from "./conversation-interaction-contract.js";
 import type { HarnessExecutionMode, RunMetadata } from "../types/index.js";
 import type { WorkflowActionType } from "../workflow-actions/registry.js";
@@ -54,6 +54,7 @@ export interface TopicThreadEntry {
   sessionId?: string;
   attemptId?: string;
   providerUserInput?: WorkbenchProviderUserInputRequest;
+  providerApproval?: WorkbenchProviderApprovalRequest;
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
   planHandoff?: ValidatedPlanHandoffIntent;
@@ -178,6 +179,29 @@ export interface WorkbenchProviderUserInputRequest {
   publicAnswers?: Record<string, string | string[]>;
   skippedQuestionIds?: string[];
   disposition?: "answered" | "skipped";
+  submittedAt?: string;
+}
+
+export interface WorkbenchProviderApprovalRequest {
+  providerId: ProviderId;
+  requestKey: string;
+  requestId: string;
+  kind: ProviderApprovalKind;
+  threadId: string;
+  turnId: string;
+  itemId: string;
+  runId: string;
+  runtimeScopeId: string;
+  conversationId: string;
+  graphScopeId: string;
+  attemptId: string;
+  agentRoleId: string;
+  agentTurnMode: AgentTurnMode;
+  reason?: string;
+  summary: ProviderApprovalSummary;
+  availableDecisions: ProviderApprovalDecision[];
+  status: "pending" | "submitting" | "submitted" | "interrupted" | "superseded";
+  decision?: ProviderApprovalDecision;
   submittedAt?: string;
 }
 

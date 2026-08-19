@@ -16,7 +16,7 @@ import { toCanonicalTimelineMessage } from "./canonical-timeline-message.js";
 import { fromStoredThreadMessage } from "./conversation-thread-log.js";
 import { AgentNativeChildLifecycleService, NATIVE_CHILD_AGENT_ROLE_ID } from "./agent-native-child-lifecycle-service.js";
 import { buildConversationInteractionQueue } from "./conversation-interactions.js";
-import { ProviderInputLifecycleOwner } from "./provider-input-lifecycle.js";
+import { ProviderInteractionLifecycleOwner } from "./provider-input-lifecycle.js";
 import { publishAgentSurfacesInvalidated } from "./project-live-events.js";
 import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import type { StoredTopicMessage, StoredTopicMessageWrite } from "./persistence/contracts.js";
@@ -210,7 +210,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
       },
       onInvalidated: () => undefined,
     });
-    const providerInputLifecycle = new ProviderInputLifecycleOwner({
+    const providerInputLifecycle = new ProviderInteractionLifecycleOwner({
       runtime: paths,
       productMode: "agent",
       projectId: paths.projectId,
@@ -220,6 +220,15 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
       providerId: input.providerId,
       attemptId,
       runtimeScopeId: conversation.conversationId,
+      agentTurnMode: input.admission.agentTurnMode ?? "default",
+      resolveApprovalIdentity: (threadId) => {
+        const active = this.providerRegistry.findActiveTurn(conversation.conversationId);
+        if (threadId === liveMainThreadId || threadId === existingSessionId || active?.session.sessionId === threadId) {
+          return { attemptId, roleId: "main-agent" };
+        }
+        const child = childLifecycle.registeredForThread(threadId);
+        return child ? { attemptId: child.attemptId, roleId: NATIVE_CHILD_AGENT_ROLE_ID } : null;
+      },
       publisher: (envelope) => publishCanonicalTimelineEnvelope(input.live, envelope),
       onUpdated: async () => {
         input.live?.emit({
@@ -430,6 +439,11 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
         },
         onUserInputRequest: providerInputLifecycle.onRequest,
         onUserInputResolved: providerInputLifecycle.onResolved,
+        approvalMode: capabilitySnapshot.capabilities.some((capability) => capability.key === "turn.approval" && capability.runtime === "ready")
+          ? "on-request"
+          : "never",
+        onApprovalRequest: providerInputLifecycle.onApprovalRequest,
+        onApprovalResolved: providerInputLifecycle.onApprovalResolved,
         onError: (error) => {
           input.live?.emit({
             event: "error",

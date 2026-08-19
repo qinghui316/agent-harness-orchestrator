@@ -6,7 +6,7 @@ import { canonicalPlanDocumentFromEntry, canonicalPlanDocumentText } from "./pla
 import { fromStoredThreadMessage } from "./conversation-thread-log.js";
 import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import type { ClarificationRequest } from "./intake.js";
-import type { CanonicalPlanDocument, TopicThreadEntry, WorkbenchProviderUserInputRequest } from "./types.js";
+import type { CanonicalPlanDocument, TopicThreadEntry, WorkbenchProviderApprovalRequest, WorkbenchProviderUserInputRequest } from "./types.js";
 import type {
   ConversationInteraction,
   ConversationInteractionQuestion,
@@ -16,6 +16,7 @@ import type { ProductMode } from "../provider-runtime/index.js";
 
 export type ResolvedConversationInteraction =
   | { kind: "provider-input"; public: ConversationInteraction & { kind: "provider-input" }; source: { entry: TopicThreadEntry; request: WorkbenchProviderUserInputRequest } }
+  | { kind: "provider-approval"; public: ConversationInteraction & { kind: "provider-approval" }; source: { entry: TopicThreadEntry; request: WorkbenchProviderApprovalRequest } }
   | { kind: "clarification"; public: ConversationInteraction & { kind: "clarification" }; source: { entry: TopicThreadEntry; clarification: ClarificationRequest } }
   | { kind: "plan"; public: ConversationInteraction & { kind: "plan" }; source: { entry: TopicThreadEntry; proposal: PlannerChildProposal; document: CanonicalPlanDocument } };
 
@@ -75,7 +76,7 @@ export async function buildConversationInteractionAttention(
   const agentSurfaceIds = new Set<string>();
   let mainNeedsInput = false;
   for (const interaction of interactions) {
-    if (interaction.kind !== "provider-input") {
+    if (interaction.kind !== "provider-input" && interaction.kind !== "provider-approval") {
       mainNeedsInput = true;
       continue;
     }
@@ -109,6 +110,31 @@ async function resolveConversationInteractions(
   ));
   const interactions: ResolvedConversationInteraction[] = [];
   for (const entry of currentEntries) {
+    if (entry.providerApproval
+      && (entry.providerApproval.status === "pending" || entry.providerApproval.status === "submitting")) {
+      const request = entry.providerApproval;
+      interactions.push({
+        kind: "provider-approval",
+        public: {
+          interactionId: interactionId("provider-approval", conversationId, graphScopeId, entry.id, request.requestKey),
+          conversationId,
+          graphScopeId,
+          canonicalSequence: entry.position ?? 0,
+          kind: "provider-approval",
+          status: request.status === "submitting" ? "submitting" : "pending",
+          title: request.summary.title,
+          questions: [],
+          canSkip: false,
+          approvalKind: request.kind,
+          summary: request.summary,
+          reason: request.reason,
+          availableDecisions: request.availableDecisions,
+          readOnlyBlocked: request.availableDecisions.every((decision) => decision === "decline" || decision === "cancel-turn"),
+        },
+        source: { entry, request },
+      });
+      continue;
+    }
     if (entry.providerUserInput
       && (entry.providerUserInput.status === "pending" || entry.providerUserInput.status === "submitting")
       && (!entry.providerUserInput.expiresAt || Date.parse(entry.providerUserInput.expiresAt) > Date.now())) {
