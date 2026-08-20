@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { createRef } from "react";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MainConversationView } from "../../src/web/src/panels/workbench/ConversationPanel.js";
 import type { ParentAgentTranscript, ParentAgentTranscriptCell } from "../../src/web/src/types.js";
@@ -31,6 +31,47 @@ afterEach(() => {
 });
 
 describe("main conversation virtualization", () => {
+  it("offers Retry only on the latest failed Turn boundary and submits its exact target once", async () => {
+    const onRetry = vi.fn(async () => undefined);
+    const retryTarget = {
+      failedAttemptId: "attempt-latest",
+      sourceMessageId: "user-original",
+      rootSourceMessageId: "user-original",
+      providerId: "codex",
+      agentTurnMode: "plan" as const,
+    };
+    renderTranscript([
+      failedTurnCell("failed-old", { ...retryTarget, failedAttemptId: "attempt-old" }),
+      { id: "user-next", kind: "user-message", source: "user", text: "next", timestamp: "2026-08-20T00:00:01.000Z" },
+      failedTurnCell("failed-latest", retryTarget),
+    ], onRetry);
+
+    const button = screen.getByRole("button", { name: "重试上一条消息" });
+    expect(screen.getAllByText("执行失败")).toHaveLength(2);
+    fireEvent.click(button);
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    await waitFor(() => expect(onRetry).toHaveBeenCalledOnce());
+    expect(onRetry).toHaveBeenCalledWith(retryTarget);
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+  });
+
+  it("suppresses historical Retry after a later user message or successful Turn", () => {
+    const retryTarget = {
+      failedAttemptId: "attempt-failed",
+      sourceMessageId: "user-original",
+      rootSourceMessageId: "user-original",
+      providerId: "codex",
+      agentTurnMode: "default" as const,
+    };
+    renderTranscript([
+      failedTurnCell("failed", retryTarget),
+      { id: "user-later", kind: "user-message", source: "user", text: "later" },
+      { id: "success", kind: "process-row", source: "provider-runtime", activityKind: "turn", title: "执行完成", text: "", status: "completed" },
+    ], vi.fn(async () => undefined));
+
+    expect(screen.queryByRole("button", { name: "重试上一条消息" })).toBeNull();
+  });
+
   it("keeps a sub-threshold transcript at natural grid height after repeated measurements", async () => {
     renderConversation(35);
 
@@ -89,6 +130,39 @@ function renderConversation(cellCount: number): void {
       />
     </div>,
   );
+}
+
+function renderTranscript(cells: ParentAgentTranscriptCell[], onRetry: NonNullable<Parameters<typeof MainConversationView>[0]["onRetry"]>): void {
+  const scrollRef = createRef<HTMLDivElement>();
+  render(
+    <div ref={scrollRef}>
+      <MainConversationView
+        transcript={{ title: "Retry transcript", items: [], cells }}
+        scrollContainerRef={scrollRef}
+        loadingEarlierTranscript={false}
+        onOpenAgent={() => {}}
+        canOpenAgent={() => true}
+        onRetry={onRetry}
+      />
+    </div>,
+  );
+}
+
+function failedTurnCell(
+  id: string,
+  retryTarget: NonNullable<ParentAgentTranscriptCell["retryTarget"]>,
+): ParentAgentTranscriptCell {
+  return {
+    id,
+    kind: "process-row",
+    source: "provider-runtime",
+    activityKind: "turn",
+    title: "执行失败",
+    text: "Provider failed",
+    status: "failed",
+    isError: true,
+    retryTarget,
+  };
 }
 
 async function publishMeasurements(rows: NodeListOf<Element>, repetitions: number, height: number): Promise<void> {

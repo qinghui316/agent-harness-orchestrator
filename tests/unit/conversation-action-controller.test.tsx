@@ -182,6 +182,87 @@ describe("Conversation action controller", () => {
     expect(harness.ports.consumeLiveStream).not.toHaveBeenCalled();
   });
 
+  it("owns Agent Retry SSE identity, reports failure, and preserves stale Conversation isolation", async () => {
+    const current = snapshot("conversation-1");
+    current.productMode = "agent";
+    current.center.selectedTopic = {
+      ...current.center.selectedTopic!,
+      selectedProviderId: "codex",
+    };
+    const harness = controllerHarness({ snapshot: current });
+    harness.ports.consumeLiveStream = vi.fn(async () => { throw new Error("Retry admission failed."); });
+    const { result } = renderHook(() => useConversationActionController(harness.options));
+
+    await expect(result.current.retryAgentTurn({
+      projectId: "repo-1",
+      conversationId: "conversation-1",
+      providerId: "codex",
+      expectedAttemptId: "attempt-failed",
+      sourceMessageId: "user-original",
+      clientRequestId: "retry-1",
+    })).rejects.toThrow("Retry admission failed.");
+
+    expect(harness.ports.consumeLiveStream).toHaveBeenCalledWith(
+      "/api/projects/repo-1/workbench/conversations/conversation-1/turn/retry/live",
+      {
+        productMode: "agent",
+        providerId: "codex",
+        expectedAttemptId: "attempt-failed",
+        sourceMessageId: "user-original",
+        clientRequestId: "retry-1",
+      },
+      expect.any(Function),
+    );
+    expect(harness.ports.setError).toHaveBeenLastCalledWith("Retry admission failed.");
+    expect(harness.ports.calibrateTimeline).toHaveBeenCalledWith({
+      projectId: "repo-1",
+      productMode: "agent",
+      conversationId: "conversation-1",
+      agentSurfaceId: "main-agent",
+    });
+    expect(harness.gateReleases).toEqual([{ id: 1, key: "conversation.retry.attempt-failed" }]);
+  });
+
+  it("reuses the Retry client request after transport or SSE failure and rotates it after success", async () => {
+    const current = snapshot("conversation-1");
+    current.productMode = "agent";
+    current.center.selectedTopic = { ...current.center.selectedTopic!, selectedProviderId: "codex" };
+    const harness = controllerHarness({ snapshot: current });
+    let call = 0;
+    harness.ports.consumeLiveStream = vi.fn(async (_url, _body, onEvent) => {
+      call += 1;
+      if (call === 1) throw new Error("connection lost");
+      if (call === 2) {
+        onEvent({ event: "error", data: { projectId: "repo-1", productMode: "agent", conversationId: "conversation-1", message: "retry failed" } });
+        onEvent({ event: "done", data: { projectId: "repo-1", productMode: "agent", conversationId: "conversation-1", status: "failed" } });
+        return;
+      }
+      onEvent({ event: "done", data: { projectId: "repo-1", productMode: "agent", conversationId: "conversation-1", status: "completed" } });
+    });
+    const { result } = renderHook(() => useConversationActionController(harness.options));
+    const request = {
+      projectId: "repo-1",
+      conversationId: "conversation-1",
+      providerId: "codex",
+      expectedAttemptId: "attempt-failed",
+      sourceMessageId: "user-original",
+      clientRequestId: "retry-first",
+    };
+
+    await expect(result.current.retryAgentTurn(request)).rejects.toThrow("connection lost");
+    await expect(result.current.retryAgentTurn({ ...request, clientRequestId: "retry-second" })).rejects.toThrow("retry failed");
+    await expect(result.current.retryAgentTurn({ ...request, clientRequestId: "retry-third" })).resolves.toBeUndefined();
+    await expect(result.current.retryAgentTurn({ ...request, clientRequestId: "retry-fourth" })).resolves.toBeUndefined();
+
+    const bodies = vi.mocked(harness.ports.consumeLiveStream!).mock.calls.map((entry) => entry[1] as { clientRequestId: string });
+    expect(bodies.map((body) => body.clientRequestId)).toEqual([
+      "retry-first",
+      "retry-first",
+      "retry-first",
+      "retry-fourth",
+    ]);
+  });
+
   it("returns terminal Agent and Harness steering settlements without hiding them behind transport success", async () => {
     const harness = controllerHarness();
     harness.ports.postJson = vi.fn(async (url: string) => url.endsWith("/turn/steer")

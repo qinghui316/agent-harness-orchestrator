@@ -21,6 +21,8 @@ import { ProjectRegistryStore } from "../../src/registry/store.js";
 import { hashNativeSkillPackageContent } from "../../src/skill/content-hash.js";
 import { TurnSkillContextResolver } from "../../src/skill/turn-skill-context-resolver.js";
 import { createWorkbenchConversation } from "../../src/workbench/conversation-service.js";
+import { fromStoredThreadMessage } from "../../src/workbench/conversation-thread-log.js";
+import { projectCanonicalTimelineEnvelope } from "../../src/workbench/canonical-timeline-projector.js";
 import { createTopicAttachment } from "../../src/workbench/attachments.js";
 import { AgentNativeChildLifecycleService, runAgentNativeChildFollowup } from "../../src/workbench/agent-native-child-lifecycle-service.js";
 import { createAssistantTranscriptCapture } from "../../src/workbench/live-transcript.js";
@@ -531,8 +533,22 @@ describe("DirectAgentConversationTurnStrategy", () => {
       expect(recovered.providerAttempts.readProviderAttempt(fixture.project.id, "attempt-restart-stale")?.status).toBe("failed");
       expect(recovered.providerAttempts.readConversationProviderBinding(fixture.project.id, created.conversationId, "codex")?.bindingStatus).toBe("stale");
       expect(recovered.conversations.readConversation(fixture.project.id, created.conversationId)?.completedTurnSequence).toBe(0);
-      expect(recovered.timeline.listConversationMessages(fixture.project.id, created.conversationId)).toEqual(expect.arrayContaining([
+      const recoveredMessages = recovered.timeline.listConversationMessages(fixture.project.id, created.conversationId);
+      expect(recoveredMessages).toEqual(expect.arrayContaining([
         expect.objectContaining({ status: "failed", error: "restart-active-turn-unavailable" }),
+      ]));
+      const restartFailure = recoveredMessages.find((message) => message.error === "restart-active-turn-unavailable");
+      expect(restartFailure && fromStoredThreadMessage(restartFailure).retryTarget).toMatchObject({
+        failedAttemptId: "attempt-restart-stale",
+        providerId: "codex",
+        agentTurnMode: "default",
+      });
+      expect(restartFailure && projectCanonicalTimelineEnvelope(restartFailure, "agent").cells).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          activityKind: "turn",
+          status: "failed",
+          retryTarget: expect.objectContaining({ failedAttemptId: "attempt-restart-stale" }),
+        }),
       ]));
     } finally {
       recovered.close();

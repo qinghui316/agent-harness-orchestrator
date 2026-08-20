@@ -96,10 +96,31 @@ export function fromStoredThreadMessage(row: StoredTopicMessage): TopicThreadEnt
     contextRefs: Array.isArray(raw.contextRefs) ? raw.contextRefs.filter(isTopicFileReference) : undefined,
     attachments: Array.isArray(raw.attachments) ? raw.attachments.filter(isTopicAttachment) : undefined,
     planHandoff: isValidatedPlanHandoffIntent(raw.planHandoff) ? raw.planHandoff : undefined,
+    agentTurnMode: raw.agentTurnMode === "default" || raw.agentTurnMode === "plan" ? raw.agentTurnMode : undefined,
+    retryTarget: isConversationRetryTargetEvidence(raw.retryTarget) ? raw.retryTarget : undefined,
+    retryLineage: isConversationRetryLineageEvidence(raw.retryLineage) ? raw.retryLineage : undefined,
     document: isCanonicalPlanDocument(raw.document) ? raw.document : undefined,
     position: row.position,
     completedTurnSequence: typeof raw.completedTurnSequence === "number" ? raw.completedTurnSequence : undefined,
   };
+}
+
+function isConversationRetryTargetEvidence(value: unknown): value is import("./types.js").ConversationRetryTargetEvidence {
+  return isRecord(value)
+    && typeof value.failedAttemptId === "string"
+    && typeof value.sourceMessageId === "string"
+    && typeof value.rootSourceMessageId === "string"
+    && typeof value.providerId === "string"
+    && (value.agentTurnMode === "default" || value.agentTurnMode === "plan");
+}
+
+function isConversationRetryLineageEvidence(value: unknown): value is import("./types.js").ConversationRetryLineageEvidence {
+  return isRecord(value)
+    && typeof value.clientRequestId === "string"
+    && typeof value.requestHash === "string"
+    && typeof value.sourceMessageId === "string"
+    && typeof value.rootSourceMessageId === "string"
+    && typeof value.failedAttemptId === "string";
 }
 
 function parseStoredRawJson(rawJson: string): Record<string, unknown> {

@@ -27,6 +27,7 @@ import { executeWorkbenchAction } from "./actions.js";
 import { sendProjectLiveEvents } from "./project-live-events.js";
 import type { ConversationTurnInterruptBody, ConversationTurnSteerBody, IntakeRequest, UpdateConversationTitleRequest, WorkbenchActionRequest, WorkbenchServerContext } from "./types.js";
 import { conversationSteerTimelineIds } from "../../workbench/conversation-turn-control.js";
+import { sendConversationRetryLive } from "./conversation-retry.js";
 
 export async function handleProjectWorkbenchApi(context: WorkbenchServerContext, input: WorkbenchProjectInput, request: IncomingMessage, response: ServerResponse, rest: string, url: URL): Promise<void> {
   if (request.method === "GET" && rest === "events/live") {
@@ -254,6 +255,18 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
       await persistAgentSteer(input, steerRequest, receipt.runId);
     }
     sendJson(response, 200, receipt);
+    return;
+  }
+  const turnRetryMatch = rest.match(/^conversations\/([^/]+)\/turn\/retry\/live$/);
+  if (request.method === "POST" && turnRetryMatch?.[1]) {
+    assertRegisteredProject(input);
+    await sendConversationRetryLive(
+      input,
+      decodeURIComponent(turnRetryMatch[1]),
+      request,
+      response,
+      context.turnRetry,
+    );
     return;
   }
   const topicMessagesLiveMatch = rest.match(/^topics\/([^/]+)\/messages\/live$/);

@@ -408,6 +408,13 @@ export type ParentAgentTranscriptCell = {
   attachments?: TopicAttachment[];
   interactionHistory?: InteractionHistoryRecord;
   documentRef?: CanonicalDocumentReference;
+  retryTarget?: {
+    failedAttemptId: string;
+    sourceMessageId: string;
+    rootSourceMessageId: string;
+    providerId: string;
+    agentTurnMode: AgentTurnMode;
+  };
 };
 
 export type CanonicalDocumentReference = {

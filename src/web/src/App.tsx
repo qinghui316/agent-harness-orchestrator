@@ -1095,6 +1095,18 @@ export function App(): ReactElement {
                         documentId: document.documentId,
                       });
                     }}
+                    onRetry={activeWorkpad.conversationLifecycle === "running" ? undefined : async (target) => {
+                      if (!selectedProjectId || !activeTopic?.id || appMode.productMode !== "agent") return;
+                      await conversationActions.retryAgentTurn({
+                        projectId: selectedProjectId,
+                        conversationId: activeTopic.id,
+                        providerId: target.providerId,
+                        expectedAttemptId: target.failedAttemptId,
+                        sourceMessageId: target.rootSourceMessageId,
+                        clientRequestId: `retry-${globalThis.crypto?.randomUUID?.()
+                          ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`}`,
+                      });
+                    }}
                   />
                 </div>
                 {mainViewport.showLatest ? <button className="latest-button" onClick={mainViewport.scrollToLatest}>最新</button> : null}

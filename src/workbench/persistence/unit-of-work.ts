@@ -611,6 +611,15 @@ export class WorkbenchUnitOfWork {
       : this.timeline.appendMessage(message))();
   }
 
+  commitConversationRetryClaim(message: StoredTopicMessageWrite): { message: StoredTopicMessage; created: boolean } {
+    return this.db.transaction(() => {
+      const existing = this.timeline.readMessage(message.projectId, message.conversationId, message.id);
+      return existing
+        ? { message: existing, created: false }
+        : { message: this.timeline.appendMessage(message), created: true };
+    })();
+  }
+
   commitAgentMainAttemptRecovery(input: {
     projectId: string;
     conversationId: string;

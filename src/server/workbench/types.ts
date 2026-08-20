@@ -9,6 +9,7 @@ import type { ProviderRegistry } from "../../provider-runtime/registry.js";
 import type { WorkbenchProjectRemovalPort } from "./project-removal.js";
 import type { ConversationTurnRoutingPort } from "../../workbench/conversation-turn-contract.js";
 import type { ConversationTurnControlOwner } from "../../workbench/conversation-turn-control.js";
+import type { ConversationTurnRetryOwner } from "../../workbench/conversation-turn-retry.js";
 
 export interface WorkbenchServeOptions {
   host?: string;
@@ -20,6 +21,7 @@ export interface WorkbenchServeOptions {
   providerRegistry?: ProviderRegistry;
   projectRemoval?: WorkbenchProjectRemovalPort;
   turnControl?: ConversationTurnControlOwner;
+  turnRetry?: ConversationTurnRetryOwner;
 }
 
 export interface WorkbenchServerHandle {
@@ -38,6 +40,15 @@ export interface WorkbenchServerContext {
   terminalRuntime: TerminalRuntime;
   turnRouter: ConversationTurnRoutingPort;
   turnControl: ConversationTurnControlOwner;
+  turnRetry: ConversationTurnRetryOwner;
+}
+
+export interface ConversationTurnRetryBody {
+  productMode?: unknown;
+  providerId?: unknown;
+  expectedAttemptId?: unknown;
+  sourceMessageId?: unknown;
+  clientRequestId?: unknown;
 }
 
 export interface WorkbenchActionRequest {

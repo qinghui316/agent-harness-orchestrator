@@ -22,6 +22,7 @@ import { createConversationTurnRouter } from "../workbench/conversation-turn-rou
 import { reconcileStaleProviderInputRequests } from "../workbench/provider-input-lifecycle.js";
 import { ConversationTurnControlOwner } from "../workbench/conversation-turn-control.js";
 import { reconcileStaleAgentMainAttempts } from "../workbench/agent-main-attempt-recovery.js";
+import { ConversationTurnRetryOwner } from "../workbench/conversation-turn-retry.js";
 
 export type { WorkbenchServeOptions, WorkbenchServerHandle } from "./workbench/types.js";
 export { executeWorkbenchAction } from "./workbench/actions.js";
@@ -54,6 +55,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
     projectRuntimeCoordinator,
     turnControl,
   });
+  const turnRetry = options.turnRetry ?? new ConversationTurnRetryOwner(turnRouter);
   await projectRuntimeCoordinator.reconcileStartup();
   const restoredInput = await restoreDirectProjectInput(input, store);
   const composedInput = restoredInput
@@ -74,6 +76,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
     terminalRuntime,
     turnRouter,
     turnControl,
+    turnRetry,
   };
   const server = createServer((request, response) => {
     handleRequest(context, request, response).catch((error: unknown) => {

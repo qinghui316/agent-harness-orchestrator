@@ -3,6 +3,7 @@ import type { ProviderRegistry } from "../provider-runtime/registry.js";
 import type { ProjectRuntimeState } from "../project-runtime/coordinator.js";
 import type { ManagedProject } from "../types/index.js";
 import { toCanonicalTimelineMessage } from "./canonical-timeline-message.js";
+import { fromStoredThreadMessage } from "./conversation-thread-log.js";
 import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 
 export async function reconcileStaleAgentMainAttempts(input: {
@@ -34,6 +35,17 @@ export async function reconcileStaleAgentMainAttempts(input: {
         if (activeProof) continue;
         const updatedAt = new Date().toISOString();
         const runId = link?.runId ?? `restart-${stableId(attempt.attemptId)}`;
+        const messages = database.timeline.listConversationMessages(paths.projectId, conversation.conversationId);
+        const retryMarker = messages.find((candidate) => candidate.id === `retry-request:${attempt.attemptId}`);
+        const retryLineage = retryMarker ? fromStoredThreadMessage(retryMarker).retryLineage : undefined;
+        const source = resolveRetrySource(messages, attempt.graphScopeId, attempt.deliveredThroughCompletedTurn, retryLineage?.rootSourceMessageId);
+        const retryTarget = source ? {
+          failedAttemptId: attempt.attemptId,
+          sourceMessageId: source.id,
+          rootSourceMessageId: source.id,
+          providerId: attempt.providerId,
+          agentTurnMode: attempt.agentTurnMode ?? "default" as const,
+        } : undefined;
         const message = toCanonicalTimelineMessage(paths.projectId, conversation.conversationId, {
           id: `status:${conversation.conversationId}:${attempt.providerId}:${stableId(attempt.attemptId)}:restart-main-stale`,
           type: "assistant.message",
@@ -50,6 +62,8 @@ export async function reconcileStaleAgentMainAttempts(input: {
           agentRoleId: "main-agent",
           agentSurfaceId: "main-agent",
           error: "restart-active-turn-unavailable",
+          ...(retryLineage ? { retryLineage } : {}),
+          ...(retryTarget ? { retryTarget } : {}),
         });
         try {
           database.unitOfWork.commitAgentMainAttemptRecovery({
@@ -72,6 +86,35 @@ export async function reconcileStaleAgentMainAttempts(input: {
     database.close();
   }
   return { failed, diagnostics };
+}
+
+function resolveRetrySource(
+  messages: readonly import("./persistence/contracts.js").StoredTopicMessage[],
+  graphScopeId: string | null,
+  deliveredThroughCompletedTurn: number,
+  rootSourceMessageId?: string,
+): import("./persistence/contracts.js").StoredTopicMessage | null {
+  const exact = rootSourceMessageId
+    ? messages.find((message) => message.id === rootSourceMessageId)
+    : undefined;
+  if (exact && isRetryableSource(exact, graphScopeId)) return exact;
+  return [...messages].reverse().find((message) => {
+    const entry = fromStoredThreadMessage(message);
+    return entry.type === "user.message"
+      && entry.graphScopeId === graphScopeId
+      && entry.completedTurnSequence === deliveredThroughCompletedTurn + 1
+      && (Boolean(entry.text?.trim()) || Boolean(entry.contextRefs?.length) || Boolean(entry.attachments?.length));
+  }) ?? null;
+}
+
+function isRetryableSource(
+  message: import("./persistence/contracts.js").StoredTopicMessage,
+  graphScopeId: string | null,
+): boolean {
+  const entry = fromStoredThreadMessage(message);
+  return entry.type === "user.message"
+    && entry.graphScopeId === graphScopeId
+    && (Boolean(entry.text?.trim()) || Boolean(entry.contextRefs?.length) || Boolean(entry.attachments?.length));
 }
 
 function stableId(value: string): string {

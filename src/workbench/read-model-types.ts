@@ -1,4 +1,4 @@
-import type { AssistantTurnActivity, AssistantTurnBlock } from "./types.js";
+import type { AssistantTurnActivity, AssistantTurnBlock, ConversationRetryTargetEvidence } from "./types.js";
 import type { ClarificationRequest, WorkbenchIntakeIteration, WorkbenchIntakeScan } from "./intake.js";
 import type { TopicAttachment, TopicFileReference } from "./types.js";
 import type { ConversationInteractionQueue, InteractionHistoryRecord } from "./conversation-interaction-contract.js";
@@ -256,6 +256,7 @@ export interface ThreadStreamItem {
   interactionHistory?: InteractionHistoryRecord;
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
+  retryTarget?: ConversationRetryTargetEvidence;
 }
 
 export interface WorkbenchApprovalItem {

@@ -161,6 +161,7 @@ async function finalizeThreadStreamItems(items: ThreadStreamDraft[]): Promise<Th
 }
 
 function threadItemFromMessage(message: TopicThreadEntry, sortKey: number): ThreadStreamDraft | null {
+  if (message.status === "retry-requested") return null;
   if (message.type === "user.message") {
     return {
       id: message.id,
@@ -208,6 +209,7 @@ function threadItemFromMessage(message: TopicThreadEntry, sortKey: number): Thre
       activity: message.activity,
       blocks: blocksFromMessage(message),
       providerUserInput: message.providerUserInput,
+      retryTarget: message.retryTarget,
       sortKey,
       subOrder: 0,
     };

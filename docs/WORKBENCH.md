@@ -101,6 +101,18 @@ Harness uses the same Provider control owner for active Provider turns and keeps
 its existing pending-feedback/local-run fallback only when no Provider Attempt
 owns the current execution.
 
+The latest failed top-level ordinary Agent turn can be retried from its terminal
+row. Retry creates a new ProviderAttempt over the original canonical user input;
+it never mutates or restarts the failed Attempt and does not add a second user
+bubble. Preparation finishes before SSE, verifies the exact Conversation,
+Provider, failed Attempt, source message, actual Default/Plan mode, managed
+attachments, file references, and effective Skill evidence, then re-admits the
+current Provider capabilities and sandbox. Exact client-request replay returns
+the existing deterministic Attempt without another Provider call. A successful
+or running later turn removes eligibility. Provider approvals and temporary
+permission grants are not replayed, Composer state is untouched, and this Agent
+action does not enter Harness workflow or task retry paths.
+
 ## 1. Purpose
 
 The AHO Workbench should feel like a Codex-style development workspace, not a traditional admin console, ticket board, or raw agent terminal.

@@ -513,3 +513,49 @@
   padding: 24px;
   background: var(--overlay);
 }
+
+.transcript-activity-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.transcript-retry-button {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.transcript-retry-button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  color: var(--text-strong);
+}
+
+.transcript-retry-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.transcript-retry-button .spin {
+  animation: transcript-retry-spin 0.9s linear infinite;
+}
+
+@keyframes transcript-retry-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .transcript-retry-button .spin {
+    animation: none;
+  }
+}

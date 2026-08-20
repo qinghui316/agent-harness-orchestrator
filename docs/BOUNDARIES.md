@@ -161,6 +161,20 @@ inputs. Agent control does not require Harness readiness or use pending-feedback
 Harness uses the shared owner for an active Provider Turn and retains its local
 pending-feedback fallback only when no Provider Attempt owns the execution.
 
+`ConversationTurnRetryOwner` owns only Direct Agent latest-failed-turn Retry.
+The Agent-only pre-SSE endpoint accepts an asserted Conversation, Provider,
+failed Attempt, source message, and client request identity. It derives one
+deterministic new Attempt identity, persists bounded retry lineage in canonical
+Timeline evidence, and delegates execution through the existing Router and
+Direct Agent Strategy. The original Attempt and user message are immutable.
+Retry revalidates current capabilities, the original actual turn mode, managed
+attachment evidence, file references, and exact effective Skill inputs before
+Provider effects; attachment-only input remains valid. Durable exact replay does
+not rediscover capabilities or call the Provider again. Provider approvals and
+temporary grants never carry over. The owner cannot accept Harness mode or
+create Change, WorkflowGraph, AgentTask, Lane, worktree, Apply, Integration, I2,
+or E1 evidence, and it does not alter Harness task/workflow retry semantics.
+
 After Workbench restart, Agent Main Attempts left queued or running require
 exact active Provider proof. Without it, startup recovery atomically marks the
 Attempt failed, records a bounded Timeline diagnostic, and marks its Session

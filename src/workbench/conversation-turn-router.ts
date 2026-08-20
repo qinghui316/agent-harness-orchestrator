@@ -109,7 +109,10 @@ export class ConversationTurnRouter {
     const runtimeState = input.admission.runtimeState;
     const strategy = this.strategies[input.conversation.productMode];
     await strategy.preflight?.({ ...input, runtimeState });
-    const turnSkillResolution = await this.resolveSkillContextForTurn(input, runtimeState);
+    const turnSkillResolution = input.preparedSkillResolution === undefined
+      ? await this.resolveSkillContextForTurn(input, runtimeState)
+      : input.preparedSkillResolution;
+    assertExpectedSkillInputs(input.expectedSkillInputs, turnSkillResolution);
     return strategy.execute({
       ...input,
       runtimeState,
@@ -169,6 +172,15 @@ export class ConversationTurnRouter {
   }
 
   readonly resolveRuntimeState = async (project: ManagedProject): Promise<ProjectRuntimeState> => this.requireRuntimeState(project);
+
+  readonly resolveTurnSkills: NonNullable<ConversationTurnRoutingPort["resolveTurnSkills"]> = async (
+    project,
+    conversation,
+    requiredSkillIds = [],
+  ) => freezeResolution(await this.resolveSkillContextForTurn(
+    { project, conversation, requiredSkillIds },
+    await this.requireRuntimeState(project),
+  ));
 
   readonly resolveProviderId = (project: ManagedProject, requestedProviderId?: string): string => {
     return (requestedProviderId
@@ -374,7 +386,7 @@ function assertAdmissionIdentity(input: import("./conversation-turn-contract.js"
     || admission.productMode !== input.conversation.productMode
     || admission.conversationId !== input.conversation.conversationId
     || admission.providerId !== input.providerId
-    || admission.agentTurnMode !== input.conversation.agentTurnMode) {
+    || admission.agentTurnMode !== (input.actualAgentTurnMode ?? input.conversation.agentTurnMode)) {
     throw conflict("Turn admission does not match the committed Conversation identity.");
   }
   if (input.conversation.productMode === "agent") {
@@ -383,6 +395,25 @@ function assertAdmissionIdentity(input: import("./conversation-turn-contract.js"
     if (JSON.stringify(expected) !== JSON.stringify(admitted)) {
       throw conflict("Turn admission attachment identity does not match the committed message.");
     }
+  }
+}
+
+function assertExpectedSkillInputs(
+  expected: readonly import("../project-harness/contracts.js").ProviderSkillInput[] | undefined,
+  resolution: import("./conversation-turn-contract.js").TurnSkillContextResolution | null,
+): void {
+  if (!expected) return;
+  const stable = (items: readonly import("../project-harness/contracts.js").ProviderSkillInput[]) => items
+    .map((item) => ({
+      id: item.id,
+      path: item.path,
+      source: item.source,
+      contentHash: item.contentHash,
+      required: item.required,
+    }))
+    .sort((left, right) => left.id.localeCompare(right.id) || left.path.localeCompare(right.path));
+  if (!resolution || JSON.stringify(stable(expected)) !== JSON.stringify(stable(resolution.skillInputs))) {
+    throw conflict("Retry Skill inputs no longer match the failed Agent Turn.");
   }
 }
 

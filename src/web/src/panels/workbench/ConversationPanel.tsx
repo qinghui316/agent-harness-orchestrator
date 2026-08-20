@@ -27,6 +27,7 @@ export function MainConversationView({
   onOpenDocument,
   documentResources,
   onEnsureDocument,
+  onRetry,
 }: {
   transcript: ParentAgentTranscript;
   scrollContainerRef: RefObject<HTMLDivElement | null>;
@@ -36,6 +37,7 @@ export function MainConversationView({
   onOpenDocument: (document: import("../../types.js").CanonicalDocumentReference) => void;
   documentResources: Record<string, import("../../types.js").TextDocumentResource>;
   onEnsureDocument: (document: import("../../types.js").CanonicalDocumentReference) => void;
+  onRetry?: (target: NonNullable<import("../../types.js").ParentAgentTranscriptCell["retryTarget"]>) => Promise<void>;
 }): ReactElement {
   return (
     <div className="main-conversation-view" data-testid="main-conversation-view">
@@ -48,6 +50,7 @@ export function MainConversationView({
         onOpenDocument={onOpenDocument}
         documentResources={documentResources}
         onEnsureDocument={onEnsureDocument}
+        onRetry={onRetry}
       />
     </div>
   );
@@ -62,6 +65,7 @@ function ParentAgentTranscriptView({
   onOpenDocument,
   documentResources,
   onEnsureDocument,
+  onRetry,
 }: {
   transcript: ParentAgentTranscript;
   scrollContainerRef: RefObject<HTMLDivElement | null>;
@@ -71,8 +75,12 @@ function ParentAgentTranscriptView({
   onOpenDocument: (document: import("../../types.js").CanonicalDocumentReference) => void;
   documentResources: Record<string, import("../../types.js").TextDocumentResource>;
   onEnsureDocument: (document: import("../../types.js").CanonicalDocumentReference) => void;
+  onRetry?: (target: NonNullable<import("../../types.js").ParentAgentTranscriptCell["retryTarget"]>) => Promise<void>;
 }): ReactElement {
   const cells = transcript.cells?.length ? transcript.cells.filter((cell) => cell.kind !== "detail-only") : [];
+  const latestTurnBoundary = [...cells].reverse().find((cell) =>
+    cell.kind === "user-message" || (cell.kind === "process-row" && cell.activityKind === "turn"));
+  const retryCellId = latestTurnBoundary?.retryTarget ? latestTurnBoundary.id : null;
 
   return (
     <div className="parent-agent-transcript" data-testid="parent-agent-transcript">
@@ -98,6 +106,7 @@ function ParentAgentTranscriptView({
             onOpenDocument={onOpenDocument}
             documentResources={documentResources}
             onEnsureDocument={onEnsureDocument}
+            onRetry={cell.id === retryCellId ? onRetry : undefined}
           />
         )}
       />

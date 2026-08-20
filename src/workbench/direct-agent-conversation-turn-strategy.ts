@@ -103,8 +103,8 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
 
     const graphScopeId = input.conversation.currentGraphScopeId;
     if (!graphScopeId) throw new Error("Direct Agent Conversation requires a current graph scope.");
-    const runId = `agent-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
-    const attemptId = `attempt-${randomUUID()}`;
+    const runId = input.executionIdentity?.runId ?? `agent-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
+    const attemptId = input.executionIdentity?.attemptId ?? `attempt-${randomUUID()}`;
     const runRoot = join(paths.runsRoot, "agent-conversations", input.conversation.conversationId, runId);
     await mkdir(runRoot, { recursive: true });
 
@@ -271,6 +271,8 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
         status,
         failure,
         agentTurnMode: input.admission.agentTurnMode,
+        sourceMessageId: input.committedMessage.id,
+        retryLineage: input.retryLineage,
       });
       terminalRecoveryWrites = writes;
       const terminal = database.unitOfWork.commitProviderTurnTerminal({
@@ -652,6 +654,8 @@ function terminalCaptureWrites(input: {
   status: "completed" | "interrupted" | "failed";
   failure?: Error;
   agentTurnMode: "default" | "plan" | null;
+  sourceMessageId: string;
+  retryLineage?: Readonly<import("./types.js").ConversationRetryLineageEvidence>;
 }): StoredTopicMessageWrite[] {
   const writes = buildCanonicalCaptureWrites({
     projectId: input.projectId,
@@ -697,9 +701,18 @@ function terminalCaptureWrites(input: {
     const last = writes.at(-1)!;
     writes[writes.length - 1] = addFallbackProse(last, fallbackText);
   }
+  const retryTarget = input.status === "failed" ? {
+    failedAttemptId: input.attemptId,
+    sourceMessageId: input.retryLineage?.rootSourceMessageId ?? input.sourceMessageId,
+    rootSourceMessageId: input.retryLineage?.rootSourceMessageId ?? input.sourceMessageId,
+    providerId: input.providerId,
+    agentTurnMode: input.agentTurnMode ?? "default" as const,
+  } : undefined;
   return writes.map((write) => updateCanonicalWrite(write, {
     status: input.status,
     error: input.status === "failed" ? input.failure?.message ?? input.result?.error : undefined,
+    ...(input.retryLineage ? { retryLineage: input.retryLineage } : {}),
+    ...(retryTarget?.sourceMessageId ? { retryTarget } : {}),
   }));
 }
 
@@ -749,7 +762,7 @@ function addFallbackProse(write: StoredTopicMessageWrite, text: string): StoredT
 
 function updateCanonicalWrite(
   write: StoredTopicMessageWrite,
-  patch: { text?: string; status?: string; error?: string },
+  patch: { text?: string; status?: string; error?: string; retryLineage?: Readonly<import("./types.js").ConversationRetryLineageEvidence>; retryTarget?: import("./types.js").ConversationRetryTargetEvidence },
 ): StoredTopicMessageWrite {
   let raw: Record<string, unknown> = {};
   try {

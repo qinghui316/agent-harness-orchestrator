@@ -19,6 +19,7 @@ import { resolveTopicAttachments } from "../../src/workbench/attachments.js";
 import type { ConversationTurnRoutingPort } from "../../src/workbench/conversation-turn-contract.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import type { ConversationTurnControlOwner } from "../../src/workbench/conversation-turn-control.js";
+import type { ConversationTurnRetryOwner } from "../../src/workbench/conversation-turn-retry.js";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
 import { createFakeCodexRuntime } from "../helpers/fake-codex-runtime.js";
 import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
@@ -201,6 +202,61 @@ describe("workbench server", () => {
       clientRequestId: "steer-1",
       text: "constraint",
     });
+  });
+
+  it("prepares Agent Retry before SSE and emits a completed replay stream", async () => {
+    await new Promise<void>((resolve) => handle!.server.close(() => resolve()));
+    const prepare = vi.fn(async (_project: ManagedProject, request: { productMode: string }) => {
+      if (request.productMode !== "agent") {
+        const error = new Error("Conversation Retry is available only in Agent mode.");
+        error.name = "Conflict";
+        throw error;
+      }
+      return { replayed: true, executionIdentity: { attemptId: "attempt-retry" } };
+    });
+    const execute = vi.fn(async () => ({ status: "replayed" as const, attemptId: "attempt-retry", result: null }));
+    const turnRetry = { prepare, execute } as unknown as ConversationTurnRetryOwner;
+    handle = await startWorkbenchServer({ project: project(), path: tempDir }, {
+      port: 0,
+      staticRoot,
+      turnRetry,
+    });
+    const endpoint = `${handle.url}/api/projects/repo/workbench/conversations/conversation-agent/turn/retry/live`;
+
+    const wrongMode = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        productMode: "harness", providerId: "codex", expectedAttemptId: "attempt-failed",
+        sourceMessageId: "user-source", clientRequestId: "retry-1",
+      }),
+    });
+    expect(wrongMode.status).toBe(409);
+    expect(wrongMode.headers.get("content-type")).toContain("application/json");
+    expect(prepare).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        productMode: "agent", providerId: "codex", expectedAttemptId: "attempt-failed",
+        sourceMessageId: "user-source", clientRequestId: "retry-1",
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    const events = parseSseEvents(await response.text());
+    expect(events.map((event) => event.event)).toEqual(expect.arrayContaining(["snapshot", "done"]));
+    expect(execute).toHaveBeenCalledOnce();
+    expect(prepare).toHaveBeenLastCalledWith(project(), expect.objectContaining({
+      conversationId: "conversation-agent",
+      productMode: "agent",
+      providerId: "codex",
+      expectedAttemptId: "attempt-failed",
+      sourceMessageId: "user-source",
+      clientRequestId: "retry-1",
+    }));
   });
 
   it("requires mode-aware reads and makes first-send creation idempotent", async () => {

@@ -84,6 +84,14 @@ export interface ConversationActionController {
     clientRequestId: string;
     text: string;
   }) => Promise<ConversationSteerOutcome>;
+  retryAgentTurn: (request: {
+    projectId: string;
+    conversationId: string;
+    providerId: string;
+    expectedAttemptId: string;
+    sourceMessageId: string;
+    clientRequestId: string;
+  }) => Promise<void>;
   settleInteraction: (interactionId: string, settlement: ConversationInteractionSettlement) => Promise<void>;
   getInteractionDraft: (interactionId: string) => ConversationInteractionDraft | undefined;
   setInteractionDraft: (interactionId: string, draft: ConversationInteractionDraft) => void;
@@ -97,6 +105,7 @@ export function useConversationActionController({
   const sessionRef = useRef(session);
   const portsRef = useRef(ports);
   const interactionDraftsRef = useRef(new Map<string, ConversationInteractionDraft>());
+  const retryRequestRef = useRef<{ key: string; clientRequestId: string } | null>(null);
   sessionRef.current = session;
   portsRef.current = ports;
   const isCurrentScope = (projectId: string, conversationId: string | null): boolean => (
@@ -312,6 +321,82 @@ export function useConversationActionController({
     return conversationSteerOutcomeFromWorkflowAction(response.result);
   }, []);
 
+  const retryAgentTurn = useCallback(async (request: {
+    projectId: string;
+    conversationId: string;
+    providerId: string;
+    expectedAttemptId: string;
+    sourceMessageId: string;
+    clientRequestId: string;
+  }): Promise<void> => {
+    const actionPorts = portsRef.current;
+    const retryKey = [
+      request.projectId,
+      request.conversationId,
+      request.providerId,
+      request.expectedAttemptId,
+      request.sourceMessageId,
+    ].join("\0");
+    const clientRequestId = retryRequestRef.current?.key === retryKey
+      ? retryRequestRef.current.clientRequestId
+      : request.clientRequestId;
+    retryRequestRef.current = { key: retryKey, clientRequestId };
+    const operationToken = actionPorts.operationGate.begin(`conversation.retry.${request.expectedAttemptId}`);
+    actionPorts.setError(null);
+    let liveFailure: string | null = null;
+    const ownsScope = (): boolean => {
+      const current = sessionRef.current;
+      const topic = current.snapshot.center.selectedTopic?.id === request.conversationId
+        ? current.snapshot.center.selectedTopic
+        : current.snapshot.left.topics.find((candidate) => candidate.id === request.conversationId);
+      return current.projectId === request.projectId
+        && current.conversationId === request.conversationId
+        && current.snapshot.productMode === "agent"
+        && topic?.selectedProviderId === request.providerId;
+    };
+    try {
+      await (actionPorts.consumeLiveStream ?? consumeWorkbenchLiveStream)(
+        `/api/projects/${encodeURIComponent(request.projectId)}/workbench/conversations/${encodeURIComponent(request.conversationId)}/turn/retry/live`,
+        {
+          productMode: "agent",
+          providerId: request.providerId,
+          expectedAttemptId: request.expectedAttemptId,
+          sourceMessageId: request.sourceMessageId,
+          clientRequestId,
+        },
+        (event) => {
+          if (event.event === "error") liveFailure = event.data.message;
+          if (event.event === "done" && event.data.status === "failed" && !liveFailure) {
+            liveFailure = "Conversation Retry failed before the Provider Turn completed.";
+          }
+          if (ownsScope()) actionPorts.routeProjectionEvent(request.projectId, event);
+        },
+      );
+      if (liveFailure) throw new Error(liveFailure);
+      if (retryRequestRef.current?.key === retryKey
+        && retryRequestRef.current.clientRequestId === clientRequestId) {
+        retryRequestRef.current = null;
+      }
+    } catch (error) {
+      if (ownsScope()) actionPorts.setError(error instanceof Error ? error.message : String(error));
+      throw error;
+    } finally {
+      try {
+        if (ownsScope()) {
+          await actionPorts.calibrateTimeline({
+            projectId: request.projectId,
+            productMode: "agent",
+            conversationId: request.conversationId,
+            agentSurfaceId: "main-agent",
+          });
+          await actionPorts.refreshSession(request.projectId, request.conversationId);
+        }
+      } finally {
+        actionPorts.operationGate.release(operationToken);
+      }
+    }
+  }, []);
+
   const requestDecisionFeedback = useCallback(async (
     context: DecisionContext,
     action: DecisionAction,
@@ -434,6 +519,7 @@ export function useConversationActionController({
     interruptAgentTurn,
     steerAgentTurn,
     steerHarnessTurn,
+    retryAgentTurn,
     settleInteraction,
     getInteractionDraft,
     setInteractionDraft,

@@ -59,7 +59,25 @@ export interface TopicThreadEntry {
   attachments?: TopicAttachment[];
   planHandoff?: ValidatedPlanHandoffIntent;
   agentTurnMode?: AgentTurnMode;
+  retryTarget?: ConversationRetryTargetEvidence;
+  retryLineage?: ConversationRetryLineageEvidence;
   document?: CanonicalPlanDocument;
+}
+
+export interface ConversationRetryTargetEvidence {
+  failedAttemptId: string;
+  sourceMessageId: string;
+  rootSourceMessageId: string;
+  providerId: ProviderId;
+  agentTurnMode: AgentTurnMode;
+}
+
+export interface ConversationRetryLineageEvidence {
+  clientRequestId: string;
+  requestHash: string;
+  sourceMessageId: string;
+  rootSourceMessageId: string;
+  failedAttemptId: string;
 }
 
 export interface CanonicalPlanDocument {

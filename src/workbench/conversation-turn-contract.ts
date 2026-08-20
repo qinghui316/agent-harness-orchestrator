@@ -89,6 +89,11 @@ export interface ConversationTurnRequest {
   live?: WorkbenchLiveSink;
   harnessHandoff?: ValidatedPlanHandoffIntent;
   requiredSkillIds?: readonly string[];
+  expectedSkillInputs?: readonly ProviderSkillInput[];
+  preparedSkillResolution?: TurnSkillContextResolution | null;
+  actualAgentTurnMode?: AgentTurnMode | null;
+  executionIdentity?: Readonly<{ runId: string; attemptId: string }>;
+  retryLineage?: Readonly<import("./types.js").ConversationRetryLineageEvidence>;
   admission: ConversationTurnAdmission;
 }
 
@@ -151,6 +156,11 @@ export interface ConversationTurnRoutingPort {
   route(input: ConversationTurnRequest, requestedMode?: ProductMode): Promise<TopicMessageResult>;
   resolveProviderId: (project: ManagedProject, requestedProviderId?: ProviderId) => ProviderId;
   resolveRuntimeState: (project: ManagedProject) => Promise<ProjectRuntimeState>;
+  resolveTurnSkills?: (
+    project: ManagedProject,
+    conversation: StoredConversation,
+    requiredSkillIds?: readonly string[],
+  ) => Promise<TurnSkillContextResolution | null>;
   switchProviderAtSafePoint?: (input: {
     project: ManagedProject;
     resolution: ProjectRuntimeResolution;

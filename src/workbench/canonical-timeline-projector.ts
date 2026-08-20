@@ -17,11 +17,12 @@ export function projectCanonicalTimelineEnvelope(row: StoredTopicMessage, produc
     revision: row.revision,
     orderClass: row.initialThreadInput ? "thread-start" : "sequence",
     graphScopeId: entry.graphScopeId,
-    cells: canonicalTranscriptCellsFromThreadItem({
+    cells: row.status === "retry-requested" ? [] : canonicalTranscriptCellsFromThreadItem({
       ...entry,
       kind: entry.type === "user.message" ? "user-message" : "assistant-turn",
       label: entry.text ?? entry.type,
       body: entry.text,
+      retryTarget: entry.retryTarget,
     }, child ? { forceAgentRoleId: entry.agentRoleId } : { parentVisible: true }),
   };
 }

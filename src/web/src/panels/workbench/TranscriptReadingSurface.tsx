@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
-import { ArrowUpRight, Bot, Brain, CheckCircle2, FilePenLine, FileText, LoaderCircle, Search, Terminal, Wrench } from "lucide-react";
+import { ArrowUpRight, Bot, Brain, CheckCircle2, FilePenLine, FileText, LoaderCircle, RotateCcw, Search, Terminal, Wrench } from "lucide-react";
 import { artifactName } from "./RunReplayPanel.js";
 import { formatTime, humanStatus } from "../../formatters.js";
 import { cleanTranscriptText, cleanTranscriptTitle } from "./transcriptDisplay.js";
@@ -33,7 +33,7 @@ export function AgentTranscriptPane({ cells, emptyMessage = "暂无 Agent 消息
   );
 }
 
-export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded, onOpenAgent, canOpenAgent, onOpenDocument, documentResources, onEnsureDocument }: {
+export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded, onOpenAgent, canOpenAgent, onOpenDocument, documentResources, onEnsureDocument, onRetry }: {
   cell: ParentAgentTranscriptCell;
   expanded: boolean;
   onToggleExpanded: () => void;
@@ -42,6 +42,7 @@ export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded
   onOpenDocument?: (document: CanonicalDocumentReference) => void;
   documentResources?: Record<string, TextDocumentResource>;
   onEnsureDocument?: (document: CanonicalDocumentReference) => void;
+  onRetry?: (target: NonNullable<ParentAgentTranscriptCell["retryTarget"]>) => Promise<void>;
 }): ReactElement {
   const isUser = cell.kind === "user-message";
   const rowKind = isUser ? "user" : "parent";
@@ -70,7 +71,7 @@ export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded
             onOpen={() => onOpenDocument?.(cell.documentRef!)}
           />
         ) : (
-          <TranscriptActivityRow cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} onOpenAgent={onOpenAgent} canOpenAgent={canOpenAgent} />
+          <TranscriptActivityRow cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} onOpenAgent={onOpenAgent} canOpenAgent={canOpenAgent} onRetry={onRetry} />
         )}
       </div>
       {cell.timestamp && (cell.kind === "user-message" || cell.kind === "assistant-message") ? <time>{formatTime(cell.timestamp)}</time> : null}
@@ -136,13 +137,15 @@ function TranscriptMessageProse({ cell, expanded, onToggleExpanded, className }:
   );
 }
 
-export function TranscriptActivityRow({ cell, expanded, onToggleExpanded, onOpenAgent, canOpenAgent }: {
+export function TranscriptActivityRow({ cell, expanded, onToggleExpanded, onOpenAgent, canOpenAgent, onRetry }: {
   cell: ParentAgentTranscriptCell;
   expanded: boolean;
   onToggleExpanded: () => void;
   onOpenAgent?: (agentSurfaceId: string) => void;
   canOpenAgent?: (agentSurfaceId: string) => boolean;
+  onRetry?: (target: NonNullable<ParentAgentTranscriptCell["retryTarget"]>) => Promise<void>;
 }): ReactElement {
+  const [retrying, setRetrying] = useState(false);
   const elapsed = useElapsedSeconds(cell.realtime ? cell.timestamp : undefined);
   const detailsRef = useRef<HTMLDivElement | null>(null);
   const detailsPinnedRef = useRef(true);
@@ -164,20 +167,37 @@ export function TranscriptActivityRow({ cell, expanded, onToggleExpanded, onOpen
   }, [detailText, expanded]);
   return (
     <div className={`parent-agent-tool-result transcript-activity-row compact ${cell.kind} tone-${tone} ${cell.activityKind ? `activity-${cell.activityKind}` : ""} ${cell.realtime ? "realtime" : ""} ${expanded ? "expanded" : ""} ${hasDetails ? "has-details" : ""} ${cell.isError ? "danger" : ""}`}>
-      <button
-        type="button"
-        className="transcript-activity-summary"
-        onClick={opensAgent ? () => onOpenAgent?.(cell.targetAgentSurfaceId!) : hasDetails ? onToggleExpanded : undefined}
-        aria-expanded={hasDetails ? expanded : undefined}
-        aria-controls={hasDetails ? detailsId : undefined}
-      >
-        <ActivityGlyph cell={cell} />
-        <span className="tool-result-heading transcript-activity-heading">
-          <span className="transcript-activity-title">{title}{cell.realtime && elapsed !== null ? ` · ${elapsed} 秒` : ""}</span>
-          {status ? <span>{status}</span> : null}
-        </span>
-        {opensAgent ? <span className="transcript-activity-disclosure" aria-hidden="true">打开</span> : hasDetails ? <span className="transcript-activity-disclosure" aria-hidden="true">{expanded ? "收起" : "详情"}</span> : null}
-      </button>
+      <div className="transcript-activity-header">
+        <button
+          type="button"
+          className="transcript-activity-summary"
+          onClick={opensAgent ? () => onOpenAgent?.(cell.targetAgentSurfaceId!) : hasDetails ? onToggleExpanded : undefined}
+          aria-expanded={hasDetails ? expanded : undefined}
+          aria-controls={hasDetails ? detailsId : undefined}
+        >
+          <ActivityGlyph cell={cell} />
+          <span className="tool-result-heading transcript-activity-heading">
+            <span className="transcript-activity-title">{title}{cell.realtime && elapsed !== null ? ` · ${elapsed} 秒` : ""}</span>
+            {status ? <span>{status}</span> : null}
+          </span>
+          {opensAgent ? <span className="transcript-activity-disclosure" aria-hidden="true">打开</span> : hasDetails ? <span className="transcript-activity-disclosure" aria-hidden="true">{expanded ? "收起" : "详情"}</span> : null}
+        </button>
+        {cell.retryTarget && onRetry ? (
+          <button
+            type="button"
+            className="transcript-retry-button"
+            title="重试上一条消息"
+            aria-label="重试上一条消息"
+            disabled={retrying}
+            onClick={() => {
+              setRetrying(true);
+              void onRetry(cell.retryTarget!).catch(() => undefined).finally(() => setRetrying(false));
+            }}
+          >
+            {retrying ? <LoaderCircle size={15} className="spin" aria-hidden="true" /> : <RotateCcw size={15} aria-hidden="true" />}
+          </button>
+        ) : null}
+      </div>
       {text ? <TranscriptMarkdownLite text={text} idPrefix={`${cell.id}:summary`} compact /> : null}
       {hasDetails && expanded ? (
         <div

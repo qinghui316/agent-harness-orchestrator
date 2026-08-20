@@ -60,6 +60,7 @@ interface TranscriptThreadItemInput {
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
   providerUserInput?: WorkbenchProviderUserInputRequest;
+  retryTarget?: import("./types.js").ConversationRetryTargetEvidence;
 }
 
 export function canonicalTranscriptCellsFromThreadItem(
@@ -135,7 +136,32 @@ export function canonicalTranscriptCellsFromThreadItem(
       });
     }
   }
-  cells.push(...activityCellsFromThreadItem(item, agentRoleId));
+  const activityCells = activityCellsFromThreadItem(item, agentRoleId);
+  cells.push(...activityCells);
+  if (item.status === "failed" && item.retryTarget
+    && !activityCells.some((cell) => cell.activityKind === "turn")) {
+    cells.push({
+      id: `cell:turn-retry:${item.id}`,
+      kind: "process-row",
+      source: "provider-runtime",
+      timestamp: item.timestamp,
+      agentRoleId,
+      agentTaskId: item.agentTaskId,
+      runId: item.runId,
+      providerId: item.providerId,
+      attemptId: item.attemptId,
+      threadId: item.threadId,
+      parentThreadId: item.parentThreadId,
+      turnId: item.turnId,
+      itemId: item.itemId,
+      title: "本轮需要处理",
+      text: "本轮需要处理",
+      status: "failed",
+      isError: true,
+      activityKind: "turn",
+      retryTarget: item.retryTarget,
+    });
+  }
   return normalizeCellEvidenceRefs(cells.filter((cell) => Boolean(cell.text.trim() || cell.detailText?.trim())));
 }
 
@@ -206,6 +232,7 @@ function activityCellsFromThreadItem(item: TranscriptThreadItemInput, agentRoleI
     status: terminal.label,
     isError: failed,
     activityKind: "turn",
+    retryTarget: failed ? item.retryTarget : undefined,
   }];
 }
 
