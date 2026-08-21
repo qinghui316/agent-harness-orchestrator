@@ -1,13 +1,41 @@
 import type Database from "better-sqlite3";
-import { assertAgentTurnMode, type AgentTurnMode, type ProductMode, type ProviderId } from "../../../provider-runtime/index.js";
+import type { ProductMode, ProviderId } from "../../../provider-runtime/index.js";
 import type { StoredComposerDraft } from "../contracts.js";
+
+export class ComposerDraftConflictError extends Error {
+  readonly name = "Conflict";
+
+  constructor(readonly current: StoredComposerDraft | null) {
+    super("Composer draft changed since it was loaded.");
+  }
+}
+export interface ComposerDraftWrite {
+  projectId: string;
+  productMode: ProductMode;
+  agentTurnMode: StoredComposerDraft["agentTurnMode"];
+  text: string;
+  contextRefsJson: string;
+  attachmentIdsJson: string;
+  skillOverridesJson: string;
+  selectedProviderId: ProviderId | null;
+  updatedAt: string;
+}
 
 export class ComposerDraftRepository {
   constructor(private readonly db: Database.Database) {}
 
-  deleteDraft(projectId: string, productMode: ProductMode): void {
-    this.db.prepare("DELETE FROM composer_drafts WHERE project_id = ? AND product_mode = ?")
-      .run(projectId, productMode);
+  deleteDraft(projectId: string, productMode: ProductMode, expectedUpdatedAt: string | null): boolean {
+    return this.db.transaction(() => {
+      const current = this.readDraft(projectId, productMode);
+      if (!current) {
+        if (expectedUpdatedAt !== null) throw new ComposerDraftConflictError(null);
+        return false;
+      }
+      if (current.updatedAt !== expectedUpdatedAt) throw new ComposerDraftConflictError(current);
+      this.db.prepare("DELETE FROM composer_drafts WHERE project_id = ? AND product_mode = ?")
+        .run(projectId, productMode);
+      return true;
+    })();
   }
 
   readDraft(projectId: string, productMode: ProductMode): StoredComposerDraft | null {
@@ -22,9 +50,7 @@ export class ComposerDraftRepository {
     return {
       projectId: String(row.projectId),
       productMode,
-      agentTurnMode: row.agentTurnMode === null || row.agentTurnMode === undefined
-        ? null
-        : assertAgentTurnMode(row.agentTurnMode, "Stored ComposerDraft agentTurnMode"),
+      agentTurnMode: row.agentTurnMode === "default" || row.agentTurnMode === "plan" ? row.agentTurnMode : null,
       text: String(row.text),
       contextRefsJson: String(row.contextRefsJson),
       attachmentIdsJson: String(row.attachmentIdsJson),
@@ -34,22 +60,38 @@ export class ComposerDraftRepository {
     };
   }
 
-  upsertAgentTurnMode(input: {
-    projectId: string;
-    productMode: ProductMode;
-    agentTurnMode: AgentTurnMode | null;
-    selectedProviderId: ProviderId | null;
-    updatedAt: string;
-  }): StoredComposerDraft {
-    this.db.prepare(`
-      INSERT INTO composer_drafts (
-        project_id, product_mode, agent_turn_mode, selected_provider_id, updated_at
-      ) VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(project_id, product_mode) DO UPDATE SET
-        agent_turn_mode = excluded.agent_turn_mode,
-        selected_provider_id = excluded.selected_provider_id,
-        updated_at = excluded.updated_at
-    `).run(input.projectId, input.productMode, input.agentTurnMode, input.selectedProviderId, input.updatedAt);
-    return this.readDraft(input.projectId, input.productMode)!;
+  upsertDraft(input: ComposerDraftWrite, expectedUpdatedAt: string | null): StoredComposerDraft {
+    return this.db.transaction(() => {
+      const current = this.readDraft(input.projectId, input.productMode);
+      if ((!current && expectedUpdatedAt !== null)
+        || (current && current.updatedAt !== expectedUpdatedAt)) {
+        throw new ComposerDraftConflictError(current);
+      }
+      this.db.prepare(`
+        INSERT INTO composer_drafts (
+          project_id, product_mode, agent_turn_mode, text, context_refs_json,
+          attachment_ids_json, skill_overrides_json, selected_provider_id, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(project_id, product_mode) DO UPDATE SET
+          agent_turn_mode = excluded.agent_turn_mode,
+          text = excluded.text,
+          context_refs_json = excluded.context_refs_json,
+          attachment_ids_json = excluded.attachment_ids_json,
+          skill_overrides_json = excluded.skill_overrides_json,
+          selected_provider_id = excluded.selected_provider_id,
+          updated_at = excluded.updated_at
+      `).run(
+        input.projectId,
+        input.productMode,
+        input.agentTurnMode,
+        input.text,
+        input.contextRefsJson,
+        input.attachmentIdsJson,
+        input.skillOverridesJson,
+        input.selectedProviderId,
+        input.updatedAt,
+      );
+      return this.readDraft(input.projectId, input.productMode)!;
+    })();
   }
 }

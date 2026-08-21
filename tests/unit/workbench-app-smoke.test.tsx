@@ -217,6 +217,17 @@ describe("Workbench App owner composition", () => {
 
     const composer = await screen.findByLabelText("新建需求输入框");
     fireEvent.change(composer, { target: { value: "Start an Agent conversation" } });
+    await waitFor(() => {
+      const draftCall = vi.mocked(fetch).mock.calls.find((call) => (
+        String(call[0]).includes("/workbench/composer-draft")
+        && call[1]?.method === "PUT"
+        && requestBody(call)?.text === "Start an Agent conversation"
+      ));
+      expect(requestBody(draftCall)).toEqual(expect.objectContaining({
+        productMode: "agent",
+        text: "Start an Agent conversation",
+      }));
+    });
     fireEvent.keyDown(composer, { key: "Enter" });
 
     await waitFor(() => {
@@ -326,7 +337,7 @@ function timelinePage(agentSurfaceId: string, productMode: "agent" | "harness" =
 
 function installApiFixture(snapshot: Snapshot): void {
   const productMode = snapshot.center.selectedTopic?.productMode ?? "harness";
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url === "/agent-office/config/office-calibration.json") return json(officeCalibration);
     if (url === "/api/app/status") return json({ mode: "project", directProjectId: "repo" });
@@ -348,6 +359,21 @@ function installApiFixture(snapshot: Snapshot): void {
       }] });
     }
     if (url.includes("/workbench/snapshot")) return json(snapshot);
+    if (url.includes("/workbench/composer-draft")) {
+      if (init?.method === "PUT") {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+        return json({
+          draft: {
+            ...body,
+            attachments: [],
+            updatedAt: "2026-08-21T00:00:00.000Z",
+            diagnostics: [],
+          },
+        });
+      }
+      if (init?.method === "DELETE") return json({ deleted: true });
+      return json({ draft: null });
+    }
     if (url.includes("/workbench/projections/agent-surfaces/")) return json({
       projectId: "repo",
       productMode,
@@ -449,8 +475,10 @@ function requestUrls(fragment: string): string[] {
     .filter((url) => url.includes(fragment));
 }
 
-function requestCall(fragment: string): [RequestInfo | URL, RequestInit?] | undefined {
-  return vi.mocked(fetch).mock.calls.find(([input]) => String(input).includes(fragment));
+function requestCall(fragment: string, method?: string): [RequestInfo | URL, RequestInit?] | undefined {
+  return vi.mocked(fetch).mock.calls.find(([input, init]) => (
+    String(input).includes(fragment) && (!method || init?.method === method)
+  ));
 }
 
 function requestBody(call: [RequestInfo | URL, RequestInit?] | undefined): Record<string, unknown> | undefined {

@@ -4,7 +4,8 @@ import { openProjectRuntimeWorkbenchDatabase } from "../../workbench/persistence
 import { CanonicalTimelineDelivery } from "../../workbench/canonical-timeline-delivery.js";
 import { toCanonicalTimelineMessage } from "../../workbench/canonical-timeline-message.js";
 import type { ConversationTurnSteerRequest } from "../../workbench/conversation-turn-control.js";
-import { assertAgentTurnMode } from "../../provider-runtime/index.js";
+import { ComposerDraftConflictError } from "../../workbench/persistence/repositories/composer-draft-repository.js";
+import { nextComposerDraftTimestamp } from "../../workbench/composer-draft-recovery.js";
 import {
   getWorkbenchSnapshot,
   getWorkbenchStream,
@@ -55,7 +56,11 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
     const paths = runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
     const database = await openProjectRuntimeWorkbenchDatabase(paths);
     try {
-      sendJson(response, 200, { draft: database.drafts.readDraft(paths.projectId, productMode) });
+      const draft = await context.composerDraftRecovery.restore(
+        input.project!,
+        database.drafts.readDraft(paths.projectId, productMode),
+      );
+      sendJson(response, 200, { draft });
     } finally {
       database.close();
     }
@@ -63,35 +68,52 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
   }
   if (rest === "composer-draft" && request.method === "PUT") {
     assertRegisteredProject(input);
-    const body = await readJsonBody<{ productMode?: unknown; agentTurnMode?: unknown; selectedProviderId?: unknown }>(request);
+    const body = await readJsonBody<Record<string, unknown>>(request);
     const productMode = requireProductMode(body.productMode);
-    let agentTurnMode = null;
-    if (productMode === "agent") {
-      try {
-        agentTurnMode = assertAgentTurnMode(body.agentTurnMode, "ComposerDraft agentTurnMode");
-      } catch (cause) {
-        const error = cause instanceof Error ? cause : new Error(String(cause));
-        error.name = "BadRequest";
-        throw error;
-      }
-    }
-    if (productMode === "harness" && body.agentTurnMode !== null && body.agentTurnMode !== undefined) {
-      const error = new Error("Harness Composer drafts cannot carry agentTurnMode.");
-      error.name = "Conflict";
-      throw error;
-    }
+    const expectedUpdatedAt = requireExpectedUpdatedAt(body.expectedUpdatedAt);
     const runtime = await input.runtimeStateResolver!(input.project!);
     const paths = runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
     const database = await openProjectRuntimeWorkbenchDatabase(paths);
     try {
-      const draft = database.drafts.upsertAgentTurnMode({
-        projectId: paths.projectId,
-        productMode,
-        agentTurnMode,
-        selectedProviderId: typeof body.selectedProviderId === "string" ? body.selectedProviderId : null,
-        updatedAt: new Date().toISOString(),
-      });
-      sendJson(response, 200, { draft });
+      const current = database.drafts.readDraft(paths.projectId, productMode);
+      const write = await context.composerDraftRecovery.prepareWrite(
+        input.project!,
+        { ...body, productMode },
+        nextComposerDraftTimestamp(current),
+      );
+      try {
+        const stored = database.drafts.upsertDraft(write, expectedUpdatedAt);
+        sendJson(response, 200, { draft: await context.composerDraftRecovery.restore(input.project!, stored) });
+      } catch (cause) {
+        if (!(cause instanceof ComposerDraftConflictError)) throw cause;
+        sendJson(response, 409, {
+          error: cause.message,
+          draft: await context.composerDraftRecovery.restore(input.project!, cause.current),
+        });
+      }
+    } finally {
+      database.close();
+    }
+    return;
+  }
+  if (rest === "composer-draft" && request.method === "DELETE") {
+    assertRegisteredProject(input);
+    const productMode = requireProductMode(url.searchParams.get("productMode"));
+    const expectedUpdatedAt = requireExpectedUpdatedAt(url.searchParams.get("expectedUpdatedAt"));
+    const runtime = await input.runtimeStateResolver!(input.project!);
+    const paths = runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      try {
+        const deleted = database.drafts.deleteDraft(paths.projectId, productMode, expectedUpdatedAt);
+        sendJson(response, 200, { deleted });
+      } catch (cause) {
+        if (!(cause instanceof ComposerDraftConflictError)) throw cause;
+        sendJson(response, 409, {
+          error: cause.message,
+          draft: await context.composerDraftRecovery.restore(input.project!, cause.current),
+        });
+      }
     } finally {
       database.close();
     }
@@ -378,4 +400,12 @@ async function persistAgentSteer(
   } finally {
     database.close();
   }
+}
+
+function requireExpectedUpdatedAt(value: unknown): string | null {
+  if (value === null) return null;
+  if (typeof value === "string" && value.length > 0 && Number.isFinite(Date.parse(value))) return value;
+  const error = new Error("Composer draft expectedUpdatedAt must be null or a valid timestamp.");
+  error.name = "BadRequest";
+  throw error;
 }

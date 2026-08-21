@@ -23,29 +23,49 @@ afterEach(async () => {
 });
 
 describe("Workbench persistence owners", () => {
-  it("persists Agent Composer mode preferences and rejects Harness mode leakage", async () => {
+  it("persists full Composer drafts with CAS and rejects Harness mode leakage", async () => {
     const database = await openProjectRuntimeWorkbenchDatabase(runtimePaths());
     try {
       expect(database.drafts.readDraft(projectId, "agent")).toBeNull();
-      expect(database.drafts.upsertAgentTurnMode({
+      const first = database.drafts.upsertDraft({
         projectId,
         productMode: "agent",
         agentTurnMode: "plan",
+        text: "recover this",
+        contextRefsJson: JSON.stringify([{ relativePath: "src/app.ts", name: "app.ts", kind: "file" }]),
+        attachmentIdsJson: JSON.stringify(["attachment-1"]),
+        skillOverridesJson: JSON.stringify({ reviewer: true }),
         selectedProviderId: "codex",
         updatedAt: now,
-      })).toMatchObject({
+      }, null);
+      expect(first).toMatchObject({
         projectId,
         productMode: "agent",
         agentTurnMode: "plan",
+        text: "recover this",
         selectedProviderId: "codex",
       });
-      expect(() => database.drafts.upsertAgentTurnMode({
+      expect(() => database.drafts.upsertDraft({
+        ...first,
+        contextRefsJson: first.contextRefsJson,
+        attachmentIdsJson: first.attachmentIdsJson,
+        skillOverridesJson: first.skillOverridesJson,
+        text: "stale write",
+        updatedAt: "2026-07-17T00:00:01.000Z",
+      }, null)).toThrow(/changed since it was loaded/);
+      expect(() => database.drafts.upsertDraft({
         projectId,
         productMode: "harness",
         agentTurnMode: "plan",
+        text: "",
+        contextRefsJson: "[]",
+        attachmentIdsJson: "[]",
+        skillOverridesJson: "{}",
         selectedProviderId: "codex",
         updatedAt: now,
-      })).toThrow(/must match product_mode/);
+      }, null)).toThrow(/must match product_mode/);
+      expect(database.drafts.deleteDraft(projectId, "agent", now)).toBe(true);
+      expect(database.drafts.readDraft(projectId, "agent")).toBeNull();
     } finally {
       database.close();
     }

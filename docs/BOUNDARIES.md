@@ -536,6 +536,20 @@ content, or interpret Timeline events. Panels render controlled state. The
 frontend boundary lint rejects retired giant App tests and direct domain access
 returning to the shell.
 
+Composer draft persistence has one owner per layer. The schema-13
+`ComposerDraftRepository` owns the sole durable `projectId + productMode` row and
+full-snapshot compare-and-swap; the Workbench recovery service owns structured
+parsing and revalidation of project-relative references and managed attachment
+evidence; the Web `ComposerDraftSyncOwner` owns debounce, per-scope serialization,
+CAS tokens, and send/Steer settlement. Routes and `App.tsx` only compose these
+owners. Draft reads and writes must not call Provider runtime or Harness readiness,
+and must not create Conversation, Timeline, Attempt, Change, WorkflowGraph,
+AgentTask, Lane, worktree, Apply, Close, Integration, I2, or E1 facts. Harness
+drafts carry no Agent turn mode, and neither product mode may read, overwrite, or
+silently normalize the other's draft. SQLite and public APIs retain attachment ids
+and safe relative metadata only, never bodies, base64, preview URLs, or managed
+absolute paths.
+
 Architecture growth control extends the same boundary from module placement to mechanism reuse. Feature modules may own domain-specific rules, rendering, and orchestration adapters, but shared artifact storage, lineage checks, stale revalidation, authority classification, ledger event policy, projection summary building, human-gate evidence, and ToolPolicy-related checks must not be scattered into feature-local private systems. If a feature needs a new cross-cutting capability, the change must either strengthen an existing owner or introduce a reusable owner with clear boundaries before adding feature-specific branches. File count and line count remain signals; the boundary question is whether the change lowers the cost and risk of the next similar feature.
 
 Phase 8S makes `src/workflow-scheduler/` the owner for scheduler-readiness contracts. `SchedulerContract` is non-executing evidence for parallel TaskGraph readiness; it must not be treated as workflow truth, a sequential `WorkflowGraphPlan`, a TaskQueue start input, or an executable ODWF script. SchedulerContract compile may write typed artifacts and decision/audit evidence only. It must not create WorkflowRun, TaskQueueRun, TaskRun, WorkerLease, AgentTask, worktree, run, child Change, source mutations, or cache/replay records.

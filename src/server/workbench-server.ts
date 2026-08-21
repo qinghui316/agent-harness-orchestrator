@@ -23,6 +23,8 @@ import { reconcileStaleProviderInputRequests } from "../workbench/provider-input
 import { ConversationTurnControlOwner } from "../workbench/conversation-turn-control.js";
 import { reconcileStaleAgentMainAttempts } from "../workbench/agent-main-attempt-recovery.js";
 import { ConversationTurnRetryOwner } from "../workbench/conversation-turn-retry.js";
+import { TurnAttachmentResolver } from "../workbench/turn-attachment-resolver.js";
+import { ComposerDraftRecoveryService } from "../workbench/composer-draft-recovery.js";
 
 export type { WorkbenchServeOptions, WorkbenchServerHandle } from "./workbench/types.js";
 export { executeWorkbenchAction } from "./workbench/actions.js";
@@ -49,13 +51,21 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
     providerRegistry,
     projectRuntimeCoordinator,
   });
+  const attachmentResolver = new TurnAttachmentResolver({
+    resolveRuntimePaths: (projectId) => projectRuntimeCoordinator.runtimePaths(projectId),
+  });
   const turnRouter = createConversationTurnRouter({
     skillContext,
     providerRegistry,
     projectRuntimeCoordinator,
     turnControl,
+    attachmentResolver,
   });
   const turnRetry = options.turnRetry ?? new ConversationTurnRetryOwner(turnRouter);
+  const composerDraftRecovery = options.composerDraftRecovery ?? new ComposerDraftRecoveryService({
+    attachmentResolver,
+    providerRegistry,
+  });
   await projectRuntimeCoordinator.reconcileStartup();
   const restoredInput = await restoreDirectProjectInput(input, store);
   const composedInput = restoredInput
@@ -77,6 +87,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
     turnRouter,
     turnControl,
     turnRetry,
+    composerDraftRecovery,
   };
   const server = createServer((request, response) => {
     handleRequest(context, request, response).catch((error: unknown) => {

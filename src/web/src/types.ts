@@ -157,6 +157,26 @@ export type TopicAttachment = {
   runtimeMode: "provider-image-input" | "provider-file-reference" | "bounded-text-preview" | "metadata-only";
   previewUrl?: string;
 };
+export type ComposerDraftDiagnostic = {
+  code: "invalid-field" | "unavailable-reference" | "unavailable-attachment" | "unavailable-provider" | "unavailable-skill";
+  message: string;
+};
+export type ComposerDraftSnapshot = {
+  projectId: string;
+  productMode: ProductMode;
+  agentTurnMode: AgentTurnMode | null;
+  text: string;
+  contextRefs: TopicFileReference[];
+  attachments: TopicAttachment[];
+  skillOverrides: Record<string, boolean>;
+  selectedProviderId: string | null;
+  updatedAt: string;
+  diagnostics: ComposerDraftDiagnostic[];
+};
+export type ComposerDraftWrite = Omit<ComposerDraftSnapshot, "attachments" | "updatedAt" | "diagnostics"> & {
+  attachmentIds: string[];
+  expectedUpdatedAt: string | null;
+};
 export type ProjectFileTreeResult = {
   path: string;
   parentPath: string | null;

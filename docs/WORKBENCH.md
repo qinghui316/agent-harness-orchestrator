@@ -40,6 +40,32 @@ next-send preference. A capability error keeps a selected Plan visible but
 blocks sending until the user changes mode or capability recovery succeeds.
 Harness conversations do not expose this control.
 
+Composer drafts are durable full snapshots scoped by `projectId + productMode`.
+They reuse the schema-13 `composer_drafts` row and include unsent text, safe
+project-relative file references, managed attachment ids, provider-neutral Skill
+overrides, the selected Provider id, and the Agent Default/Plan preference.
+Harness snapshots always store a null Agent turn mode, and Agent and Harness
+never read or update each other's draft row. Draft IO does not require Harness
+readiness, invoke a Provider, or create Conversation, Timeline, Attempt, Change,
+Workflow, or authorization evidence.
+
+The draft API writes one complete snapshot with `updatedAt` compare-and-swap.
+Stale saves and deletes return the current server snapshot without overwriting
+newer input. The Composer serializes saves per scope, debounces ordinary edits,
+and flushes before send, scope changes, and page hide. Restore revalidates file
+root containment and symlink segments, managed attachment ownership and hashes,
+and current Skill/Provider availability. Invalid evidence is omitted with bounded
+diagnostics; no file body, base64 data, preview URL, or managed absolute path is
+stored or returned. An unavailable saved Provider or Plan choice remains visible
+and blocks sending until the user selects a supported configuration.
+
+Successful ordinary sends compare-and-clear only the submitted text, references,
+attachments, and draft Skill overrides. Accepted Steer clears only its captured
+text, while Stop and failed admission/Provider calls leave the draft unchanged.
+Input added while a send is running wins the CAS race and cannot be removed by
+the older settlement. Conversation navigation keeps the established shared
+project/mode Composer scope rather than creating per-Conversation draft rows.
+
 Ordinary Agent turns accept Composer-managed images and safe text/code files in
 both Default and Plan mode. One server-owned `TurnAttachmentResolver` validates
 project ownership, the exact managed attachment directory, type, size, and

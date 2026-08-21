@@ -7,13 +7,13 @@ import {
 } from "lucide-react";
 import { ComposerControls } from "../shell/ComposerControls.js";
 import { AgentTurnModeControl } from "../shell/composer.js";
-import { ComposerAttachButton, ComposerAttachmentList, filesFromDrop, hasFileDrag, imageFilesFromPaste, type ComposerAttachmentListItem } from "../shell/ComposerAttachments.js";
+import { ComposerAttachButton, ComposerAttachmentList, filesFromDrop, hasFileDrag, imageFilesFromPaste } from "../shell/ComposerAttachments.js";
 import { buildComposerContextSummary, ComposerContextSourcesPopover, type ComposerContextKind } from "../shell/ComposerContextSources.js";
 import { FileMentionPicker } from "../shell/FileMentionPicker.js";
 import { SkillMentionPicker } from "../shell/SkillMentionPicker.js";
 import { WorkspacePicker } from "./WorkspacePicker.js";
 import { InfoRow } from "./ProjectPanels.js";
-import type { AgentTurnMode, ProductMode, ProviderModelCandidate, ProviderModelSettingsSnapshot, ProjectStatus, SkillListItem, TopicFileReference } from "../types.js";
+import type { AgentTurnMode, ProductMode, ProviderModelCandidate, ProviderModelSettingsSnapshot, ProjectStatus, SkillListItem, TopicAttachment, TopicFileReference } from "../types.js";
 
 export function ProjectHomeView({
   projects,
@@ -50,6 +50,13 @@ export function ProjectReadinessHome({
   projects,
   selectedProjectId,
   onCreateDemand,
+  draft,
+  onDraftChange,
+  draftFileRefs,
+  onDraftFileRefsChange,
+  draftAttachments,
+  onAttachFiles,
+  onRemoveAttachment,
   enabledSkillCount,
   skills,
   activeSkillIds,
@@ -72,6 +79,13 @@ export function ProjectReadinessHome({
   projects: ProjectStatus[];
   selectedProjectId: string | null;
   onCreateDemand: (body: string, fileRefs?: TopicFileReference[], attachmentIds?: string[], attachmentFiles?: File[]) => Promise<void>;
+  draft: string;
+  onDraftChange: (value: string) => void;
+  draftFileRefs: TopicFileReference[];
+  onDraftFileRefsChange: (refs: TopicFileReference[]) => void;
+  draftAttachments: TopicAttachment[];
+  onAttachFiles: (files: File[]) => Promise<TopicAttachment[]>;
+  onRemoveAttachment: (attachmentId: string) => Promise<void>;
   enabledSkillCount?: number;
   skills?: SkillListItem[];
   activeSkillIds?: string[];
@@ -87,9 +101,6 @@ export function ProjectReadinessHome({
   onSelectAgentTurnMode: (mode: AgentTurnMode) => void | Promise<void>;
   agentTurnModeDisabledReason?: string | null;
 }): ReactElement {
-  const [draft, setDraft] = useState("");
-  const [draftFileRefs, setDraftFileRefs] = useState<TopicFileReference[]>([]);
-  const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [openContextKind, setOpenContextKind] = useState<ComposerContextKind | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -108,9 +119,6 @@ export function ProjectReadinessHome({
     if (resetToken === undefined) return;
     if (lastResetToken.current === resetToken) return;
     lastResetToken.current = resetToken;
-    setDraft("");
-    setDraftFileRefs([]);
-    setDraftAttachments([]);
     window.setTimeout(() => textareaRef.current?.focus(), 0);
   }, [resetToken]);
 
@@ -119,10 +127,7 @@ export function ProjectReadinessHome({
     if ((!body && draftAttachments.length === 0) || !canStartDemand) return;
     setSubmitting(true);
     try {
-      await onCreateDemand(body, draftFileRefs, [], draftAttachments.map((attachment) => attachment.file));
-      setDraft("");
-      setDraftFileRefs([]);
-      setDraftAttachments([]);
+      await onCreateDemand(body, draftFileRefs, draftAttachments.map((attachment) => attachment.id));
     } catch {
       // The App shell owns the user-facing error message; keep the draft intact.
     } finally {
@@ -132,12 +137,11 @@ export function ProjectReadinessHome({
 
   async function attachFiles(files: File[]): Promise<void> {
     if (!canAttach || files.length === 0) return;
-    const next = await draftAttachmentsFromFiles(files);
-    setDraftAttachments((current) => mergeAttachments(current, next));
+    await onAttachFiles(files);
   }
 
   function removeAttachment(id: string): void {
-    setDraftAttachments((current) => current.filter((attachment) => attachment.id !== id));
+    void onRemoveAttachment(id);
   }
 
   return (
@@ -197,13 +201,13 @@ export function ProjectReadinessHome({
             selectedFileRefs={draftFileRefs}
             attachments={draftAttachments}
             onToggleSkill={onToggleSkill}
-            onSelectedFileRefsChange={setDraftFileRefs}
+            onSelectedFileRefsChange={onDraftFileRefsChange}
             onRemoveAttachment={removeAttachment}
             onClose={() => setOpenContextKind(null)}
           />
           <SkillMentionPicker
             value={draft}
-            onChange={setDraft}
+            onChange={onDraftChange}
             skills={skills ?? []}
             activeSkillIds={activeSkillIds ?? []}
             onToggleSkill={onToggleSkill ?? (() => undefined)}
@@ -211,15 +215,15 @@ export function ProjectReadinessHome({
           <FileMentionPicker
             projectId={project.project?.id ?? null}
             value={draft}
-            onChange={setDraft}
+            onChange={onDraftChange}
             selectedRefs={draftFileRefs}
-            onSelectedRefsChange={setDraftFileRefs}
+            onSelectedRefsChange={onDraftFileRefsChange}
           />
           <ComposerAttachmentList attachments={draftAttachments} onRemove={removeAttachment} />
           <textarea
             ref={textareaRef}
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => onDraftChange(event.target.value)}
             onPaste={(event) => {
               if (!canAttach) return;
               const files = imageFilesFromPaste(event);
@@ -253,46 +257,6 @@ export function ProjectReadinessHome({
       </div>
     </section>
   );
-}
-
-type DraftAttachment = ComposerAttachmentListItem & {
-  file: File;
-};
-
-async function draftAttachmentsFromFiles(files: File[]): Promise<DraftAttachment[]> {
-  const result: DraftAttachment[] = [];
-  for (const file of files) {
-    result.push({
-      id: `draft-${Date.now()}-${result.length}-${Math.random().toString(16).slice(2)}`,
-      fileName: file.name || "attachment",
-      kind: file.type.startsWith("image/") ? "image" : "text",
-      size: file.size,
-      previewUrl: file.type.startsWith("image/") ? await readFileAsDataUrl(file).catch(() => undefined) : undefined,
-      file,
-    });
-  }
-  return result;
-}
-
-function mergeAttachments(current: DraftAttachment[], next: DraftAttachment[]): DraftAttachment[] {
-  const result = [...current];
-  const seen = new Set(current.map((attachment) => `${attachment.file.name}:${attachment.file.size}:${attachment.file.lastModified}`));
-  for (const attachment of next) {
-    const key = `${attachment.file.name}:${attachment.file.size}:${attachment.file.lastModified}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(attachment);
-  }
-  return result;
-}
-
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
-    reader.onerror = () => reject(reader.error ?? new Error("Failed to read file."));
-    reader.readAsDataURL(file);
-  });
 }
 
 export function ProviderModelPicker({

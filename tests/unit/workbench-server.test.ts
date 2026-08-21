@@ -318,23 +318,74 @@ describe("workbench server", () => {
       body: JSON.stringify({
         productMode: "agent",
         agentTurnMode: "plan",
+        text: "recover this draft",
+        contextRefs: [],
+        attachmentIds: [],
+        skillOverrides: { reviewer: true },
         selectedProviderId: "codex",
+        expectedUpdatedAt: null,
       }),
     });
     expect(saved.ok).toBe(true);
-    expect(await saved.json()).toMatchObject({
-      draft: { productMode: "agent", agentTurnMode: "plan", selectedProviderId: "codex" },
+    const savedPayload = await saved.json() as { draft: { updatedAt: string } };
+    expect(savedPayload).toMatchObject({
+      draft: {
+        productMode: "agent",
+        agentTurnMode: "plan",
+        text: "recover this draft",
+        skillOverrides: { reviewer: true },
+        selectedProviderId: "codex",
+      },
     });
 
     expect(await getJson(`${endpoint}?productMode=agent`)).toMatchObject({
-      draft: { productMode: "agent", agentTurnMode: "plan", selectedProviderId: "codex" },
+      draft: {
+        productMode: "agent",
+        agentTurnMode: "plan",
+        text: "recover this draft",
+        skillOverrides: { reviewer: true },
+        selectedProviderId: "codex",
+      },
+    });
+    const stale = await fetch(endpoint, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        productMode: "agent",
+        agentTurnMode: "default",
+        text: "stale overwrite",
+        contextRefs: [],
+        attachmentIds: [],
+        skillOverrides: {},
+        selectedProviderId: "codex",
+        expectedUpdatedAt: null,
+      }),
+    });
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toMatchObject({
+      draft: { text: "recover this draft", updatedAt: savedPayload.draft.updatedAt },
     });
     const invalidHarness = await fetch(endpoint, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ productMode: "harness", agentTurnMode: "plan" }),
+      body: JSON.stringify({
+        productMode: "harness",
+        agentTurnMode: "plan",
+        text: "",
+        contextRefs: [],
+        attachmentIds: [],
+        skillOverrides: {},
+        selectedProviderId: null,
+        expectedUpdatedAt: null,
+      }),
     });
     expect(invalidHarness.status).toBe(409);
+    const deleted = await fetch(
+      `${endpoint}?productMode=agent&expectedUpdatedAt=${encodeURIComponent(savedPayload.draft.updatedAt)}`,
+      { method: "DELETE" },
+    );
+    expect(deleted.ok).toBe(true);
+    expect(await getJson(`${endpoint}?productMode=agent`)).toEqual({ draft: null });
   });
 
   it("orders identity reconciliation before project recovery and listen", async () => {

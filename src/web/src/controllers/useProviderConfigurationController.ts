@@ -30,6 +30,8 @@ export function useProviderConfigurationController(input: ProviderConfigurationI
   const requestGenerationRef = useRef(0);
   const onErrorRef = useRef(input.onError);
   const selectedProviderIdRef = useRef<string | null>(null);
+  const draftProviderIdRef = useRef<string | null>(null);
+  const draftProviderScopeRef = useRef<string | null>(null);
   const scopeResolved = resolvedScopeIdentity === scopeIdentity;
   const visibleDiagnostics = scopeResolved ? diagnostics : null;
   const visibleModelSettings = scopeResolved ? modelSettings : null;
@@ -67,7 +69,10 @@ export function useProviderConfigurationController(input: ProviderConfigurationI
       : [];
     setCapabilities(nextCapabilities);
     setCapabilitiesError(null);
-    const providerId = selectEffectiveProviderId({
+    const restoredProviderId = !input.conversationProviderId && draftProviderScopeRef.current === scopeIdentity
+      ? draftProviderIdRef.current
+      : null;
+    const providerId = restoredProviderId ?? selectEffectiveProviderId({
       conversationProviderId: input.conversationProviderId,
       projectDefaultProviderId: input.projectDefaultProviderId,
       selectedProviderId: selectedProviderIdRef.current,
@@ -75,6 +80,12 @@ export function useProviderConfigurationController(input: ProviderConfigurationI
     });
     setSelectedProviderId(providerId);
     if (!providerId) {
+      setDiagnostics(null);
+      setModelSettings(null);
+      setResolvedScopeIdentity(scopeIdentity);
+      return;
+    }
+    if (!nextCapabilities.some((candidate) => candidate.providerId === providerId)) {
       setDiagnostics(null);
       setModelSettings(null);
       setResolvedScopeIdentity(scopeIdentity);
@@ -107,6 +118,7 @@ export function useProviderConfigurationController(input: ProviderConfigurationI
   }, [input.projectId, productMode]);
 
   useEffect(() => {
+    if (!input.conversationProviderId && draftProviderScopeRef.current === scopeIdentity && draftProviderIdRef.current) return;
     const providerId = selectEffectiveProviderId({
       conversationProviderId: input.conversationProviderId,
       projectDefaultProviderId: input.projectDefaultProviderId,
@@ -114,14 +126,24 @@ export function useProviderConfigurationController(input: ProviderConfigurationI
       capabilities: visibleCapabilities,
     });
     if (scopeResolved && providerId !== visibleSelectedProviderId) setSelectedProviderId(providerId);
-  }, [input.conversationProviderId, input.projectDefaultProviderId, scopeResolved, visibleCapabilities, visibleSelectedProviderId]);
+  }, [input.conversationProviderId, input.projectDefaultProviderId, scopeIdentity, scopeResolved, visibleCapabilities, visibleSelectedProviderId]);
 
   const selectProvider = useCallback(async (providerId: string): Promise<void> => {
     if (providerId === visibleSelectedProviderId) return;
     const generation = ++requestGenerationRef.current;
+    draftProviderIdRef.current = null;
+    draftProviderScopeRef.current = null;
     setSelectedProviderId(providerId);
     await loadProviderDetails(providerId, generation);
   }, [loadProviderDetails, visibleSelectedProviderId]);
+
+  const restoreDraftProvider = useCallback((providerId: string | null): void => {
+    if (input.conversationProviderId) return;
+    draftProviderIdRef.current = providerId;
+    draftProviderScopeRef.current = scopeIdentity;
+    setSelectedProviderId(providerId);
+    setResolvedScopeIdentity(scopeIdentity);
+  }, [input.conversationProviderId, scopeIdentity]);
 
   const openModelPicker = useCallback(async (): Promise<void> => {
     const generation = ++requestGenerationRef.current;
@@ -181,6 +203,7 @@ export function useProviderConfigurationController(input: ProviderConfigurationI
     modelSettingsBusy,
     modelSettingsMessage,
     selectProvider,
+    restoreDraftProvider,
     openModelPicker,
     closeModelPicker: () => setModelPickerOpen(false),
     updateModelSettings,

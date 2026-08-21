@@ -381,6 +381,16 @@ function shouldIgnoreName(name: string): boolean {
   return IGNORED_NAMES.has(name);
 }
 
+export async function restoreTopicFileReference(
+  project: ManagedProject,
+  reference: TopicFileReference,
+): Promise<TopicFileReference | null> {
+  const root = await safeProjectRoot(project);
+  const normalizedPath = normalizeRelativePath(reference.relativePath);
+  await assertNoSymlinkSegments(root, normalizedPath);
+  return toSafeReference(root, resolve(root, normalizedPath)).catch(() => null);
+}
+
 function containsIgnoredPathSegment(relativePath: string): boolean {
   return relativePath.split("/").some((segment) => shouldIgnoreName(segment));
 }

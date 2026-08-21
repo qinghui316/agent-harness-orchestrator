@@ -89,7 +89,6 @@ export class WorkbenchUnitOfWork {
           updatedAt: input.conversation.updatedAt,
         });
       }
-      this.drafts.deleteDraft(input.conversation.projectId, input.conversation.productMode);
       return {
         conversation: this.conversations.readConversation(
           input.conversation.projectId,

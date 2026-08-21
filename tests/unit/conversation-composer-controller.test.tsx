@@ -10,7 +10,7 @@ import {
   type ConversationComposerPorts,
   type ConversationComposerScope,
 } from "../../src/web/src/controllers/useConversationComposerController.js";
-import type { AgentTurnMode, ProviderCapabilitySnapshot, SkillListItem, TopicAttachment, TopicFileReference } from "../../src/web/src/types.js";
+import type { ComposerDraftSnapshot, ProviderCapabilitySnapshot, SkillListItem, TopicAttachment, TopicFileReference } from "../../src/web/src/types.js";
 
 afterEach(() => {
   cleanup();
@@ -125,6 +125,36 @@ describe("Conversation composer controller", () => {
     expect(result.current.fileRefs).toEqual([]);
     expect(result.current.attachments).toEqual([]);
     expect(ports.operation.release).toHaveBeenCalledWith(expect.objectContaining({ key: "topic.create" }));
+  });
+
+  it("does not let a completed first send clear newer same-scope draft input", async () => {
+    const ports = composerPorts();
+    const creation = deferred<{ projectId: string; conversationId: string }>();
+    ports.skills.load.mockResolvedValue([skill("reviewer")]);
+    ports.session.createConversation.mockImplementation(() => creation.promise);
+    const { result } = renderHook(() => useConversationComposerController(homeScope(), ports));
+    await waitFor(() => expect(result.current.skillItems).toHaveLength(1));
+    act(() => {
+      result.current.setComposerText("first request");
+      result.current.setFileRefs([fileRef("src/first.ts")]);
+    });
+
+    let request!: Promise<unknown>;
+    act(() => { request = result.current.createConversation(); });
+    await waitFor(() => expect(ports.session.createConversation).toHaveBeenCalledTimes(1));
+    act(() => {
+      result.current.setComposerText("next request");
+      result.current.setFileRefs([fileRef("src/next.ts")]);
+    });
+    await act(async () => result.current.toggleSkill("reviewer"));
+    await act(async () => {
+      creation.resolve({ projectId: "repo", conversationId: "conversation-new" });
+      await request;
+    });
+
+    expect(result.current.composerText).toBe("next request");
+    expect(result.current.fileRefs).toEqual([fileRef("src/next.ts")]);
+    expect(result.current.draftSkillOverrides).toEqual({ reviewer: true });
   });
 
   it("calibrates a committed single-Provider Conversation when capability discovery was still loading", async () => {
@@ -284,7 +314,7 @@ describe("Conversation composer controller", () => {
 
   it("restores an empty Agent draft mode and captures it in the atomic first send", async () => {
     const ports = composerPorts();
-    ports.drafts.load.mockResolvedValue({ agentTurnMode: "plan" });
+    ports.drafts.load.mockResolvedValue(draftSnapshot({ agentTurnMode: "plan" }));
     const scope = homeScope({
       productMode: "agent",
       providerCapabilities: [providerCapability("codex", true)],
@@ -300,6 +330,58 @@ describe("Conversation composer controller", () => {
       agentTurnMode: "plan",
       body: "plan this change",
     }));
+  });
+
+  it("restores the full mode-isolated draft and keeps an unavailable Provider selected", async () => {
+    const ports = composerPorts();
+    ports.skills.load.mockResolvedValue([skill("reviewer")]);
+    ports.drafts.load.mockResolvedValue(draftSnapshot({
+      agentTurnMode: "plan",
+      text: "restored text",
+      contextRefs: [fileRef("src/app.ts")],
+      attachments: [attachment("restored-attachment")],
+      skillOverrides: { reviewer: true },
+      selectedProviderId: "missing-provider",
+      diagnostics: [{ code: "unavailable-provider", message: "已保存的 Agent 当前不可用，请重新选择后再发送。" }],
+    }));
+    const scope = homeScope({
+      productMode: "agent",
+      providerCapabilities: [providerCapability("codex", true)],
+    });
+    const { result } = renderHook(() => useConversationComposerController(scope, ports));
+
+    await waitFor(() => expect(result.current.composerText).toBe("restored text"));
+    expect(result.current.agentTurnMode).toBe("plan");
+    expect(result.current.fileRefs).toEqual([fileRef("src/app.ts")]);
+    expect(result.current.attachments).toEqual([attachment("restored-attachment")]);
+    expect(result.current.activeSkillIds).toEqual(["reviewer"]);
+    expect(result.current.draftDiagnostics).toEqual([
+      expect.objectContaining({ code: "unavailable-provider" }),
+    ]);
+    expect(ports.session.restoreDraftProvider).toHaveBeenCalledWith("missing-provider");
+  });
+
+  it("prefers each stored Conversation mode while reserving the project draft mode for the empty Composer", async () => {
+    const ports = composerPorts();
+    ports.drafts.load.mockResolvedValue(draftSnapshot({ agentTurnMode: "plan" }));
+    const first = conversationScope({
+      productMode: "agent",
+      conversation: {
+        id: "default-conversation",
+        productMode: "agent",
+        agentTurnMode: "default",
+        state: "active",
+        selectedProviderId: "codex",
+      },
+    });
+    const { result, rerender } = renderHook(
+      ({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
+      { initialProps: { scope: first } },
+    );
+    await waitFor(() => expect(ports.drafts.load).toHaveBeenCalled());
+    expect(result.current.agentTurnMode).toBe("default");
+    rerender({ scope: homeScope({ productMode: "agent", providerCapabilities: [providerCapability("codex", true)] }) });
+    await waitFor(() => expect(result.current.agentTurnMode).toBe("plan"));
   });
 
   it("retains Plan across a Provider switch and blocks unsupported dispatch without side effects", async () => {
@@ -405,12 +487,13 @@ describe("Conversation composer controller", () => {
       { initialProps: { scope: homeScope({ productMode: "agent", providerCapabilities: [providerCapability("codex", true)] }) } },
     );
     await act(async () => { await result.current.selectAgentTurnMode("plan"); });
-    expect(ports.drafts.save).toHaveBeenCalledWith({
+    await waitFor(() => expect(ports.drafts.save).toHaveBeenCalledWith(expect.objectContaining({
       projectId: "repo",
       productMode: "agent",
       agentTurnMode: "plan",
       selectedProviderId: "codex",
-    });
+      expectedUpdatedAt: null,
+    })));
 
     rerender({ scope: homeScope({ productMode: "harness" }) });
     await act(async () => { await result.current.selectAgentTurnMode("plan"); });
@@ -418,11 +501,96 @@ describe("Conversation composer controller", () => {
     expect(result.current.agentTurnMode).toBe("default");
   });
 
+  it("persists text edits after the project-mode draft has loaded", async () => {
+    const ports = composerPorts();
+    const { result } = renderHook(() => useConversationComposerController(
+      homeScope({ productMode: "agent", providerCapabilities: [providerCapability("codex", true)] }),
+      ports,
+    ));
+    await waitFor(() => expect(ports.drafts.load).toHaveBeenCalledWith("repo", "agent"));
+
+    act(() => result.current.setComposerText("durable text draft"));
+
+    await waitFor(() => expect(ports.drafts.save).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: "repo",
+      productMode: "agent",
+      text: "durable text draft",
+      expectedUpdatedAt: null,
+    })));
+  });
+
+  it("loads and persists a draft when a selected project becomes managed", async () => {
+    const ports = composerPorts();
+    const unmanagedScope = homeScope({
+      managed: false,
+      productMode: "harness",
+      providerCapabilities: [],
+    });
+    const { result, rerender } = renderHook(
+      ({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
+      { initialProps: { scope: unmanagedScope } },
+    );
+
+    expect(ports.drafts.load).not.toHaveBeenCalled();
+    rerender({ scope: { ...unmanagedScope, managed: true } });
+    await waitFor(() => expect(ports.drafts.load).toHaveBeenCalledWith("repo", "harness"));
+
+    act(() => result.current.setComposerText("managed transition draft"));
+
+    await waitFor(() => expect(ports.drafts.save).toHaveBeenCalledWith(expect.objectContaining({
+      productMode: "harness",
+      agentTurnMode: null,
+      text: "managed transition draft",
+    })));
+  });
+
+  it("preserves and persists an edit made while managed draft recovery is pending", async () => {
+    const ports = composerPorts();
+    const pendingDraft = deferred<ComposerDraftSnapshot | null>();
+    ports.drafts.load.mockImplementationOnce(() => pendingDraft.promise);
+    const unmanagedScope = homeScope({
+      managed: false,
+      productMode: "harness",
+      providerCapabilities: [],
+    });
+    const { result, rerender } = renderHook(
+      ({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
+      { initialProps: { scope: unmanagedScope } },
+    );
+
+    rerender({ scope: { ...unmanagedScope, managed: true } });
+    await waitFor(() => expect(ports.drafts.load).toHaveBeenCalledWith("repo", "harness"));
+    act(() => result.current.setComposerText("typed during recovery"));
+    await act(async () => { pendingDraft.resolve(draftSnapshot({ productMode: "harness", agentTurnMode: null })); });
+
+    expect(result.current.composerText).toBe("typed during recovery");
+    await waitFor(() => expect(ports.drafts.save).toHaveBeenCalledWith(expect.objectContaining({
+      text: "typed during recovery",
+    })));
+  });
+
+  it("persists edits made after restoring an existing full draft", async () => {
+    const ports = composerPorts();
+    ports.drafts.load.mockResolvedValue(draftSnapshot({ text: "restored text" }));
+    const { result } = renderHook(() => useConversationComposerController(
+      homeScope({ productMode: "agent", providerCapabilities: [providerCapability("codex", true)] }),
+      ports,
+    ));
+    await waitFor(() => expect(result.current.composerText).toBe("restored text"));
+
+    act(() => result.current.setComposerText("edited restored text"));
+
+    await waitFor(() => expect(ports.drafts.save).toHaveBeenCalledWith(expect.objectContaining({
+      text: "edited restored text",
+      expectedUpdatedAt: "2026-08-20T00:00:00.000Z",
+    })));
+  });
+
   it("restores the persisted empty Agent draft after an Agent to Harness to Agent transition", async () => {
     const ports = composerPorts();
-    const restoredDraft = deferred<{ agentTurnMode: AgentTurnMode | null } | null>();
+    const restoredDraft = deferred<ComposerDraftSnapshot | null>();
     ports.drafts.load
-      .mockResolvedValueOnce({ agentTurnMode: "plan" })
+      .mockResolvedValueOnce(draftSnapshot({ agentTurnMode: "plan", text: "agent-only draft" }))
       .mockImplementationOnce(() => restoredDraft.promise);
     const agentScope = homeScope({
       productMode: "agent",
@@ -433,9 +601,10 @@ describe("Conversation composer controller", () => {
       { initialProps: { scope: agentScope } },
     );
 
-    await waitFor(() => expect(result.current.agentTurnMode).toBe("plan"));
+    await waitFor(() => expect(result.current.composerText).toBe("agent-only draft"));
     rerender({ scope: homeScope({ productMode: "harness", providerCapabilities: [] }) });
     await waitFor(() => expect(result.current.agentTurnMode).toBe("default"));
+    expect(result.current.composerText).toBe("");
     rerender({ scope: {
       ...agentScope,
       providerCapabilities: undefined,
@@ -444,9 +613,10 @@ describe("Conversation composer controller", () => {
     rerender({ scope: agentScope });
 
     expect(result.current.agentTurnMode).toBe("plan");
-    await act(async () => { restoredDraft.resolve({ agentTurnMode: "plan" }); });
+    await act(async () => { restoredDraft.resolve(draftSnapshot({ agentTurnMode: "plan" })); });
     await waitFor(() => expect(result.current.agentTurnMode).toBe("plan"));
-    expect(ports.drafts.load).toHaveBeenCalledTimes(2);
+    expect(ports.drafts.load).toHaveBeenCalledTimes(3);
+    expect(ports.drafts.load).toHaveBeenNthCalledWith(2, "repo", "harness");
   });
 
   it("uses one captured Skill identity while follow-up overrides are pending", async () => {
@@ -1065,13 +1235,13 @@ describe("Conversation composer controller", () => {
 });
 
 function composerPorts(): ConversationComposerPorts & {
-  session: { ensureProjectRegistered: ReturnType<typeof vi.fn>; createConversation: ReturnType<typeof vi.fn> };
+  session: { ensureProjectRegistered: ReturnType<typeof vi.fn>; createConversation: ReturnType<typeof vi.fn>; restoreDraftProvider: ReturnType<typeof vi.fn> };
   actions: { sendMessage: ReturnType<typeof vi.fn>; steer: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> };
   projection: { refreshConversation: ReturnType<typeof vi.fn> };
   timeline: { calibrate: ReturnType<typeof vi.fn> };
   skills: { load: ReturnType<typeof vi.fn>; setEnabled: ReturnType<typeof vi.fn> };
   attachments: { upload: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn> };
-  drafts: { load: ReturnType<typeof vi.fn>; save: ReturnType<typeof vi.fn> };
+  drafts: { load: ReturnType<typeof vi.fn>; save: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn> };
   operation: { begin: ReturnType<typeof vi.fn>; release: ReturnType<typeof vi.fn> };
   ids: { createClientRequestId: ReturnType<typeof vi.fn> };
   onError: ReturnType<typeof vi.fn>;
@@ -1085,6 +1255,7 @@ function composerPorts(): ConversationComposerPorts & {
     session: {
       ensureProjectRegistered: vi.fn(async (projectId: string) => projectId),
       createConversation: vi.fn(async () => ({ projectId: "repo", conversationId: "conversation-new" })),
+      restoreDraftProvider: vi.fn(),
     },
     actions: {
       sendMessage: vi.fn(async () => undefined),
@@ -1103,10 +1274,37 @@ function composerPorts(): ConversationComposerPorts & {
     },
     drafts: {
       load: vi.fn(async () => null),
-      save: vi.fn(async () => undefined),
+      save: vi.fn(async (input) => draftSnapshot({
+        projectId: input.projectId,
+        productMode: input.productMode,
+        agentTurnMode: input.agentTurnMode,
+        text: input.text,
+        contextRefs: input.contextRefs,
+        attachments: input.attachmentIds.map(attachment),
+        skillOverrides: input.skillOverrides,
+        selectedProviderId: input.selectedProviderId,
+        updatedAt: "2026-08-21T00:00:00.000Z",
+      })),
+      delete: vi.fn(async () => true),
     },
     ids: { createClientRequestId: vi.fn(() => "request-1") },
     onError: vi.fn(),
+  };
+}
+
+function draftSnapshot(overrides: Partial<ComposerDraftSnapshot> = {}): ComposerDraftSnapshot {
+  return {
+    projectId: "repo",
+    productMode: "agent",
+    agentTurnMode: "default",
+    text: "",
+    contextRefs: [],
+    attachments: [],
+    skillOverrides: {},
+    selectedProviderId: "codex",
+    updatedAt: "2026-08-20T00:00:00.000Z",
+    diagnostics: [],
+    ...overrides,
   };
 }
 

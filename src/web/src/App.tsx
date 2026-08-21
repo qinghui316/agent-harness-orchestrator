@@ -624,6 +624,7 @@ export function App(): ReactElement {
     session: {
       ensureProjectRegistered: session.ensureProjectRegistered,
       createConversation: (request) => session.createDemandConversation(request, routeProjectionEventForProject),
+      restoreDraftProvider: providerConfiguration.restoreDraftProvider,
     },
     actions: {
       steer: runComposerSteerRequest,
@@ -1021,6 +1022,13 @@ export function App(): ReactElement {
             projects={projects}
             selectedProjectId={selectedProjectId}
             onCreateDemand={createTopicFromText}
+            draft={composerText}
+            onDraftChange={setComposerText}
+            draftFileRefs={composerFileRefs}
+            onDraftFileRefsChange={setComposerFileRefs}
+            draftAttachments={composerAttachments}
+            onAttachFiles={appendComposerAttachments}
+            onRemoveAttachment={removeComposerAttachment}
             providerOptions={composerProviderOptions}
             selectedProviderId={composerProviderId ?? undefined}
             onSelectProvider={(providerId) => { void providerConfiguration.selectProvider(providerId); }}

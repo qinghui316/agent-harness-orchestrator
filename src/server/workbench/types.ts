@@ -10,6 +10,7 @@ import type { WorkbenchProjectRemovalPort } from "./project-removal.js";
 import type { ConversationTurnRoutingPort } from "../../workbench/conversation-turn-contract.js";
 import type { ConversationTurnControlOwner } from "../../workbench/conversation-turn-control.js";
 import type { ConversationTurnRetryOwner } from "../../workbench/conversation-turn-retry.js";
+import type { ComposerDraftRecoveryService } from "../../workbench/composer-draft-recovery.js";
 
 export interface WorkbenchServeOptions {
   host?: string;
@@ -22,6 +23,7 @@ export interface WorkbenchServeOptions {
   projectRemoval?: WorkbenchProjectRemovalPort;
   turnControl?: ConversationTurnControlOwner;
   turnRetry?: ConversationTurnRetryOwner;
+  composerDraftRecovery?: ComposerDraftRecoveryService;
 }
 
 export interface WorkbenchServerHandle {
@@ -41,6 +43,7 @@ export interface WorkbenchServerContext {
   turnRouter: ConversationTurnRoutingPort;
   turnControl: ConversationTurnControlOwner;
   turnRetry: ConversationTurnRetryOwner;
+  composerDraftRecovery: ComposerDraftRecoveryService;
 }
 
 export interface ConversationTurnRetryBody {
