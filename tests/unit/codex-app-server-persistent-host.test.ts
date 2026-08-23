@@ -445,6 +445,10 @@ describe("Codex persistent app-server Host", () => {
     })).resolves.toEqual({ status: "accepted" });
     expect(defaultCodexAppServerHostRegistry.hostFor(cwd).snapshot().state).toBe("busy");
 
+    vi.useFakeTimers();
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(defaultCodexAppServerHostRegistry.hostFor(cwd).snapshot().state).toBe("busy");
+
     await expect(runCodexAppServerTurn(await turnOptions(cwd, "concurrent-turn", "thread-main")))
       .resolves.toMatchObject({
         status: "failed",
@@ -453,7 +457,8 @@ describe("Codex persistent app-server Host", () => {
     expect(server.methods.filter((method) => method === "turn/start")).toHaveLength(0);
 
     server.completeHeldCompaction();
-    await vi.waitFor(() => expect(defaultCodexAppServerHostRegistry.hostFor(cwd).snapshot().state).toBe("healthy"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(defaultCodexAppServerHostRegistry.hostFor(cwd).snapshot().state).toBe("healthy");
   });
 
   it("redacts Provider-private JSON-RPC rejection details", async () => {

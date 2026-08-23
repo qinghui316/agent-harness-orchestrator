@@ -185,6 +185,10 @@ export async function compactCodexContext(request: ProviderContextCompactRequest
         if (typeof payload.method !== "string" || !payload.params || typeof payload.params !== "object") return;
         const event = normalizeCodexContextEvent(payload.method, payload.params as Record<string, unknown>);
         if (!event || event.threadId !== request.session.sessionId) return;
+        if (event.type === "compaction" && event.phase === "started" && expiry) {
+          clearTimeout(expiry);
+          expiry = null;
+        }
         try {
           request.onContextEvent?.(mapContextEvent(event));
         } finally {

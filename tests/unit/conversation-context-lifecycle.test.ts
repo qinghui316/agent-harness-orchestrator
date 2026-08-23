@@ -129,7 +129,7 @@ describe("ConversationContextLifecycleOwner", () => {
     expect(compactContext).toHaveBeenCalledOnce();
   });
 
-  it("retains accepted terminal evidence for an idempotent persistence-only retry", async () => {
+  it("automatically retries accepted terminal evidence without another Provider call", async () => {
     const conversationId = "conversation-persistence-retry";
     await seedConversation(conversationId, "agent");
     let callback: ((event: ProviderContextEvent) => void) | undefined;
@@ -144,18 +144,15 @@ describe("ConversationContextLifecycleOwner", () => {
     callback?.(compactionEvent("persist-item", "started"));
     await vi.waitFor(async () => expect(await owner.read(project, "agent", conversationId)).toMatchObject({ lifecycle: "compacting" }));
 
-    const original = ConversationContextRepository.prototype.upsertCompaction;
     const failure = vi.spyOn(ConversationContextRepository.prototype, "upsertCompaction")
       .mockImplementationOnce(() => { throw new Error("simulated timeline write failure"); });
     callback?.(compactionEvent("persist-item", "completed"));
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    failure.mockImplementation(original);
+    await vi.waitFor(() => expect(failure).toHaveBeenCalled());
+    failure.mockRestore();
     expect(await owner.read(project, "agent", conversationId)).toMatchObject({ lifecycle: "compacting" });
 
-    await expect(owner.compact(project, request)).resolves.toEqual({ status: "accepted" });
+    await vi.waitFor(async () => expect(await owner.read(project, "agent", conversationId)).toMatchObject({ lifecycle: "completed", canCompact: true }));
     expect(compactContext).toHaveBeenCalledOnce();
-    expect(await owner.read(project, "agent", conversationId)).toMatchObject({ lifecycle: "completed", canCompact: true });
-    failure.mockRestore();
   });
 
   it("fails closed for stale graph events and malformed usage", async () => {

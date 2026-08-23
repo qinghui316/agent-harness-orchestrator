@@ -61,6 +61,8 @@ export class ConversationContextLifecycleOwner {
     evidence: StoredContextCompactionEvidence;
   }>();
   private readonly retainedEvents = new Map<string, { observation: ConversationContextObservation; event: ProviderContextEvent }>();
+  private readonly retainedEventTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly retainedEventRetryAttempts = new Map<string, number>();
 
   constructor(private readonly options: {
     providerRegistry: OwnerRegistry;
@@ -80,11 +82,10 @@ export class ConversationContextLifecycleOwner {
         );
         const itemKey = `${bindingHash}\0${event.itemId}`;
         const item = this.compactionByItem.get(itemKey) ?? this.manualByBinding.get(bindingHash);
-        if (!item) return;
-        this.retainedEvents.set(
-          retainedCompactionKey(observation.paths.projectId, observation.conversationId, item.clientRequestId),
-          { observation, event },
-        );
+        const clientRequestId = item?.clientRequestId ?? `automatic-${shortHash(itemKey)}`;
+        const retainedKey = retainedCompactionKey(observation.paths.projectId, observation.conversationId, clientRequestId);
+        this.retainedEvents.set(retainedKey, { observation, event });
+        this.scheduleRetainedEventRetry(retainedKey);
       });
     };
   }
@@ -295,8 +296,14 @@ export class ConversationContextLifecycleOwner {
     const key = retainedCompactionKey(request.projectId, request.conversationId, request.clientRequestId);
     const retainedEvent = this.retainedEvents.get(key);
     if (retainedEvent) {
-      await this.record(retainedEvent.observation, retainedEvent.event);
-      this.retainedEvents.delete(key);
+      await this.enqueueRecord(retainedEvent.observation, retainedEvent.event);
+      if (this.retainedEvents.get(key) === retainedEvent) {
+        this.retainedEvents.delete(key);
+        this.clearRetainedEventRetry(key);
+      } else {
+        this.retainedEventRetryAttempts.set(key, 0);
+        this.scheduleRetainedEventRetry(key);
+      }
     }
     const retained = this.retainedCompactions.get(key);
     if (!retained || retained.evidence.contextRevision !== request.contextRevision) return;
@@ -322,6 +329,42 @@ export class ConversationContextLifecycleOwner {
       database.close();
     }
     publishConversationContextInvalidated(request.projectId, { conversationId: request.conversationId });
+  }
+
+  private scheduleRetainedEventRetry(key: string): void {
+    if (this.retainedEventTimers.has(key)) return;
+    const attempt = this.retainedEventRetryAttempts.get(key) ?? 0;
+    const delayMs = Math.min(100 * (2 ** Math.min(attempt, 6)), 5_000);
+    const timer = setTimeout(() => {
+      this.retainedEventTimers.delete(key);
+      const retained = this.retainedEvents.get(key);
+      if (!retained) {
+        this.retainedEventRetryAttempts.delete(key);
+        return;
+      }
+      void this.enqueueRecord(retained.observation, retained.event).then(() => {
+        if (this.retainedEvents.get(key) === retained) {
+          this.retainedEvents.delete(key);
+          this.retainedCompactions.delete(key);
+          this.retainedEventRetryAttempts.delete(key);
+          return;
+        }
+        this.retainedEventRetryAttempts.set(key, 0);
+        this.scheduleRetainedEventRetry(key);
+      }).catch(() => {
+        this.retainedEventRetryAttempts.set(key, attempt + 1);
+        this.scheduleRetainedEventRetry(key);
+      });
+    }, delayMs);
+    timer.unref?.();
+    this.retainedEventTimers.set(key, timer);
+  }
+
+  private clearRetainedEventRetry(key: string): void {
+    const timer = this.retainedEventTimers.get(key);
+    if (timer) clearTimeout(timer);
+    this.retainedEventTimers.delete(key);
+    this.retainedEventRetryAttempts.delete(key);
   }
 
   private async resolve(project: ManagedProject, productMode: ProductMode, conversationId: string) {
