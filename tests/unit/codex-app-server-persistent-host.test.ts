@@ -13,7 +13,7 @@ import { getActiveCodexAppServerTurn, runCodexAppServerChildClose, runCodexAppSe
 import { CodexAppServerHost, CodexAppServerHostRegistry, defaultCodexAppServerHostRegistry } from "../../src/codex/app-server-host.js";
 import { listCodexRuntimeModels } from "../../src/codex/model-settings.js";
 import { defaultProjectRemovalFence } from "../../src/project-runtime/removal.js";
-import { runCodexTurn } from "../../src/provider-runtime/codex-adapter.js";
+import { compactCodexContext, runCodexTurn } from "../../src/provider-runtime/codex-adapter.js";
 
 const tempDirs: string[] = [];
 
@@ -406,6 +406,29 @@ describe("Codex persistent app-server Host", () => {
     lease.release();
   });
 
+  it("sends exact context compact wire input and releases lifecycle metadata after completion", async () => {
+    const cwd = await tempDir();
+    const server = new PersistentCollaborationServer(4521);
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+    const events: string[] = [];
+
+    await expect(compactCodexContext({
+      providerId: "codex",
+      projectId: "project-host",
+      cwd,
+      session: { providerId: "codex", sessionId: "thread-main" },
+      onContextEvent: (event) => {
+        if (event.type === "compaction") events.push(`${event.itemId}:${event.phase}`);
+      },
+    })).resolves.toEqual({ status: "accepted" });
+    await vi.waitFor(() => expect(events).toEqual(["compact-item-1:started", "compact-item-1:completed"]));
+    expect(server.compactParams).toEqual([{ threadId: "thread-main" }]);
+
+    server.sendCompaction("compact-after-release");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(events).toEqual(["compact-item-1:started", "compact-item-1:completed"]);
+  });
+
   it("drops provider callbacks from a generation invalidated by project removal", async () => {
     const cwd = await tempDir();
     const server = new PersistentCollaborationServer(4551, true);
@@ -633,6 +656,7 @@ class PersistentCollaborationServer extends EventEmitter {
   readonly turnParams: Array<Record<string, unknown>> = [];
   readonly threadParams: Array<Record<string, unknown>> = [];
   readonly steerParams: Array<Record<string, unknown>> = [];
+  readonly compactParams: Array<Record<string, unknown>> = [];
   readonly interruptParams: Array<{ threadId: string; turnId: string }> = [];
   readonly serverResponses: Array<{ id: number; result: Record<string, unknown> }> = [];
   readonly pid: number;
@@ -687,6 +711,11 @@ class PersistentCollaborationServer extends EventEmitter {
 
   resolveApproval(requestId: string, threadId: string): void {
     this.notify("serverRequest/resolved", { requestId, threadId });
+  }
+
+  sendCompaction(itemId: string): void {
+    this.notify("item/started", { threadId: "thread-main", item: { id: itemId, type: "contextCompaction" } });
+    this.notify("item/completed", { threadId: "thread-main", item: { id: itemId, type: "contextCompaction", status: "completed" } });
   }
 
   rejectNextInterrupt(message: string): void {
@@ -798,6 +827,11 @@ class PersistentCollaborationServer extends EventEmitter {
         }
         return;
       }
+      case "thread/compact/start":
+        this.compactParams.push({ ...params });
+        this.respond(id, {});
+        this.sendCompaction("compact-item-1");
+        return;
       case "turn/steer": {
         this.steerParams.push({ ...params });
         if (this.nextSteerError) {

@@ -983,6 +983,97 @@
   flex: 1;
 }
 
+.conversation-context-control {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.conversation-context-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 34px;
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.conversation-context-indicator.is-busy svg {
+  animation: context-indicator-spin 1s linear infinite;
+}
+
+.conversation-context-indicator.is-error {
+  color: var(--danger);
+}
+
+.conversation-context-popover {
+  position: absolute;
+  z-index: 20;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: min(290px, calc(100vw - 32px));
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-soft);
+}
+
+.conversation-context-popover-header,
+.conversation-context-popover dl > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.conversation-context-popover-header span,
+.conversation-context-popover dt,
+.conversation-context-popover p {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.conversation-context-popover dl {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+}
+
+.conversation-context-popover dt,
+.conversation-context-popover dd {
+  margin: 0;
+}
+
+.conversation-context-compact {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-subtle);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.conversation-context-compact:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+@keyframes context-indicator-spin {
+  to { transform: rotate(360deg); }
+}
+
 .composer-send {
   display: inline-flex;
   align-items: center;

@@ -2,6 +2,8 @@ import type { WorkbenchThreadActionType } from "./workflow-actions.js";
 import type { ConversationInteractionQueue, InteractionHistoryRecord } from "../../workbench/conversation-interaction-contract.js";
 import type { AgentSurfacesInvalidated } from "../../workbench/agent-surface-contract.js";
 export type { ProductModeActivityIndicator, ProductModeActivityState, ProjectProductModeActivitySnapshot } from "../../workbench/product-mode-activity.js";
+export type { ConversationContextSnapshot, ProviderContextLifecycleState } from "../../workbench/conversation-context-lifecycle.js";
+import type { ConversationContextSnapshot } from "../../workbench/conversation-context-lifecycle.js";
 export type { ConversationInteraction, ConversationInteractionQuestion, ConversationInteractionQueue, ConversationInteractionSettlement, InteractionHistoryRecord } from "../../workbench/conversation-interaction-contract.js";
 export type { AgentSurfaceProjection, AgentSurfaceProjectionItem, AgentSurfaceStatus, AgentSurfacesInvalidated, AgentSurfacesInvalidationReason } from "../../workbench/agent-surface-contract.js";
 export type { AgentCatalogDisplayProjection, AgentCatalogDisplayRole } from "../../workbench/agent-catalog-display-contract.js";
@@ -52,6 +54,8 @@ export type ProviderCapabilityKey =
   | "file.reference"
   | "model.list"
   | "skills"
+  | "context.usage"
+  | "context.compact"
   | "turn.plan";
 export type ProviderCapabilityItem = {
   key: ProviderCapabilityKey;
@@ -362,6 +366,7 @@ export type Snapshot = {
     agentLoop: { runs: RunSummary[] };
     thread: { items: ThreadStreamItem[] };
     conversationInteractions: ConversationInteractionQueue;
+    conversationContext?: ConversationContextSnapshot | null;
     activeTab?: CenterTab;
   };
   right: { approvals: Approval[]; decisions: Decision[]; decisionInspector: DecisionInspector; confirmationQueue: ConfirmationQueue };
@@ -1656,6 +1661,7 @@ export type WorkbenchLiveEvent =
   | { event: "conversation.interactions.updated"; data: ConversationInteractionQueue }
   | { event: "agent-surfaces.invalidated"; data: AgentSurfacesInvalidated }
   | { event: "conversation.turn-control.invalidated"; data: { conversationId: string; attemptId: string } }
+  | { event: "conversation.context.invalidated"; data: { conversationId: string } }
   | { event: "run.started"; data: WorkbenchLiveIdentity & { runId: string; actionType?: string; runtime?: string; taskIds?: string[] } }
   | { event: "run.status"; data: WorkbenchLiveIdentity & { actionRunId?: string; status: string; label?: string } }
   | { event: "assistant.delta"; data: WorkbenchLiveIdentity & { delta: string } }

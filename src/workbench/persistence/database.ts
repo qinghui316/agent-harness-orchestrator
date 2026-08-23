@@ -9,6 +9,7 @@ import { ProviderAttemptRepository } from "./repositories/provider-attempt-repos
 import { SkillRepository } from "./repositories/skill-repository.js";
 import { TimelineRepository } from "./repositories/timeline-repository.js";
 import { ComposerDraftRepository } from "./repositories/composer-draft-repository.js";
+import { ConversationContextRepository } from "./repositories/conversation-context-repository.js";
 import type { WorkbenchResetGuard } from "./reset-guard.js";
 import {
   assertRuntimeDatabaseResetSafe,
@@ -28,6 +29,7 @@ export class WorkbenchDatabase {
   readonly skills: SkillRepository;
   readonly decisions: DecisionRepository;
   readonly drafts: ComposerDraftRepository;
+  readonly conversationContext: ConversationContextRepository;
   readonly unitOfWork: WorkbenchUnitOfWork;
 
   private closed = false;
@@ -43,6 +45,7 @@ export class WorkbenchDatabase {
     this.skills = new SkillRepository(connection);
     this.decisions = new DecisionRepository(connection);
     this.drafts = new ComposerDraftRepository(connection);
+    this.conversationContext = new ConversationContextRepository(this.timeline);
     this.unitOfWork = new WorkbenchUnitOfWork(
       connection,
       this.timeline,

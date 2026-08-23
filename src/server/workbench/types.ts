@@ -12,6 +12,7 @@ import type { ConversationTurnControlOwner } from "../../workbench/conversation-
 import type { ConversationTurnRetryOwner } from "../../workbench/conversation-turn-retry.js";
 import type { ComposerDraftRecoveryService } from "../../workbench/composer-draft-recovery.js";
 import type { ProductModeActivityProjectionOwner } from "../../workbench/product-mode-activity.js";
+import type { ConversationContextLifecycleOwner } from "../../workbench/conversation-context-lifecycle.js";
 
 export interface WorkbenchServeOptions {
   host?: string;
@@ -26,6 +27,7 @@ export interface WorkbenchServeOptions {
   turnRetry?: ConversationTurnRetryOwner;
   composerDraftRecovery?: ComposerDraftRecoveryService;
   productModeActivity?: ProductModeActivityProjectionOwner;
+  conversationContext?: ConversationContextLifecycleOwner;
 }
 
 export interface WorkbenchServerHandle {
@@ -47,6 +49,7 @@ export interface WorkbenchServerContext {
   turnRetry: ConversationTurnRetryOwner;
   composerDraftRecovery: ComposerDraftRecoveryService;
   productModeActivity: ProductModeActivityProjectionOwner;
+  conversationContext: ConversationContextLifecycleOwner;
 }
 
 export interface ConversationTurnRetryBody {
@@ -205,6 +208,13 @@ export interface ConversationTurnInterruptBody {
 export interface ConversationTurnSteerBody extends ConversationTurnInterruptBody {
   clientRequestId?: unknown;
   text?: unknown;
+}
+
+export interface ConversationContextCompactBody {
+  productMode?: unknown;
+  providerId?: unknown;
+  contextRevision?: unknown;
+  clientRequestId?: unknown;
 }
 
 export interface FolderDialogResult {

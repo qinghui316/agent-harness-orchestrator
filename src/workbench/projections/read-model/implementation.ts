@@ -200,7 +200,11 @@ async function calibrateHarnessTurnControl(
 ): Promise<void> {
   const conversationId = snapshot.center.selectedTopic?.id;
   const graphScopeId = snapshot.center.selectedTopic?.graphScopeId;
-  if (!conversationId || !graphScopeId || !snapshot.center.workpad.runControlState) return;
+  if (!conversationId || !graphScopeId) return;
+  if (input.project && input.conversationContextSnapshotResolver) {
+    snapshot.center.conversationContext = await input.conversationContextSnapshotResolver(input.project, "harness", conversationId);
+  }
+  if (!snapshot.center.workpad.runControlState) return;
   const database = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
   try {
     const attempt = [...database.providerAttempts.listProviderAttempts(resolution.paths.projectId, conversationId)]
@@ -419,6 +423,9 @@ async function buildAgentModeSnapshot(
           "agent",
         )
       : { productMode: "agent" as const, items: [] };
+    const conversationContext = selected && input.conversationContextSnapshotResolver
+      ? await input.conversationContextSnapshotResolver(project, "agent", selected.conversationId)
+      : null;
     return {
       productMode: "agent",
       project,
@@ -429,6 +436,7 @@ async function buildAgentModeSnapshot(
         workpad,
         thread: { items: selectedTopic?.threadItems ?? [] },
         conversationInteractions,
+        conversationContext,
         activeTab: "conversation",
         agentLoop: { runs: [] },
       },

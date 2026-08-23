@@ -59,6 +59,7 @@ import type {
 } from "./types.js";
 import { defaultProjectRuntimeActivityRegistry } from "../project-runtime/activity.js";
 import type { ConversationTurnControlOwner, ConversationTurnRegistration } from "./conversation-turn-control.js";
+import type { ConversationContextLifecycleOwner } from "./conversation-context-lifecycle.js";
 export function buildProjectScopedMainAgentPrompt(userMessage: string): string {
   return userMessage;
 }
@@ -76,6 +77,7 @@ export function runProjectScopedMainAgentTurn(
     runtimeState: ProjectRuntimeState;
     turnSkillResolution: import("./conversation-turn-contract.js").TurnSkillContextResolution | null;
     turnControl?: ConversationTurnControlOwner;
+    contextLifecycle?: ConversationContextLifecycleOwner;
   },
 ): Promise<TopicThreadEntry> {
   return defaultProjectRuntimeActivityRegistry.run(project.id, () => runProjectScopedMainAgentTurnActivity(
@@ -101,6 +103,7 @@ async function runProjectScopedMainAgentTurnActivity(
     runtimeState: ProjectRuntimeState;
     turnSkillResolution: import("./conversation-turn-contract.js").TurnSkillContextResolution | null;
     turnControl?: ConversationTurnControlOwner;
+    contextLifecycle?: ConversationContextLifecycleOwner;
   },
 ): Promise<TopicThreadEntry> {
   const runtimeState = options.runtimeState;
@@ -657,6 +660,13 @@ async function runProjectScopedMainAgentTurnActivity(
         : event;
       forwardProviderRealtimeEvent(canonicalEvent, capture.sink, { productMode: "harness", graphScopeId });
     },
+    onContextEvent: options.contextLifecycle?.listener({
+      paths: resolution.paths,
+      productMode: "harness",
+      conversationId,
+      graphScopeId,
+      providerId: providerId!,
+    }),
     onTurnStarted: options.turnControl?.onTurnStarted,
     onChildLifecycleEvent: (event) => {
       const child = childLifecycleOwner.onLifecycle(event);

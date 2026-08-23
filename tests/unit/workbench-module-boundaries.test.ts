@@ -101,6 +101,7 @@ describe("Workbench module boundaries", () => {
       .trim().split(/\r?\n/).filter(Boolean).map((path) => path.replaceAll("\\", "/")).sort();
     expect(directWrites).toEqual([
       "src/workbench/canonical-timeline-delivery.ts",
+      "src/workbench/persistence/repositories/conversation-context-repository.ts",
       "src/workbench/persistence/repositories/interaction-repository.ts",
       "src/workbench/persistence/unit-of-work.ts",
     ]);

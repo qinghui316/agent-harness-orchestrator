@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, useState, type ReactElement } from "react";
-import { Send, Square } from "lucide-react";
-import type { AgentTurnMode, ProductMode, ProviderModelSettingsSnapshot, SkillListItem, TopicAttachment, TopicFileReference, WorkpadRuntimeStatus } from "../types.js";
+import { AlertCircle, CheckCircle2, Gauge, RefreshCw, Send, Square } from "lucide-react";
+import type { AgentTurnMode, ConversationContextSnapshot, ProductMode, ProviderModelSettingsSnapshot, SkillListItem, TopicAttachment, TopicFileReference, WorkpadRuntimeStatus } from "../types.js";
 import { ComposerAttachButton, ComposerAttachmentList, filesFromDrop, hasFileDrag, imageFilesFromPaste } from "./ComposerAttachments.js";
 import { ComposerControls } from "./ComposerControls.js";
 import { buildComposerContextSummary, ComposerContextSourcesPopover, type ComposerContextKind } from "./ComposerContextSources.js";
@@ -42,6 +42,9 @@ export function TopicComposer({
   providerOptions,
   selectedProviderId,
   onSelectProvider,
+  conversationContext,
+  contextSubmitting,
+  onCompactContext,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -81,6 +84,9 @@ export function TopicComposer({
   providerOptions?: Array<{ id: string; label: string }>;
   selectedProviderId?: string;
   onSelectProvider?: (providerId: string) => void;
+  conversationContext?: ConversationContextSnapshot | null;
+  contextSubmitting?: boolean;
+  onCompactContext?: () => void | Promise<void>;
 }): ReactElement {
   const [dragOver, setDragOver] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -185,6 +191,11 @@ export function TopicComposer({
       </div>}
       toolbar={<>
         <ComposerAttachButton disabled={Boolean(disabledReason)} onAttachFiles={onAttachFiles} />
+        <ConversationContextIndicator
+          snapshot={conversationContext ?? null}
+          submitting={Boolean(contextSubmitting)}
+          onCompact={onCompactContext}
+        />
         <span className="composer-spacer" />
         {canStop ? <button
           className="composer-stop"
@@ -249,6 +260,80 @@ export function TopicComposer({
       />
     </ComposerFrame>
   );
+}
+
+export function ConversationContextIndicator({
+  snapshot,
+  submitting,
+  onCompact,
+}: {
+  snapshot: ConversationContextSnapshot | null;
+  submitting: boolean;
+  onCompact?: () => void | Promise<void>;
+}): ReactElement {
+  const [open, setOpen] = useState(false);
+  const lifecycle = submitting ? "submitting" : snapshot?.lifecycle ?? "idle";
+  const busy = lifecycle === "submitting" || lifecycle === "compacting";
+  const failed = lifecycle === "failed" || lifecycle === "interrupted";
+  const title = failed
+    ? lifecycle === "failed" ? "上下文压缩失败" : "上下文压缩已中断"
+    : busy
+      ? "正在压缩上下文"
+      : snapshot?.usedPercent !== null && snapshot?.usedPercent !== undefined
+        ? `上下文已使用 ${snapshot.usedPercent}%`
+        : "上下文用量";
+  return <div className="conversation-context-control">
+    <button
+      type="button"
+      className={`conversation-context-indicator ${busy ? "is-busy" : ""} ${failed ? "is-error" : ""}`}
+      aria-label={title}
+      title={title}
+      onClick={() => setOpen((value) => !value)}
+    >
+      {busy ? <RefreshCw size={15} /> : failed ? <AlertCircle size={15} /> : lifecycle === "completed" ? <CheckCircle2 size={15} /> : <Gauge size={15} />}
+      {snapshot?.usedPercent !== null && snapshot?.usedPercent !== undefined ? <span>{snapshot.usedPercent}%</span> : null}
+    </button>
+    {open ? <div className="conversation-context-popover" role="dialog" aria-label="会话上下文">
+      <div className="conversation-context-popover-header">
+        <strong>会话上下文</strong>
+        <span>{contextUsageLabel(snapshot)}</span>
+      </div>
+      <dl>
+        <div><dt>已用</dt><dd>{formatTokens(snapshot?.usage?.contextUsedTokens)}</dd></div>
+        <div><dt>剩余</dt><dd>{snapshot?.remainingPercent === null || snapshot?.remainingPercent === undefined ? "未知" : `${snapshot.remainingPercent}%`}</dd></div>
+        <div><dt>窗口</dt><dd>{formatTokens(snapshot?.usage?.modelContextWindow)}</dd></div>
+        <div><dt>最近一轮输入</dt><dd>{formatTokens(snapshot?.usage?.last.inputTokens)}</dd></div>
+        <div><dt>缓存输入</dt><dd>{formatTokens(snapshot?.usage?.last.cachedInputTokens)}</dd></div>
+        <div><dt>最近压缩</dt><dd>{formatContextTime(snapshot?.lastCompactedAt)}</dd></div>
+      </dl>
+      <button
+        type="button"
+        className="conversation-context-compact"
+        disabled={!snapshot?.canCompact || busy || !onCompact}
+        title={snapshot?.disabledReason ?? "压缩当前会话上下文"}
+        onClick={() => void onCompact?.()}
+      >
+        <RefreshCw size={14} />
+        <span>压缩上下文</span>
+      </button>
+      {snapshot?.disabledReason ? <p>{snapshot.disabledReason}</p> : null}
+    </div> : null}
+  </div>;
+}
+
+function contextUsageLabel(snapshot: ConversationContextSnapshot | null): string {
+  if (!snapshot?.usage) return "暂无可靠用量";
+  return snapshot.usedPercent === null ? formatTokens(snapshot.usage.contextUsedTokens) : `${snapshot.usedPercent}% 已用`;
+}
+
+function formatTokens(value: number | null | undefined): string {
+  return typeof value === "number" ? value.toLocaleString() : "未知";
+}
+
+function formatContextTime(value: string | null | undefined): string {
+  if (!value) return "尚未压缩";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "未知" : date.toLocaleString();
 }
 
 export function AgentTurnModelControls({

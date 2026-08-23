@@ -6,6 +6,46 @@ export interface ProviderSessionRef {
   sessionId: string;
 }
 
+export interface ProviderTokenUsageBreakdown {
+  totalTokens: number;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+}
+
+export interface ProviderContextUsage {
+  total: ProviderTokenUsageBreakdown;
+  last: ProviderTokenUsageBreakdown;
+  contextUsedTokens: number | null;
+  modelContextWindow: number | null;
+  updatedAt: string;
+}
+
+export type ProviderContextEvent =
+  | {
+      type: "usage";
+      session: ProviderSessionRef;
+      turnId?: string;
+      usage: ProviderContextUsage;
+    }
+  | {
+      type: "compaction";
+      session: ProviderSessionRef;
+      turnId?: string;
+      itemId: string;
+      phase: "started" | "completed" | "failed";
+      occurredAt: string;
+    };
+
+export interface ProviderContextCompactRequest {
+  providerId: ProviderId;
+  projectId: string;
+  cwd: string;
+  session: ProviderSessionRef;
+  onContextEvent?: (event: ProviderContextEvent) => void;
+}
+
 export interface ProviderTurnRef extends ProviderSessionRef {
   turnId: string;
 }
@@ -303,6 +343,7 @@ export interface ProviderTurnRequest {
   existingSession?: ProviderSessionRef | null;
   timeoutMs?: number;
   onRealtimeEvent?: (event: ProviderRealtimeEvent) => void;
+  onContextEvent?: (event: ProviderContextEvent) => void;
   onTurnStarted?: (identity: ProviderTurnStartedIdentity) => void;
   onChildLifecycleEvent?: (event: ProviderChildLifecycleEvent) => void;
   onChildThreadResult?: (result: ProviderChildThreadResult) => void;
@@ -407,6 +448,7 @@ export interface ConversationProviderPort {
   closeChild(request: ProviderChildCloseRequest): Promise<ProviderTurnResult>;
   getActiveTurn(runId: string): ActiveProviderTurn | null;
   listActiveTurns(): ActiveProviderTurn[];
+  compactContext(request: ProviderContextCompactRequest): Promise<{ status: "accepted" }>;
 }
 
 export interface LeafExecutionProviderPort {

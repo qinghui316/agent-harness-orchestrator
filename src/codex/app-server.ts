@@ -5,7 +5,7 @@ import { finished } from "node:stream/promises";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
-import { normalizeCodexAppServerNotification, type CodexAppServerRealtimeEvent } from "./app-server-realtime.js";
+import { normalizeCodexAppServerNotification, normalizeCodexContextEvent, type CodexAppServerRealtimeEvent, type CodexContextEvent } from "./app-server-realtime.js";
 import { readCodexNativeCollabConfigStatus, type CodexNativeCollabConfigStatus } from "./trust.js";
 import { agentRoleDisplayName, composeAgentDisplayLabel } from "../agent-display-label.js";
 import { CodexAppServerJsonRpcError, defaultCodexAppServerHostRegistry, type CodexAppServerChildControl, type CodexAppServerHostIdentity, type CodexAppServerHostLease } from "./app-server-host.js";
@@ -205,6 +205,7 @@ export interface CodexAppServerTurnOptions {
   timeoutMs?: number;
   onNotification?: CodexAppServerNotificationHandler;
   onRealtimeEvent?: (event: CodexAppServerRealtimeEvent) => void;
+  onContextEvent?: (event: CodexContextEvent) => void;
   onTurnStarted?: (identity: { threadId: string; turnId: string }) => void;
   onChildLifecycleEvent?: (event: CodexChildLifecycleEvent) => void;
   onChildThreadResult?: (result: CodexAppServerChildThreadResult) => void;
@@ -1043,6 +1044,8 @@ async function runCodexAppServerOperation(
   function handleNotification(method: string, params: Record<string, unknown>, raw: Record<string, unknown>): void {
     const notification = { method, params, raw };
     const notificationThreadId = stringValue(params.threadId ?? params.thread_id);
+    const contextEvent = normalizeCodexContextEvent(method, params);
+    if (contextEvent && (!threadId || contextEvent.threadId === threadId)) options.onContextEvent?.(contextEvent);
     if (method === "serverRequest/resolved") {
       const resolvedRequestId = params.requestId ?? params.request_id;
       if (typeof resolvedRequestId === "string" || typeof resolvedRequestId === "number") {

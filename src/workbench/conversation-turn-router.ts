@@ -23,6 +23,7 @@ import type { TurnSkillContextPort } from "./conversation-turn-contract.js";
 import { TurnAttachmentResolver } from "./turn-attachment-resolver.js";
 import type { ConversationTurnControlOwner } from "./conversation-turn-control.js";
 import { AgentTurnModelAdmissionOwner } from "./agent-turn-model-admission.js";
+import type { ConversationContextLifecycleOwner } from "./conversation-context-lifecycle.js";
 
 export type ConversationTurnStrategies = Readonly<Record<ProductMode, ConversationTurnStrategy>>;
 
@@ -34,6 +35,7 @@ export interface ConversationTurnRouterCompositionOptions {
   attachmentResolver?: TurnAttachmentResolver;
   turnControl?: ConversationTurnControlOwner;
   modelAdmissionOwner?: AgentTurnModelAdmissionOwner;
+  contextLifecycle?: ConversationContextLifecycleOwner;
 }
 
 export function createConversationTurnRouter(
@@ -50,6 +52,7 @@ export function createConversationTurnRouter(
         resolveRuntimePaths,
         attachmentResolver,
         turnControl: options.turnControl,
+        contextLifecycle: options.contextLifecycle,
       }),
       harness: new HarnessConversationTurnStrategy((project, conversationId, userMessage, live, handoff, runnerOptions) => (
         runProjectScopedMainAgentTurn(project, conversationId, userMessage, live, handoff, {
@@ -57,6 +60,7 @@ export function createConversationTurnRouter(
           providerRegistry: options.providerRegistry,
           runtimeState: runnerOptions.runtimeState!,
           turnControl: options.turnControl,
+          contextLifecycle: options.contextLifecycle,
         })
       )),
     },
@@ -76,7 +80,7 @@ export class ConversationTurnRouter {
   constructor(
     private readonly strategies: ConversationTurnStrategies,
     private readonly ports: ConversationTurnExecutionPorts,
-    options: Pick<ConversationTurnRouterCompositionOptions, "projectRuntimeCoordinator" | "providerRegistry" | "turnControl" | "modelAdmissionOwner"> & { attachmentResolver?: TurnAttachmentResolver },
+    options: Pick<ConversationTurnRouterCompositionOptions, "projectRuntimeCoordinator" | "providerRegistry" | "turnControl" | "modelAdmissionOwner" | "contextLifecycle"> & { attachmentResolver?: TurnAttachmentResolver },
   ) {
     this.runtimeStateResolver = (project) => options.projectRuntimeCoordinator.resolve(project);
     this.providerRegistry = options.providerRegistry;
@@ -85,6 +89,7 @@ export class ConversationTurnRouter {
       resolveRuntimePaths: (projectId) => options.projectRuntimeCoordinator.runtimePaths(projectId),
     });
     this.modelAdmissionOwner = options.modelAdmissionOwner ?? new AgentTurnModelAdmissionOwner(options.providerRegistry);
+    this.contextLifecycle = options.contextLifecycle;
     for (const productMode of ["agent", "harness"] as const) {
       if (strategies[productMode].productMode !== productMode) {
         throw new Error(`Conversation Turn Strategy for ${productMode} must declare the same productMode.`);
@@ -96,6 +101,7 @@ export class ConversationTurnRouter {
   private readonly attachmentResolver: TurnAttachmentResolver;
   private readonly turnControl?: ConversationTurnControlOwner;
   private readonly modelAdmissionOwner: AgentTurnModelAdmissionOwner;
+  private readonly contextLifecycle?: ConversationContextLifecycleOwner;
 
   readonly resolveAttachments = (project: ManagedProject, attachmentIds: readonly string[] = []) => (
     this.attachmentResolver.resolveMetadata(project, attachmentIds)
@@ -324,6 +330,7 @@ export class ConversationTurnRouter {
       runtimeState: turn.runtimeState,
       turnSkillResolution: freezeResolution(turnSkillResolution),
       turnControl: this.turnControl,
+      contextLifecycle: this.contextLifecycle,
     });
   };
 

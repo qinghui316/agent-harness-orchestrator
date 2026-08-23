@@ -80,6 +80,27 @@ and Harness governance untouched. SSE events only invalidate the indicator;
 the browser reloads the canonical read-only projection after debounce and after
 reconnect, without polling or creating unread state.
 
+Agent and AHO conversations share one provider-neutral context indicator in the
+Composer footer. `ConversationContextLifecycleOwner` derives current context
+usage from the selected Conversation's ready Provider binding, stores only the
+latest normalized usage plus bounded compaction lifecycle evidence, and projects
+an opaque `contextRevision`. Current occupancy uses the Provider-normalized last
+input plus cached-input usage; cumulative totals are display statistics and are
+never treated as current occupancy. If the Provider does not publish a reliable
+context window, the UI shows token counts without estimating a percentage.
+
+Manual compression uses the same short JSON endpoint in both product modes and
+passes only a provider-neutral Session reference to the adapter. Provider ACK
+leaves the lifecycle at `submitting`; exact compaction item events move it through
+`compacting` to `completed` or `failed`. Automatic item events use the same owner
+and durable projection. Requests are bound to Conversation, mode, Provider,
+current graph, ready Session, client request, and opaque revision; active Main or
+child attempts and pending Provider input/approval disable the action. SSE only
+invalidates the selected Conversation snapshot. No native thread id, prompt,
+compacted summary, path, or raw Provider payload enters the browser or durable
+context evidence. AHO compression does not create or advance any Harness
+governance, authorization, workflow, Apply, Integration, I2, or E1 fact.
+
 Ordinary Agent turns accept Composer-managed images and safe text/code files in
 both Default and Plan mode. One server-owned `TurnAttachmentResolver` validates
 project ownership, the exact managed attachment directory, type, size, and

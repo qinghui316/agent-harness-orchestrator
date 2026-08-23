@@ -166,6 +166,31 @@ inputs. Agent control does not require Harness readiness or use pending-feedback
 Harness uses the shared owner for an active Provider Turn and retains its local
 pending-feedback fallback only when no Provider Attempt owns the execution.
 
+`ConversationContextLifecycleOwner` is the sole provider-neutral owner for
+context usage and compaction in Agent and Harness Conversations. Provider
+adapters normalize native usage and compaction events and privately translate
+`ProviderSessionRef` to their protocol; Workbench, HTTP, Snapshot, SSE, and UI do
+not receive native thread identities. The current context occupancy and the
+cumulative token total are separate facts. Missing or invalid window metadata
+remains unknown rather than being estimated.
+
+Canonical Timeline stores one latest usage row per opaque Session-binding hash
+and one idempotent lifecycle row per compaction request. ACK is not completion:
+only exact Provider item events advance `submitting -> compacting -> completed`,
+and automatic compaction uses the same path. Client request and context revision
+deduplication is process-local while Conversation, graph, Provider binding, and
+Timeline remain durable authority. Explicit rejection may release submission;
+uncertain transport stays submitting and cannot be resent. Restart without live
+Provider proof interrupts unfinished evidence. Active Main/native-child Attempts
+or pending Provider input/approval block manual compression.
+
+Context actions are operational Session maintenance only. In Harness mode they
+must not create or modify Change, WorkflowGraph, AgentTask, Lane, worktree,
+ExecutionAuthorization, confirmation, approval, Apply, Close, Integration, I2,
+or E1 evidence; compressed Provider context never replaces canonical Timeline or
+Harness evidence. Durable rows exclude prompts, compacted summaries, native
+thread/turn objects, file paths, environment values, and raw Provider payloads.
+
 `ConversationTurnRetryOwner` owns only Direct Agent latest-failed-turn Retry.
 The Agent-only pre-SSE endpoint accepts an asserted Conversation, Provider,
 failed Attempt, source message, and client request identity. It derives one

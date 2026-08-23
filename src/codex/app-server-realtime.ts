@@ -1,5 +1,23 @@
 import { readableEventFromItem, type CodexJsonlStreamEvent } from "./jsonl.js";
 
+export interface CodexContextUsage {
+  total: CodexTokenUsageBreakdown;
+  last: CodexTokenUsageBreakdown;
+  modelContextWindow: number | null;
+}
+
+export interface CodexTokenUsageBreakdown {
+  totalTokens: number;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+}
+
+export type CodexContextEvent =
+  | { type: "usage"; threadId: string; turnId?: string; usage: CodexContextUsage; occurredAt: string }
+  | { type: "compaction"; threadId: string; turnId?: string; itemId: string; phase: "started" | "completed" | "failed"; occurredAt: string };
+
 export interface CodexAppServerRealtimeIdentity {
   projectId: string;
   conversationId?: string;
@@ -143,6 +161,65 @@ export function normalizeCodexAppServerNotification(
   }
 
   return [];
+}
+
+export function normalizeCodexContextEvent(
+  method: string,
+  params: Record<string, unknown>,
+  occurredAt = new Date().toISOString(),
+): CodexContextEvent | null {
+  const normalizedMethod = method.toLowerCase();
+  const threadId = stringValue(params.threadId ?? params.thread_id);
+  const turnId = stringValue(params.turnId ?? params.turn_id);
+  if (!threadId) return null;
+  if (normalizedMethod.includes("tokenusage") || normalizedMethod.includes("token_usage")) {
+    const usage = parseContextUsage(record(params.tokenUsage ?? params.token_usage) ?? record(params.usage) ?? params);
+    return usage ? { type: "usage", threadId, ...(turnId ? { turnId } : {}), usage, occurredAt } : null;
+  }
+  if (normalizedMethod !== "item/started" && normalizedMethod !== "item/completed") return null;
+  const item = record(params.item) ?? params;
+  if (normalizeItemType(item.type ?? item.kind) !== "contextcompaction") return null;
+  const itemId = stringValue(item.id ?? params.itemId ?? params.item_id);
+  if (!itemId) return null;
+  const failed = normalizedMethod === "item/completed" && stringValue(item.status)?.toLowerCase() === "failed";
+  return {
+    type: "compaction",
+    threadId,
+    ...(turnId ? { turnId } : {}),
+    itemId,
+    phase: normalizedMethod === "item/started" ? "started" : failed ? "failed" : "completed",
+    occurredAt,
+  };
+}
+
+function parseContextUsage(value: Record<string, unknown>): CodexContextUsage | null {
+  const total = parseUsageBreakdown(record(value.total));
+  const last = parseUsageBreakdown(record(value.last));
+  if (!total || !last) return null;
+  const modelContextWindow = nullableSafeNumber(value.modelContextWindow ?? value.model_context_window);
+  return { total, last, modelContextWindow };
+}
+
+function parseUsageBreakdown(value: Record<string, unknown> | undefined): CodexTokenUsageBreakdown | null {
+  if (!value) return null;
+  const fields = {
+    totalTokens: safeNumber(value.totalTokens ?? value.total_tokens),
+    inputTokens: safeNumber(value.inputTokens ?? value.input_tokens),
+    cachedInputTokens: safeNumber(value.cachedInputTokens ?? value.cached_input_tokens),
+    outputTokens: safeNumber(value.outputTokens ?? value.output_tokens),
+    reasoningOutputTokens: safeNumber(value.reasoningOutputTokens ?? value.reasoning_output_tokens),
+  };
+  return Object.values(fields).every((candidate) => candidate !== null)
+    ? fields as CodexTokenUsageBreakdown
+    : null;
+}
+
+function safeNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function nullableSafeNumber(value: unknown): number | null {
+  return value === null || value === undefined ? null : safeNumber(value);
 }
 
 function event(identity: CodexAppServerRealtimeIdentity, method: string, streamEvent: CodexJsonlStreamEvent): CodexAppServerRealtimeEvent {

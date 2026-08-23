@@ -63,6 +63,7 @@ export interface WorkbenchProjectInput {
   path: string;
   runtimeStateResolver?: (project: ManagedProject) => Promise<import("../project-runtime/coordinator.js").ProjectRuntimeState>;
   turnControlStateResolver?: (projectId: string, conversationId: string, attemptId?: string) => import("./conversation-turn-control.js").ConversationTurnControlState;
+  conversationContextSnapshotResolver?: (project: ManagedProject, productMode: ProductMode, conversationId: string) => Promise<import("./conversation-context-lifecycle.js").ConversationContextSnapshot>;
 }
 
 export interface WorkbenchProjectHarnessStatus {
@@ -989,6 +990,7 @@ export interface WorkbenchSnapshot {
       items: ThreadStreamItem[];
     };
     conversationInteractions: ConversationInteractionQueue;
+    conversationContext?: import("./conversation-context-lifecycle.js").ConversationContextSnapshot | null;
     activeTab: "conversation";
     agentLoop: {
       runs: RunMetadata[];

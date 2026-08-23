@@ -1,12 +1,12 @@
 import { getActiveCodexAppServerTurn, isCodexAppServerChildAvailable, listActiveCodexAppServerTurns, runCodexAppServerChildClose, runCodexAppServerChildTurn, runCodexAppServerTurn, type ActiveCodexAppServerTurn, type CodexAppServerThreadGoalStatus } from "../codex/app-server.js";
-import type { CodexAppServerRealtimeEvent } from "../codex/app-server-realtime.js";
+import { normalizeCodexContextEvent, type CodexAppServerRealtimeEvent, type CodexContextEvent } from "../codex/app-server-realtime.js";
 import { getCodexProviderCapabilitySnapshot, getCodexProviderRuntimeSummary } from "./codex.js";
 import { executeCodexProjectAction, getCodexDiagnostics, listCodexProjectActions } from "./codex-diagnostics.js";
 import { codexModelSettings, selectCodexModel } from "./codex-models.js";
 import { listCodexNativeSkills, setCodexNativeSkillEnabled } from "../codex/native-skills.js";
-import { defaultCodexAppServerHostRegistry } from "../codex/app-server-host.js";
+import { CodexAppServerJsonRpcError, defaultCodexAppServerHostRegistry } from "../codex/app-server-host.js";
 import { defaultProjectRemovalFence } from "../project-runtime/removal.js";
-import type { ActiveProviderTurn, ProviderApprovalRequest, ProviderChildCloseRequest, ProviderChildLifecycleEvent, ProviderChildSessionRequest, ProviderChildThreadResult, ProviderChildTurnRequest, ProviderDescriptor, ProviderObjectiveState, ProviderRealtimeEvent, ProviderTurnRequest, ProviderTurnResult, ProviderUserInputRequest } from "./contracts.js";
+import type { ActiveProviderTurn, ProviderApprovalRequest, ProviderChildCloseRequest, ProviderChildLifecycleEvent, ProviderChildSessionRequest, ProviderChildThreadResult, ProviderChildTurnRequest, ProviderContextCompactRequest, ProviderContextEvent, ProviderDescriptor, ProviderObjectiveState, ProviderRealtimeEvent, ProviderTurnRequest, ProviderTurnResult, ProviderUserInputRequest } from "./contracts.js";
 import { agentThreadSurfaceId } from "./agent-surface-id.js";
 
 export const CODEX_PROVIDER_ID = "codex" as const;
@@ -28,7 +28,7 @@ export const codexProviderDescriptor: ProviderDescriptor = {
     list: listCodexNativeSkills,
     setEnabled: setCodexNativeSkillEnabled,
   },
-  conversation: { runTurn: runCodexTurn, inspectChild: inspectCodexChild, continueChild: runCodexChildTurn, closeChild: closeCodexChild, getActiveTurn: activeCodexTurn, listActiveTurns: activeCodexTurns },
+  conversation: { runTurn: runCodexTurn, inspectChild: inspectCodexChild, continueChild: runCodexChildTurn, closeChild: closeCodexChild, getActiveTurn: activeCodexTurn, listActiveTurns: activeCodexTurns, compactContext: compactCodexContext },
   leafExecution: { runTurn: runCodexTurn },
 };
 
@@ -60,6 +60,9 @@ export async function runCodexTurn(request: ProviderTurnRequest): Promise<Provid
       const mapped = mapRealtime(request, event);
       if (mapped) request.onRealtimeEvent?.(mapped);
     } : undefined,
+    onContextEvent: guardedProjectNotification(request.projectId, projectGeneration, request.onContextEvent
+      ? (event) => request.onContextEvent?.(mapContextEvent(event))
+      : undefined),
     onTurnStarted: request.onTurnStarted ? ({ threadId, turnId }) => {
       if (!isProjectGenerationCurrent(request.projectId, projectGeneration)) return;
       request.onTurnStarted?.({
@@ -156,6 +159,49 @@ export async function runCodexTurn(request: ProviderTurnRequest): Promise<Provid
     ...(result.host ? { runtimeHost: result.host } : {}),
     error: result.error,
   };
+}
+
+export async function compactCodexContext(request: ProviderContextCompactRequest): Promise<{ status: "accepted" }> {
+  if (request.providerId !== CODEX_PROVIDER_ID || request.session.providerId !== CODEX_PROVIDER_ID) {
+    throw new Error("Codex context compaction requires a Codex session.");
+  }
+  const generation = defaultProjectRemovalFence.capture(request.projectId);
+  const host = defaultCodexAppServerHostRegistry.hostForProject(request.projectId, request.cwd);
+  let expiry: ReturnType<typeof setTimeout> | null = null;
+  const subscription = await host.subscribeMetadata({
+    onLine(line) {
+      if (!isProjectGenerationCurrent(request.projectId, generation)) return;
+      let payload: Record<string, unknown>;
+      try { payload = JSON.parse(line) as Record<string, unknown>; } catch { return; }
+      if (typeof payload.method !== "string" || !payload.params || typeof payload.params !== "object") return;
+      const event = normalizeCodexContextEvent(payload.method, payload.params as Record<string, unknown>);
+      if (!event || event.threadId !== request.session.sessionId) return;
+      request.onContextEvent?.(mapContextEvent(event));
+      if (event.type === "compaction" && event.phase !== "started") {
+        if (expiry) clearTimeout(expiry);
+        subscription.release();
+      }
+    },
+    onStderr() {},
+    onExit() {
+      if (expiry) clearTimeout(expiry);
+      subscription.release();
+    },
+  });
+  expiry = setTimeout(() => subscription.release(), 5 * 60_000);
+  try {
+    await host.requestMetadata("thread/compact/start", { threadId: request.session.sessionId }, { timeoutMs: 5_000 });
+    return { status: "accepted" };
+  } catch (error) {
+    if (error instanceof CodexAppServerJsonRpcError) {
+      const rejection = new Error(error.rpcMessage, { cause: error });
+      rejection.name = "ProviderContextCompactRejected";
+      if (expiry) clearTimeout(expiry);
+      subscription.release();
+      throw rejection;
+    }
+    throw error;
+  }
 }
 
 export function codexPlanCollaborationMode(request: ProviderTurnRequest): NonNullable<import("../codex/app-server.js").CodexAppServerTurnOptions["collaborationMode"]> {
@@ -380,6 +426,37 @@ function mapRealtime(request: Pick<ProviderTurnRequest, "attemptId" | "graphScop
     targetAgentSurfaceId: targetThreadId ? agentThreadSurfaceId(CODEX_PROVIDER_ID, targetThreadId) : undefined,
     streamEvent: canonicalStreamEvent(event.streamEvent, itemId),
   };
+}
+
+function mapContextEvent(event: CodexContextEvent): ProviderContextEvent {
+  if (event.type === "compaction") {
+    return {
+      type: "compaction",
+      session: { providerId: CODEX_PROVIDER_ID, sessionId: event.threadId },
+      ...(event.turnId ? { turnId: event.turnId } : {}),
+      itemId: event.itemId,
+      phase: event.phase,
+      occurredAt: event.occurredAt,
+    };
+  }
+  const contextUsedTokens = safeContextSum(event.usage.last.inputTokens, event.usage.last.cachedInputTokens);
+  return {
+    type: "usage",
+    session: { providerId: CODEX_PROVIDER_ID, sessionId: event.threadId },
+    ...(event.turnId ? { turnId: event.turnId } : {}),
+    usage: {
+      total: event.usage.total,
+      last: event.usage.last,
+      contextUsedTokens,
+      modelContextWindow: event.usage.modelContextWindow,
+      updatedAt: event.occurredAt,
+    },
+  };
+}
+
+function safeContextSum(inputTokens: number, cachedInputTokens: number): number | null {
+  const result = inputTokens + cachedInputTokens;
+  return Number.isSafeInteger(result) && result >= 0 ? result : null;
 }
 
 function canonicalStreamEvent(

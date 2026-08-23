@@ -20,6 +20,10 @@ export function publishConversationTurnControlInvalidated(projectId: string, dat
   publishProjectLiveEvent(projectId, { event: "conversation.turn-control.invalidated", data });
 }
 
+export function publishConversationContextInvalidated(projectId: string, data: { conversationId: string }): void {
+  publishProjectLiveEvent(projectId, { event: "conversation.context.invalidated", data });
+}
+
 export function subscribeProjectLiveEvents(projectId: string, subscriber: ProjectLiveSubscriber): () => void {
   const projectSubscribers = subscribers.get(projectId) ?? new Set<ProjectLiveSubscriber>();
   projectSubscribers.add(subscriber);

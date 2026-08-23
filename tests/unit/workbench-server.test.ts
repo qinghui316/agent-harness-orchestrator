@@ -20,6 +20,7 @@ import type { ConversationTurnRoutingPort } from "../../src/workbench/conversati
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import type { ConversationTurnControlOwner } from "../../src/workbench/conversation-turn-control.js";
 import type { ConversationTurnRetryOwner } from "../../src/workbench/conversation-turn-retry.js";
+import type { ConversationContextLifecycleOwner } from "../../src/workbench/conversation-context-lifecycle.js";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
 import { createFakeCodexRuntime } from "../helpers/fake-codex-runtime.js";
 import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
@@ -208,6 +209,49 @@ describe("workbench server", () => {
       clientRequestId: "steer-1",
       text: "constraint",
     });
+  });
+
+  it("serves one shared Agent/AHO context compact JSON contract", async () => {
+    await new Promise<void>((resolve) => handle!.server.close(() => resolve()));
+    const compact = vi.fn(async () => ({ status: "accepted" as const }));
+    const conversationContext = { compact, reconcileProject: async () => 0 } as unknown as ConversationContextLifecycleOwner;
+    handle = await startWorkbenchServer({ project: project(), path: tempDir }, {
+      port: 0,
+      staticRoot,
+      conversationContext,
+    });
+    const endpoint = `${handle.url}/api/projects/repo/workbench/conversations/conversation-context/context/compact`;
+
+    const invalid = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ productMode: "agent", providerId: "codex", contextRevision: "revision-1" }),
+    });
+    expect(invalid.status).toBe(400);
+    expect(compact).not.toHaveBeenCalled();
+
+    for (const productMode of ["agent", "harness"] as const) {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          productMode,
+          providerId: " codex ",
+          contextRevision: " revision-1 ",
+          clientRequestId: ` compact-${productMode} `,
+        }),
+      });
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({ status: "accepted" });
+      expect(compact).toHaveBeenLastCalledWith(project(), {
+        projectId: "repo",
+        productMode,
+        conversationId: "conversation-context",
+        providerId: "codex",
+        contextRevision: "revision-1",
+        clientRequestId: `compact-${productMode}`,
+      });
+    }
   });
 
   it("prepares Agent Retry before SSE and emits a completed replay stream", async () => {

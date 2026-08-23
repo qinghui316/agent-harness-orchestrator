@@ -28,7 +28,9 @@ export type ProviderCapabilityKey =
   | "file.reference"
   | "session.continuation"
   | "model.list"
-  | "reasoning.effort";
+  | "reasoning.effort"
+  | "context.usage"
+  | "context.compact";
 
 export type ProviderOperationProfile =
   | "agent"

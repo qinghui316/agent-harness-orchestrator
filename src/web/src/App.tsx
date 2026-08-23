@@ -72,6 +72,7 @@ import { useProviderConfigurationController } from "./controllers/useProviderCon
 import { useConversationActionController } from "./controllers/useConversationActionController.js";
 import { useAgentSurfaceController } from "./controllers/useAgentSurfaceController.js";
 import { useProductModeActivityController } from "./controllers/useProductModeActivityController.js";
+import { useConversationContextController } from "./controllers/useConversationContextController.js";
 import { OfficeLoadingScreen } from "./office/OfficeLoadingScreen.js";
 import {
   useConversationComposerController,
@@ -647,6 +648,14 @@ export function App(): ReactElement {
     },
     onError: setError,
   });
+  const conversationContext = useConversationContextController({
+    projectId: selectedProjectId,
+    productMode: appMode.productMode,
+    conversationId: activeTopic?.id ?? null,
+    snapshot: snapshot.center.conversationContext ?? null,
+    refreshConversation: async (projectId, conversationId) => { await refresh(projectId, conversationId); },
+    onError: setError,
+  });
   const composerText = composer.composerText;
   const setComposerText = composer.setComposerText;
   const skillItems = composer.skillItems;
@@ -776,6 +785,12 @@ export function App(): ReactElement {
         void refresh(projectId, data.conversationId);
       },
     },
+    conversationContext: {
+      invalidate: (projectId, data) => {
+        if (selectedProjectIdRef.current !== projectId || selectedConversationIdRef.current !== data.conversationId) return;
+        void refresh(projectId, data.conversationId);
+      },
+    },
     modeActivity: {
       invalidate: modeActivity.invalidate,
     },
@@ -790,6 +805,7 @@ export function App(): ReactElement {
       void modeActivity.refresh(projectId);
       const conversationId = activeTopic?.id;
       if (!conversationId || isPendingTopic) return;
+      void refresh(projectId, conversationId);
       agentSurfaces.invalidate({ conversationId, reason: "snapshot" });
       for (const scope of canonicalTimelineReconnectScopes(projectId, snapshot.productMode, conversationId, workspaceResourceTabs)) {
         void timeline.loadLatest(scope);
@@ -1187,6 +1203,9 @@ export function App(): ReactElement {
                   providerOptions={composerProviderOptions}
                   selectedProviderId={composerProviderId ?? activeTopic.selectedProviderId}
                   onSelectProvider={(providerId) => { void composer.selectProvider(providerId); }}
+                  conversationContext={conversationContext.snapshot}
+                  contextSubmitting={conversationContext.submitting}
+                  onCompactContext={conversationContext.compact}
                 /> : null}
             </section>
           </>

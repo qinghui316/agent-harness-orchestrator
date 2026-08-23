@@ -26,7 +26,7 @@ import { sendWorkbenchActionLive } from "./live-actions.js";
 import { readCreateTopicBody, sendConversationMessageLive, sendCreateTopicLive } from "./topic-messages.js";
 import { executeWorkbenchAction } from "./actions.js";
 import { sendProjectLiveEvents } from "./project-live-events.js";
-import type { ConversationTurnInterruptBody, ConversationTurnSteerBody, IntakeRequest, UpdateConversationTitleRequest, WorkbenchActionRequest, WorkbenchServerContext } from "./types.js";
+import type { ConversationContextCompactBody, ConversationTurnInterruptBody, ConversationTurnSteerBody, IntakeRequest, UpdateConversationTitleRequest, WorkbenchActionRequest, WorkbenchServerContext } from "./types.js";
 import { conversationSteerTimelineIds } from "../../workbench/conversation-turn-control.js";
 import { sendConversationRetryLive } from "./conversation-retry.js";
 
@@ -248,6 +248,28 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
       conversationId,
       providerId: body.providerId.trim(),
       expectedAttemptId: body.expectedAttemptId.trim(),
+    }));
+    return;
+  }
+  const contextCompactMatch = rest.match(/^conversations\/([^/]+)\/context\/compact$/);
+  if (request.method === "POST" && contextCompactMatch?.[1]) {
+    assertRegisteredProject(input);
+    const body = await readJsonBody<ConversationContextCompactBody>(request);
+    const productMode = requireProductMode(typeof body.productMode === "string" ? body.productMode : null);
+    if (typeof body.providerId !== "string" || !body.providerId.trim()
+      || typeof body.contextRevision !== "string" || !body.contextRevision.trim()
+      || typeof body.clientRequestId !== "string" || !body.clientRequestId.trim()) {
+      const error = new Error("Context compaction requires providerId, contextRevision, and clientRequestId.");
+      error.name = "BadRequest";
+      throw error;
+    }
+    sendJson(response, 200, await context.conversationContext.compact(input.project, {
+      projectId: input.project.id,
+      productMode,
+      conversationId: decodeURIComponent(contextCompactMatch[1]),
+      providerId: body.providerId.trim(),
+      contextRevision: body.contextRevision.trim(),
+      clientRequestId: body.clientRequestId.trim(),
     }));
     return;
   }

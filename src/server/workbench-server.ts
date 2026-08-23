@@ -26,6 +26,7 @@ import { ConversationTurnRetryOwner } from "../workbench/conversation-turn-retry
 import { TurnAttachmentResolver } from "../workbench/turn-attachment-resolver.js";
 import { ComposerDraftRecoveryService } from "../workbench/composer-draft-recovery.js";
 import { ProductModeActivityProjectionOwner } from "../workbench/product-mode-activity.js";
+import { ConversationContextLifecycleOwner } from "../workbench/conversation-context-lifecycle.js";
 
 export type { WorkbenchServeOptions, WorkbenchServerHandle } from "./workbench/types.js";
 export { executeWorkbenchAction } from "./workbench/actions.js";
@@ -52,6 +53,10 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
     providerRegistry,
     projectRuntimeCoordinator,
   });
+  const conversationContext = options.conversationContext ?? new ConversationContextLifecycleOwner({
+    providerRegistry,
+    projectRuntimeCoordinator,
+  });
   const attachmentResolver = new TurnAttachmentResolver({
     resolveRuntimePaths: (projectId) => projectRuntimeCoordinator.runtimePaths(projectId),
   });
@@ -60,6 +65,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
     providerRegistry,
     projectRuntimeCoordinator,
     turnControl,
+    contextLifecycle: conversationContext,
     attachmentResolver,
   });
   const turnRetry = options.turnRetry ?? new ConversationTurnRetryOwner(turnRouter);
@@ -75,9 +81,10 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
       ...restoredInput,
       runtimeStateResolver: (project: ManagedProject) => projectRuntimeCoordinator.resolve(project),
       turnControlStateResolver: (projectId: string, conversationId: string, attemptId?: string) => turnControl.state(projectId, conversationId, attemptId),
+      conversationContextSnapshotResolver: (project: ManagedProject, productMode: import("../provider-runtime/index.js").ProductMode, conversationId: string) => conversationContext.read(project, productMode, conversationId),
     }
     : restoredInput;
-  await recoverWorkbenchProjects(store, composedInput, projectRuntimeCoordinator, providerRegistry);
+  await recoverWorkbenchProjects(store, composedInput, projectRuntimeCoordinator, providerRegistry, conversationContext);
   const context: WorkbenchServerContext = {
     input: composedInput,
     staticRoot,
@@ -91,6 +98,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
     turnRetry,
     composerDraftRecovery,
     productModeActivity,
+    conversationContext,
   };
   const server = createServer((request, response) => {
     handleRequest(context, request, response).catch((error: unknown) => {
@@ -126,6 +134,7 @@ export async function recoverWorkbenchProjects(
     discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
   }),
   providerRegistry = defaultProviderRegistry,
+  conversationContext?: ConversationContextLifecycleOwner,
 ): Promise<void> {
   const projects = await store.listProjects();
   if (directInput?.project && !projects.some((project) => project.id === directInput.project?.id || project.path === directInput.project?.path)) {
@@ -137,6 +146,7 @@ export async function recoverWorkbenchProjects(
     await reconcileStaleAgentNativeChildren({ project, providerRegistry });
     const runtimePaths = runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
     await reconcileStaleProviderInputRequests({ runtime: runtimePaths, providerRegistry });
+    await conversationContext?.reconcileProject(runtimePaths);
     if (runtime.state !== "ready") continue;
     const reconcileReceipt = (receipt: Parameters<typeof reconcileRecoveredApprovalDecisions>[1][number]) => (
       reconcileRecoveredApprovalDecisions(project, [receipt])

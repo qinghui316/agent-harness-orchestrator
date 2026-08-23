@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeCodexAppServerNotification } from "../../src/codex/app-server-realtime.js";
+import { normalizeCodexAppServerNotification, normalizeCodexContextEvent } from "../../src/codex/app-server-realtime.js";
 import { forwardProviderRealtimeEvent } from "../../src/workbench/provider-live-events.js";
 import { createAssistantTranscriptCapture } from "../../src/workbench/live-transcript.js";
 import type { WorkbenchLiveEvent } from "../../src/workbench/types.js";
@@ -14,6 +14,76 @@ const identity = {
 };
 
 describe("Codex app-server realtime normalization", () => {
+  it("normalizes current context usage independently from cumulative totals", () => {
+    const event = normalizeCodexContextEvent("thread/tokenUsage/updated", {
+      threadId: "thread-main",
+      turnId: "turn-1",
+      tokenUsage: {
+        total: usageBreakdown(190_000, 180_000, 10_000),
+        last: usageBreakdown(20_000, 15_000, 5_000),
+        modelContextWindow: 200_000,
+      },
+    }, "2026-08-24T00:00:00.000Z");
+
+    expect(event).toMatchObject({
+      type: "usage",
+      threadId: "thread-main",
+      turnId: "turn-1",
+      usage: {
+        total: { totalTokens: 190_000 },
+        last: { inputTokens: 15_000, cachedInputTokens: 5_000 },
+        modelContextWindow: 200_000,
+      },
+    });
+  });
+
+  it("accepts snake_case usage and rejects missing or unsafe numbers", () => {
+    expect(normalizeCodexContextEvent("thread/token_usage/updated", {
+      thread_id: "thread-main",
+      token_usage: {
+        total: snakeUsageBreakdown(30, 20, 5),
+        last: snakeUsageBreakdown(10, 7, 2),
+        model_context_window: 100,
+      },
+    })).toMatchObject({ type: "usage", usage: { modelContextWindow: 100 } });
+
+    expect(normalizeCodexContextEvent("thread/tokenUsage/updated", {
+      threadId: "thread-main",
+      tokenUsage: { total: usageBreakdown(10, 5, 1), last: { inputTokens: 5 }, modelContextWindow: 100 },
+    })).toBeNull();
+    expect(normalizeCodexContextEvent("thread/tokenUsage/updated", {
+      threadId: "thread-main",
+      tokenUsage: { total: usageBreakdown(10, 5, 1), last: usageBreakdown(10, -1, 1), modelContextWindow: 100 },
+    })).toBeNull();
+    expect(normalizeCodexContextEvent("thread/tokenUsage/updated", {
+      threadId: "thread-main",
+      tokenUsage: { total: usageBreakdown(10, 5, 1), last: usageBreakdown(10, 5, 1), modelContextWindow: Number.MAX_SAFE_INTEGER + 1 },
+    })).toMatchObject({ type: "usage", usage: { modelContextWindow: null } });
+  });
+
+  it("normalizes exact context compaction item lifecycle and ignores unrelated items", () => {
+    expect(normalizeCodexContextEvent("item/started", {
+      threadId: "thread-main",
+      turnId: "turn-compact",
+      item: { id: "compact-1", type: "contextCompaction" },
+    }, "2026-08-24T00:00:00.000Z")).toEqual({
+      type: "compaction",
+      threadId: "thread-main",
+      turnId: "turn-compact",
+      itemId: "compact-1",
+      phase: "started",
+      occurredAt: "2026-08-24T00:00:00.000Z",
+    });
+    expect(normalizeCodexContextEvent("item/completed", {
+      threadId: "thread-main",
+      item: { id: "compact-1", type: "context_compaction", status: "failed" },
+    })).toMatchObject({ type: "compaction", itemId: "compact-1", phase: "failed" });
+    expect(normalizeCodexContextEvent("item/started", {
+      threadId: "thread-main",
+      item: { id: "command-1", type: "commandExecution" },
+    })).toBeNull();
+  });
+
   it("maps turn state, ordered text, and visible reasoning summary without exposing hidden reasoning", () => {
     expect(normalizeCodexAppServerNotification("turn/started", { turnId: "turn-1" }, identity)[0]?.streamEvent).toMatchObject({ type: "status", label: "thinking" });
     expect(normalizeCodexAppServerNotification("item/agentMessage/delta", { itemId: "message-1", delta: "你好" }, identity)[0]?.streamEvent).toMatchObject({ type: "text_delta", delta: "你好" });
@@ -315,3 +385,17 @@ describe("Codex app-server realtime normalization", () => {
     expect([...capture.mainCaptures.values()][0]?.blocks.map((block) => block.itemId)).toEqual(["command-1", "command-2"]);
   });
 });
+
+function usageBreakdown(totalTokens: number, inputTokens: number, cachedInputTokens: number) {
+  return { totalTokens, inputTokens, cachedInputTokens, outputTokens: 3, reasoningOutputTokens: 1 };
+}
+
+function snakeUsageBreakdown(totalTokens: number, inputTokens: number, cachedInputTokens: number) {
+  return {
+    total_tokens: totalTokens,
+    input_tokens: inputTokens,
+    cached_input_tokens: cachedInputTokens,
+    output_tokens: 3,
+    reasoning_output_tokens: 1,
+  };
+}

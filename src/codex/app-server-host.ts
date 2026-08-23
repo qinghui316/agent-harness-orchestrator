@@ -25,6 +25,10 @@ export interface CodexAppServerHostHandlers {
   onExit(error: Error): void;
 }
 
+export interface CodexAppServerMetadataSubscription {
+  release(): void;
+}
+
 export interface CodexAppServerHostLease extends CodexAppServerHostIdentity {
   request(method: string, params: Record<string, unknown>, options?: CodexAppServerRequestOptions): Promise<Record<string, unknown>>;
   notify(method: string, params: Record<string, unknown>): void;
@@ -93,6 +97,7 @@ export class CodexAppServerHost {
   private starting: Promise<void> | null = null;
   private handlers: CodexAppServerHostHandlers | null = null;
   private readonly auxiliaryHandlers = new Map<CodexAppServerHostHandlers, { parentThreadId: string; childThreadId: string }>();
+  private readonly metadataHandlers = new Set<CodexAppServerHostHandlers>();
   private lineBuffer = "";
   private requestId = 1;
   private pending = new Map<number, PendingRequest>();
@@ -157,9 +162,22 @@ export class CodexAppServerHost {
     };
   }
 
-  async requestMetadata(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+  async requestMetadata(method: string, params: Record<string, unknown>, options?: CodexAppServerRequestOptions): Promise<Record<string, unknown>> {
     await this.ensureStarted();
-    return this.request(method, params, this.generation);
+    return this.request(method, params, this.generation, options);
+  }
+
+  async subscribeMetadata(handlers: CodexAppServerHostHandlers): Promise<CodexAppServerMetadataSubscription> {
+    await this.ensureStarted();
+    this.metadataHandlers.add(handlers);
+    let released = false;
+    return {
+      release: () => {
+        if (released) return;
+        released = true;
+        this.metadataHandlers.delete(handlers);
+      },
+    };
   }
 
   acquireActiveChildControl(parentThreadId: string, childThreadId: string, handlers: CodexAppServerHostHandlers): CodexAppServerChildControl {
@@ -220,12 +238,14 @@ export class CodexAppServerHost {
     const child = this.child;
     const handlers = this.handlers;
     const auxiliaryHandlers = [...this.auxiliaryHandlers.keys()];
+    const metadataHandlers = [...this.metadataHandlers];
     this.generation += 1;
     this.child = null;
     this.initialized = false;
     this.busy = false;
     this.handlers = null;
     this.auxiliaryHandlers.clear();
+    this.metadataHandlers.clear();
     this.activeThreadId = null;
     this.activeTurnId = null;
     this.childParents.clear();
@@ -234,6 +254,7 @@ export class CodexAppServerHost {
     try {
       if (handlers) notifyExitSafely(handlers, error);
       for (const auxiliary of auxiliaryHandlers) notifyExitSafely(auxiliary, error);
+      for (const metadata of metadataHandlers) notifyExitSafely(metadata, error);
     } finally {
       terminateProcessTree(child);
     }
@@ -281,6 +302,7 @@ export class CodexAppServerHost {
       const text = chunk.toString("utf8");
       this.handlers?.onStderr(text);
       for (const handlers of this.auxiliaryHandlers.keys()) handlers.onStderr(text);
+      for (const handlers of this.metadataHandlers) handlers.onStderr(text);
     });
     child.on("error", (error: Error) => this.failGeneration(error, generation));
     child.on("close", (code: number | null) => {
@@ -418,6 +440,7 @@ export class CodexAppServerHost {
       } else {
         this.handlers?.onLine(line);
       }
+      for (const handlers of this.metadataHandlers) handlers.onLine(line);
     }
   }
 
@@ -431,13 +454,16 @@ export class CodexAppServerHost {
     this.rejectPending(error);
     const handlers = this.handlers;
     const auxiliaryHandlers = [...this.auxiliaryHandlers.keys()];
+    const metadataHandlers = [...this.metadataHandlers];
     this.handlers = null;
     this.auxiliaryHandlers.clear();
+    this.metadataHandlers.clear();
     this.busy = false;
     this.activeThreadId = null;
     this.activeTurnId = null;
     handlers?.onExit(error);
     for (const auxiliary of auxiliaryHandlers) auxiliary.onExit(error);
+    for (const metadata of metadataHandlers) metadata.onExit(error);
   }
 
   private rejectPending(error: Error): void {

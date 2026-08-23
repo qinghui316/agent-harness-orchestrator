@@ -1173,10 +1173,18 @@ async function loadSnapshotWithDeepLinkFallback(
   conversationId: string | null,
 ): Promise<Snapshot> {
   if (!conversationId) return api.loadSnapshot(projectId, productMode, null);
-  const modeSnapshot = await api.loadSnapshot(projectId, productMode, null);
-  if (!modeSnapshot.left.topics.some((topic) => topic.id === conversationId)
-    || modeSnapshot.center.selectedTopic?.id === conversationId) return modeSnapshot;
-  return api.loadSnapshot(projectId, productMode, conversationId);
+  try {
+    return await api.loadSnapshot(projectId, productMode, conversationId);
+  } catch (cause) {
+    if (!isUnavailableDeepLink(cause)) throw cause;
+    return api.loadSnapshot(projectId, productMode, null);
+  }
+}
+
+function isUnavailableDeepLink(cause: unknown): boolean {
+  if (!(cause instanceof Error)) return false;
+  const status = "status" in cause && typeof cause.status === "number" ? cause.status : null;
+  return cause.name === "Conflict" || cause.name === "NotFound" || status === 404 || status === 409;
 }
 
 async function fetchSnapshot(url: string): Promise<Snapshot> {

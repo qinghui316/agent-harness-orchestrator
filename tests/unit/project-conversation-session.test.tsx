@@ -145,9 +145,14 @@ describe("Project conversation session owner", () => {
 
   it("keeps the selected mode when a deep link belongs to the other mode", async () => {
     const fixture = ownerFixture({ restore: { projectId: "repo-1", topicId: "harness-link", orchestrationOpen: false, settingsOpen: false } });
-    fixture.api.loadSnapshot.mockImplementation(async (projectId: string, productMode: ProductMode) => (
-      snapshot(projectId, "agent-latest", undefined, productMode)
-    ));
+    fixture.api.loadSnapshot.mockImplementation(async (projectId: string, productMode: ProductMode, conversationId: string | null) => {
+      if (conversationId === "harness-link") {
+        const error = new Error("Conversation belongs to harness mode.");
+        error.name = "Conflict";
+        throw error;
+      }
+      return snapshot(projectId, "agent-latest", undefined, productMode);
+    });
     const { result } = renderHook(() => useProjectConversationSession({
       ...fixture.ports,
       productMode: "agent",
@@ -158,17 +163,15 @@ describe("Project conversation session owner", () => {
 
     expect(result.current.productMode).toBe("agent");
     expect(result.current.selectedTopic).toBe("agent-latest");
-    expect(fixture.api.loadSnapshot).toHaveBeenCalledOnce();
-    expect(fixture.api.loadSnapshot).toHaveBeenCalledWith("repo-1", "agent", null);
+    expect(fixture.api.loadSnapshot).toHaveBeenNthCalledWith(1, "repo-1", "agent", "harness-link");
+    expect(fixture.api.loadSnapshot).toHaveBeenNthCalledWith(2, "repo-1", "agent", null);
     expect(fixture.navigation.syncLocation).toHaveBeenLastCalledWith("repo-1", "agent-latest");
   });
 
-  it("opens a deep link after proving it belongs to the selected mode", async () => {
+  it("opens an exact same-mode deep link even when it is absent from the mode summary", async () => {
     const fixture = ownerFixture({ restore: { projectId: "repo-1", topicId: "agent-link", orchestrationOpen: false, settingsOpen: false } });
-    const latest = snapshot("repo-1", "agent-latest", undefined, "agent");
-    latest.left.topics.push({ id: "agent-link", title: "Linked", state: "active", productMode: "agent" });
     fixture.api.loadSnapshot.mockImplementation(async (projectId: string, productMode: ProductMode, conversationId: string | null) => (
-      conversationId ? snapshot(projectId, conversationId, undefined, productMode) : latest
+      snapshot(projectId, conversationId ?? "agent-latest", undefined, productMode)
     ));
     const { result } = renderHook(() => useProjectConversationSession({
       ...fixture.ports,
@@ -179,8 +182,8 @@ describe("Project conversation session owner", () => {
     await act(async () => { await result.current.loadApp(); });
 
     expect(result.current.selectedTopic).toBe("agent-link");
-    expect(fixture.api.loadSnapshot).toHaveBeenNthCalledWith(1, "repo-1", "agent", null);
-    expect(fixture.api.loadSnapshot).toHaveBeenNthCalledWith(2, "repo-1", "agent", "agent-link");
+    expect(fixture.api.loadSnapshot).toHaveBeenCalledOnce();
+    expect(fixture.api.loadSnapshot).toHaveBeenCalledWith("repo-1", "agent", "agent-link");
   });
 
   it("rejects a stale conversation response after a newer selection wins", async () => {

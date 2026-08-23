@@ -31,6 +31,7 @@ import type {
 import type { TopicMessageResult, TopicThreadEntry } from "./types.js";
 import { TurnAttachmentResolver } from "./turn-attachment-resolver.js";
 import type { ConversationTurnControlOwner, ConversationTurnRegistration } from "./conversation-turn-control.js";
+import type { ConversationContextLifecycleOwner } from "./conversation-context-lifecycle.js";
 
 type DirectAgentProviderRegistry = Pick<ProviderRegistry, "findActiveTurn" | "get">;
 type OpenWorkbenchDatabase = typeof openProjectRuntimeWorkbenchDatabase;
@@ -43,6 +44,7 @@ export interface DirectAgentConversationTurnStrategyOptions {
   resolveRuntimePaths?: (projectId: string) => ProjectRuntimePaths;
   attachmentResolver?: TurnAttachmentResolver;
   turnControl?: ConversationTurnControlOwner;
+  contextLifecycle?: ConversationContextLifecycleOwner;
 }
 
 export class DirectAgentConversationTurnStrategy implements ConversationTurnStrategy {
@@ -53,6 +55,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
   private readonly resolveRuntimePaths: (projectId: string) => ProjectRuntimePaths;
   private readonly attachmentResolver: TurnAttachmentResolver;
   private readonly turnControl?: ConversationTurnControlOwner;
+  private readonly contextLifecycle?: ConversationContextLifecycleOwner;
 
   constructor(options: DirectAgentConversationTurnStrategyOptions) {
     this.providerRegistry = options.providerRegistry;
@@ -62,6 +65,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
       resolveRuntimePaths: this.resolveRuntimePaths,
     });
     this.turnControl = options.turnControl;
+    this.contextLifecycle = options.contextLifecycle;
   }
 
   preflight(input: ConversationTurnStrategyPreflightInput): void {
@@ -421,6 +425,13 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
           }
           forwardProviderRealtimeEvent(event, capture.sink, { productMode: "agent", graphScopeId });
         },
+        onContextEvent: this.contextLifecycle?.listener({
+          paths,
+          productMode: "agent",
+          conversationId: conversation.conversationId,
+          graphScopeId,
+          providerId: input.providerId,
+        }),
         onTurnStarted: this.turnControl?.onTurnStarted,
         onChildLifecycleEvent: (event) => {
           try {

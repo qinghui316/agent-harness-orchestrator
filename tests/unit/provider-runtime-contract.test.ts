@@ -46,6 +46,8 @@ describe("provider-neutral runtime contract", () => {
     expect(PROVIDER_OPERATION_CAPABILITIES.agent).not.toContain("turn.plan");
     expect(PROVIDER_OPERATION_CAPABILITIES.agent).not.toContain("turn.steer");
     expect(PROVIDER_OPERATION_CAPABILITIES.agent).not.toContain("file.reference");
+    expect(PROVIDER_OPERATION_CAPABILITIES.agent).not.toContain("context.usage");
+    expect(PROVIDER_OPERATION_CAPABILITIES.agent).not.toContain("context.compact");
     expect(PROVIDER_OPERATION_CAPABILITIES.agent).not.toContain("workspace.multiroot");
     expect(PROVIDER_OPERATION_CAPABILITIES.main).toContain("turn.user-input");
     expect(PROVIDER_OPERATION_CAPABILITIES.planning).toContain("turn.user-input");
@@ -688,6 +690,11 @@ function fakeProvider(providerId: string): ProviderDescriptor {
       closeChild: async (request) => turnResult(request.targetSession.sessionId),
       getActiveTurn: () => null,
       listActiveTurns: () => [],
+      compactContext: async (request) => {
+        expect(request.providerId).toBe(providerId);
+        expect(request.session.providerId).toBe(providerId);
+        return { status: "accepted" };
+      },
     },
     leafExecution: { runTurn: async () => turnResult(`${providerId}-leaf-session`) },
   };
