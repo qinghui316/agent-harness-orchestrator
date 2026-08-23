@@ -92,6 +92,11 @@ export class ConversationContextRepository {
   }): StoredTopicMessage {
     const id = `provider-context-compaction:${digest(`${input.conversationId}\0${input.evidence.clientRequestId}`)}`;
     const existing = this.timeline.readMessage(input.projectId, input.conversationId, id);
+    const existingEvidence = existing ? parseCompaction(existing) : null;
+    if (existing && existingEvidence) {
+      assertSameCompactionIdentity(existingEvidence, input.evidence);
+      if (!canAdvanceCompaction(existingEvidence.lifecycle, input.evidence.lifecycle)) return existing;
+    }
     const write = {
       id,
       projectId: input.projectId,
@@ -140,6 +145,19 @@ export class ConversationContextRepository {
   private readRows(projectId: string, conversationId: string, type: string): StoredTopicMessage[] {
     return this.timeline.listConversationMessages(projectId, conversationId).filter((row) => row.type === type);
   }
+}
+
+function assertSameCompactionIdentity(left: StoredContextCompactionEvidence, right: StoredContextCompactionEvidence): void {
+  const keys = ["providerId", "productMode", "graphScopeId", "bindingHash", "contextRevision", "clientRequestId", "source"] as const;
+  if (keys.some((key) => left[key] !== right[key])) {
+    throw new Error("Provider context compaction evidence conflicts with its persisted identity.");
+  }
+}
+
+function canAdvanceCompaction(current: StoredContextLifecycle, next: StoredContextLifecycle): boolean {
+  if (current === "completed" || current === "failed" || current === "interrupted") return false;
+  if (current === "compacting") return next === "completed" || next === "failed" || next === "interrupted";
+  return next !== "submitting";
 }
 
 function parseUsage(row: StoredTopicMessage): StoredContextUsageEvidence | null {

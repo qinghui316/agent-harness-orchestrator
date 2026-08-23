@@ -53,6 +53,14 @@ export class ConversationContextLifecycleOwner {
   private readonly manualByBinding = new Map<string, { clientRequestId: string; contextRevision: string }>();
   private readonly compactByConversation = new Map<string, string>();
   private readonly compactionByItem = new Map<string, { clientRequestId: string; contextRevision: string; source: "manual" | "automatic" }>();
+  private readonly recordQueues = new Map<string, Promise<void>>();
+  private readonly retainedCompactions = new Map<string, {
+    paths: ProjectRuntimePaths;
+    conversationId: string;
+    changeId: string;
+    evidence: StoredContextCompactionEvidence;
+  }>();
+  private readonly retainedEvents = new Map<string, { observation: ConversationContextObservation; event: ProviderContextEvent }>();
 
   constructor(private readonly options: {
     providerRegistry: OwnerRegistry;
@@ -61,7 +69,23 @@ export class ConversationContextLifecycleOwner {
 
   listener(observation: ConversationContextObservation): (event: ProviderContextEvent) => void {
     return (event) => {
-      void this.record(observation, event).catch(() => undefined);
+      void this.enqueueRecord(observation, event).catch(() => {
+        if (event.type !== "compaction") return;
+        const bindingHash = sessionBindingHash(
+          observation.paths.projectId,
+          observation.productMode,
+          observation.conversationId,
+          observation.providerId,
+          event.session.sessionId,
+        );
+        const itemKey = `${bindingHash}\0${event.itemId}`;
+        const item = this.compactionByItem.get(itemKey) ?? this.manualByBinding.get(bindingHash);
+        if (!item) return;
+        this.retainedEvents.set(
+          retainedCompactionKey(observation.paths.projectId, observation.conversationId, item.clientRequestId),
+          { observation, event },
+        );
+      });
     };
   }
 
@@ -77,7 +101,9 @@ export class ConversationContextLifecycleOwner {
     const existing = this.submissions.get(key);
     if (existing) {
       if (existing.contextRevision !== request.contextRevision) throw conflict("Context compaction clientRequestId is bound to another context revision.");
-      return existing.promise;
+      const receipt = await existing.promise;
+      await this.flushRetainedCompaction(request);
+      return receipt;
     }
     const conversationKey = compactConversationKey(request);
     const activeClientRequestId = this.compactByConversation.get(conversationKey);
@@ -136,6 +162,8 @@ export class ConversationContextLifecycleOwner {
       if (prior) {
         if (prior.contextRevision !== request.contextRevision) throw conflict("Context compaction clientRequestId conflicts with persisted evidence.");
         if (prior.lifecycle === "completed" || prior.lifecycle === "compacting" || prior.lifecycle === "submitting") return { status: "accepted" };
+        if (prior.lifecycle === "failed") throw providerRejected();
+        if (prior.lifecycle === "interrupted") throw conflict("Context compaction request is terminal; retry with a new clientRequestId.");
       }
       database.conversationContext.upsertCompaction({
         projectId: request.projectId,
@@ -165,14 +193,27 @@ export class ConversationContextLifecycleOwner {
       });
     } catch (error) {
       if (error instanceof Error && error.name === "ProviderContextCompactRejected") {
-        await this.updateManualFailure(resolved.paths, resolved.conversation, evidence, bounded(error.message));
+        await this.updateManualFailure(resolved.paths, resolved.conversation, evidence, "Provider rejected context compaction.");
         this.manualByBinding.delete(resolved.bindingHash);
-        throw error;
+        throw providerRejected();
       }
       const uncertain = error instanceof Error ? error : new Error(String(error));
       uncertain.name = "ProviderContextCompactUncertain";
       throw uncertain;
     }
+  }
+
+  private enqueueRecord(observation: ConversationContextObservation, event: ProviderContextEvent): Promise<void> {
+    const key = event.type === "compaction"
+      ? [observation.paths.projectId, observation.productMode, observation.conversationId, event.session.providerId, event.session.sessionId, event.itemId].join("\0")
+      : [observation.paths.projectId, observation.productMode, observation.conversationId, event.session.providerId, event.session.sessionId, "usage"].join("\0");
+    const previous = this.recordQueues.get(key) ?? Promise.resolve();
+    const current = previous.catch(() => undefined).then(() => this.record(observation, event));
+    this.recordQueues.set(key, current);
+    void current.finally(() => {
+      if (this.recordQueues.get(key) === current) this.recordQueues.delete(key);
+    }).catch(() => undefined);
+    return current;
   }
 
   private async record(observation: ConversationContextObservation, event: ProviderContextEvent): Promise<void> {
@@ -207,8 +248,9 @@ export class ConversationContextLifecycleOwner {
         const previous = database.conversationContext.readCompactionByClientRequest(observation.paths.projectId, observation.conversationId, clientRequestId);
         const lifecycle = event.phase === "started" ? "compacting" : event.phase === "completed" ? "completed" : "failed";
         if (previous && isTerminalLifecycle(previous.lifecycle)) return;
-        database.conversationContext.upsertCompaction({
-          projectId: observation.paths.projectId,
+        const retainedKey = retainedCompactionKey(observation.paths.projectId, observation.conversationId, clientRequestId);
+        const retained = {
+          paths: observation.paths,
           conversationId: observation.conversationId,
           changeId: conversation.boundChangeId ?? observation.conversationId,
           evidence: {
@@ -223,8 +265,16 @@ export class ConversationContextLifecycleOwner {
             updatedAt: event.occurredAt,
             lastCompactedAt: lifecycle === "completed" ? event.occurredAt : previous?.lastCompactedAt ?? null,
             ...(lifecycle === "failed" ? { diagnostic: "Provider context compaction failed." } : {}),
-          },
+          } satisfies StoredContextCompactionEvidence,
+        };
+        this.retainedCompactions.set(retainedKey, retained);
+        database.conversationContext.upsertCompaction({
+          projectId: observation.paths.projectId,
+          conversationId: observation.conversationId,
+          changeId: retained.changeId,
+          evidence: retained.evidence,
         });
+        this.retainedCompactions.delete(retainedKey);
         if (event.phase !== "started" && source === "manual") {
           this.manualByBinding.delete(bindingHash);
           const conversationKey = compactConversationKey({
@@ -239,6 +289,39 @@ export class ConversationContextLifecycleOwner {
       database.close();
     }
     publishConversationContextInvalidated(observation.paths.projectId, { conversationId: observation.conversationId });
+  }
+
+  private async flushRetainedCompaction(request: ConversationContextCompactRequest): Promise<void> {
+    const key = retainedCompactionKey(request.projectId, request.conversationId, request.clientRequestId);
+    const retainedEvent = this.retainedEvents.get(key);
+    if (retainedEvent) {
+      await this.record(retainedEvent.observation, retainedEvent.event);
+      this.retainedEvents.delete(key);
+    }
+    const retained = this.retainedCompactions.get(key);
+    if (!retained || retained.evidence.contextRevision !== request.contextRevision) return;
+    const database = await openProjectRuntimeWorkbenchDatabase(retained.paths);
+    try {
+      database.conversationContext.upsertCompaction({
+        projectId: request.projectId,
+        conversationId: retained.conversationId,
+        changeId: retained.changeId,
+        evidence: retained.evidence,
+      });
+      this.retainedCompactions.delete(key);
+      if (retained.evidence.source === "manual" && isTerminalLifecycle(retained.evidence.lifecycle)) {
+        this.manualByBinding.delete(retained.evidence.bindingHash);
+        const conversationKey = compactConversationKey({
+          projectId: request.projectId,
+          productMode: retained.evidence.productMode,
+          conversationId: request.conversationId,
+        });
+        if (this.compactByConversation.get(conversationKey) === request.clientRequestId) this.compactByConversation.delete(conversationKey);
+      }
+    } finally {
+      database.close();
+    }
+    publishConversationContextInvalidated(request.projectId, { conversationId: request.conversationId });
   }
 
   private async resolve(project: ManagedProject, productMode: ProductMode, conversationId: string) {
@@ -376,12 +459,12 @@ function shortHash(value: string): string {
   return createHash("sha256").update(value).digest("hex").slice(0, 24);
 }
 
-function bounded(value: string): string {
-  return value.replace(/[\r\n]+/g, " ").slice(0, 300);
-}
-
 function compactConversationKey(request: Pick<ConversationContextCompactRequest, "projectId" | "productMode" | "conversationId">): string {
   return `${request.projectId}\0${request.productMode}\0${request.conversationId}`;
+}
+
+function retainedCompactionKey(projectId: string, conversationId: string, clientRequestId: string): string {
+  return `${projectId}\0${conversationId}\0${clientRequestId}`;
 }
 
 function isTerminalLifecycle(lifecycle: StoredContextCompactionEvidence["lifecycle"]): boolean {
@@ -397,5 +480,11 @@ function conflict(message: string): Error {
 function badRequest(message: string): Error {
   const error = new Error(message);
   error.name = "BadRequest";
+  return error;
+}
+
+function providerRejected(): Error {
+  const error = new Error("Provider rejected context compaction.");
+  error.name = "ProviderContextCompactRejected";
   return error;
 }

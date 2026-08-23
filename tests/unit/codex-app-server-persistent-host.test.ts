@@ -423,10 +423,54 @@ describe("Codex persistent app-server Host", () => {
     })).resolves.toEqual({ status: "accepted" });
     await vi.waitFor(() => expect(events).toEqual(["compact-item-1:started", "compact-item-1:completed"]));
     expect(server.compactParams).toEqual([{ threadId: "thread-main" }]);
+    expect(server.threadParams).toContainEqual({ threadId: "thread-main" });
+    expect(server.methods.indexOf("thread/resume")).toBeLessThan(server.methods.indexOf("thread/compact/start"));
 
     server.sendCompaction("compact-after-release");
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(events).toEqual(["compact-item-1:started", "compact-item-1:completed"]);
+  });
+
+  it("holds the Host lease until compaction completes and blocks a concurrent Turn", async () => {
+    const cwd = await tempDir();
+    const server = new PersistentCollaborationServer(4522);
+    server.holdNextCompaction();
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+
+    await expect(compactCodexContext({
+      providerId: "codex",
+      projectId: "project-host",
+      cwd,
+      session: { providerId: "codex", sessionId: "thread-main" },
+    })).resolves.toEqual({ status: "accepted" });
+    expect(defaultCodexAppServerHostRegistry.hostFor(cwd).snapshot().state).toBe("busy");
+
+    await expect(runCodexAppServerTurn(await turnOptions(cwd, "concurrent-turn", "thread-main")))
+      .resolves.toMatchObject({
+        status: "failed",
+        error: expect.stringContaining("already executing a Turn"),
+      });
+    expect(server.methods.filter((method) => method === "turn/start")).toHaveLength(0);
+
+    server.completeHeldCompaction();
+    await vi.waitFor(() => expect(defaultCodexAppServerHostRegistry.hostFor(cwd).snapshot().state).toBe("healthy"));
+  });
+
+  it("redacts Provider-private JSON-RPC rejection details", async () => {
+    const cwd = await tempDir();
+    const server = new PersistentCollaborationServer(4523);
+    server.rejectNextCompact("thread-main private-provider-secret");
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+
+    await expect(compactCodexContext({
+      providerId: "codex",
+      projectId: "project-host",
+      cwd,
+      session: { providerId: "codex", sessionId: "thread-main" },
+    })).rejects.toMatchObject({
+      name: "ProviderContextCompactRejected",
+      message: "Provider rejected context compaction.",
+    });
   });
 
   it("drops provider callbacks from a generation invalidated by project removal", async () => {
@@ -669,6 +713,9 @@ class PersistentCollaborationServer extends EventEmitter {
   private holdInterruptResponse = false;
   private heldInterruptId: number | null = null;
   private nextTurnFailure: string | null = null;
+  private holdCompaction = false;
+  private heldCompactionItemId: string | null = null;
+  private nextCompactError: string | null = null;
 
   constructor(
     pid: number,
@@ -716,6 +763,21 @@ class PersistentCollaborationServer extends EventEmitter {
   sendCompaction(itemId: string): void {
     this.notify("item/started", { threadId: "thread-main", item: { id: itemId, type: "contextCompaction" } });
     this.notify("item/completed", { threadId: "thread-main", item: { id: itemId, type: "contextCompaction", status: "completed" } });
+  }
+
+  holdNextCompaction(): void {
+    this.holdCompaction = true;
+  }
+
+  completeHeldCompaction(): void {
+    if (!this.heldCompactionItemId) throw new Error("No held context compaction is available.");
+    const itemId = this.heldCompactionItemId;
+    this.heldCompactionItemId = null;
+    this.notify("item/completed", { threadId: "thread-main", item: { id: itemId, type: "contextCompaction", status: "completed" } });
+  }
+
+  rejectNextCompact(message: string): void {
+    this.nextCompactError = message;
   }
 
   rejectNextInterrupt(message: string): void {
@@ -829,8 +891,20 @@ class PersistentCollaborationServer extends EventEmitter {
       }
       case "thread/compact/start":
         this.compactParams.push({ ...params });
+        if (this.nextCompactError) {
+          const message = this.nextCompactError;
+          this.nextCompactError = null;
+          this.reject(id, { code: -32000, message });
+          return;
+        }
         this.respond(id, {});
-        this.sendCompaction("compact-item-1");
+        if (this.holdCompaction) {
+          this.holdCompaction = false;
+          this.heldCompactionItemId = "compact-item-1";
+          this.notify("item/started", { threadId: "thread-main", item: { id: "compact-item-1", type: "contextCompaction" } });
+        } else {
+          this.sendCompaction("compact-item-1");
+        }
         return;
       case "turn/steer": {
         this.steerParams.push({ ...params });

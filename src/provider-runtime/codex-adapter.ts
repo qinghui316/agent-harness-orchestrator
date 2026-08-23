@@ -168,40 +168,62 @@ export async function compactCodexContext(request: ProviderContextCompactRequest
   const generation = defaultProjectRemovalFence.capture(request.projectId);
   const host = defaultCodexAppServerHostRegistry.hostForProject(request.projectId, request.cwd);
   let expiry: ReturnType<typeof setTimeout> | null = null;
-  const subscription = await host.subscribeMetadata({
-    onLine(line) {
-      if (!isProjectGenerationCurrent(request.projectId, generation)) return;
-      let payload: Record<string, unknown>;
-      try { payload = JSON.parse(line) as Record<string, unknown>; } catch { return; }
-      if (typeof payload.method !== "string" || !payload.params || typeof payload.params !== "object") return;
-      const event = normalizeCodexContextEvent(payload.method, payload.params as Record<string, unknown>);
-      if (!event || event.threadId !== request.session.sessionId) return;
-      request.onContextEvent?.(mapContextEvent(event));
-      if (event.type === "compaction" && event.phase !== "started") {
-        if (expiry) clearTimeout(expiry);
-        subscription.release();
-      }
-    },
-    onStderr() {},
-    onExit() {
-      if (expiry) clearTimeout(expiry);
-      subscription.release();
-    },
-  });
-  expiry = setTimeout(() => subscription.release(), 5 * 60_000);
+  let released = false;
+  let lease: Awaited<ReturnType<typeof host.acquire>> | null = null;
+  const release = (): void => {
+    if (released) return;
+    released = true;
+    if (expiry) clearTimeout(expiry);
+    lease?.release();
+  };
   try {
-    await host.requestMetadata("thread/compact/start", { threadId: request.session.sessionId }, { timeoutMs: 5_000 });
+    lease = await host.acquire({
+      onLine(line) {
+        if (!isProjectGenerationCurrent(request.projectId, generation)) return;
+        let payload: Record<string, unknown>;
+        try { payload = JSON.parse(line) as Record<string, unknown>; } catch { return; }
+        if (typeof payload.method !== "string" || !payload.params || typeof payload.params !== "object") return;
+        const event = normalizeCodexContextEvent(payload.method, payload.params as Record<string, unknown>);
+        if (!event || event.threadId !== request.session.sessionId) return;
+        try {
+          request.onContextEvent?.(mapContextEvent(event));
+        } finally {
+          if (event.type === "compaction" && event.phase !== "started") release();
+        }
+      },
+      onStderr() {},
+      onExit() {
+        release();
+      },
+    });
+    expiry = setTimeout(release, 5 * 60_000);
+    const resumed = await lease.request("thread/resume", { threadId: request.session.sessionId }, { timeoutMs: 5_000 });
+    if (codexThreadId(resumed) !== request.session.sessionId) {
+      const error = new Error("Codex context compaction could not prove the requested Provider session.");
+      error.name = "StaleProviderSession";
+      throw error;
+    }
+    await lease.request("thread/compact/start", { threadId: request.session.sessionId }, { timeoutMs: 5_000 });
     return { status: "accepted" };
   } catch (error) {
-    if (error instanceof CodexAppServerJsonRpcError) {
-      const rejection = new Error(error.rpcMessage, { cause: error });
+    if (error instanceof CodexAppServerJsonRpcError
+      || (error instanceof Error && (error.name === "Conflict" || error.name === "StaleProviderSession"))) {
+      const rejection = new Error("Provider rejected context compaction.", { cause: error });
       rejection.name = "ProviderContextCompactRejected";
-      if (expiry) clearTimeout(expiry);
-      subscription.release();
+      release();
       throw rejection;
     }
+    if (!(error instanceof Error) || error.name !== "CodexAppServerRequestTimeout") release();
     throw error;
   }
+}
+
+function codexThreadId(response: Record<string, unknown>): string | null {
+  const thread = response.thread;
+  return thread && typeof thread === "object" && !Array.isArray(thread)
+    && typeof (thread as Record<string, unknown>).id === "string"
+    ? (thread as Record<string, unknown>).id as string
+    : null;
 }
 
 export function codexPlanCollaborationMode(request: ProviderTurnRequest): NonNullable<import("../codex/app-server.js").CodexAppServerTurnOptions["collaborationMode"]> {

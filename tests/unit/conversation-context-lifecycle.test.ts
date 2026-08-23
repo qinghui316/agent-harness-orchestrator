@@ -15,6 +15,7 @@ import {
   type ConversationContextObservation,
 } from "../../src/workbench/conversation-context-lifecycle.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
+import { ConversationContextRepository } from "../../src/workbench/persistence/repositories/conversation-context-repository.js";
 
 const projectId = "conversation-context-project";
 const sessionId = "thread-private-session";
@@ -73,14 +74,12 @@ describe("ConversationContextLifecycleOwner", () => {
     }));
 
     listener(compactionEvent("automatic-1", "completed"));
+    listener(compactionEvent("automatic-1", "started"));
     await vi.waitFor(async () => expect(await owner.read(project, productMode, conversationId)).toMatchObject({
       lifecycle: "completed",
       source: "automatic",
       lastCompactedAt: "2026-08-24T00:02:00.000Z",
     }));
-    listener(compactionEvent("automatic-1", "started"));
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(await owner.read(project, productMode, conversationId)).toMatchObject({ lifecycle: "completed", source: "automatic" });
 
     const database = await openProjectRuntimeWorkbenchDatabase(paths);
     try {
@@ -128,6 +127,35 @@ describe("ConversationContextLifecycleOwner", () => {
     await expect(owner.compact(project, { ...request, contextRevision: "stale-revision" }))
       .rejects.toMatchObject({ name: "Conflict" });
     expect(compactContext).toHaveBeenCalledOnce();
+  });
+
+  it("retains accepted terminal evidence for an idempotent persistence-only retry", async () => {
+    const conversationId = "conversation-persistence-retry";
+    await seedConversation(conversationId, "agent");
+    let callback: ((event: ProviderContextEvent) => void) | undefined;
+    const compactContext = vi.fn(async (request: ProviderContextCompactRequest) => {
+      callback = request.onContextEvent;
+      return { status: "accepted" as const };
+    });
+    const owner = createOwner(compactContext);
+    const initial = await owner.read(project, "agent", conversationId);
+    const request = compactRequest(conversationId, initial.contextRevision, "persist-retry");
+    await owner.compact(project, request);
+    callback?.(compactionEvent("persist-item", "started"));
+    await vi.waitFor(async () => expect(await owner.read(project, "agent", conversationId)).toMatchObject({ lifecycle: "compacting" }));
+
+    const original = ConversationContextRepository.prototype.upsertCompaction;
+    const failure = vi.spyOn(ConversationContextRepository.prototype, "upsertCompaction")
+      .mockImplementationOnce(() => { throw new Error("simulated timeline write failure"); });
+    callback?.(compactionEvent("persist-item", "completed"));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    failure.mockImplementation(original);
+    expect(await owner.read(project, "agent", conversationId)).toMatchObject({ lifecycle: "compacting" });
+
+    await expect(owner.compact(project, request)).resolves.toEqual({ status: "accepted" });
+    expect(compactContext).toHaveBeenCalledOnce();
+    expect(await owner.read(project, "agent", conversationId)).toMatchObject({ lifecycle: "completed", canCompact: true });
+    failure.mockRestore();
   });
 
   it("fails closed for stale graph events and malformed usage", async () => {
@@ -246,14 +274,41 @@ describe("ConversationContextLifecycleOwner", () => {
     const owner = createOwner(compactContext);
     const initial = await owner.read(project, "agent", conversationId);
 
-    await expect(owner.compact(project, compactRequest(conversationId, initial.contextRevision, "explicit-reject"))).rejects.toBe(rejection);
+    await expect(owner.compact(project, compactRequest(conversationId, initial.contextRevision, "explicit-reject")))
+      .rejects.toMatchObject({ name: "ProviderContextCompactRejected", message: "Provider rejected context compaction." });
     expect(await owner.read(project, "agent", conversationId)).toMatchObject({ lifecycle: "failed", canCompact: true });
+    const restartedProvider = vi.fn(async () => ({ status: "accepted" as const }));
+    const restartedAfterFailure = createOwner(restartedProvider);
+    await expect(restartedAfterFailure.compact(project, compactRequest(conversationId, initial.contextRevision, "explicit-reject")))
+      .rejects.toMatchObject({ name: "ProviderContextCompactRejected", message: "Provider rejected context compaction." });
+    expect(restartedProvider).not.toHaveBeenCalled();
     await expect(owner.compact(project, compactRequest(conversationId, initial.contextRevision, "uncertain"))).rejects.toThrow("connection lost");
     expect(await owner.read(project, "agent", conversationId)).toMatchObject({ lifecycle: "submitting", canCompact: false });
 
     const recovered = createOwner(vi.fn(async () => ({ status: "accepted" as const })));
     await expect(recovered.reconcileProject(paths)).resolves.toBe(1);
     expect(await recovered.read(project, "agent", conversationId)).toMatchObject({ lifecycle: "interrupted", canCompact: true });
+  });
+
+  it("never persists Provider-private rejection details", async () => {
+    const conversationId = "conversation-private-rejection";
+    await seedConversation(conversationId, "agent");
+    const rejection = new Error(`thread ${sessionId} rejected: secret-provider-detail`);
+    rejection.name = "ProviderContextCompactRejected";
+    const owner = createOwner(vi.fn(async () => { throw rejection; }));
+    const initial = await owner.read(project, "agent", conversationId);
+
+    await expect(owner.compact(project, compactRequest(conversationId, initial.contextRevision, "private-reject")))
+      .rejects.toMatchObject({ name: "ProviderContextCompactRejected", message: "Provider rejected context compaction." });
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      const serialized = JSON.stringify(database.timeline.listConversationMessages(projectId, conversationId));
+      expect(serialized).toContain("Provider rejected context compaction.");
+      expect(serialized).not.toContain(sessionId);
+      expect(serialized).not.toContain("secret-provider-detail");
+    } finally {
+      database.close();
+    }
   });
 });
 
