@@ -31,6 +31,9 @@ export type WorkbenchProjectionRoutePorts = {
   turnControl?: {
     invalidate: (projectId: string, data: Extract<WorkbenchLiveEvent, { event: "conversation.turn-control.invalidated" }>["data"]) => void;
   };
+  modeActivity?: {
+    invalidate: (projectId: string) => void;
+  };
   error?: {
     received: (projectId: string, data: Extract<WorkbenchLiveEvent, { event: "error" }>["data"]) => void;
   };
@@ -46,6 +49,8 @@ export function routeWorkbenchProjectionEvent(
   event: WorkbenchLiveEvent,
   ports: WorkbenchProjectionRoutePorts,
 ): WorkbenchProjectionRouteResult {
+  const activityInvalidated = MODE_ACTIVITY_INVALIDATION_EVENTS.has(event.event);
+  if (activityInvalidated) ports.modeActivity?.invalidate(projectId);
   switch (event.event) {
     case "timeline.patch":
       ports.timeline.patch(projectId, event.data);
@@ -72,9 +77,23 @@ export function routeWorkbenchProjectionEvent(
       ports.error?.received(projectId, event.data);
       return { handled: Boolean(ports.error), event: event.event };
     default:
-      return { handled: false, event: event.event };
+      return { handled: activityInvalidated && Boolean(ports.modeActivity), event: event.event };
   }
 }
+
+const MODE_ACTIVITY_INVALIDATION_EVENTS = new Set<WorkbenchLiveEvent["event"]>([
+  "topic.created",
+  "topic.updated",
+  "timeline.patch",
+  "conversation.interactions.updated",
+  "agent-surfaces.invalidated",
+  "conversation.turn-control.invalidated",
+  "run.started",
+  "run.status",
+  "snapshot",
+  "done",
+  "error",
+]);
 
 export interface WorkbenchProjectionEventSource {
   onopen: ((event: Event) => void) | null;

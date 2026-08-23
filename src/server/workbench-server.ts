@@ -25,6 +25,7 @@ import { reconcileStaleAgentMainAttempts } from "../workbench/agent-main-attempt
 import { ConversationTurnRetryOwner } from "../workbench/conversation-turn-retry.js";
 import { TurnAttachmentResolver } from "../workbench/turn-attachment-resolver.js";
 import { ComposerDraftRecoveryService } from "../workbench/composer-draft-recovery.js";
+import { ProductModeActivityProjectionOwner } from "../workbench/product-mode-activity.js";
 
 export type { WorkbenchServeOptions, WorkbenchServerHandle } from "./workbench/types.js";
 export { executeWorkbenchAction } from "./workbench/actions.js";
@@ -66,6 +67,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
     attachmentResolver,
     providerRegistry,
   });
+  const productModeActivity = options.productModeActivity ?? new ProductModeActivityProjectionOwner();
   await projectRuntimeCoordinator.reconcileStartup();
   const restoredInput = await restoreDirectProjectInput(input, store);
   const composedInput = restoredInput
@@ -88,6 +90,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
     turnControl,
     turnRetry,
     composerDraftRecovery,
+    productModeActivity,
   };
   const server = createServer((request, response) => {
     handleRequest(context, request, response).catch((error: unknown) => {

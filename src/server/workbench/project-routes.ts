@@ -41,6 +41,11 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
     sendJson(response, 200, await getWorkbenchSnapshot(input, { topicId: url.searchParams.get("topic") ?? undefined, productMode }));
     return;
   }
+  if (request.method === "GET" && rest === "mode-activity") {
+    assertRegisteredProject(input);
+    sendJson(response, 200, await context.productModeActivity.read(input));
+    return;
+  }
   if (request.method === "GET" && rest.startsWith("projections/")) {
     sendJson(response, 200, await getWorkbenchProjection(input, rest.slice("projections/".length), url.searchParams));
     return;

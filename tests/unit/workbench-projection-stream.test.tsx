@@ -42,7 +42,8 @@ describe("WorkbenchProjectionStream owner", () => {
       conversationId: "conversation-a",
       attemptId: "attempt-a",
     });
-    expect(diagnostic).toEqual({ handled: false, event: "run.status" });
+    expect(ports.modeActivity?.invalidate).toHaveBeenCalledTimes(9);
+    expect(diagnostic).toEqual({ handled: true, event: "run.status" });
   });
 
   it("does not infer Agent invalidation from Timeline content", () => {
@@ -111,6 +112,7 @@ function createPorts(): WorkbenchProjectionRoutePorts {
     snapshot: { received: vi.fn() },
     agentSurfaces: { invalidate: vi.fn() },
     turnControl: { invalidate: vi.fn() },
+    modeActivity: { invalidate: vi.fn() },
     error: { received: vi.fn() },
   };
 }

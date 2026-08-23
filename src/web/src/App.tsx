@@ -7,6 +7,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactElement,
   type PointerEvent as ReactPointerEvent } from "react";
+import { CircleAlert, LoaderCircle, XCircle } from "lucide-react";
 import { fetchJson } from "./api.js";
 import { MainConversationView,
   AgentOfficePanel,
@@ -59,6 +60,7 @@ import type {
   CanonicalTimelineScope,
   CanonicalDocumentReference,
   ConversationInteractionSettlement,
+  ProductModeActivityState,
   WorkspaceResourceTarget,
 } from "./types.js";
 import { ConversationInteractionDock } from "./panels/workbench/ConversationInteractionDock.js";
@@ -69,6 +71,7 @@ import { workspaceResourceModeHandoff } from "./controllers/workspaceResourceMod
 import { useProviderConfigurationController } from "./controllers/useProviderConfigurationController.js";
 import { useConversationActionController } from "./controllers/useConversationActionController.js";
 import { useAgentSurfaceController } from "./controllers/useAgentSurfaceController.js";
+import { useProductModeActivityController } from "./controllers/useProductModeActivityController.js";
 import { OfficeLoadingScreen } from "./office/OfficeLoadingScreen.js";
 import {
   useConversationComposerController,
@@ -174,6 +177,7 @@ export function App(): ReactElement {
   const expandedProjects = session.expandedProjects;
   const projectSnapshots = session.projectSnapshots;
   const pendingDemandConversation = session.pendingDemandConversation;
+  const modeActivity = useProductModeActivityController(selectedProjectId, appMode.productMode);
 
   useEffect(() => {
     if (!presentation.harness["governance-approvals"]
@@ -772,6 +776,9 @@ export function App(): ReactElement {
         void refresh(projectId, data.conversationId);
       },
     },
+    modeActivity: {
+      invalidate: modeActivity.invalidate,
+    },
     error: {
       received: (projectId, data) => {
         if (selectedProjectIdRef.current !== projectId || isTransientReconnectMessage(data.message)) return;
@@ -780,6 +787,7 @@ export function App(): ReactElement {
     },
   }, {
     onConnected: (projectId) => {
+      void modeActivity.refresh(projectId);
       const conversationId = activeTopic?.id;
       if (!conversationId || isPendingTopic) return;
       agentSurfaces.invalidate({ conversationId, reason: "snapshot" });
@@ -928,14 +936,18 @@ export function App(): ReactElement {
             type="button"
             className={appMode.productMode === "agent" ? "active" : ""}
             aria-pressed={appMode.productMode === "agent"}
+            aria-label={modeButtonLabel("Agent", appMode.productMode === "agent", modeActivity.snapshot?.agent.state)}
+            title={modeButtonTitle("Agent", appMode.productMode === "agent", modeActivity.snapshot?.agent.state)}
             onClick={() => appMode.selectMode("agent")}
-          >Agent</button>
+          ><span>Agent</span><ProductModeActivityIcon active={appMode.productMode === "agent"} state={modeActivity.snapshot?.agent.state} /></button>
           <button
             type="button"
             className={appMode.productMode === "harness" ? "active" : ""}
             aria-pressed={appMode.productMode === "harness"}
+            aria-label={modeButtonLabel("AHO", appMode.productMode === "harness", modeActivity.snapshot?.harness.state)}
+            title={modeButtonTitle("AHO", appMode.productMode === "harness", modeActivity.snapshot?.harness.state)}
             onClick={() => appMode.selectMode("harness")}
-          >AHO</button>
+          ><span>AHO</span><ProductModeActivityIcon active={appMode.productMode === "harness"} state={modeActivity.snapshot?.harness.state} /></button>
         </div>
       </div> : null}
       {!settingsOpen ? (
@@ -1317,6 +1329,28 @@ export function App(): ReactElement {
       />
     </div>
   );
+}
+
+function ProductModeActivityIcon({ active, state }: { active: boolean; state: ProductModeActivityState | undefined }): ReactElement {
+  const visibleState = active ? undefined : state;
+  return <span className="product-mode-activity-icon" aria-hidden="true">
+    {visibleState === "running" ? <LoaderCircle className="spin" size={13} /> : null}
+    {visibleState === "attention" ? <CircleAlert size={13} /> : null}
+    {visibleState === "failed" ? <XCircle size={13} /> : null}
+  </span>;
+}
+
+function modeButtonLabel(label: string, active: boolean, state: ProductModeActivityState | undefined): string {
+  if (active || state === undefined || state === "idle" || state === "unavailable") return label;
+  return modeButtonTitle(label, false, state) ?? label;
+}
+
+function modeButtonTitle(label: string, active: boolean, state: ProductModeActivityState | undefined): string | undefined {
+  if (active) return undefined;
+  if (state === "running") return `${label}运行中`;
+  if (state === "attention") return `${label}需要处理`;
+  if (state === "failed") return `${label}执行失败`;
+  return `切换到${label}`;
 }
 
 function isOrchestrationTabParam(value: string | null): boolean {

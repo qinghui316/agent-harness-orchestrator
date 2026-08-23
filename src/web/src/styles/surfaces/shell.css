@@ -73,6 +73,10 @@
 }
 
 .product-mode-segment button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   min-width: 0;
   border: 0;
   border-radius: calc(var(--radius-sm) - 2px);
@@ -83,6 +87,16 @@
   font-weight: 600;
   letter-spacing: 0;
   cursor: pointer;
+}
+
+.product-mode-activity-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  flex: 0 0 13px;
+  color: var(--text-strong);
 }
 
 .product-mode-segment button.active {

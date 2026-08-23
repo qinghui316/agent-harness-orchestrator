@@ -77,6 +77,15 @@ describe("Workbench App owner composition", () => {
     expect(MockEventSource.instances[0]?.url).toBe("/api/projects/repo/workbench/events/live");
   });
 
+  it("shows one accessible status icon only on the inactive product mode", async () => {
+    installApiFixture(createSnapshot());
+    const view = render(<App />);
+
+    expect(await screen.findByRole("button", { name: "Agent运行中" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "AHO" }).querySelector(".product-mode-activity-icon svg")).toBeNull();
+    expect(view.container.querySelectorAll(".product-mode-activity-icon")).toHaveLength(2);
+  });
+
   it("keeps the office as a pure center view and opens a canonical child surface", async () => {
     installApiFixture(createSnapshot());
     render(<App />);
@@ -359,6 +368,12 @@ function installApiFixture(snapshot: Snapshot): void {
       }] });
     }
     if (url.includes("/workbench/snapshot")) return json(snapshot);
+    if (url.includes("/workbench/mode-activity")) return json({
+      projectId: "repo",
+      generatedAt: "2026-08-23T00:00:00.000Z",
+      agent: { productMode: "agent", state: "running", updatedAt: "2026-08-23T00:00:00.000Z" },
+      harness: { productMode: "harness", state: "attention", updatedAt: "2026-08-23T00:00:00.000Z" },
+    });
     if (url.includes("/workbench/composer-draft")) {
       if (init?.method === "PUT") {
         const body = JSON.parse(String(init.body)) as Record<string, unknown>;

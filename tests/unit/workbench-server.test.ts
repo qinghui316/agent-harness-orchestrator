@@ -107,6 +107,12 @@ describe("workbench server", () => {
     const topics = await getJson<unknown[]>(`${handle!.url}/api/projects/repo/workbench/topics?productMode=harness`);
     expect(topics).toHaveLength(1);
 
+    const activity = await getJson<Record<string, unknown>>(`${handle!.url}/api/projects/repo/workbench/mode-activity`);
+    expect(Object.keys(activity).sort()).toEqual(["agent", "generatedAt", "harness", "projectId"]);
+    expect(Object.keys(activity.agent as Record<string, unknown>).sort()).toEqual(["productMode", "state", "updatedAt"]);
+    expect(Object.keys(activity.harness as Record<string, unknown>).sort()).toEqual(["productMode", "state", "updatedAt"]);
+    expect(JSON.stringify(activity)).not.toMatch(/conversation|provider|title|message|path|count/i);
+
     const stream = await getJson<{ events: Array<{ type: string }> }>(`${handle!.url}/api/workbench/stream/${serverRunId}`);
     expect(stream.events.some((event: { type: string }) => event.type === "run.completed")).toBe(true);
 

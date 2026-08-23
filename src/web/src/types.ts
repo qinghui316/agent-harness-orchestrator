@@ -1,6 +1,7 @@
 import type { WorkbenchThreadActionType } from "./workflow-actions.js";
 import type { ConversationInteractionQueue, InteractionHistoryRecord } from "../../workbench/conversation-interaction-contract.js";
 import type { AgentSurfacesInvalidated } from "../../workbench/agent-surface-contract.js";
+export type { ProductModeActivityIndicator, ProductModeActivityState, ProjectProductModeActivitySnapshot } from "../../workbench/product-mode-activity.js";
 export type { ConversationInteraction, ConversationInteractionQuestion, ConversationInteractionQueue, ConversationInteractionSettlement, InteractionHistoryRecord } from "../../workbench/conversation-interaction-contract.js";
 export type { AgentSurfaceProjection, AgentSurfaceProjectionItem, AgentSurfaceStatus, AgentSurfacesInvalidated, AgentSurfacesInvalidationReason } from "../../workbench/agent-surface-contract.js";
 export type { AgentCatalogDisplayProjection, AgentCatalogDisplayRole } from "../../workbench/agent-catalog-display-contract.js";

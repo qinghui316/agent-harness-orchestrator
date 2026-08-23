@@ -557,6 +557,17 @@ the rest of the draft, and reset to Auto on explicit Provider switches. SQLite
 and public APIs retain attachment ids and safe relative metadata only, never
 bodies, base64, preview URLs, or managed absolute paths.
 
+`ProductModeActivityProjectionOwner` is the sole cross-mode activity summary
+owner. It reads current Agent Surface, interaction, Workpad, Run, queue, and
+governance projections and reduces each product mode to `unavailable`, `idle`,
+`running`, `attention`, or `failed`. Its HTTP contract is detail-free and
+read-only: it cannot create or update Conversation, Attempt, Timeline, Change,
+WorkflowGraph, AgentTask, Lane, worktree, approval, authorization, Integration,
+or Evolution evidence. The Web controller treats SSE as invalidation only and
+never reconstructs durable state, counts, unread records, or activity details.
+Harness readiness affects only the Harness indicator; Agent aggregation remains
+available during onboarding or repair-required states.
+
 Architecture growth control extends the same boundary from module placement to mechanism reuse. Feature modules may own domain-specific rules, rendering, and orchestration adapters, but shared artifact storage, lineage checks, stale revalidation, authority classification, ledger event policy, projection summary building, human-gate evidence, and ToolPolicy-related checks must not be scattered into feature-local private systems. If a feature needs a new cross-cutting capability, the change must either strengthen an existing owner or introduce a reusable owner with clear boundaries before adding feature-specific branches. File count and line count remain signals; the boundary question is whether the change lowers the cost and risk of the next similar feature.
 
 Phase 8S makes `src/workflow-scheduler/` the owner for scheduler-readiness contracts. `SchedulerContract` is non-executing evidence for parallel TaskGraph readiness; it must not be treated as workflow truth, a sequential `WorkflowGraphPlan`, a TaskQueue start input, or an executable ODWF script. SchedulerContract compile may write typed artifacts and decision/audit evidence only. It must not create WorkflowRun, TaskQueueRun, TaskRun, WorkerLease, AgentTask, worktree, run, child Change, source mutations, or cache/replay records.

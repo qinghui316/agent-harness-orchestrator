@@ -70,6 +70,16 @@ Input added while a send is running wins the CAS race and cannot be removed by
 the older settlement. Conversation navigation keeps the established shared
 project/mode Composer scope rather than creating per-Conversation draft rows.
 
+The `Agent / AHO` selector shows one compact icon on the inactive mode when the
+selected project has running work, needs user attention, or has a current
+failure there. The server returns only the aggregate mode state and update time;
+it does not expose counts, Conversation identity, titles, messages, paths, or
+Provider-private identity. Clicking the indicator performs the existing mode
+switch and leaves Conversation selection, Composer drafts, Provider activity,
+and Harness governance untouched. SSE events only invalidate the indicator;
+the browser reloads the canonical read-only projection after debounce and after
+reconnect, without polling or creating unread state.
+
 Ordinary Agent turns accept Composer-managed images and safe text/code files in
 both Default and Plan mode. One server-owned `TurnAttachmentResolver` validates
 project ownership, the exact managed attachment directory, type, size, and
