@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { consumeWorkbenchLiveStream, fetchJson, postJson } from "../api.js";
 import { extractInlineFileMentions } from "../shell/file-mentions.js";
 import { extractInlineSkillMentions } from "../shell/skill-mentions.js";
-import type { AgentTurnMode, ComposerDraftDiagnostic, ComposerDraftSnapshot, ProductMode, ProviderCapabilitySnapshot, SkillListItem, TopicAttachment, TopicFileReference, WorkbenchLiveEvent } from "../types.js";
+import type { AgentTurnMode, ComposerDraftDiagnostic, ComposerDraftSnapshot, ProductMode, ProviderCapabilitySnapshot, ProviderModelSettingsSnapshot, SkillListItem, TopicAttachment, TopicFileReference, WorkbenchLiveEvent } from "../types.js";
 import type { WorkbenchOperationToken } from "./useGlobalOperationGate.js";
 import type { ConversationSteerOutcome } from "./useConversationActionController.js";
 import {
@@ -23,6 +23,8 @@ export interface ConversationComposerScope {
     state: string;
     productMode?: ProductMode;
     agentTurnMode?: AgentTurnMode | null;
+    agentModelId?: string | null;
+    agentReasoningEffort?: string | null;
     selectedProviderId?: string;
   } | null;
   managed: boolean;
@@ -40,6 +42,7 @@ export interface ConversationComposerScope {
   providerCapabilities?: ProviderCapabilitySnapshot[];
   providerCapabilitiesLoading?: boolean;
   providerCapabilitiesError?: string | null;
+  providerModelSettings?: ProviderModelSettingsSnapshot | null;
 }
 
 export interface PreparedComposerInput {
@@ -58,6 +61,8 @@ export interface ComposerCreateConversationRequest {
   providerId?: string;
   skillOverrides: ComposerSkillOverride[];
   agentTurnMode?: AgentTurnMode;
+  modelId?: string | null;
+  reasoningEffort?: string | null;
   showPendingBeforeCreate: boolean;
 }
 
@@ -88,6 +93,8 @@ export interface ComposerMessageRequest {
   providerId?: string;
   providerSwitchIntent?: "resume-workflow";
   agentTurnMode?: AgentTurnMode;
+  modelId?: string | null;
+  reasoningEffort?: string | null;
 }
 
 export interface ComposerActionRequest {
@@ -115,6 +122,7 @@ export interface ConversationComposerPorts {
     ensureProjectRegistered(projectId: string): Promise<string | null>;
     createConversation(request: ComposerCreateConversationRequest): Promise<ComposerCreatedConversation>;
     restoreDraftProvider?(providerId: string | null): void;
+    selectProvider?(providerId: string): void | Promise<void>;
   };
   actions: {
     sendMessage?(request: ComposerMessageRequest): Promise<void>;
@@ -160,6 +168,8 @@ export function useConversationComposerController(
   const [fileRefs, setFileRefs] = useState<TopicFileReference[]>([]);
   const [attachments, setAttachments] = useState<TopicAttachment[]>([]);
   const [agentTurnMode, setAgentTurnMode] = useState<AgentTurnMode>(() => initialAgentTurnMode(scope));
+  const [agentModelId, setAgentModelId] = useState<string | null>(() => initialAgentModelId(scope));
+  const [agentReasoningEffort, setAgentReasoningEffort] = useState<string | null>(() => initialAgentReasoningEffort(scope));
   const [draftDiagnostics, setDraftDiagnostics] = useState<ComposerDraftDiagnostic[]>([]);
   const [draftLoadedScopeKey, setDraftLoadedScopeKey] = useState<string | null>(null);
   const [draftDirtyRevision, setDraftDirtyRevision] = useState(0);
@@ -178,10 +188,11 @@ export function useConversationComposerController(
   const draftScheduledRevisionsRef = useRef(new Map<string, number>());
   const draftObservedProvidersRef = useRef(new Map<string, string | null>());
   const draftRestoredModesRef = useRef(new Map<string, AgentTurnMode>());
-  const stateRef = useRef({ composerText, skillItems, draftSkillOverrides, fileRefs, attachments, agentTurnMode });
+  const draftRestoredModelSelectionsRef = useRef(new Map<string, { modelId: string | null; reasoningEffort: string | null }>());
+  const stateRef = useRef({ composerText, skillItems, draftSkillOverrides, fileRefs, attachments, agentTurnMode, agentModelId, agentReasoningEffort });
   const scopeRef = useRef(scope);
   const portsRef = useRef(ports);
-  stateRef.current = { composerText, skillItems, draftSkillOverrides, fileRefs, attachments, agentTurnMode };
+  stateRef.current = { composerText, skillItems, draftSkillOverrides, fileRefs, attachments, agentTurnMode, agentModelId, agentReasoningEffort };
   scopeRef.current = scope;
   portsRef.current = ports;
   const draftSyncOwnerRef = useRef<ComposerDraftSyncOwner | null>(null);
@@ -258,6 +269,8 @@ export function useConversationComposerController(
       ?? initialAgentTurnMode(scope);
     if (ownerChanged || !loadIdentity) {
       setAgentTurnMode(immediate);
+      setAgentModelId(storedConversationMode ? scope.conversation?.agentModelId ?? null : null);
+      setAgentReasoningEffort(storedConversationMode ? scope.conversation?.agentReasoningEffort ?? null : null);
       setDraftLoadedScopeKey(null);
       setDraftDirtyRevision(0);
       setComposerText("");
@@ -283,6 +296,8 @@ export function useConversationComposerController(
             projectId: scope.projectId!,
             productMode,
             agentTurnMode: productMode === "agent" ? immediate : null,
+            agentModelId: null,
+            agentReasoningEffort: null,
             text: "",
             contextRefs: [],
             attachmentIds: [],
@@ -292,6 +307,7 @@ export function useConversationComposerController(
           draftFingerprintsRef.current.set(ownerIdentity, composerDraftFingerprint(emptyContent));
           draftObservedProvidersRef.current.set(ownerIdentity, emptyContent.selectedProviderId);
           draftRestoredModesRef.current.set(ownerIdentity, productMode === "agent" ? immediate : "default");
+          draftRestoredModelSelectionsRef.current.set(ownerIdentity, { modelId: null, reasoningEffort: null });
           return;
         }
         const restoredContent = contentFromSnapshot(draft);
@@ -301,10 +317,20 @@ export function useConversationComposerController(
         const draftMode = productMode === "agent" ? draft.agentTurnMode ?? immediate : "default";
         draftRestoredModesRef.current.set(ownerIdentity, draftMode);
         confirmedTurnModesRef.current.set(ownerIdentity, draftMode);
+        const draftModelSelection = productMode === "agent"
+          ? { modelId: draft.agentModelId, reasoningEffort: draft.agentReasoningEffort }
+          : { modelId: null, reasoningEffort: null };
+        draftRestoredModelSelectionsRef.current.set(ownerIdentity, draftModelSelection);
         const currentConversation = scopeRef.current.conversation;
         setAgentTurnMode(productMode === "agent" && currentConversation
           ? currentConversation.agentTurnMode ?? "default"
           : draftMode);
+        setAgentModelId(productMode === "agent" && currentConversation
+          ? currentConversation.agentModelId ?? null
+          : draftModelSelection.modelId);
+        setAgentReasoningEffort(productMode === "agent" && currentConversation
+          ? currentConversation.agentReasoningEffort ?? null
+          : draftModelSelection.reasoningEffort);
         setComposerText(draft.text);
         setFileRefs(normalizeComposerRefs(draft.contextRefs));
         setAttachments(draft.attachments);
@@ -337,6 +363,25 @@ export function useConversationComposerController(
     if (restored) setAgentTurnMode(restored);
   }, [scope.conversation?.agentTurnMode, scope.conversation?.id, scope.productMode, scope.projectId]);
 
+  useEffect(() => {
+    const productMode = composerProductMode(scope);
+    if (productMode !== "agent") {
+      setAgentModelId(null);
+      setAgentReasoningEffort(null);
+      return;
+    }
+    if (scope.conversation) {
+      setAgentModelId(scope.conversation.agentModelId ?? null);
+      setAgentReasoningEffort(scope.conversation.agentReasoningEffort ?? null);
+      return;
+    }
+    const restored = draftRestoredModelSelectionsRef.current.get(draftScopeIdentity(scope.projectId, productMode));
+    if (restored) {
+      setAgentModelId(restored.modelId);
+      setAgentReasoningEffort(restored.reasoningEffort);
+    }
+  }, [scope.conversation?.agentModelId, scope.conversation?.agentReasoningEffort, scope.conversation?.id, scope.productMode, scope.projectId]);
+
   const selectAgentTurnMode = useCallback(async (nextMode: AgentTurnMode): Promise<void> => {
     const currentScope = scopeRef.current;
     if (composerProductMode(currentScope) !== "agent") return;
@@ -346,6 +391,54 @@ export function useConversationComposerController(
     draftRestoredModesRef.current.set(draftScopeIdentity(currentScope.projectId, composerProductMode(currentScope)), nextMode);
     setAgentTurnMode(nextMode);
     markDraftDirty();
+  }, []);
+
+  const selectAgentModel = useCallback((nextModelId: string | null): void => {
+    const currentScope = scopeRef.current;
+    if (composerProductMode(currentScope) !== "agent") return;
+    const normalized = normalizeNullableSelection(nextModelId);
+    if (stateRef.current.agentModelId === normalized) return;
+    const nextCandidate = resolveSelectedModelCandidate(currentScope.providerModelSettings, normalized);
+    const currentEffort = stateRef.current.agentReasoningEffort;
+    const nextEffort = currentEffort && nextCandidate?.supportedReasoningEfforts.some((option) => option.value === currentEffort)
+      ? currentEffort
+      : null;
+    scopeGenerationRef.current += 1;
+    setAgentModelId(normalized);
+    setAgentReasoningEffort(nextEffort);
+    draftRestoredModelSelectionsRef.current.set(
+      draftScopeIdentity(currentScope.projectId, composerProductMode(currentScope)),
+      { modelId: normalized, reasoningEffort: nextEffort },
+    );
+    markDraftDirty();
+  }, []);
+
+  const selectAgentReasoningEffort = useCallback((nextEffort: string | null): void => {
+    const currentScope = scopeRef.current;
+    if (composerProductMode(currentScope) !== "agent") return;
+    const normalized = normalizeNullableSelection(nextEffort);
+    if (stateRef.current.agentReasoningEffort === normalized) return;
+    scopeGenerationRef.current += 1;
+    setAgentReasoningEffort(normalized);
+    draftRestoredModelSelectionsRef.current.set(
+      draftScopeIdentity(currentScope.projectId, composerProductMode(currentScope)),
+      { modelId: stateRef.current.agentModelId, reasoningEffort: normalized },
+    );
+    markDraftDirty();
+  }, []);
+
+  const selectProvider = useCallback(async (providerId: string): Promise<void> => {
+    const currentScope = scopeRef.current;
+    if (providerId === effectiveComposerProviderId(currentScope)) return;
+    scopeGenerationRef.current += 1;
+    setAgentModelId(null);
+    setAgentReasoningEffort(null);
+    draftRestoredModelSelectionsRef.current.set(
+      draftScopeIdentity(currentScope.projectId, composerProductMode(currentScope)),
+      { modelId: null, reasoningEffort: null },
+    );
+    markDraftDirty();
+    await portsRef.current.session.selectProvider?.(providerId);
   }, []);
 
   useEffect(() => {
@@ -361,6 +454,8 @@ export function useConversationComposerController(
       projectId: scope.projectId,
       productMode,
       agentTurnMode,
+      agentModelId,
+      agentReasoningEffort,
       text: composerText,
       contextRefs: fileRefs,
       attachments,
@@ -375,6 +470,8 @@ export function useConversationComposerController(
     draftSyncOwnerRef.current!.schedule(content);
   }, [
     agentTurnMode,
+    agentModelId,
+    agentReasoningEffort,
     attachments,
     composerText,
     draftDirtyRevision,
@@ -415,6 +512,7 @@ export function useConversationComposerController(
 
   const agentTurnModeDisabledReason = resolveDraftProviderDisabledReason(scope)
     ?? resolveAgentTurnModeDisabledReason(scope, agentTurnMode)
+    ?? resolveAgentTurnModelDisabledReason(scope, agentTurnMode, agentModelId, agentReasoningEffort)
     ?? resolveAttachmentCapabilityDisabledReason(scope, attachments);
 
   const cleanupTransition = useCallback((transition: ComposerTransition): void => {
@@ -533,6 +631,8 @@ export function useConversationComposerController(
     const capturedProductMode = composerProductMode(currentScope);
     const capturedProviderId = effectiveComposerProviderId(currentScope);
     const capturedAgentTurnMode = stateRef.current.agentTurnMode;
+    const capturedAgentModelId = stateRef.current.agentModelId;
+    const capturedAgentReasoningEffort = stateRef.current.agentReasoningEffort;
     const clientRequestId = (portsRef.current.ids ?? defaultComposerIds).createClientRequestId();
     const body = input.body ?? stateRef.current.composerText;
     const selectedRefs = input.fileRefs ?? stateRef.current.fileRefs;
@@ -540,7 +640,8 @@ export function useConversationComposerController(
     const attachmentFiles = input.attachmentFiles ?? [];
     const capturedDraftSkillOverrides = { ...stateRef.current.draftSkillOverrides };
     if (!capturedProjectId || (!body.trim() && attachmentIds.length === 0 && attachmentFiles.length === 0)) return null;
-    const turnModeError = resolveAgentTurnModeDisabledReason(currentScope, capturedAgentTurnMode);
+    const turnModeError = resolveAgentTurnModeDisabledReason(currentScope, capturedAgentTurnMode)
+      ?? resolveAgentTurnModelDisabledReason(currentScope, capturedAgentTurnMode, capturedAgentModelId, capturedAgentReasoningEffort);
     const draftProviderError = resolveDraftProviderDisabledReason(currentScope);
     if (draftProviderError ?? turnModeError) {
       portsRef.current.onError(draftProviderError ?? turnModeError);
@@ -596,6 +697,8 @@ export function useConversationComposerController(
         providerId: capturedProviderId ?? undefined,
         skillOverrides: normalizeSkillOverrideRecord(prepared.skillOverrides),
         agentTurnMode: capturedProductMode === "agent" ? capturedAgentTurnMode : undefined,
+        modelId: capturedProductMode === "agent" ? capturedAgentModelId : undefined,
+        reasoningEffort: capturedProductMode === "agent" ? capturedAgentReasoningEffort : undefined,
         showPendingBeforeCreate: attachmentFiles.length === 0,
       });
       uploadedDraft = [];
@@ -655,6 +758,8 @@ export function useConversationComposerController(
     const generation = scopeGenerationRef.current;
     const capturedProductMode = composerProductMode(currentScope);
     const capturedAgentTurnMode = stateRef.current.agentTurnMode;
+    const capturedAgentModelId = stateRef.current.agentModelId;
+    const capturedAgentReasoningEffort = stateRef.current.agentReasoningEffort;
     const draft = stateRef.current;
     const attachmentIds = draft.attachments.map((attachment) => attachment.id);
     const capturedDraftContent = currentScope.projectId
@@ -662,6 +767,8 @@ export function useConversationComposerController(
         projectId: currentScope.projectId,
         productMode: capturedProductMode,
         agentTurnMode: capturedAgentTurnMode,
+        agentModelId: capturedAgentModelId,
+        agentReasoningEffort: capturedAgentReasoningEffort,
         text: draft.composerText,
         contextRefs: draft.fileRefs,
         attachments: draft.attachments,
@@ -761,7 +868,8 @@ export function useConversationComposerController(
       return;
     }
     const outboundMessage = prepared.text || defaultAttachmentPrompt(attachmentIds.length);
-    const turnModeError = resolveAgentTurnModeDisabledReason(currentScope, capturedAgentTurnMode);
+    const turnModeError = resolveAgentTurnModeDisabledReason(currentScope, capturedAgentTurnMode)
+      ?? resolveAgentTurnModelDisabledReason(currentScope, capturedAgentTurnMode, capturedAgentModelId, capturedAgentReasoningEffort);
     const draftProviderError = resolveDraftProviderDisabledReason(currentScope);
     if (draftProviderError ?? turnModeError) {
       portsRef.current.onError(draftProviderError ?? turnModeError);
@@ -802,6 +910,8 @@ export function useConversationComposerController(
           ? "resume-workflow"
           : undefined,
         agentTurnMode: capturedProductMode === "agent" ? capturedAgentTurnMode : undefined,
+        modelId: capturedProductMode === "agent" ? capturedAgentModelId : undefined,
+        reasoningEffort: capturedProductMode === "agent" ? capturedAgentReasoningEffort : undefined,
       };
       await (portsRef.current.actions.sendMessage
         ?? ((input: ComposerMessageRequest) => sendComposerMessage(input, (projectId, event) => {
@@ -952,7 +1062,12 @@ export function useConversationComposerController(
     attachments,
     draftDiagnostics,
     agentTurnMode,
+    agentModelId,
+    agentReasoningEffort,
     selectAgentTurnMode,
+    selectAgentModel,
+    selectAgentReasoningEffort,
+    selectProvider,
     agentTurnModeDisabledReason,
     setAttachments: (next: TopicAttachment[] | ((current: TopicAttachment[]) => TopicAttachment[])) => {
       attachmentSelectionGenerationRef.current += 1;
@@ -1028,6 +1143,8 @@ function composerDraftContent(input: {
   projectId: string;
   productMode: ProductMode;
   agentTurnMode: AgentTurnMode;
+  agentModelId: string | null;
+  agentReasoningEffort: string | null;
   text: string;
   contextRefs: TopicFileReference[];
   attachments: TopicAttachment[];
@@ -1038,6 +1155,8 @@ function composerDraftContent(input: {
     projectId: input.projectId,
     productMode: input.productMode,
     agentTurnMode: input.productMode === "agent" ? input.agentTurnMode : null,
+    agentModelId: input.productMode === "agent" ? input.agentModelId : null,
+    agentReasoningEffort: input.productMode === "agent" ? input.agentReasoningEffort : null,
     text: input.text,
     contextRefs: normalizeComposerRefs(input.contextRefs),
     attachmentIds: [...new Set(input.attachments.map((attachment) => attachment.id))],
@@ -1051,6 +1170,8 @@ function contentFromSnapshot(snapshot: ComposerDraftSnapshot): ComposerDraftCont
     projectId: snapshot.projectId,
     productMode: snapshot.productMode,
     agentTurnMode: snapshot.agentTurnMode,
+    agentModelId: snapshot.agentModelId,
+    agentReasoningEffort: snapshot.agentReasoningEffort,
     text: snapshot.text,
     contextRefs: snapshot.contextRefs,
     attachmentIds: snapshot.attachments.map((attachment) => attachment.id),
@@ -1156,6 +1277,8 @@ async function sendComposerMessage(
       providerSwitchIntent: request.providerSwitchIntent,
       productMode: request.productMode,
       agentTurnMode: request.agentTurnMode,
+      modelId: request.modelId,
+      reasoningEffort: request.reasoningEffort,
     },
     (event) => routeEvent?.(request.projectId, event),
   );
@@ -1183,6 +1306,14 @@ function initialAgentTurnMode(scope: ConversationComposerScope): AgentTurnMode {
     : "default";
 }
 
+function initialAgentModelId(scope: ConversationComposerScope): string | null {
+  return composerProductMode(scope) === "agent" ? scope.conversation?.agentModelId ?? null : null;
+}
+
+function initialAgentReasoningEffort(scope: ConversationComposerScope): string | null {
+  return composerProductMode(scope) === "agent" ? scope.conversation?.agentReasoningEffort ?? null : null;
+}
+
 export function resolveAgentTurnModeDisabledReason(
   scope: ConversationComposerScope,
   agentTurnMode: AgentTurnMode,
@@ -1194,10 +1325,53 @@ export function resolveAgentTurnModeDisabledReason(
   if (!providerId) return "请先选择支持 Plan 模式的 Agent。";
   const snapshot = scope.providerCapabilities?.find((candidate) => candidate.providerId === providerId);
   const plan = snapshot?.capabilities.find((capability) => capability.key === "turn.plan");
-  if (!snapshot || snapshot.effectiveModel === null || plan?.runtime !== "ready") {
+  if (!snapshot || plan?.runtime !== "ready") {
     return plan?.reason ?? "当前 Agent 不支持 Plan 模式。";
   }
   return null;
+}
+
+export function resolveAgentTurnModelDisabledReason(
+  scope: ConversationComposerScope,
+  agentTurnMode: AgentTurnMode,
+  modelId: string | null,
+  reasoningEffort: string | null,
+): string | null {
+  if (composerProductMode(scope) !== "agent" || scope.running) return null;
+  const providerId = effectiveComposerProviderId(scope);
+  if (!providerId) {
+    return agentTurnMode === "plan" || modelId || reasoningEffort
+      ? "请先选择本次 Turn 使用的 Agent。"
+      : null;
+  }
+  const snapshot = scope.providerModelSettings;
+  if (!snapshot || snapshot.providerId !== providerId) return "正在读取当前 Agent 的模型目录。";
+  const candidate = resolveSelectedModelCandidate(snapshot, modelId);
+  if (modelId && !candidate) return "已选择的模型当前不可用，请重新选择后再发送。";
+  const resolvedModelId = modelId ?? snapshot.effectiveModel?.modelId ?? null;
+  if (agentTurnMode === "plan" && !resolvedModelId) return "Plan 模式需要当前 Agent 解析出有效模型。";
+  if (reasoningEffort) {
+    if (!candidate) return "显式推理强度需要先解析出可验证的模型。";
+    if (candidate.supportedReasoningEfforts.length === 0) return "当前模型没有可验证的推理强度选项，请使用模型默认值。";
+    if (!candidate.supportedReasoningEfforts.some((option) => option.value === reasoningEffort)) {
+      return "已选择的推理强度不再受当前模型支持，请重新选择。";
+    }
+  }
+  return null;
+}
+
+function resolveSelectedModelCandidate(
+  snapshot: ProviderModelSettingsSnapshot | null | undefined,
+  modelId: string | null,
+): ProviderModelSettingsSnapshot["candidates"][number] | null {
+  if (!snapshot) return null;
+  const resolved = modelId ?? snapshot.effectiveModel?.modelId ?? null;
+  if (!resolved) return null;
+  return snapshot.candidates.find((candidate) => candidate.modelId.toLowerCase() === resolved.toLowerCase()) ?? null;
+}
+
+function normalizeNullableSelection(value: string | null): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 export function resolveDraftProviderDisabledReason(scope: ConversationComposerScope): string | null {

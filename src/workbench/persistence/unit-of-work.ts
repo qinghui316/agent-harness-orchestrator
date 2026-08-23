@@ -104,18 +104,16 @@ export class WorkbenchUnitOfWork {
     projectId: string;
     conversationId: string;
     expectedAgentTurnMode: AgentTurnMode;
+    expectedAgentModelId: string | null;
+    expectedAgentReasoningEffort: string | null;
     agentTurnMode: AgentTurnMode;
+    agentModelId: string | null;
+    agentReasoningEffort: string | null;
     updatedAt: string;
     message: StoredTopicMessageWrite;
   }): StoredTopicMessage {
     return this.db.transaction(() => {
-      this.conversations.updateAgentTurnMode(
-        input.projectId,
-        input.conversationId,
-        input.expectedAgentTurnMode,
-        input.agentTurnMode,
-        input.updatedAt,
-      );
+      this.conversations.updateAgentTurnPreferences(input);
       return this.timeline.appendMessage(input.message);
     }).immediate();
   }

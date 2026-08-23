@@ -170,6 +170,8 @@ export interface CreateTopicRequest {
   attachmentIds?: string[];
   providerId?: TopicMessageInput["providerId"];
   agentTurnMode?: TopicMessageInput["agentTurnMode"];
+  modelId?: TopicMessageInput["modelId"];
+  reasoningEffort?: TopicMessageInput["reasoningEffort"];
 }
 
 export interface UpdateConversationTitleRequest {
@@ -187,6 +189,8 @@ export interface TopicMessageRequest {
   agentSurfaceId?: TopicMessageInput["agentSurfaceId"];
   productMode: ProductMode;
   agentTurnMode?: TopicMessageInput["agentTurnMode"];
+  modelId?: TopicMessageInput["modelId"];
+  reasoningEffort?: TopicMessageInput["reasoningEffort"];
 }
 
 export interface ConversationTurnInterruptBody {

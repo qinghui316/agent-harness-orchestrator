@@ -223,6 +223,7 @@ export interface CodexAppServerTurnOptions {
   onPlanUpdate?: (text: string, params: Record<string, unknown>) => void;
   onError?: (error: unknown) => void;
   model?: string | null;
+  reasoningEffort?: string | null;
   imageInputs?: Array<{ path: string; mediaType?: string; fileName?: string }>;
   fileInputs?: Array<{ name: string; path: string }>;
   skillInputs?: Array<{ name: string; path: string }>;
@@ -238,7 +239,7 @@ export interface CodexAppServerTurnOptions {
     mode: "plan";
     settings: {
       model: string;
-      reasoning_effort: null;
+      reasoning_effort: string | null;
       developer_instructions: null;
     };
   };
@@ -867,6 +868,7 @@ async function runCodexAppServerOperation(
       waitingGoalAttachPending = false;
     } else if ((!goalBeforeSession || isResumableGoalStatus(goalBeforeSession.status)) && !terminalStatus) {
       const turnModel = options.model?.trim() || null;
+      const turnReasoningEffort = options.reasoningEffort?.trim() || null;
       acceptingTurnEvents = true;
       const turnResponse = await sendRequest("turn/start", {
         threadId,
@@ -877,6 +879,7 @@ async function runCodexAppServerOperation(
         ...(options.runtimeWorkspaceRoots?.length ? { runtimeWorkspaceRoots: options.runtimeWorkspaceRoots } : {}),
         ...(options.additionalContext ? { additionalContext: options.additionalContext } : {}),
         ...(turnModel ? { model: turnModel } : {}),
+        ...(turnReasoningEffort ? { effort: turnReasoningEffort } : {}),
         ...(options.collaborationMode ? { collaborationMode: options.collaborationMode } : {}),
         ...(options.outputSchema ? { outputSchema: options.outputSchema } : {}),
       });
@@ -889,6 +892,7 @@ async function runCodexAppServerOperation(
     }
 
     if (!terminalStatus) await waitForTerminal(options.timeoutMs ?? 15 * 60 * 1000);
+    else if (terminalError) throw new Error(terminalError);
     if (pendingChildReads.size > 0) await Promise.all([...pendingChildReads]);
     if (childTarget?.action === "followup") {
       const selected = [...childThreads].reverse().find((candidate) => candidate.threadId === childTarget.targetThreadId && candidate.finalText.trim());
@@ -1164,10 +1168,13 @@ async function runCodexAppServerOperation(
       activeTurnTerminal.resolve(CODEX_TURN_ALREADY_TERMINAL);
       const completedTurnId = stringValue((isRecord(params.turn) ? params.turn.id : undefined) ?? params.turnId);
       if (threadId && completedTurnId) hostLease?.clearActiveTurn(threadId, completedTurnId);
-      const interrupted = completionStatus(params) === "interrupted";
+      const completedStatus = completionStatus(params);
+      const interrupted = completedStatus === "interrupted";
+      const failed = completedStatus === "failed";
       const waitingForGoalPause = goalPauseRequested && goal?.status !== "paused";
       if (!waitingForGoalPause && (!options.goalSession || interrupted || !goal || isTurnTerminalGoalStatus(goal.status))) {
-        terminalStatus = interrupted ? "interrupted" : "completed";
+        terminalStatus = failed ? "failed" : interrupted ? "interrupted" : "completed";
+        if (failed) terminalError = JSON.stringify(params);
       }
     } else if (isParentNotification && method === "turn/failed") {
       activeTurnRunning = false;

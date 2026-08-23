@@ -321,6 +321,7 @@ export interface ProviderTurnRequest {
   onPlanUpdate?: (text: string, params: Record<string, unknown>) => void;
   onError?: (error: unknown) => void;
   model?: ProviderModelRef | null;
+  reasoningEffort?: string | null;
   imageInputs?: ProviderImageInput[];
   fileInputs?: ProviderFileInput[];
   skillInputs?: ProviderSkillInput[];

@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { Send, Square } from "lucide-react";
-import type { AgentTurnMode, ProductMode, SkillListItem, TopicAttachment, TopicFileReference, WorkpadRuntimeStatus } from "../types.js";
+import type { AgentTurnMode, ProductMode, ProviderModelSettingsSnapshot, SkillListItem, TopicAttachment, TopicFileReference, WorkpadRuntimeStatus } from "../types.js";
 import { ComposerAttachButton, ComposerAttachmentList, filesFromDrop, hasFileDrag, imageFilesFromPaste } from "./ComposerAttachments.js";
 import { ComposerControls } from "./ComposerControls.js";
 import { buildComposerContextSummary, ComposerContextSourcesPopover, type ComposerContextKind } from "./ComposerContextSources.js";
@@ -28,6 +28,11 @@ export function TopicComposer({
   agentTurnMode,
   onSelectAgentTurnMode,
   agentTurnModeDisabledReason,
+  agentModelId,
+  agentReasoningEffort,
+  providerModelSettings,
+  onSelectAgentModel,
+  onSelectAgentReasoningEffort,
   productMode,
   onSend,
   onStopAndContinue,
@@ -58,6 +63,11 @@ export function TopicComposer({
   agentTurnMode?: AgentTurnMode;
   onSelectAgentTurnMode?: (mode: AgentTurnMode) => void | Promise<void>;
   agentTurnModeDisabledReason?: string | null;
+  agentModelId?: string | null;
+  agentReasoningEffort?: string | null;
+  providerModelSettings?: ProviderModelSettingsSnapshot | null;
+  onSelectAgentModel?: (modelId: string | null) => void | Promise<void>;
+  onSelectAgentReasoningEffort?: (effort: string | null) => void | Promise<void>;
   onSend: () => Promise<void>;
   onStopAndContinue?: () => Promise<void>;
   actionRunning: string | null;
@@ -156,12 +166,22 @@ export function TopicComposer({
           selectedProviderId={selectedProviderId}
           onSelectProvider={onSelectProvider}
         />
-        <AgentTurnModeControl
-          productMode={productMode}
-          value={agentTurnMode}
-          onChange={onSelectAgentTurnMode}
-          planDisabledReason={agentTurnModeDisabledReason}
-        />
+        <div className="agent-turn-settings-row">
+          <AgentTurnModeControl
+            productMode={productMode}
+            value={agentTurnMode}
+            onChange={onSelectAgentTurnMode}
+            planDisabledReason={agentTurnModeDisabledReason}
+          />
+          <AgentTurnModelControls
+            productMode={productMode}
+            modelId={agentModelId}
+            reasoningEffort={agentReasoningEffort}
+            modelSettings={providerModelSettings}
+            onSelectModel={onSelectAgentModel}
+            onSelectReasoningEffort={onSelectAgentReasoningEffort}
+          />
+        </div>
       </div>}
       toolbar={<>
         <ComposerAttachButton disabled={Boolean(disabledReason)} onAttachFiles={onAttachFiles} />
@@ -228,6 +248,60 @@ export function TopicComposer({
           : "输入问题或下一步需求")}
       />
     </ComposerFrame>
+  );
+}
+
+export function AgentTurnModelControls({
+  productMode,
+  modelId,
+  reasoningEffort,
+  modelSettings,
+  onSelectModel,
+  onSelectReasoningEffort,
+}: {
+  productMode?: ProductMode;
+  modelId?: string | null;
+  reasoningEffort?: string | null;
+  modelSettings?: ProviderModelSettingsSnapshot | null;
+  onSelectModel?: (modelId: string | null) => void | Promise<void>;
+  onSelectReasoningEffort?: (effort: string | null) => void | Promise<void>;
+}): ReactElement | null {
+  if (productMode !== "agent" || !onSelectModel || !onSelectReasoningEffort) return null;
+  const candidates = modelSettings?.candidates ?? [];
+  const resolvedModelId = modelId ?? modelSettings?.effectiveModel?.modelId ?? null;
+  const candidate = resolvedModelId
+    ? candidates.find((item) => item.modelId.toLowerCase() === resolvedModelId.toLowerCase()) ?? null
+    : null;
+  const efforts = candidate?.supportedReasoningEfforts ?? [];
+  const modelIsUnavailable = Boolean(modelId && !candidates.some((item) => item.modelId.toLowerCase() === modelId.toLowerCase()));
+  const effortIsUnavailable = Boolean(reasoningEffort && !efforts.some((option) => option.value === reasoningEffort));
+  return (
+    <div className="agent-turn-model-controls" data-testid="agent-turn-model-controls">
+      <label>
+        <span className="sr-only">本次 Turn 模型</span>
+        <select
+          aria-label="本次 Turn 模型"
+          value={modelId ?? ""}
+          onChange={(event) => void onSelectModel(event.target.value || null)}
+        >
+          <option value="">跟随 Provider 配置</option>
+          {modelIsUnavailable ? <option value={modelId!}>不可用：{modelId}</option> : null}
+          {candidates.map((item) => <option key={`${item.source}:${item.modelId}`} value={item.modelId}>{item.label}</option>)}
+        </select>
+      </label>
+      <label>
+        <span className="sr-only">本次 Turn 推理强度</span>
+        <select
+          aria-label="本次 Turn 推理强度"
+          value={reasoningEffort ?? ""}
+          onChange={(event) => void onSelectReasoningEffort(event.target.value || null)}
+        >
+          <option value="">使用模型默认值</option>
+          {effortIsUnavailable ? <option value={reasoningEffort!}>不可用：{reasoningEffort}</option> : null}
+          {efforts.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+      </label>
+    </div>
   );
 }
 

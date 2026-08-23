@@ -23,11 +23,12 @@ describe("Codex Plan mode boundary", () => {
     expect(codexPlanCollaborationMode({
       agentTurnMode: "plan",
       model: { providerId: "codex", modelId: "gpt-test" },
+      reasoningEffort: "high",
     } as ProviderTurnRequest)).toEqual({
       mode: "plan",
       settings: {
         model: "gpt-test",
-        reasoning_effort: null,
+        reasoning_effort: "high",
         developer_instructions: null,
       },
     });

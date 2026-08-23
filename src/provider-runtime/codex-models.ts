@@ -14,6 +14,8 @@ export async function codexModelSettings(projectPath?: string): Promise<Provider
       label: candidate.label,
       source: candidate.source,
       isDefault: candidate.isDefault,
+      supportedReasoningEfforts: candidate.supportedReasoningEfforts,
+      defaultReasoningEffort: candidate.defaultReasoningEffort,
     })),
     available: snapshot.modelList.available,
     degradedReason: snapshot.modelList.degradedReason,

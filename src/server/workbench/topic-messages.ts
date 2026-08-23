@@ -26,6 +26,8 @@ export async function readCreateTopicBody(request: IncomingMessage): Promise<{
   clientRequestId: string;
   skillOverrides?: CreateTopicRequest["skillOverrides"];
   agentTurnMode?: CreateTopicRequest["agentTurnMode"];
+  modelId?: CreateTopicRequest["modelId"];
+  reasoningEffort?: CreateTopicRequest["reasoningEffort"];
 }> {
   const body = await readJsonBody<CreateTopicRequest>(request);
   if (body.confirm !== true) {
@@ -54,6 +56,8 @@ export async function readCreateTopicBody(request: IncomingMessage): Promise<{
     clientRequestId: body.clientRequestId,
     skillOverrides: body.skillOverrides,
     agentTurnMode: body.agentTurnMode,
+    modelId: body.modelId,
+    reasoningEffort: body.reasoningEffort,
   };
 }
 
@@ -70,6 +74,8 @@ export async function readTopicMessageBody(request: IncomingMessage): Promise<To
     agentSurfaceId: raw.agentSurfaceId,
     productMode: requireProductMode(raw.productMode),
     agentTurnMode: raw.agentTurnMode,
+    modelId: raw.modelId,
+    reasoningEffort: raw.reasoningEffort,
   };
   assertTopicMessageText(message);
   return message;

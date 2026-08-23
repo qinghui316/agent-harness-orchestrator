@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { evaluateCodexAppServerCapabilities, extractCodexAppServerPlanText, extractCodexAppServerThreadDisplayName, extractCodexAppServerThreadFinalText, extractCodexAppServerThreadInitialPrompt, extractCodexAppServerThreadInitialUserItem } from "../../src/codex/app-server.js";
@@ -541,13 +541,31 @@ describe("codex model settings", () => {
   it("extracts runtime model candidates from model_list responses", () => {
     const candidates = candidatesFromModelListResponse({
       data: [
-        { id: "gpt-5.5", displayName: "GPT 5.5", isDefault: true },
+        {
+          id: "gpt-5.5",
+          displayName: "GPT 5.5",
+          isDefault: true,
+          supportedReasoningEfforts: [
+            { reasoningEffort: "low", description: "Faster" },
+            { reasoningEffort: "high", description: "Deeper" },
+          ],
+          defaultReasoningEffort: "high",
+        },
         { model: "gpt-5.3-codex", display_name: "GPT 5.3 Codex" },
       ],
     });
 
     expect(candidates.map((candidate) => candidate.model)).toEqual(["gpt-5.5", "gpt-5.3-codex"]);
-    expect(candidates[0]).toMatchObject({ label: "GPT 5.5", source: "runtime", isDefault: true });
+    expect(candidates[0]).toMatchObject({
+      label: "GPT 5.5",
+      source: "runtime",
+      isDefault: true,
+      supportedReasoningEfforts: [
+        { value: "low", label: "低", description: "Faster" },
+        { value: "high", label: "高", description: "Deeper" },
+      ],
+      defaultReasoningEffort: "high",
+    });
   });
 
   it("resolves selected model before Codex config model", async () => {
@@ -605,6 +623,7 @@ describe("codex model settings", () => {
       expect(snapshot.candidates.some((candidate) => candidate.model === "custom-model")).toBe(false);
       expect(snapshot.effectiveModel).toBe("config-model");
       expect(snapshot.effectiveModelSource).toBe("config");
+      expect(await readFile(join(process.env.AHO_HOME, "settings.json"), "utf8")).toContain("custom-model");
     } finally {
       if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
       else process.env.CODEX_HOME = previousCodexHome;

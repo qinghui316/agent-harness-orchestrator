@@ -138,6 +138,8 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
         title: topic.title,
         state: topic.state,
         agentTurnMode: topic.agentTurnMode,
+        agentModelId: topic.agentModelId,
+        agentReasoningEffort: topic.agentReasoningEffort,
       },
       snapshot: await getWorkbenchSnapshot(input, { topicId: topic.conversationId, productMode: topic.productMode }),
     });

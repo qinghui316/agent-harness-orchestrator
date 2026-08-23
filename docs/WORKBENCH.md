@@ -30,24 +30,26 @@ requests carry explicit product mode and may assert Conversation and Provider
 identity; stored Conversation identity is authoritative and mismatches fail
 closed before Provider effects.
 
-Ordinary Agent conversations have a per-send `Default / Plan` control. `Default`
-uses the admitted project workspace-write sandbox. `Plan` is available only when
-the selected Provider reports the optional `turn.plan` capability and an
-effective model; it uses a read-only sandbox with no writable roots. The
-selection is captured before the user message, ProviderAttempt, or Provider turn
-is created, and the Conversation and empty Composer draft retain it only as the
-next-send preference. A capability error keeps a selected Plan visible but
-blocks sending until the user changes mode or capability recovery succeeds.
-Harness conversations do not expose this control.
+Ordinary Agent conversations have per-send `Default / Plan`, model, and reasoning
+effort controls. `Default` uses the admitted project workspace-write sandbox.
+`Plan` is available when the selected Provider reports the optional `turn.plan`
+protocol capability, uses a read-only sandbox with no writable roots, and also
+requires this Turn to resolve an effective model. Model and effort may follow the
+current Provider configuration/defaults or select one exact catalog option. An
+invalid explicit selection remains visible and blocks sending instead of falling
+back. One immutable admission captures the requested and resolved values before
+the user message, ProviderAttempt, or Provider turn is created. The adapter alone
+constructs any private Plan payload. Harness conversations expose none of these
+Agent controls and continue through their existing operation-profile model path.
 
 Composer drafts are durable full snapshots scoped by `projectId + productMode`.
-They reuse the schema-13 `composer_drafts` row and include unsent text, safe
+They reuse the schema-14 `composer_drafts` row and include unsent text, safe
 project-relative file references, managed attachment ids, provider-neutral Skill
-overrides, the selected Provider id, and the Agent Default/Plan preference.
-Harness snapshots always store a null Agent turn mode, and Agent and Harness
-never read or update each other's draft row. Draft IO does not require Harness
-readiness, invoke a Provider, or create Conversation, Timeline, Attempt, Change,
-Workflow, or authorization evidence.
+overrides, the selected Provider id, and the Agent Default/Plan, model, and effort
+preferences. Harness snapshots always store null Agent turn/model/effort fields,
+and Agent and Harness never read or update each other's draft row. Draft IO does
+not require Harness readiness, invoke a Provider, or create Conversation,
+Timeline, Attempt, Change, Workflow, or authorization evidence.
 
 The draft API writes one complete snapshot with `updatedAt` compare-and-swap.
 Stale saves and deletes return the current server snapshot without overwriting
@@ -57,7 +59,9 @@ root containment and symlink segments, managed attachment ownership and hashes,
 and current Skill/Provider availability. Invalid evidence is omitted with bounded
 diagnostics; no file body, base64 data, preview URL, or managed absolute path is
 stored or returned. An unavailable saved Provider or Plan choice remains visible
-and blocks sending until the user selects a supported configuration.
+and blocks sending until the user selects a supported configuration. Explicit
+model or effort selections behave the same way. Switching Provider resets both
+to automatic defaults rather than inheriting same-named options across Providers.
 
 Successful ordinary sends compare-and-clear only the submitted text, references,
 attachments, and draft Skill overrides. Accepted Steer clears only its captured

@@ -101,6 +101,33 @@ describe("canonical parent agent transcript cells", () => {
     expect(cells.at(-1)?.id).toBe("cell:turn:codex:attempt-turn-1:thread-1:turn-1");
   });
 
+  it("uses the canonical failed turn status when legacy activity ends with completed", () => {
+    const cells = renderThreadItems([{
+      id: "assistant-failed",
+      kind: "assistant-turn",
+      label: "AI",
+      source: "chat",
+      timestamp: "2026-07-14T00:00:24.000Z",
+      providerId: "codex",
+      attemptId: "attempt-failed",
+      runId: "run-failed",
+      threadId: "thread-failed",
+      turnId: "turn-failed",
+      status: "failed",
+      activity: [
+        { kind: "status", label: "thinking", timestamp: "2026-07-14T00:00:00.000Z" },
+        { kind: "status", label: "failed", timestamp: "2026-07-14T00:00:20.000Z" },
+        { kind: "status", label: "completed", timestamp: "2026-07-14T00:00:24.000Z" },
+      ],
+    }]);
+
+    expect(cells).toEqual([expect.objectContaining({
+      title: "本轮需要处理 · 24 秒",
+      status: "failed",
+      isError: true,
+    })]);
+  });
+
   it("projects a provider child lifecycle as one navigable canonical process row", () => {
     const cells = renderThreadItems([{
       id: "assistant-child-lifecycle",

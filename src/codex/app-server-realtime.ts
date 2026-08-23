@@ -44,6 +44,14 @@ export function normalizeCodexAppServerNotification(
     return [event(scoped, method, { type: "status", label: "thinking", raw: params })];
   }
   if (normalizedMethod === "turn/completed") {
+    const turn = record(params.turn);
+    const status = stringValue(params.status ?? turn?.status)?.toLowerCase();
+    if (status === "failed") {
+      return [event(scoped, method, { type: "error", message: errorText(params), raw: params })];
+    }
+    if (status === "interrupted") {
+      return [event(scoped, method, { type: "status", label: "cancelled", raw: params })];
+    }
     const usage = record(params.usage);
     return [event(scoped, method, { type: "turn_completed", ...(usage ? { usage } : {}), raw: params })];
   }
@@ -158,7 +166,8 @@ function isItemLifecycle(method: string): boolean {
 }
 
 function errorText(params: Record<string, unknown>): string {
-  const error = record(params.error);
+  const turn = record(params.turn);
+  const error = record(params.error) ?? record(turn?.error);
   return stringValue(error?.message ?? params.message ?? params.error) ?? "Codex turn failed";
 }
 

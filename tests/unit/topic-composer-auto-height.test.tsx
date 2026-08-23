@@ -48,6 +48,50 @@ describe("Topic Composer height", () => {
     else delete (HTMLTextAreaElement.prototype as { scrollHeight?: number }).scrollHeight;
   });
 
+  it("shows per-Turn model and effort menus only for Agent mode", () => {
+    const onSelectModel = vi.fn();
+    const onSelectEffort = vi.fn();
+    const view = render(<TopicComposer
+      value="draft"
+      onChange={vi.fn()}
+      modelLabel="gpt-test"
+      projectId="project"
+      productMode="agent"
+      agentTurnMode="default"
+      agentModelId="gpt-test"
+      agentReasoningEffort="high"
+      providerModelSettings={{
+        providerId: "codex",
+        selectedModel: null,
+        effectiveModel: { providerId: "codex", modelId: "gpt-test" },
+        effectiveModelSource: "provider-default",
+        candidates: [{
+          providerId: "codex",
+          modelId: "gpt-test",
+          label: "GPT Test",
+          source: "runtime",
+          supportedReasoningEfforts: [{ value: "high", label: "高" }],
+          defaultReasoningEffort: "high",
+        }],
+        available: true,
+      }}
+      onSelectAgentTurnMode={vi.fn()}
+      onSelectAgentModel={onSelectModel}
+      onSelectAgentReasoningEffort={onSelectEffort}
+      onSend={async () => undefined}
+      actionRunning={null}
+    />);
+
+    expect(screen.getByTestId("agent-turn-model-controls")).toBeTruthy();
+    fireEvent.change(screen.getByRole("combobox", { name: "本次 Turn 模型" }), { target: { value: "" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "本次 Turn 推理强度" }), { target: { value: "" } });
+    expect(onSelectModel).toHaveBeenCalledWith(null);
+    expect(onSelectEffort).toHaveBeenCalledWith(null);
+
+    view.rerender(composer("draft"));
+    expect(screen.queryByTestId("agent-turn-model-controls")).toBeNull();
+  });
+
   it("remeasures unchanged text when the composer width changes", () => {
     let resizeCallback: ResizeObserverCallback | null = null;
     const resizeObserver = class {

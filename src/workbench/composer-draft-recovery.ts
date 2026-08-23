@@ -18,6 +18,8 @@ export interface ComposerDraftSnapshot {
   projectId: string;
   productMode: ProductMode;
   agentTurnMode: AgentTurnMode | null;
+  agentModelId: string | null;
+  agentReasoningEffort: string | null;
   text: string;
   contextRefs: TopicFileReference[];
   attachments: TopicAttachmentEvidence[];
@@ -31,6 +33,8 @@ export interface ComposerDraftWriteRequest {
   projectId: string;
   productMode: ProductMode;
   agentTurnMode: AgentTurnMode | null;
+  agentModelId: string | null;
+  agentReasoningEffort: string | null;
   text: string;
   contextRefs: TopicFileReference[];
   attachmentIds: string[];
@@ -52,6 +56,8 @@ const StoredSkillOverridesSchema = z.record(z.string(), z.boolean());
 const DraftWriteSchema = z.object({
   productMode: z.enum(["agent", "harness"]),
   agentTurnMode: z.unknown().optional().nullable(),
+  agentModelId: z.string().min(1).max(300).optional().nullable(),
+  agentReasoningEffort: z.string().min(1).max(100).optional().nullable(),
   text: z.string().max(2 * 1024 * 1024),
   contextRefs: StoredFileReferencesSchema.default([]),
   attachmentIds: StoredAttachmentIdsSchema.default([]),
@@ -80,6 +86,8 @@ export class ComposerDraftRecoveryService {
       projectId: stored.projectId,
       productMode: stored.productMode,
       agentTurnMode,
+      agentModelId: stored.productMode === "agent" ? stored.agentModelId : null,
+      agentReasoningEffort: stored.productMode === "agent" ? stored.agentReasoningEffort : null,
       text: stored.text,
       contextRefs,
       attachments,
@@ -95,6 +103,8 @@ export class ComposerDraftRecoveryService {
     if (!parsed.success) throw badRequest("Composer draft payload is invalid.");
     const productMode = parsed.data.productMode;
     const agentTurnMode = parseWriteTurnMode(productMode, parsed.data.agentTurnMode);
+    const agentModelId = parseWriteAgentSelection(productMode, parsed.data.agentModelId, "model");
+    const agentReasoningEffort = parseWriteAgentSelection(productMode, parsed.data.agentReasoningEffort, "reasoning effort");
     const contextRefs: TopicFileReference[] = [];
     for (const reference of uniqueReferences(parsed.data.contextRefs)) {
       const safe = await restoreTopicFileReference(project, reference).catch(() => null);
@@ -112,6 +122,8 @@ export class ComposerDraftRecoveryService {
       projectId: project.id,
       productMode,
       agentTurnMode,
+      agentModelId,
+      agentReasoningEffort,
       text: parsed.data.text,
       contextRefsJson: JSON.stringify(contextRefs),
       attachmentIdsJson: JSON.stringify(attachmentIds),
@@ -203,6 +215,14 @@ function parseWriteTurnMode(productMode: ProductMode, value: unknown): AgentTurn
   } catch {
     throw badRequest("Agent Composer drafts require a valid agentTurnMode.");
   }
+}
+
+function parseWriteAgentSelection(productMode: ProductMode, value: string | null | undefined, label: string): string | null {
+  if (productMode === "harness") {
+    if (value !== null && value !== undefined) throw conflict(`Harness Composer drafts cannot carry Agent ${label}.`);
+    return null;
+  }
+  return value?.trim() || null;
 }
 
 function parseSkillOverrides(raw: string, diagnostics: ComposerDraftDiagnostic[]): Record<string, boolean> {

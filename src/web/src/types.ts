@@ -26,6 +26,8 @@ export type ProviderModelCandidate = {
   label: string;
   source: string;
   isDefault?: boolean;
+  supportedReasoningEfforts: Array<{ value: string; label: string; description?: string }>;
+  defaultReasoningEffort: string | null;
 };
 export type ProviderModelSettingsSnapshot = {
   providerId: string;
@@ -165,6 +167,8 @@ export type ComposerDraftSnapshot = {
   projectId: string;
   productMode: ProductMode;
   agentTurnMode: AgentTurnMode | null;
+  agentModelId: string | null;
+  agentReasoningEffort: string | null;
   text: string;
   contextRefs: TopicFileReference[];
   attachments: TopicAttachment[];
@@ -364,7 +368,7 @@ export type Snapshot = {
   warnings: string[];
 };
 
-export type Topic = { id: string; productMode: ProductMode; agentTurnMode?: AgentTurnMode | null; title: string; state: string; updatedAt?: string; kind?: "conversation" | "change"; boundChangeId?: string | null; graphScopeId?: string; selectedProviderId?: string };
+export type Topic = { id: string; productMode: ProductMode; agentTurnMode?: AgentTurnMode | null; agentModelId?: string | null; agentReasoningEffort?: string | null; title: string; state: string; updatedAt?: string; kind?: "conversation" | "change"; boundChangeId?: string | null; graphScopeId?: string; selectedProviderId?: string };
 export type WorkpadRuntimeStatus = "active" | "running" | "queued" | "blocked" | "waiting-decision" | "archived" | "readonly";
 export type WorkpadUserStatus = "processing" | "waiting-confirmation" | "needs-rework" | "later" | "completed" | "abandoned";
 export type ConversationLifecycle = "active" | "running" | "waiting-user" | "archived-readonly" | "abandoned";
@@ -434,6 +438,8 @@ export type ParentAgentTranscriptCell = {
     rootSourceMessageId: string;
     providerId: string;
     agentTurnMode: AgentTurnMode;
+    modelId: string | null;
+    reasoningEffort: string | null;
   };
 };
 
@@ -1643,7 +1649,7 @@ export type CanonicalTimelinePage = {
   };
 };
 export type WorkbenchLiveEvent =
-  | { event: "topic.created"; data: { projectId: string; productMode: ProductMode; conversationId: string; clientRequestId: string; replayed: boolean; topic: { id?: string; conversationId?: string; changeId?: string; title: string; state: "active" | "archive"; selectedProviderId?: string; productMode: ProductMode; agentTurnMode?: AgentTurnMode | null } } }
+  | { event: "topic.created"; data: { projectId: string; productMode: ProductMode; conversationId: string; clientRequestId: string; replayed: boolean; topic: { id?: string; conversationId?: string; changeId?: string; title: string; state: "active" | "archive"; selectedProviderId?: string; productMode: ProductMode; agentTurnMode?: AgentTurnMode | null; agentModelId?: string | null; agentReasoningEffort?: string | null } } }
   | { event: "topic.updated"; data: { conversation: Topic } }
   | { event: "timeline.patch"; data: CanonicalTimelineEnvelope }
   | { event: "conversation.interactions.updated"; data: ConversationInteractionQueue }

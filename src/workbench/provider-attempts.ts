@@ -78,6 +78,7 @@ export async function startProviderAttempt(memory: ProviderAttemptStorePort, inp
       providerId: input.providerId,
       nativeSessionId: null,
       model: input.model ?? null,
+      reasoningEffort: null,
       capabilitySnapshot: input.capabilitySnapshot,
       effectiveSkillInputs: [],
       handoffHash: input.handoffHash,

@@ -10,7 +10,7 @@ import {
   type ConversationComposerPorts,
   type ConversationComposerScope,
 } from "../../src/web/src/controllers/useConversationComposerController.js";
-import type { ComposerDraftSnapshot, ProviderCapabilitySnapshot, SkillListItem, TopicAttachment, TopicFileReference } from "../../src/web/src/types.js";
+import type { ComposerDraftSnapshot, ProviderCapabilitySnapshot, ProviderModelSettingsSnapshot, SkillListItem, TopicAttachment, TopicFileReference } from "../../src/web/src/types.js";
 
 afterEach(() => {
   cleanup();
@@ -471,6 +471,7 @@ describe("Conversation composer controller", () => {
       ...initial,
       selectedProviderId: "other-provider",
       providerCapabilities: [providerCapability("codex", true), providerCapability("other-provider", true, false)],
+      providerModelSettings: providerModelSettings("other-provider"),
     } });
     await act(async () => { await result.current.send(); });
 
@@ -1232,10 +1233,105 @@ describe("Conversation composer controller", () => {
     expect(result.current.composerText).toBe("next turn draft");
     expect(result.current.attachments).toHaveLength(1);
   });
+
+  it("captures explicit model and reasoning effort in an Agent first send", async () => {
+    const ports = composerPorts();
+    const { result } = renderHook(() => useConversationComposerController(homeScope({
+      productMode: "agent",
+      providerCapabilities: [providerCapability("codex", true)],
+    }), ports));
+    act(() => {
+      result.current.selectAgentModel("gpt-test");
+      result.current.selectAgentReasoningEffort("high");
+      result.current.setComposerText("use the captured selection");
+    });
+
+    await act(async () => { await result.current.createConversation(); });
+
+    expect(ports.session.createConversation).toHaveBeenCalledWith(expect.objectContaining({
+      productMode: "agent",
+      modelId: "gpt-test",
+      reasoningEffort: "high",
+    }));
+  });
+
+  it("restores Agent model selection from a draft and prefers Conversation selection", async () => {
+    const ports = composerPorts();
+    ports.drafts.load.mockResolvedValue(draftSnapshot({
+      agentModelId: "gpt-test",
+      agentReasoningEffort: "high",
+    }));
+    const { result, rerender } = renderHook(
+      ({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
+      { initialProps: { scope: homeScope({ productMode: "agent", providerCapabilities: [providerCapability("codex", true)] }) } },
+    );
+    await waitFor(() => expect(result.current.agentReasoningEffort).toBe("high"));
+    expect(result.current.agentModelId).toBe("gpt-test");
+
+    rerender({ scope: conversationScope({
+      productMode: "agent",
+      selectedProviderId: "codex",
+      providerCapabilities: [providerCapability("codex", true)],
+      conversation: {
+        id: "conversation-model",
+        productMode: "agent",
+        state: "active",
+        selectedProviderId: "codex",
+        agentModelId: null,
+        agentReasoningEffort: null,
+      },
+    }) });
+    await waitFor(() => expect(result.current.agentModelId).toBeNull());
+    expect(result.current.agentReasoningEffort).toBeNull();
+  });
+
+  it("resets model and effort atomically on an explicit Provider switch", async () => {
+    const ports = composerPorts();
+    const { result } = renderHook(() => useConversationComposerController(homeScope({
+      productMode: "agent",
+      providerCount: 2,
+      providerCapabilities: [providerCapability("codex", true), providerCapability("other", true)],
+    }), ports));
+    act(() => {
+      result.current.selectAgentModel("gpt-test");
+      result.current.selectAgentReasoningEffort("high");
+    });
+
+    await act(async () => { await result.current.selectProvider("other"); });
+
+    expect(result.current.agentModelId).toBeNull();
+    expect(result.current.agentReasoningEffort).toBeNull();
+    expect(ports.session.selectProvider).toHaveBeenCalledWith("other");
+  });
+
+  it("preserves an unavailable explicit model and blocks the Turn", async () => {
+    const ports = composerPorts();
+    const { result } = renderHook(() => useConversationComposerController(conversationScope({
+      productMode: "agent",
+      selectedProviderId: "codex",
+      providerCapabilities: [providerCapability("codex", true)],
+      providerModelSettings: { ...providerModelSettings("codex"), candidates: [] },
+      conversation: {
+        id: "conversation-model",
+        productMode: "agent",
+        state: "active",
+        selectedProviderId: "codex",
+        agentModelId: "removed-model",
+        agentReasoningEffort: null,
+      },
+    }), ports));
+    act(() => result.current.setComposerText("do not silently fall back"));
+
+    await act(async () => { await result.current.send(); });
+
+    expect(result.current.agentModelId).toBe("removed-model");
+    expect(result.current.agentTurnModeDisabledReason).toContain("模型当前不可用");
+    expect(ports.actions.sendMessage).not.toHaveBeenCalled();
+  });
 });
 
 function composerPorts(): ConversationComposerPorts & {
-  session: { ensureProjectRegistered: ReturnType<typeof vi.fn>; createConversation: ReturnType<typeof vi.fn>; restoreDraftProvider: ReturnType<typeof vi.fn> };
+  session: { ensureProjectRegistered: ReturnType<typeof vi.fn>; createConversation: ReturnType<typeof vi.fn>; restoreDraftProvider: ReturnType<typeof vi.fn>; selectProvider: ReturnType<typeof vi.fn> };
   actions: { sendMessage: ReturnType<typeof vi.fn>; steer: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> };
   projection: { refreshConversation: ReturnType<typeof vi.fn> };
   timeline: { calibrate: ReturnType<typeof vi.fn> };
@@ -1256,6 +1352,7 @@ function composerPorts(): ConversationComposerPorts & {
       ensureProjectRegistered: vi.fn(async (projectId: string) => projectId),
       createConversation: vi.fn(async () => ({ projectId: "repo", conversationId: "conversation-new" })),
       restoreDraftProvider: vi.fn(),
+      selectProvider: vi.fn(async () => undefined),
     },
     actions: {
       sendMessage: vi.fn(async () => undefined),
@@ -1278,6 +1375,8 @@ function composerPorts(): ConversationComposerPorts & {
         projectId: input.projectId,
         productMode: input.productMode,
         agentTurnMode: input.agentTurnMode,
+        agentModelId: input.agentModelId,
+        agentReasoningEffort: input.agentReasoningEffort,
         text: input.text,
         contextRefs: input.contextRefs,
         attachments: input.attachmentIds.map(attachment),
@@ -1297,6 +1396,8 @@ function draftSnapshot(overrides: Partial<ComposerDraftSnapshot> = {}): Composer
     projectId: "repo",
     productMode: "agent",
     agentTurnMode: "default",
+    agentModelId: null,
+    agentReasoningEffort: null,
     text: "",
     contextRefs: [],
     attachments: [],
@@ -1309,7 +1410,7 @@ function draftSnapshot(overrides: Partial<ComposerDraftSnapshot> = {}): Composer
 }
 
 function homeScope(overrides: Partial<ConversationComposerScope> = {}): ConversationComposerScope {
-  return {
+  const scope: ConversationComposerScope = {
     projectId: "repo",
     conversation: null,
     managed: true,
@@ -1318,6 +1419,11 @@ function homeScope(overrides: Partial<ConversationComposerScope> = {}): Conversa
     providerCount: 1,
     ...overrides,
   };
+  if (!Object.prototype.hasOwnProperty.call(overrides, "providerModelSettings")) {
+    const providerId = scope.selectedProviderId ?? scope.conversation?.selectedProviderId ?? "codex";
+    scope.providerModelSettings = providerModelSettings(providerId);
+  }
+  return scope;
 }
 
 function conversationScope(overrides: Partial<ConversationComposerScope> = {}): ConversationComposerScope {
@@ -1406,6 +1512,27 @@ function providerCapability(providerId: string, planReady: boolean, fileReferenc
       runtime: fileReferenceReady ? "ready" : "unavailable",
       summary: fileReferenceReady ? "Ready" : "Unavailable",
     }],
+  };
+}
+
+function providerModelSettings(providerId: string): ProviderModelSettingsSnapshot {
+  return {
+    providerId,
+    selectedModel: null,
+    effectiveModel: { providerId, modelId: "gpt-test" },
+    effectiveModelSource: "provider-default",
+    candidates: [{
+      providerId,
+      modelId: "gpt-test",
+      label: "GPT Test",
+      source: "runtime",
+      supportedReasoningEfforts: [
+        { value: "low", label: "低" },
+        { value: "high", label: "高" },
+      ],
+      defaultReasoningEffort: "low",
+    }],
+    available: true,
   };
 }
 

@@ -57,12 +57,20 @@ export interface ProviderModelRef {
   modelId: string;
 }
 
+export interface ProviderReasoningEffortOption {
+  value: string;
+  label: string;
+  description?: string;
+}
+
 export interface ProviderModelCandidate {
   providerId: ProviderId;
   modelId: string;
   label: string;
   source: string;
   isDefault?: boolean;
+  supportedReasoningEfforts: ProviderReasoningEffortOption[];
+  defaultReasoningEffort: string | null;
 }
 
 export interface ProviderModelSettingsSnapshot {

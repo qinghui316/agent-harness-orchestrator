@@ -35,6 +35,39 @@ constructor(private readonly db: Database.Database) {}
     if (result.changes !== 1) throw new Error(`Agent Conversation mode changed concurrently: ${conversationId}`);
   }
 
+  updateAgentTurnPreferences(input: {
+    projectId: string;
+    conversationId: string;
+    expectedAgentTurnMode: AgentTurnMode;
+    expectedAgentModelId: string | null;
+    expectedAgentReasoningEffort: string | null;
+    agentTurnMode: AgentTurnMode;
+    agentModelId: string | null;
+    agentReasoningEffort: string | null;
+    updatedAt: string;
+  }): void {
+    const result = this.db.prepare(`
+      UPDATE conversations
+      SET agent_turn_mode = ?, agent_model_id = ?, agent_reasoning_effort = ?, updated_at = ?
+      WHERE project_id = ? AND conversation_id = ? AND product_mode = 'agent'
+        AND agent_turn_mode = ?
+        AND agent_model_id IS ?
+        AND agent_reasoning_effort IS ?
+        AND surface_kind = 'user' AND deleted_at IS NULL
+    `).run(
+      input.agentTurnMode,
+      input.agentModelId,
+      input.agentReasoningEffort,
+      input.updatedAt,
+      input.projectId,
+      input.conversationId,
+      input.expectedAgentTurnMode,
+      input.expectedAgentModelId,
+      input.expectedAgentReasoningEffort,
+    );
+    if (result.changes !== 1) throw new Error(`Agent Conversation preferences changed concurrently: ${input.conversationId}`);
+  }
+
   markConversationDeleted(projectId: string, conversationId: string, deletedAt: string): void {
     this.db.prepare(`
       UPDATE conversations SET deleted_at = ?, updated_at = ?
@@ -90,23 +123,25 @@ constructor(private readonly db: Database.Database) {}
   }
 
 createConversation(
-  conversation: Omit<StoredConversation, "timelinePosition" | "timelineRevision" | "clientCreateRequestId" | "clientCreateRequestHash">
-    & Partial<Pick<StoredConversation, "timelinePosition" | "timelineRevision" | "clientCreateRequestId" | "clientCreateRequestHash">>,
+  conversation: Omit<StoredConversation, "timelinePosition" | "timelineRevision" | "clientCreateRequestId" | "clientCreateRequestHash" | "agentModelId" | "agentReasoningEffort">
+    & Partial<Pick<StoredConversation, "timelinePosition" | "timelineRevision" | "clientCreateRequestId" | "clientCreateRequestHash" | "agentModelId" | "agentReasoningEffort">>,
 ): void {
     const agentTurnMode = conversation.productMode === "agent"
       ? conversation.agentTurnMode ?? "default"
       : null;
     this.db.prepare(`
       INSERT INTO conversations (
-        project_id, conversation_id, product_mode, agent_turn_mode, client_create_request_id, client_create_request_hash,
+        project_id, conversation_id, product_mode, agent_turn_mode, agent_model_id, agent_reasoning_effort, client_create_request_id, client_create_request_hash,
         title, state, surface_kind, bound_change_id, current_graph_scope_id,
         selected_provider_id, completed_turn_sequence, timeline_position, timeline_revision, created_at, updated_at, deleted_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       conversation.projectId,
       conversation.conversationId,
       conversation.productMode,
       agentTurnMode,
+      conversation.productMode === "agent" ? conversation.agentModelId ?? null : null,
+      conversation.productMode === "agent" ? conversation.agentReasoningEffort ?? null : null,
       conversation.clientCreateRequestId ?? null,
       conversation.clientCreateRequestHash ?? null,
       conversation.title,
@@ -128,6 +163,7 @@ listConversations(projectId: string, productMode: ProductMode, options: { includ
     const rows = options.includeDeleted
       ? this.db.prepare(`
         SELECT project_id AS projectId, conversation_id AS conversationId, product_mode AS productMode, agent_turn_mode AS agentTurnMode,
+          agent_model_id AS agentModelId, agent_reasoning_effort AS agentReasoningEffort,
           client_create_request_id AS clientCreateRequestId, client_create_request_hash AS clientCreateRequestHash,
           title, state, surface_kind AS surfaceKind,
           bound_change_id AS boundChangeId, current_graph_scope_id AS currentGraphScopeId,
@@ -141,6 +177,7 @@ listConversations(projectId: string, productMode: ProductMode, options: { includ
       `).all(projectId, productMode) as SqliteRow[]
       : this.db.prepare(`
         SELECT project_id AS projectId, conversation_id AS conversationId, product_mode AS productMode, agent_turn_mode AS agentTurnMode,
+          agent_model_id AS agentModelId, agent_reasoning_effort AS agentReasoningEffort,
           client_create_request_id AS clientCreateRequestId, client_create_request_hash AS clientCreateRequestHash,
           title, state, surface_kind AS surfaceKind,
           bound_change_id AS boundChangeId, current_graph_scope_id AS currentGraphScopeId,
@@ -158,6 +195,7 @@ listConversations(projectId: string, productMode: ProductMode, options: { includ
 readConversation(projectId: string, conversationId: string, options: { includeDeleted?: boolean } = {}): StoredConversation | null {
     const row = this.db.prepare(`
       SELECT project_id AS projectId, conversation_id AS conversationId, product_mode AS productMode, agent_turn_mode AS agentTurnMode,
+        agent_model_id AS agentModelId, agent_reasoning_effort AS agentReasoningEffort,
         client_create_request_id AS clientCreateRequestId, client_create_request_hash AS clientCreateRequestHash,
         title, state, surface_kind AS surfaceKind,
         bound_change_id AS boundChangeId, current_graph_scope_id AS currentGraphScopeId,
@@ -174,6 +212,7 @@ readConversation(projectId: string, conversationId: string, options: { includeDe
   readConversationByClientCreateRequestId(projectId: string, clientRequestId: string): StoredConversation | null {
     const row = this.db.prepare(`
       SELECT project_id AS projectId, conversation_id AS conversationId, product_mode AS productMode, agent_turn_mode AS agentTurnMode,
+        agent_model_id AS agentModelId, agent_reasoning_effort AS agentReasoningEffort,
         client_create_request_id AS clientCreateRequestId, client_create_request_hash AS clientCreateRequestHash,
         title, state, surface_kind AS surfaceKind, bound_change_id AS boundChangeId,
         current_graph_scope_id AS currentGraphScopeId, selected_provider_id AS selectedProviderId,
@@ -190,6 +229,7 @@ readConversation(projectId: string, conversationId: string, options: { includeDe
 readConversationByChangeId(projectId: string, changeId: string): StoredConversation | null {
     const row = this.db.prepare(`
       SELECT c.project_id AS projectId, c.conversation_id AS conversationId, c.product_mode AS productMode, c.agent_turn_mode AS agentTurnMode,
+        c.agent_model_id AS agentModelId, c.agent_reasoning_effort AS agentReasoningEffort,
         c.client_create_request_id AS clientCreateRequestId, c.client_create_request_hash AS clientCreateRequestHash,
         c.title, c.state, c.surface_kind AS surfaceKind,
         c.bound_change_id AS boundChangeId, c.current_graph_scope_id AS currentGraphScopeId,
@@ -475,6 +515,7 @@ listConversationChangeIds(projectId: string, conversationId: string): string[] {
 findConversationForChange(projectId: string, changeId: string): StoredConversation | null {
     const row = this.db.prepare(`
       SELECT c.project_id AS projectId, c.conversation_id AS conversationId, c.product_mode AS productMode, c.agent_turn_mode AS agentTurnMode,
+        c.agent_model_id AS agentModelId, c.agent_reasoning_effort AS agentReasoningEffort,
         c.client_create_request_id AS clientCreateRequestId, c.client_create_request_hash AS clientCreateRequestHash,
         c.title, c.state, c.surface_kind AS surfaceKind,
         c.bound_change_id AS boundChangeId, c.current_graph_scope_id AS currentGraphScopeId,

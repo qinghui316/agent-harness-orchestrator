@@ -8,6 +8,7 @@ import {
   type ActiveProviderTurn,
   type ProviderCapabilityKey,
   type ProviderCapabilitySnapshot,
+  type ProviderChildTurnRequest,
   type ProviderDescriptor,
   type ProviderNativeSkill,
   type ProviderRealtimeEvent,
@@ -817,6 +818,12 @@ describe("DirectAgentConversationTurnStrategy", () => {
     const { strategy, registry } = strategyFor(provider.descriptor);
     const input = await initialTurnInput(fixture, "Create child history");
     await strategy.execute(input, emptyPorts());
+    const sqlite = new Database(fixture.paths.workbenchDbPath);
+    try {
+      sqlite.prepare("UPDATE provider_attempts SET reasoning_effort = 'high' WHERE role_id = 'native-child-agent'").run();
+    } finally {
+      sqlite.close();
+    }
 
     await expect(runAgentNativeChildFollowup({
       project: fixture.project,
@@ -827,6 +834,10 @@ describe("DirectAgentConversationTurnStrategy", () => {
     })).resolves.toMatchObject({ providerSessionId: "session-1-child-1" });
     expect(provider.inspectedChildren).toEqual(["session-1-child-1"]);
     expect(provider.continuedChildren).toEqual(["session-1-child-1"]);
+    expect(provider.continuedRequests[0]).toMatchObject({
+      model: { providerId: "codex", modelId: "test-model" },
+      reasoningEffort: "high",
+    });
   });
 
   it("persists main to child to grandchild lineage and follows up on the exact nested child", async () => {
@@ -1405,6 +1416,7 @@ function fakeProvider(behavior: FakeProviderBehavior = {}): {
   steers: string[];
   inspectedChildren: string[];
   continuedChildren: string[];
+  continuedRequests: ProviderChildTurnRequest[];
   inspectedLineages: Array<{ parent: string; target: string }>;
   continuedLineages: Array<{ parent: string; target: string }>;
 } {
@@ -1415,6 +1427,7 @@ function fakeProvider(behavior: FakeProviderBehavior = {}): {
   const steers: string[] = [];
   const inspectedChildren: string[] = [];
   const continuedChildren: string[] = [];
+  const continuedRequests: ProviderChildTurnRequest[] = [];
   const inspectedLineages: Array<{ parent: string; target: string }> = [];
   const continuedLineages: Array<{ parent: string; target: string }> = [];
   const result = (request: ProviderTurnRequest, status = behavior.status ?? "completed", sessionId = request.existingSession?.sessionId ?? "session-1"): ProviderTurnResult => ({
@@ -1624,6 +1637,7 @@ function fakeProvider(behavior: FakeProviderBehavior = {}): {
       },
       continueChild: async (request) => {
         continuedChildren.push(request.targetSession.sessionId);
+        continuedRequests.push(request);
         continuedLineages.push({ parent: request.parentSession.sessionId, target: request.targetSession.sessionId });
         if (behavior.continueChildError) throw new Error(behavior.continueChildError);
         if (behavior.continueChildRealtime) {
@@ -1663,6 +1677,7 @@ function fakeProvider(behavior: FakeProviderBehavior = {}): {
     requests,
     inspectedChildren,
     continuedChildren,
+    continuedRequests,
     inspectedLineages,
     continuedLineages,
     get interrupts() { return interrupts; },

@@ -35,6 +35,8 @@ export interface StoredConversation {
   conversationId: string;
   productMode: ProductMode;
   agentTurnMode: AgentTurnMode | null;
+  agentModelId: string | null;
+  agentReasoningEffort: string | null;
   clientCreateRequestId: string | null;
   clientCreateRequestHash: string | null;
   title: string;
@@ -102,6 +104,7 @@ export interface StoredProviderAttempt {
   providerId: ProviderId;
   nativeSessionId: string | null;
   model: ProviderModelRef | null;
+  reasoningEffort: string | null;
   capabilitySnapshot: ProviderCapabilitySnapshot;
   effectiveSkillInputs: ProviderSkillInput[];
   handoffHash: string;
@@ -116,6 +119,8 @@ export interface StoredComposerDraft {
   projectId: string;
   productMode: ProductMode;
   agentTurnMode: AgentTurnMode | null;
+  agentModelId: string | null;
+  agentReasoningEffort: string | null;
   text: string;
   contextRefsJson: string;
   attachmentIdsJson: string;

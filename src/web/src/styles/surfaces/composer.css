@@ -31,16 +31,54 @@
   gap: 6px;
 }
 
+.agent-turn-settings-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  flex-wrap: wrap;
+}
+
 .agent-turn-mode-segment {
   display: grid;
   grid-template-columns: repeat(2, 78px);
   width: 156px;
   min-height: 30px;
-  margin: 0 8px;
+  margin: 0;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--bg-subtle);
+}
+
+.agent-turn-model-controls {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 320px;
+}
+
+.agent-turn-model-controls label {
+  min-width: 0;
+  flex: 1 1 150px;
+}
+
+.agent-turn-model-controls select {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 0 28px 0 9px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .agent-turn-mode-segment button {
@@ -411,6 +449,18 @@
 @media (max-width: 680px) {
   .interaction-dock-body {
     padding: 4px 0 0;
+  }
+
+  .agent-turn-settings-row {
+    align-items: stretch;
+  }
+
+  .agent-turn-mode-segment {
+    flex: 0 0 156px;
+  }
+
+  .agent-turn-model-controls {
+    flex-basis: 100%;
   }
 
 }
@@ -1009,7 +1059,7 @@
   line-height: 1.55;
 }
 
-.home-demand-composer > .agent-turn-mode-segment {
+.home-demand-composer > .agent-turn-settings-row {
   margin-top: 4px;
 }
 

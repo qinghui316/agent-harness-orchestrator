@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const spawnMock = vi.hoisted(() => vi.fn());
 vi.mock("cross-spawn", () => ({ default: spawnMock }));
 
-import { getActiveCodexAppServerTurn, runCodexAppServerChildClose, runCodexAppServerChildTurn, runCodexAppServerTurn } from "../../src/codex/app-server.js";
+import { getActiveCodexAppServerTurn, runCodexAppServerChildClose, runCodexAppServerChildTurn, runCodexAppServerTurn, type CodexAppServerRealtimeEvent } from "../../src/codex/app-server.js";
 import { CodexAppServerHost, CodexAppServerHostRegistry, defaultCodexAppServerHostRegistry } from "../../src/codex/app-server-host.js";
 import { listCodexRuntimeModels } from "../../src/codex/model-settings.js";
 import { defaultProjectRemovalFence } from "../../src/project-runtime/removal.js";
@@ -136,6 +136,41 @@ describe("Codex persistent app-server Host", () => {
     expect(realtimeEvents.join("\n")).toContain("[managed-attachment]");
   });
 
+  it("maps the admitted Default model and reasoning effort to turn/start", async () => {
+    const cwd = await tempDir();
+    const server = new PersistentCollaborationServer(4052, false);
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+
+    await runCodexAppServerTurn({
+      ...await turnOptions(cwd, "model-effort-run", null),
+      model: "gpt-test",
+      reasoningEffort: "high",
+    });
+
+    expect(server.turnParams[0]).toMatchObject({ model: "gpt-test", effort: "high" });
+    expect(server.turnParams[0]).not.toHaveProperty("collaborationMode");
+  });
+
+  it("maps turn/completed with a failed nested Turn status to a failed result", async () => {
+    const cwd = await tempDir();
+    const server = new PersistentCollaborationServer(4053, false);
+    server.failNextTurn("controlled upstream failure");
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+    const realtimeEvents: CodexAppServerRealtimeEvent[] = [];
+
+    const result = await runCodexAppServerTurn({
+      ...await turnOptions(cwd, "failed-turn-run", null),
+      onRealtimeEvent: (event) => realtimeEvents.push(event),
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.error).toContain("controlled upstream failure");
+    expect(realtimeEvents.at(-1)?.streamEvent).toMatchObject({
+      type: "error",
+      message: "controlled upstream failure",
+    });
+  });
+
   it("initializes one process and continues the exact native Child on the same generation", async () => {
     const cwd = await tempDir();
     const server = new PersistentCollaborationServer(4101, true);
@@ -205,6 +240,8 @@ describe("Codex persistent app-server Host", () => {
       targetThreadId: "thread-hume",
       targetDisplayName: "Hume",
       prompt: "Continue after Main is idle.",
+      model: "gpt-test",
+      reasoningEffort: "high",
     });
 
     expect(followup.error).toBeUndefined();
@@ -218,6 +255,7 @@ describe("Codex persistent app-server Host", () => {
     );
     expect(spawnMock).toHaveBeenCalledTimes(1);
     expect(server.methods.filter((method) => method === "initialize")).toHaveLength(1);
+    expect(server.turnParams[1]).toMatchObject({ model: "gpt-test", effort: "high" });
   });
 
   it("rejects concurrent leases and invalidates Child bindings after a crashed generation", async () => {
@@ -592,6 +630,7 @@ class PersistentCollaborationServer extends EventEmitter {
   readonly followupPrompts: string[] = [];
   readonly closePrompts: string[] = [];
   readonly turnInputs: unknown[][] = [];
+  readonly turnParams: Array<Record<string, unknown>> = [];
   readonly threadParams: Array<Record<string, unknown>> = [];
   readonly steerParams: Array<Record<string, unknown>> = [];
   readonly interruptParams: Array<{ threadId: string; turnId: string }> = [];
@@ -605,6 +644,7 @@ class PersistentCollaborationServer extends EventEmitter {
   private crashInterrupt = false;
   private holdInterruptResponse = false;
   private heldInterruptId: number | null = null;
+  private nextTurnFailure: string | null = null;
 
   constructor(
     pid: number,
@@ -635,6 +675,10 @@ class PersistentCollaborationServer extends EventEmitter {
 
   completeParent(): void {
     this.notify("turn/completed", { threadId: "thread-main", turn: { id: "turn-main-1", status: "completed" } });
+  }
+
+  failNextTurn(message: string): void {
+    this.nextTurnFailure = message;
   }
 
   sendApproval(id: number, method: string, params: Record<string, unknown>): void {
@@ -704,10 +748,20 @@ class PersistentCollaborationServer extends EventEmitter {
         this.turnCount += 1;
         const turnId = `turn-main-${this.turnCount}`;
         const turnInput = Array.isArray(params.input) ? params.input : [];
+        this.turnParams.push({ ...params });
         this.turnInputs.push(turnInput);
         const prompt = JSON.stringify(turnInput);
         this.respond(id, { turn: { id: turnId } });
         this.notify("turn/started", { threadId: "thread-main", turn: { id: turnId } });
+        if (this.nextTurnFailure) {
+          const message = this.nextTurnFailure;
+          this.nextTurnFailure = null;
+          this.notify("turn/completed", {
+            threadId: "thread-main",
+            turn: { id: turnId, status: "failed", error: { message } },
+          });
+          return;
+        }
         if (this.managedPathLeak) {
           const alternateManagedPath = this.managedPathLeak.replace(/\\/g, "/").toUpperCase();
           this.notify("item/completed", {

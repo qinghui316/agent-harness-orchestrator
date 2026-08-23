@@ -39,6 +39,8 @@ export function mapConversationRow(row: SqliteRow): StoredConversation {
     agentTurnMode: row.agentTurnMode === null || row.agentTurnMode === undefined
       ? null
       : assertAgentTurnMode(row.agentTurnMode, "Stored Conversation agentTurnMode"),
+    agentModelId: nullableString(row.agentModelId),
+    agentReasoningEffort: nullableString(row.agentReasoningEffort),
     clientCreateRequestId: nullableString(row.clientCreateRequestId),
     clientCreateRequestHash: nullableString(row.clientCreateRequestHash),
     title: String(row.title),
@@ -128,6 +130,7 @@ export function mapProviderAttemptRow(row: SqliteRow): StoredProviderAttempt {
     providerId: String(row.providerId),
     nativeSessionId: nullableString(row.nativeSessionId),
     model: parseJsonObject<ProviderModelRef>(row.modelJson),
+    reasoningEffort: nullableString(row.reasoningEffort),
     capabilitySnapshot,
     effectiveSkillInputs,
     handoffHash: String(row.handoffHash),

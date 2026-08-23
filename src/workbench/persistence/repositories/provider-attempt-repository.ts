@@ -164,8 +164,8 @@ writeConversationProviderBinding(binding: StoredConversationProviderBinding): vo
   }
 
 createProviderAttempt(
-  attempt: Omit<StoredProviderAttempt, "productMode" | "agentTurnMode" | "effectiveSkillInputs">
-    & Partial<Pick<StoredProviderAttempt, "productMode" | "agentTurnMode" | "effectiveSkillInputs">>,
+  attempt: Omit<StoredProviderAttempt, "productMode" | "agentTurnMode" | "effectiveSkillInputs" | "reasoningEffort">
+    & Partial<Pick<StoredProviderAttempt, "productMode" | "agentTurnMode" | "effectiveSkillInputs" | "reasoningEffort">>,
 ): void {
     let productMode = attempt.productMode;
     if (attempt.conversationId) {
@@ -187,9 +187,9 @@ createProviderAttempt(
       INSERT INTO provider_attempts (
         project_id, conversation_id, attempt_id, product_mode, agent_turn_mode, graph_scope_id, provider_id,
         change_id, agent_task_id, role_id, parent_agent_surface_id, operation_profile,
-        native_session_id, model_json, capability_snapshot_json, effective_skill_inputs_json, handoff_hash,
+        native_session_id, model_json, reasoning_effort, capability_snapshot_json, effective_skill_inputs_json, handoff_hash,
         delivered_through_completed_turn, worktree_id, status, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       attempt.projectId,
       attempt.conversationId,
@@ -205,6 +205,7 @@ createProviderAttempt(
       attempt.operationProfile,
       attempt.nativeSessionId,
       attempt.model ? JSON.stringify(attempt.model) : null,
+      attempt.reasoningEffort ?? null,
       JSON.stringify(attempt.capabilitySnapshot),
       JSON.stringify(attempt.effectiveSkillInputs ?? []),
       attempt.handoffHash,
@@ -234,12 +235,13 @@ deleteProviderAttempt(projectId: string, attemptId: string, expectedRoleId: stri
 startQueuedProviderAttempt(
     projectId: string,
     attemptId: string,
-    input: Pick<StoredProviderAttempt, "capabilitySnapshot" | "effectiveSkillInputs" | "handoffHash" | "deliveredThroughCompletedTurn" | "model" | "updatedAt">,
+    input: Omit<Pick<StoredProviderAttempt, "capabilitySnapshot" | "effectiveSkillInputs" | "handoffHash" | "deliveredThroughCompletedTurn" | "model" | "reasoningEffort" | "updatedAt">, "reasoningEffort">
+      & Partial<Pick<StoredProviderAttempt, "reasoningEffort">>,
   ): void {
     const result = this.db.prepare(`
       UPDATE provider_attempts
       SET status = 'running', capability_snapshot_json = ?, handoff_hash = ?,
-          delivered_through_completed_turn = ?, model_json = ?,
+          delivered_through_completed_turn = ?, model_json = ?, reasoning_effort = ?,
           effective_skill_inputs_json = ?, updated_at = ?
       WHERE project_id = ? AND attempt_id = ? AND status = 'queued'
     `).run(
@@ -247,6 +249,7 @@ startQueuedProviderAttempt(
       input.handoffHash,
       input.deliveredThroughCompletedTurn,
       input.model ? JSON.stringify(input.model) : null,
+      input.reasoningEffort ?? null,
       JSON.stringify(input.effectiveSkillInputs),
       input.updatedAt,
       projectId,
@@ -272,7 +275,7 @@ completeProviderAttempt(projectId: string, attemptId: string, status: StoredProv
         graph_scope_id AS graphScopeId, provider_id AS providerId, native_session_id AS nativeSessionId,
         change_id AS changeId, agent_task_id AS agentTaskId, role_id AS roleId,
         parent_agent_surface_id AS parentAgentSurfaceId, operation_profile AS operationProfile,
-        model_json AS modelJson, capability_snapshot_json AS capabilitySnapshotJson,
+        model_json AS modelJson, reasoning_effort AS reasoningEffort, capability_snapshot_json AS capabilitySnapshotJson,
         effective_skill_inputs_json AS effectiveSkillInputsJson,
         handoff_hash AS handoffHash, delivered_through_completed_turn AS deliveredThroughCompletedTurn,
         worktree_id AS worktreeId, status, created_at AS createdAt, updated_at AS updatedAt
@@ -487,7 +490,7 @@ listProviderAttempts(projectId: string, conversationId: string): StoredProviderA
         graph_scope_id AS graphScopeId, provider_id AS providerId, native_session_id AS nativeSessionId,
         change_id AS changeId, agent_task_id AS agentTaskId, role_id AS roleId,
         parent_agent_surface_id AS parentAgentSurfaceId, operation_profile AS operationProfile,
-        model_json AS modelJson, capability_snapshot_json AS capabilitySnapshotJson,
+        model_json AS modelJson, reasoning_effort AS reasoningEffort, capability_snapshot_json AS capabilitySnapshotJson,
         effective_skill_inputs_json AS effectiveSkillInputsJson,
         handoff_hash AS handoffHash, delivered_through_completed_turn AS deliveredThroughCompletedTurn,
         worktree_id AS worktreeId, status, created_at AS createdAt, updated_at AS updatedAt

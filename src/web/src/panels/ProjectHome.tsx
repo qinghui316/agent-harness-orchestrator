@@ -6,7 +6,7 @@ import {
   X,
 } from "lucide-react";
 import { ComposerControls } from "../shell/ComposerControls.js";
-import { AgentTurnModeControl } from "../shell/composer.js";
+import { AgentTurnModeControl, AgentTurnModelControls } from "../shell/composer.js";
 import { ComposerAttachButton, ComposerAttachmentList, filesFromDrop, hasFileDrag, imageFilesFromPaste } from "../shell/ComposerAttachments.js";
 import { buildComposerContextSummary, ComposerContextSourcesPopover, type ComposerContextKind } from "../shell/ComposerContextSources.js";
 import { FileMentionPicker } from "../shell/FileMentionPicker.js";
@@ -71,6 +71,11 @@ export function ProjectReadinessHome({
   agentTurnMode,
   onSelectAgentTurnMode,
   agentTurnModeDisabledReason,
+  agentModelId,
+  agentReasoningEffort,
+  providerModelSettings,
+  onSelectAgentModel,
+  onSelectAgentReasoningEffort,
 }: {
   project: ProjectStatus;
   providerDisplayName?: string;
@@ -100,6 +105,11 @@ export function ProjectReadinessHome({
   agentTurnMode: AgentTurnMode;
   onSelectAgentTurnMode: (mode: AgentTurnMode) => void | Promise<void>;
   agentTurnModeDisabledReason?: string | null;
+  agentModelId: string | null;
+  agentReasoningEffort: string | null;
+  providerModelSettings: ProviderModelSettingsSnapshot | null;
+  onSelectAgentModel: (modelId: string | null) => void | Promise<void>;
+  onSelectAgentReasoningEffort: (effort: string | null) => void | Promise<void>;
 }): ReactElement {
   const [dragOver, setDragOver] = useState(false);
   const [openContextKind, setOpenContextKind] = useState<ComposerContextKind | null>(null);
@@ -188,12 +198,22 @@ export function ProjectReadinessHome({
             selectedProviderId={selectedProviderId}
             onSelectProvider={onSelectProvider}
           />
-          <AgentTurnModeControl
-            productMode={productMode}
-            value={agentTurnMode}
-            onChange={onSelectAgentTurnMode}
-            planDisabledReason={agentTurnModeDisabledReason}
-          />
+          <div className="agent-turn-settings-row">
+            <AgentTurnModeControl
+              productMode={productMode}
+              value={agentTurnMode}
+              onChange={onSelectAgentTurnMode}
+              planDisabledReason={agentTurnModeDisabledReason}
+            />
+            <AgentTurnModelControls
+              productMode={productMode}
+              modelId={agentModelId}
+              reasoningEffort={agentReasoningEffort}
+              modelSettings={providerModelSettings}
+              onSelectModel={onSelectAgentModel}
+              onSelectReasoningEffort={onSelectAgentReasoningEffort}
+            />
+          </div>
           <ComposerContextSourcesPopover
             kind={openContextKind}
             skills={skills}

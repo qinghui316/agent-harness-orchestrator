@@ -123,6 +123,7 @@ export async function runCodexTurn(request: ProviderTurnRequest): Promise<Provid
     onPlanUpdate: guardedProjectNotification(request.projectId, projectGeneration, request.onPlanUpdate),
     onError: guardedProjectNotification(request.projectId, projectGeneration, request.onError),
     model: request.model?.modelId,
+    reasoningEffort: request.reasoningEffort,
     imageInputs: request.imageInputs,
     fileInputs: request.fileInputs,
     skillInputs: request.skillInputs?.map((skill) => ({ name: skill.id, path: skill.path })),
@@ -164,7 +165,7 @@ export function codexPlanCollaborationMode(request: ProviderTurnRequest): NonNul
     mode: "plan",
     settings: {
       model,
-      reasoning_effort: null,
+      reasoning_effort: request.reasoningEffort ?? null,
       developer_instructions: null,
     },
   };
@@ -223,6 +224,7 @@ export async function runCodexChildTurn(request: ProviderChildTurnRequest): Prom
       : undefined),
     onError: guardedProjectNotification(request.projectId, projectGeneration, request.onError),
     model: request.model?.modelId,
+    reasoningEffort: request.reasoningEffort,
     skillInputs: request.skillInputs?.map((skill) => ({ name: skill.id, path: skill.path })),
     requiredNativeSkills: request.skillInputs?.filter((skill) => skill.required).map((skill) => skill.id),
     runtimeWorkspaceRoots: request.runtimeWorkspaceRoots,

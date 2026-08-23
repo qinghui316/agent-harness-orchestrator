@@ -145,6 +145,24 @@ function admissionFixture(planReady: boolean, fileReady = true) {
     id: "provider",
     displayName: "Provider",
     capabilitySnapshot,
+    models: {
+      read: vi.fn(async () => ({
+        providerId: "provider",
+        selectedModel: null,
+        effectiveModel: { providerId: "provider", modelId: "model-test" },
+        effectiveModelSource: "provider-default" as const,
+        candidates: [{
+          providerId: "provider",
+          modelId: "model-test",
+          label: "Model Test",
+          source: "runtime",
+          supportedReasoningEfforts: [{ value: "medium", label: "中" }],
+          defaultReasoningEffort: "medium",
+        }],
+        available: true,
+      })),
+      write: vi.fn(),
+    },
     conversation: {
       runTurn: vi.fn(), inspectChild: vi.fn(), continueChild: vi.fn(), closeChild: vi.fn(),
       getActiveTurn: vi.fn(() => null), listActiveTurns: vi.fn(() => []),

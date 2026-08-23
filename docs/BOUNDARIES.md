@@ -81,14 +81,19 @@ interrupt, native child execution, Skill/role loading, model discovery, and raw
 diagnostics. The static Provider Registry resolves adapters and operation
 capabilities; it is not a scheduler or state store.
 
-`ConversationTurnRouter` owns side-effect-free admission for each new turn.
-Agent admission captures the Provider, effective model, optional `turn.plan`
-capability snapshot, Agent turn mode, and sandbox policy before Conversation or
-message persistence. The public contract carries only `default | plan`; a
-Provider adapter alone constructs private collaboration payloads. Plan remains
-optional and never lowers Default Agent readiness. Harness requests cannot carry
-an Agent turn mode, and Agent Plan cannot create Harness planning or governance
-objects.
+`ConversationTurnRouter` owns side-effect-free admission for each new turn, and
+the injected `AgentTurnModelAdmissionOwner` owns the provider-neutral model and
+reasoning-effort decision. Agent admission captures the Provider, requested and
+resolved model/effort, optional `turn.plan` capability snapshot, Agent turn mode,
+and sandbox policy before Conversation or message persistence. Catalog reads may
+report invalid global configuration but must not repair or write it. Request
+hashes bind requested values while handoff and ProviderAttempt evidence bind the
+resolved values. The public contract carries only provider-neutral selections
+and `default | plan`; a Provider adapter alone constructs private collaboration
+payloads. Plan capability remains optional and independent of model validity,
+while each Plan Turn separately requires a resolved model. Harness requests
+cannot carry Agent turn mode/model/effort, and Agent Plan cannot create Harness
+planning or governance objects.
 
 Direct Agent attachments cross one provider-neutral boundary. The Workbench
 composition root injects one `TurnAttachmentResolver`; Composer and HTTP carry
@@ -536,7 +541,7 @@ content, or interpret Timeline events. Panels render controlled state. The
 frontend boundary lint rejects retired giant App tests and direct domain access
 returning to the shell.
 
-Composer draft persistence has one owner per layer. The schema-13
+Composer draft persistence has one owner per layer. The schema-14
 `ComposerDraftRepository` owns the sole durable `projectId + productMode` row and
 full-snapshot compare-and-swap; the Workbench recovery service owns structured
 parsing and revalidation of project-relative references and managed attachment
@@ -545,10 +550,12 @@ CAS tokens, and send/Steer settlement. Routes and `App.tsx` only compose these
 owners. Draft reads and writes must not call Provider runtime or Harness readiness,
 and must not create Conversation, Timeline, Attempt, Change, WorkflowGraph,
 AgentTask, Lane, worktree, Apply, Close, Integration, I2, or E1 facts. Harness
-drafts carry no Agent turn mode, and neither product mode may read, overwrite, or
-silently normalize the other's draft. SQLite and public APIs retain attachment ids
-and safe relative metadata only, never bodies, base64, preview URLs, or managed
-absolute paths.
+drafts carry no Agent turn mode, model, or reasoning effort, and neither product
+mode may read, overwrite, or silently normalize the other's draft. Agent model
+and effort preferences remain provider-neutral, use the same CAS settlement as
+the rest of the draft, and reset to Auto on explicit Provider switches. SQLite
+and public APIs retain attachment ids and safe relative metadata only, never
+bodies, base64, preview URLs, or managed absolute paths.
 
 Architecture growth control extends the same boundary from module placement to mechanism reuse. Feature modules may own domain-specific rules, rendering, and orchestration adapters, but shared artifact storage, lineage checks, stale revalidation, authority classification, ledger event policy, projection summary building, human-gate evidence, and ToolPolicy-related checks must not be scattered into feature-local private systems. If a feature needs a new cross-cutting capability, the change must either strengthen an existing owner or introduce a reusable owner with clear boundaries before adding feature-specific branches. File count and line count remain signals; the boundary question is whether the change lowers the cost and risk of the next similar feature.
 

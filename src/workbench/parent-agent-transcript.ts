@@ -184,10 +184,10 @@ function activityCellsFromThreadItem(item: TranscriptThreadItemInput, agentRoleI
   const activities = item.activity ?? [];
   if (activities.length === 0) return [];
   const startedAt = activities.find((activity) => activity.kind === "status" && ["started", "connecting", "thinking", "running"].includes(activity.label))?.timestamp;
-  const terminal = [...activities].reverse().find((activity): activity is Extract<AssistantTurnActivity, { kind: "status" }> =>
+  const observedTerminal = [...activities].reverse().find((activity): activity is Extract<AssistantTurnActivity, { kind: "status" }> =>
     activity.kind === "status" && ["completed", "failed", "blocked", "cancelled"].includes(activity.label));
   if (!startedAt) return [];
-  if (!terminal) {
+  if (!observedTerminal) {
     const latest = [...activities].reverse().find((activity): activity is Extract<AssistantTurnActivity, { kind: "status" }> => activity.kind === "status");
     const title = liveActivityTitle(latest?.label);
     return [{
@@ -211,6 +211,9 @@ function activityCellsFromThreadItem(item: TranscriptThreadItemInput, agentRoleI
       activityKind: "turn",
     }];
   }
+  const terminal = item.status === "failed" && observedTerminal.label === "completed"
+    ? { ...observedTerminal, label: "failed" }
+    : observedTerminal;
   const elapsedSeconds = Math.max(1, Math.round((Date.parse(terminal.timestamp) - Date.parse(startedAt)) / 1000));
   const failed = terminal.label !== "completed";
   const title = failed ? `本轮需要处理 · ${elapsedSeconds} 秒` : `已完成 · ${elapsedSeconds} 秒`;

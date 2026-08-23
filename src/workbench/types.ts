@@ -59,6 +59,8 @@ export interface TopicThreadEntry {
   attachments?: TopicAttachment[];
   planHandoff?: ValidatedPlanHandoffIntent;
   agentTurnMode?: AgentTurnMode;
+  agentModelId?: string | null;
+  agentReasoningEffort?: string | null;
   retryTarget?: ConversationRetryTargetEvidence;
   retryLineage?: ConversationRetryLineageEvidence;
   document?: CanonicalPlanDocument;
@@ -70,6 +72,8 @@ export interface ConversationRetryTargetEvidence {
   rootSourceMessageId: string;
   providerId: ProviderId;
   agentTurnMode: AgentTurnMode;
+  modelId: string | null;
+  reasoningEffort: string | null;
 }
 
 export interface ConversationRetryLineageEvidence {
@@ -270,6 +274,8 @@ export type WorkbenchLiveEvent =
       selectedProviderId?: string;
       productMode: ProductMode;
       agentTurnMode?: AgentTurnMode | null;
+      agentModelId?: string | null;
+      agentReasoningEffort?: string | null;
     };
   } }
   | { event: "topic.updated"; data: { conversation: { id: string; productMode: ProductMode; title: string; state: string; updatedAt?: string; selectedProviderId?: string } } }
@@ -354,6 +360,8 @@ export interface TopicMessageInput {
   agentSurfaceId?: string;
   productMode?: ProductMode;
   agentTurnMode?: AgentTurnMode;
+  modelId?: string | null;
+  reasoningEffort?: string | null;
 }
 
 export interface NewConversationSkillOverride {

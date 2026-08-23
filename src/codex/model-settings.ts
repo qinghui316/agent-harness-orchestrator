@@ -14,6 +14,12 @@ export interface CodexModelCandidate {
   label: string;
   source: CodexModelCandidateSource;
   isDefault?: boolean;
+  supportedReasoningEfforts: Array<{
+    value: string;
+    label: string;
+    description?: string;
+  }>;
+  defaultReasoningEffort: string | null;
 }
 
 export interface CodexModelListStatus {
@@ -74,9 +80,6 @@ export async function readCodexModelSettings(): Promise<RuntimeSettings> {
       customModels: [],
     },
   };
-  if (settings.codex.customModels.length > 0 || sanitized.codex.selectedModel !== selectedModel) {
-    await writeJsonFile(settingsPath(), sanitized);
-  }
   return sanitized;
 }
 
@@ -115,17 +118,23 @@ export async function getCodexModelSettingsSnapshot(projectPath?: string): Promi
   const selectedModel = normalizeCodexModelId(settings.codex.selectedModel);
   const selectableCandidates = mergeCandidates([
     ...runtimeModels.candidates,
-    ...(configModel.model ? [{ id: configModel.model, model: configModel.model, label: `${configModel.model} (config)`, source: "config" as const }] : []),
+    ...(configModel.model ? [{
+      id: configModel.model,
+      model: configModel.model,
+      label: `${configModel.model} (config)`,
+      source: "config" as const,
+      supportedReasoningEfforts: [],
+      defaultReasoningEffort: null,
+    }] : []),
   ]);
   const selectedCandidate = selectedModel ? findCandidate(selectableCandidates, selectedModel) : null;
-  if (selectedModel && !selectedCandidate) await setSelectedCodexModel(null);
   const effective = selectedCandidate
     ? { model: selectedCandidate.model, source: "selected" as const }
     : configModel.model
       ? { model: configModel.model, source: "config" as const }
       : { model: null, source: "codex-default" as const };
   return {
-    selectedModel: selectedCandidate?.model ?? null,
+    selectedModel,
     customModels: [],
     configModel: configModel.model,
     configPath: configModel.configPath,
@@ -181,7 +190,36 @@ export function candidatesFromModelListResponse(response: unknown): CodexModelCa
     const model = normalizeCodexModelId(entry.model) ?? normalizeCodexModelId(entry.id);
     if (!model) return null;
     const label = normalizeCodexModelId(entry.displayName) ?? normalizeCodexModelId(entry.display_name) ?? model;
-    return { id: normalizeCodexModelId(entry.id) ?? model, model, label, source: "runtime", isDefault: entry.isDefault === true || entry.is_default === true };
+    const rawEfforts = Array.isArray(entry.supportedReasoningEfforts)
+      ? entry.supportedReasoningEfforts
+      : Array.isArray(entry.supported_reasoning_efforts)
+        ? entry.supported_reasoning_efforts
+        : [];
+    const supportedReasoningEfforts = rawEfforts
+      .map((option) => {
+        if (!isRecord(option)) return null;
+        const value = normalizeCodexModelId(option.reasoningEffort)
+          ?? normalizeCodexModelId(option.reasoning_effort)
+          ?? normalizeCodexModelId(option.value);
+        if (!value) return null;
+        const description = normalizeCodexModelId(option.description);
+        return {
+          value,
+          label: reasoningEffortLabel(value),
+          ...(description ? { description } : {}),
+        };
+      })
+      .filter((option): option is NonNullable<typeof option> => option !== null);
+    return {
+      id: normalizeCodexModelId(entry.id) ?? model,
+      model,
+      label,
+      source: "runtime",
+      isDefault: entry.isDefault === true || entry.is_default === true,
+      supportedReasoningEfforts,
+      defaultReasoningEffort: normalizeCodexModelId(entry.defaultReasoningEffort)
+        ?? normalizeCodexModelId(entry.default_reasoning_effort),
+    };
   }).filter((candidate): candidate is CodexModelCandidate => candidate !== null));
 }
 
@@ -197,6 +235,17 @@ function mergeCandidates(candidates: CodexModelCandidate[]): CodexModelCandidate
 
 function settingsPath(): string {
   return join(getAhoHome(), "settings.json");
+}
+
+function reasoningEffortLabel(value: string): string {
+  return ({
+    none: "无",
+    minimal: "极低",
+    low: "低",
+    medium: "中",
+    high: "高",
+    xhigh: "极高",
+  } as Record<string, string>)[value.toLowerCase()] ?? value;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

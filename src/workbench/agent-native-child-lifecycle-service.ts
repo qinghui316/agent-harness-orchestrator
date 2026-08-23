@@ -52,6 +52,7 @@ export class AgentNativeChildLifecycleService {
     providerId: string;
     capabilitySnapshot: ProviderCapabilitySnapshot;
     model: ProviderModelRef | null;
+    reasoningEffort: string | null;
     parentHandoffHash: string;
     deliveredThroughCompletedTurn: number;
     capture: AssistantTranscriptCapture;
@@ -87,6 +88,7 @@ export class AgentNativeChildLifecycleService {
       childThreadId: event.childSession.sessionId,
       displayName: event.displayName,
       model: null,
+      reasoningEffort: null,
     });
     this.byActivity.set(activityKey, child);
     this.byThread.set(child.threadId, child);
@@ -133,6 +135,7 @@ export class AgentNativeChildLifecycleService {
         childThreadId: result.threadId,
         displayName: result.displayName,
         model: result.model ? { providerId: result.providerId, modelId: result.model } : null,
+        reasoningEffort: result.reasoningEffort ?? null,
       });
     }
     this.assertLineage(child, result.parentThreadId, result.threadId);
@@ -289,6 +292,7 @@ export class AgentNativeChildLifecycleService {
     childThreadId: string;
     displayName?: string;
     model: ProviderModelRef | null;
+    reasoningEffort: string | null;
   }): AgentNativeChildRecord {
     const lineage = resolveNativeChildLineage(this.input.database, {
       projectId: this.input.projectId,
@@ -332,6 +336,7 @@ export class AgentNativeChildLifecycleService {
         providerId: this.input.providerId,
         nativeSessionId: input.childThreadId,
         model: input.model ?? this.input.model,
+        reasoningEffort: input.reasoningEffort ?? this.input.reasoningEffort,
         capabilitySnapshot: this.input.capabilitySnapshot,
         effectiveSkillInputs: [],
         handoffHash: childHandoffHash(this.input.parentHandoffHash, child),
@@ -662,6 +667,7 @@ export async function runAgentNativeChildFollowup(input: {
       providerId: conversation.selectedProviderId,
       capabilitySnapshot: resolvedProvider.snapshot,
       model: previousAttempt.model,
+      reasoningEffort: previousAttempt.reasoningEffort,
       parentHandoffHash: parentAttempt.handoffHash,
       deliveredThroughCompletedTurn: conversation.completedTurnSequence,
       capture,
@@ -753,6 +759,7 @@ export async function runAgentNativeChildFollowup(input: {
         message: error instanceof Error ? error.message : String(error),
       } }),
       model: previousAttempt.model,
+      reasoningEffort: previousAttempt.reasoningEffort,
       });
     } catch (error) {
       lifecycle.onResult({

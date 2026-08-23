@@ -13,6 +13,8 @@ export interface ComposerDraftWrite {
   projectId: string;
   productMode: ProductMode;
   agentTurnMode: StoredComposerDraft["agentTurnMode"];
+  agentModelId: string | null;
+  agentReasoningEffort: string | null;
   text: string;
   contextRefsJson: string;
   attachmentIdsJson: string;
@@ -41,6 +43,7 @@ export class ComposerDraftRepository {
   readDraft(projectId: string, productMode: ProductMode): StoredComposerDraft | null {
     const row = this.db.prepare(`
       SELECT project_id AS projectId, product_mode AS productMode, agent_turn_mode AS agentTurnMode,
+        agent_model_id AS agentModelId, agent_reasoning_effort AS agentReasoningEffort,
         text, context_refs_json AS contextRefsJson, attachment_ids_json AS attachmentIdsJson,
         skill_overrides_json AS skillOverridesJson, selected_provider_id AS selectedProviderId,
         updated_at AS updatedAt
@@ -51,6 +54,8 @@ export class ComposerDraftRepository {
       projectId: String(row.projectId),
       productMode,
       agentTurnMode: row.agentTurnMode === "default" || row.agentTurnMode === "plan" ? row.agentTurnMode : null,
+      agentModelId: typeof row.agentModelId === "string" ? row.agentModelId : null,
+      agentReasoningEffort: typeof row.agentReasoningEffort === "string" ? row.agentReasoningEffort : null,
       text: String(row.text),
       contextRefsJson: String(row.contextRefsJson),
       attachmentIdsJson: String(row.attachmentIdsJson),
@@ -69,11 +74,13 @@ export class ComposerDraftRepository {
       }
       this.db.prepare(`
         INSERT INTO composer_drafts (
-          project_id, product_mode, agent_turn_mode, text, context_refs_json,
+          project_id, product_mode, agent_turn_mode, agent_model_id, agent_reasoning_effort, text, context_refs_json,
           attachment_ids_json, skill_overrides_json, selected_provider_id, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(project_id, product_mode) DO UPDATE SET
           agent_turn_mode = excluded.agent_turn_mode,
+          agent_model_id = excluded.agent_model_id,
+          agent_reasoning_effort = excluded.agent_reasoning_effort,
           text = excluded.text,
           context_refs_json = excluded.context_refs_json,
           attachment_ids_json = excluded.attachment_ids_json,
@@ -84,6 +91,8 @@ export class ComposerDraftRepository {
         input.projectId,
         input.productMode,
         input.agentTurnMode,
+        input.agentModelId,
+        input.agentReasoningEffort,
         input.text,
         input.contextRefsJson,
         input.attachmentIdsJson,

@@ -608,6 +608,8 @@ export function App(): ReactElement {
       id: activeTopic.id,
       productMode: activeTopic.productMode,
       agentTurnMode: activeTopic.agentTurnMode,
+      agentModelId: activeTopic.agentModelId,
+      agentReasoningEffort: activeTopic.agentReasoningEffort,
       state: activeTopic.state,
       selectedProviderId: activeTopic.selectedProviderId,
     } : null,
@@ -619,12 +621,14 @@ export function App(): ReactElement {
     providerCapabilities,
     providerCapabilitiesLoading: providerConfiguration.capabilitiesLoading,
     providerCapabilitiesError: providerConfiguration.capabilitiesError,
+    providerModelSettings,
   }, {
     operation: operationGate,
     session: {
       ensureProjectRegistered: session.ensureProjectRegistered,
       createConversation: (request) => session.createDemandConversation(request, routeProjectionEventForProject),
       restoreDraftProvider: providerConfiguration.restoreDraftProvider,
+      selectProvider: providerConfiguration.selectProvider,
     },
     actions: {
       steer: runComposerSteerRequest,
@@ -1031,11 +1035,16 @@ export function App(): ReactElement {
             onRemoveAttachment={removeComposerAttachment}
             providerOptions={composerProviderOptions}
             selectedProviderId={composerProviderId ?? undefined}
-            onSelectProvider={(providerId) => { void providerConfiguration.selectProvider(providerId); }}
+            onSelectProvider={(providerId) => { void composer.selectProvider(providerId); }}
             productMode={appMode.productMode}
             agentTurnMode={composer.agentTurnMode}
             onSelectAgentTurnMode={composer.selectAgentTurnMode}
             agentTurnModeDisabledReason={composer.agentTurnModeDisabledReason}
+            agentModelId={composer.agentModelId}
+            agentReasoningEffort={composer.agentReasoningEffort}
+            providerModelSettings={providerModelSettings}
+            onSelectAgentModel={composer.selectAgentModel}
+            onSelectAgentReasoningEffort={composer.selectAgentReasoningEffort}
             enabledSkillCount={enabledSkillCount}
             skills={skillItems}
             activeSkillIds={selectedComposerSkillIds}
@@ -1153,6 +1162,11 @@ export function App(): ReactElement {
                   agentTurnMode={composer.agentTurnMode}
                   onSelectAgentTurnMode={composer.selectAgentTurnMode}
                   agentTurnModeDisabledReason={composer.agentTurnModeDisabledReason}
+                  agentModelId={composer.agentModelId}
+                  agentReasoningEffort={composer.agentReasoningEffort}
+                  providerModelSettings={providerModelSettings}
+                  onSelectAgentModel={composer.selectAgentModel}
+                  onSelectAgentReasoningEffort={composer.selectAgentReasoningEffort}
                   onSend={sendTopicMessage}
                   onStopAndContinue={stopAndContinueCurrentRun}
                   actionRunning={actionRunning}
@@ -1160,7 +1174,7 @@ export function App(): ReactElement {
                   runControlState={activeWorkpad.runControlState}
                   providerOptions={composerProviderOptions}
                   selectedProviderId={composerProviderId ?? activeTopic.selectedProviderId}
-                  onSelectProvider={(providerId) => { void providerConfiguration.selectProvider(providerId); }}
+                  onSelectProvider={(providerId) => { void composer.selectProvider(providerId); }}
                 /> : null}
             </section>
           </>

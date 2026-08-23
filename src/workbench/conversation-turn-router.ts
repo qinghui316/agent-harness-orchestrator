@@ -22,6 +22,7 @@ import type { TopicMessageResult, TopicThreadEntry, ValidatedPlanHandoffIntent, 
 import type { TurnSkillContextPort } from "./conversation-turn-contract.js";
 import { TurnAttachmentResolver } from "./turn-attachment-resolver.js";
 import type { ConversationTurnControlOwner } from "./conversation-turn-control.js";
+import { AgentTurnModelAdmissionOwner } from "./agent-turn-model-admission.js";
 
 export type ConversationTurnStrategies = Readonly<Record<ProductMode, ConversationTurnStrategy>>;
 
@@ -32,6 +33,7 @@ export interface ConversationTurnRouterCompositionOptions {
   resolveRuntimePaths?: (projectId: string) => ProjectRuntimePaths;
   attachmentResolver?: TurnAttachmentResolver;
   turnControl?: ConversationTurnControlOwner;
+  modelAdmissionOwner?: AgentTurnModelAdmissionOwner;
 }
 
 export function createConversationTurnRouter(
@@ -40,6 +42,7 @@ export function createConversationTurnRouter(
   const resolveRuntimePaths = options.resolveRuntimePaths
     ?? ((projectId: string) => options.projectRuntimeCoordinator.runtimePaths(projectId));
   const attachmentResolver = options.attachmentResolver ?? new TurnAttachmentResolver({ resolveRuntimePaths });
+  const modelAdmissionOwner = options.modelAdmissionOwner ?? new AgentTurnModelAdmissionOwner(options.providerRegistry);
   return new ConversationTurnRouter(
     {
       agent: new DirectAgentConversationTurnStrategy({
@@ -62,6 +65,7 @@ export function createConversationTurnRouter(
       projectRuntimeCoordinator: options.projectRuntimeCoordinator,
       providerRegistry: options.providerRegistry,
       attachmentResolver,
+      modelAdmissionOwner,
     },
   );
 }
@@ -72,7 +76,7 @@ export class ConversationTurnRouter {
   constructor(
     private readonly strategies: ConversationTurnStrategies,
     private readonly ports: ConversationTurnExecutionPorts,
-    options: Pick<ConversationTurnRouterCompositionOptions, "projectRuntimeCoordinator" | "providerRegistry" | "turnControl"> & { attachmentResolver?: TurnAttachmentResolver },
+    options: Pick<ConversationTurnRouterCompositionOptions, "projectRuntimeCoordinator" | "providerRegistry" | "turnControl" | "modelAdmissionOwner"> & { attachmentResolver?: TurnAttachmentResolver },
   ) {
     this.runtimeStateResolver = (project) => options.projectRuntimeCoordinator.resolve(project);
     this.providerRegistry = options.providerRegistry;
@@ -80,6 +84,7 @@ export class ConversationTurnRouter {
     this.attachmentResolver = options.attachmentResolver ?? new TurnAttachmentResolver({
       resolveRuntimePaths: (projectId) => options.projectRuntimeCoordinator.runtimePaths(projectId),
     });
+    this.modelAdmissionOwner = options.modelAdmissionOwner ?? new AgentTurnModelAdmissionOwner(options.providerRegistry);
     for (const productMode of ["agent", "harness"] as const) {
       if (strategies[productMode].productMode !== productMode) {
         throw new Error(`Conversation Turn Strategy for ${productMode} must declare the same productMode.`);
@@ -90,6 +95,7 @@ export class ConversationTurnRouter {
   private readonly providerRegistry: ProviderRegistry;
   private readonly attachmentResolver: TurnAttachmentResolver;
   private readonly turnControl?: ConversationTurnControlOwner;
+  private readonly modelAdmissionOwner: AgentTurnModelAdmissionOwner;
 
   readonly resolveAttachments = (project: ManagedProject, attachmentIds: readonly string[] = []) => (
     this.attachmentResolver.resolveMetadata(project, attachmentIds)
@@ -124,6 +130,7 @@ export class ConversationTurnRouter {
     const runtimeState = await this.requireRuntimeState(input.project);
     if (input.productMode === "harness") {
       if (input.agentTurnMode !== null) throw conflict("Harness Turn cannot carry an Agent Turn mode.");
+      if (input.modelId !== null || input.reasoningEffort !== null) throw conflict("Harness Turn cannot carry Agent model selection.");
       return freezeAdmission({
         projectId: input.project.id,
         productMode: input.productMode,
@@ -132,6 +139,7 @@ export class ConversationTurnRouter {
         agentTurnMode: null,
         capabilitySnapshot: null,
         model: null,
+        modelAdmission: null,
         sandboxPolicy: "workspace-write",
         writableRoots: [input.project.path],
         runtimeState,
@@ -149,10 +157,16 @@ export class ConversationTurnRouter {
     );
     if (agentTurnMode === "plan") {
       const plan = resolved.snapshot.capabilities.find((capability) => capability.key === "turn.plan");
-      if (plan?.runtime !== "ready" || !resolved.snapshot.effectiveModel) {
+      if (plan?.runtime !== "ready") {
         throw conflict("Selected Provider cannot run Agent Plan turns.");
       }
     }
+    const modelAdmission = await this.modelAdmissionOwner.admit({
+      project: input.project,
+      providerId: input.providerId,
+      requested: { modelId: input.modelId, reasoningEffort: input.reasoningEffort },
+      requireResolvedModel: agentTurnMode === "plan",
+    });
     requireAttachmentCapabilities(resolved.snapshot, attachmentResolution);
     return freezeAdmission({
       projectId: input.project.id,
@@ -161,9 +175,10 @@ export class ConversationTurnRouter {
       providerId: input.providerId,
       agentTurnMode,
       capabilitySnapshot: resolved.snapshot,
-      model: resolved.snapshot.effectiveModel
-        ? { providerId: input.providerId, modelId: resolved.snapshot.effectiveModel }
+      model: modelAdmission.resolvedModelId
+        ? { providerId: input.providerId, modelId: modelAdmission.resolvedModelId }
         : null,
+      modelAdmission,
       sandboxPolicy: agentTurnMode === "plan" ? "read-only" : "workspace-write",
       writableRoots: agentTurnMode === "plan" ? [] : [input.project.path],
       runtimeState,
@@ -358,6 +373,10 @@ function freezeAdmission(admission: ConversationTurnAdmission): ConversationTurn
     });
   }
   if (admission.model) admission.model = Object.freeze({ ...admission.model });
+  if (admission.modelAdmission) {
+    Object.freeze(admission.modelAdmission.requested);
+    Object.freeze(admission.modelAdmission);
+  }
   Object.freeze(admission.writableRoots);
   return Object.freeze(admission);
 }

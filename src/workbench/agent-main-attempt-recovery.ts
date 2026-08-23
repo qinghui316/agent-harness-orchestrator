@@ -45,6 +45,8 @@ export async function reconcileStaleAgentMainAttempts(input: {
           rootSourceMessageId: source.id,
           providerId: attempt.providerId,
           agentTurnMode: attempt.agentTurnMode ?? "default" as const,
+          modelId: source ? fromStoredThreadMessage(source).agentModelId ?? null : null,
+          reasoningEffort: source ? fromStoredThreadMessage(source).agentReasoningEffort ?? null : null,
         } : undefined;
         const message = toCanonicalTimelineMessage(paths.projectId, conversation.conversationId, {
           id: `status:${conversation.conversationId}:${attempt.providerId}:${stableId(attempt.attemptId)}:restart-main-stale`,

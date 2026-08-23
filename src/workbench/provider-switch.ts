@@ -196,6 +196,7 @@ export async function switchConversationProviderAtSafePoint(input: {
       providerId: input.targetProviderId,
       nativeSessionId: existingBinding?.nativeSessionId ?? null,
       model: capabilitySnapshot.effectiveModel ? { providerId: input.targetProviderId, modelId: capabilitySnapshot.effectiveModel } : null,
+      reasoningEffort: null,
       capabilitySnapshot,
       effectiveSkillInputs: [],
       handoffHash: snapshotHash,

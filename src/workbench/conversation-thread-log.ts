@@ -97,6 +97,8 @@ export function fromStoredThreadMessage(row: StoredTopicMessage): TopicThreadEnt
     attachments: Array.isArray(raw.attachments) ? raw.attachments.filter(isTopicAttachment) : undefined,
     planHandoff: isValidatedPlanHandoffIntent(raw.planHandoff) ? raw.planHandoff : undefined,
     agentTurnMode: raw.agentTurnMode === "default" || raw.agentTurnMode === "plan" ? raw.agentTurnMode : undefined,
+    agentModelId: typeof raw.agentModelId === "string" || raw.agentModelId === null ? raw.agentModelId : undefined,
+    agentReasoningEffort: typeof raw.agentReasoningEffort === "string" || raw.agentReasoningEffort === null ? raw.agentReasoningEffort : undefined,
     retryTarget: isConversationRetryTargetEvidence(raw.retryTarget) ? raw.retryTarget : undefined,
     retryLineage: isConversationRetryLineageEvidence(raw.retryLineage) ? raw.retryLineage : undefined,
     document: isCanonicalPlanDocument(raw.document) ? raw.document : undefined,
@@ -111,7 +113,9 @@ function isConversationRetryTargetEvidence(value: unknown): value is import("./t
     && typeof value.sourceMessageId === "string"
     && typeof value.rootSourceMessageId === "string"
     && typeof value.providerId === "string"
-    && (value.agentTurnMode === "default" || value.agentTurnMode === "plan");
+    && (value.agentTurnMode === "default" || value.agentTurnMode === "plan")
+    && (typeof value.modelId === "string" || value.modelId === null)
+    && (typeof value.reasoningEffort === "string" || value.reasoningEffort === null);
 }
 
 function isConversationRetryLineageEvidence(value: unknown): value is import("./types.js").ConversationRetryLineageEvidence {

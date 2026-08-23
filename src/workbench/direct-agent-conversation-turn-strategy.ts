@@ -127,6 +127,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
       : null;
     const startedAt = new Date().toISOString();
     const model = input.admission.model;
+    const reasoningEffort = input.admission.modelAdmission?.resolvedReasoningEffort ?? null;
     const skillInputs = [...skillContext.skillInputs];
     const handoffHash = directAgentHandoffHash(input, skillContext, attachmentResolution);
     const mainTimelineId = `assistant:${conversation.conversationId}:${input.providerId}:${runId}:main`;
@@ -202,6 +203,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
       providerId: input.providerId,
       capabilitySnapshot,
       model,
+      reasoningEffort,
       parentHandoffHash: handoffHash,
       deliveredThroughCompletedTurn: conversation.completedTurnSequence,
       capture,
@@ -271,6 +273,8 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
         status,
         failure,
         agentTurnMode: input.admission.agentTurnMode,
+        modelId: input.admission.modelAdmission?.requested.modelId ?? null,
+        reasoningEffort: input.admission.modelAdmission?.requested.reasoningEffort ?? null,
         sourceMessageId: input.committedMessage.id,
         retryLineage: input.retryLineage,
       });
@@ -324,6 +328,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
         providerId: input.providerId,
         nativeSessionId: existingSessionId,
         model,
+        reasoningEffort,
         capabilitySnapshot,
         effectiveSkillInputs: skillInputs,
         handoffHash,
@@ -462,6 +467,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
           });
         },
         model,
+        reasoningEffort,
         imageInputs: [...attachmentResolution.imageInputs],
         fileInputs: [...attachmentResolution.fileInputs],
         skillInputs,
@@ -619,7 +625,7 @@ function directAgentHandoffHash(
   attachments: import("./conversation-turn-contract.js").TurnAttachmentResolution,
 ): string {
   return createHash("sha256").update(JSON.stringify({
-    version: 3,
+    version: 4,
     projectId: input.project.id,
     conversationId: input.conversation.conversationId,
     graphScopeId: input.conversation.currentGraphScopeId,
@@ -627,6 +633,8 @@ function directAgentHandoffHash(
     messageRevision: input.committedMessage.revision,
     providerId: input.providerId,
     agentTurnMode: input.admission.agentTurnMode,
+    resolvedModelId: input.admission.modelAdmission?.resolvedModelId ?? null,
+    resolvedReasoningEffort: input.admission.modelAdmission?.resolvedReasoningEffort ?? null,
     capabilitySnapshotHash: input.admission.capabilitySnapshot?.snapshotHash ?? null,
     attachmentHandoffHash: attachments.handoffHash,
     attachments: attachments.evidence,
@@ -654,6 +662,8 @@ function terminalCaptureWrites(input: {
   status: "completed" | "interrupted" | "failed";
   failure?: Error;
   agentTurnMode: "default" | "plan" | null;
+  modelId: string | null;
+  reasoningEffort: string | null;
   sourceMessageId: string;
   retryLineage?: Readonly<import("./types.js").ConversationRetryLineageEvidence>;
 }): StoredTopicMessageWrite[] {
@@ -707,6 +717,8 @@ function terminalCaptureWrites(input: {
     rootSourceMessageId: input.retryLineage?.rootSourceMessageId ?? input.sourceMessageId,
     providerId: input.providerId,
     agentTurnMode: input.agentTurnMode ?? "default" as const,
+    modelId: input.modelId,
+    reasoningEffort: input.reasoningEffort,
   } : undefined;
   return writes.map((write) => updateCanonicalWrite(write, {
     status: input.status,

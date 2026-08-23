@@ -39,12 +39,16 @@ export interface CreateWorkbenchConversationInput {
   clientRequestId: string;
   skillOverrides?: NewConversationSkillOverride[];
   agentTurnMode?: AgentTurnMode;
+  modelId?: string | null;
+  reasoningEffort?: string | null;
 }
 
 export interface PreparedWorkbenchConversation {
   projectId: string;
   productMode: ProductMode;
   agentTurnMode: AgentTurnMode | null;
+  modelId: string | null;
+  reasoningEffort: string | null;
   clientRequestId: string;
   skillOverrides: NewConversationSkillOverride[];
   resolvedText: string;
@@ -70,6 +74,8 @@ type NormalizedTopicMessageInput = Required<Pick<TopicMessageInput, "mode" | "me
   providerSwitchIntent: "resume-workflow" | "conversation-only";
   agentSurfaceId?: string;
   agentTurnMode?: AgentTurnMode;
+  modelId?: string | null;
+  reasoningEffort?: string | null;
 };
 
 export interface PreparedConversationMessage {
@@ -80,6 +86,8 @@ export interface PreparedConversationMessage {
   identity: Awaited<ReturnType<typeof resolveStoredConversationIdentity>>;
   parsed: NormalizedTopicMessageInput;
   agentTurnMode: AgentTurnMode | null;
+  modelId: string | null;
+  reasoningEffort: string | null;
   admission: Awaited<ReturnType<ConversationTurnRoutingPort["admit"]>>;
   requestSignature: string;
 }
@@ -98,6 +106,8 @@ export async function createWorkbenchConversation(
   replayed: boolean;
   selectedProviderId: string;
   agentTurnMode: AgentTurnMode | null;
+  agentModelId: string | null;
+  agentReasoningEffort: string | null;
 }> {
   const turnRouter = options.turnRouter;
   if (options.runMainAgent !== false) requireComposedTurnRouter(turnRouter);
@@ -110,6 +120,8 @@ export async function createWorkbenchConversation(
   const {
     productMode,
     agentTurnMode,
+    modelId,
+    reasoningEffort,
     clientRequestId,
     skillOverrides,
     attachments,
@@ -145,6 +157,8 @@ export async function createWorkbenchConversation(
           conversationId,
           productMode,
           agentTurnMode,
+          agentModelId: modelId,
+          agentReasoningEffort: reasoningEffort,
           clientCreateRequestId: clientRequestId,
           clientCreateRequestHash: requestHash,
           title,
@@ -169,6 +183,8 @@ export async function createWorkbenchConversation(
           contextRefs: resolved.contextRefs.length > 0 ? resolved.contextRefs : undefined,
           attachments: attachments.length > 0 ? attachments : undefined,
           agentTurnMode: agentTurnMode ?? undefined,
+          agentModelId: productMode === "agent" ? modelId : undefined,
+          agentReasoningEffort: productMode === "agent" ? reasoningEffort : undefined,
         }),
         skillOverrides,
       });
@@ -194,6 +210,8 @@ export async function createWorkbenchConversation(
         selectedProviderId: committed.selectedProviderId,
         productMode: committed.productMode,
         agentTurnMode: committed.agentTurnMode,
+        agentModelId: committed.agentModelId,
+        agentReasoningEffort: committed.agentReasoningEffort,
       },
     },
   });
@@ -220,6 +238,8 @@ export async function createWorkbenchConversation(
     replayed: creation.replayed,
     selectedProviderId: committed.selectedProviderId,
     agentTurnMode: committed.agentTurnMode,
+    agentModelId: committed.agentModelId,
+    agentReasoningEffort: committed.agentReasoningEffort,
   };
 }
 
@@ -230,6 +250,7 @@ export async function prepareWorkbenchConversation(
 ): Promise<PreparedWorkbenchConversation> {
   const productMode = assertProductMode(input.productMode);
   const agentTurnMode = normalizeRequestedAgentTurnMode(productMode, input.agentTurnMode);
+  const selection = normalizeRequestedAgentModelSelection(productMode, input.modelId, input.reasoningEffort);
   const clientRequestId = normalizeClientRequestId(input.clientRequestId);
   const skillOverrides = normalizeSkillOverrides(input.skillOverrides);
   const turnRouter = options.turnRouter;
@@ -269,11 +290,15 @@ export async function prepareWorkbenchConversation(
         providerId: selectedProviderId,
         skillOverrides,
         agentTurnMode,
+        modelId: selection.modelId,
+        reasoningEffort: selection.reasoningEffort,
       });
       const preparedReplay = createPreparedConversation({
         project,
         productMode,
         agentTurnMode,
+        modelId: selection.modelId,
+        reasoningEffort: selection.reasoningEffort,
         clientRequestId,
         skillOverrides,
         resolvedText: resolved.text,
@@ -302,6 +327,8 @@ export async function prepareWorkbenchConversation(
       project,
       productMode,
       agentTurnMode,
+      modelId: selection.modelId,
+      reasoningEffort: selection.reasoningEffort,
       clientRequestId,
       skillOverrides,
       resolvedText: resolved.text,
@@ -321,6 +348,8 @@ export async function prepareWorkbenchConversation(
         providerId: selectedProviderId,
         skillOverrides,
         agentTurnMode,
+        modelId: selection.modelId,
+        reasoningEffort: selection.reasoningEffort,
       }),
       admission: null,
       replayed: true,
@@ -342,6 +371,8 @@ export async function prepareWorkbenchConversation(
     providerId: selectedProviderId,
     skillOverrides,
     agentTurnMode,
+    modelId: selection.modelId,
+    reasoningEffort: selection.reasoningEffort,
   });
   const admission = options.runMainAgent === false
     ? null
@@ -351,12 +382,16 @@ export async function prepareWorkbenchConversation(
       conversationId,
       providerId: selectedProviderId,
       agentTurnMode,
+      modelId: selection.modelId,
+      reasoningEffort: selection.reasoningEffort,
       attachments,
     });
   return createPreparedConversation({
     project,
     productMode,
     agentTurnMode,
+    modelId: selection.modelId,
+    reasoningEffort: selection.reasoningEffort,
     clientRequestId,
     skillOverrides: Object.freeze([...skillOverrides]) as unknown as NewConversationSkillOverride[],
     resolvedText: resolved.text,
@@ -447,6 +482,10 @@ export async function postConversationMessage(
   turnRouter.assertRequestedMode(identity.conversation, requestedMode);
   const parsed = options.prepared?.parsed
     ?? await normalizeTopicMessageInput(project, input, turnRouter.resolveAttachments);
+  if (identity.conversation.productMode === "harness"
+    && (parsed.modelId !== undefined || parsed.reasoningEffort !== undefined)) {
+    throw conflict("Harness requests cannot carry Agent model selection.");
+  }
   const runtimeState = identity.runtimeState;
   if (identity.conversation.productMode === "agent" && parsed.planHandoffIntent) {
     const error = new Error("Agent mode does not accept AHO child feedback or planning handoffs.");
@@ -517,15 +556,28 @@ export async function postConversationMessage(
     identity.conversation.productMode,
     parsed.agentTurnMode ?? identity.conversation.agentTurnMode ?? undefined,
   );
+  const modelId = options.prepared
+    ? options.prepared.modelId
+    : parsed.modelId === undefined ? identity.conversation.agentModelId : parsed.modelId;
+  const reasoningEffort = options.prepared
+    ? options.prepared.reasoningEffort
+    : parsed.reasoningEffort === undefined ? identity.conversation.agentReasoningEffort : parsed.reasoningEffort;
   const admission = options.prepared?.admission ?? await turnRouter.admit({
     project,
     productMode: identity.conversation.productMode,
     conversationId,
     providerId: identity.conversation.selectedProviderId,
     agentTurnMode,
+    modelId: identity.conversation.productMode === "agent" ? modelId : null,
+    reasoningEffort: identity.conversation.productMode === "agent" ? reasoningEffort : null,
     attachments: parsed.attachments ?? [],
   });
-  const committed = await commitTopLevelConversationMessage(identity, { ...parsed, agentTurnMode: agentTurnMode ?? undefined }, turnRouter, live);
+  const committed = await commitTopLevelConversationMessage(identity, {
+    ...parsed,
+    agentTurnMode: agentTurnMode ?? undefined,
+    modelId: identity.conversation.productMode === "agent" ? modelId : undefined,
+    reasoningEffort: identity.conversation.productMode === "agent" ? reasoningEffort : undefined,
+  }, turnRouter, live);
   const result = await turnRouter.route({
     project,
     conversation: committed.conversation,
@@ -621,7 +673,7 @@ async function normalizeTopicMessageInput(
   project: ManagedProject,
   input: string | TopicMessageInput,
   attachmentResolver: ConversationTurnRoutingPort["resolveAttachments"],
-): Promise<Required<Pick<TopicMessageInput, "mode" | "message">> & { contextRefs?: TopicMessageInput["contextRefs"]; attachments?: TopicAttachment[]; planHandoffIntent?: TopicMessageInput["planHandoffIntent"]; providerId?: string; providerSwitchIntent: "resume-workflow" | "conversation-only"; agentSurfaceId?: string; agentTurnMode?: AgentTurnMode }> {
+): Promise<NormalizedTopicMessageInput> {
   const mode = typeof input === "string" ? "chat" : input.mode ?? "chat";
   const message = typeof input === "string" ? input : input.message ?? input.text ?? "";
   if (mode !== "chat") throw new Error("Message mode must be chat; planning is delegated by the Main Agent to a real child.");
@@ -642,6 +694,12 @@ async function normalizeTopicMessageInput(
     agentTurnMode: typeof input === "string" || input.agentTurnMode === undefined
       ? undefined
       : assertAgentTurnMode(input.agentTurnMode),
+    modelId: typeof input === "string" || input.modelId === undefined
+      ? undefined
+      : normalizeNullableSelection(input.modelId, "modelId"),
+    reasoningEffort: typeof input === "string" || input.reasoningEffort === undefined
+      ? undefined
+      : normalizeNullableSelection(input.reasoningEffort, "reasoningEffort"),
   };
 }
 
@@ -754,6 +812,8 @@ async function commitTopLevelConversationMessage(
       attachments: parsed.attachments,
       planHandoff,
       agentTurnMode: parsed.agentTurnMode,
+      agentModelId: parsed.modelId,
+      agentReasoningEffort: parsed.reasoningEffort,
     };
     const userWrite = toCanonicalTimelineMessage(projectId, conversationId, user);
     if (conversation.productMode === "agent") {
@@ -761,7 +821,11 @@ async function commitTopLevelConversationMessage(
         projectId,
         conversationId,
         expectedAgentTurnMode: conversation.agentTurnMode ?? "default",
+        expectedAgentModelId: conversation.agentModelId,
+        expectedAgentReasoningEffort: conversation.agentReasoningEffort,
         agentTurnMode: parsed.agentTurnMode ?? conversation.agentTurnMode ?? "default",
+        agentModelId: parsed.modelId ?? null,
+        agentReasoningEffort: parsed.reasoningEffort ?? null,
         updatedAt: now,
         message: userWrite,
       });
@@ -832,9 +896,11 @@ function stableConversationCreateRequestHash(input: {
   providerId: string;
   skillOverrides: NewConversationSkillOverride[];
   agentTurnMode: AgentTurnMode | null;
+  modelId: string | null;
+  reasoningEffort: string | null;
 }): string {
   return createHash("sha256").update(JSON.stringify({
-    version: 3,
+    version: 4,
     productMode: input.productMode,
     body: input.body,
     contextRefs: input.contextRefs ?? [],
@@ -851,6 +917,8 @@ function stableConversationCreateRequestHash(input: {
     providerId: input.providerId,
     skillOverrides: input.skillOverrides,
     agentTurnMode: input.agentTurnMode,
+    modelId: input.modelId,
+    reasoningEffort: input.reasoningEffort,
   })).digest("hex");
 }
 
@@ -902,12 +970,18 @@ export async function prepareConversationMessage(
     "agent",
     parsed.agentTurnMode ?? identity.conversation.agentTurnMode ?? undefined,
   );
+  const modelId = parsed.modelId === undefined ? identity.conversation.agentModelId : parsed.modelId;
+  const reasoningEffort = parsed.reasoningEffort === undefined
+    ? identity.conversation.agentReasoningEffort
+    : parsed.reasoningEffort;
   const admission = await turnRouter.admit({
     project,
     productMode: "agent",
     conversationId: identity.conversationId,
     providerId: identity.conversation.selectedProviderId,
     agentTurnMode,
+    modelId,
+    reasoningEffort,
     attachments: parsed.attachments ?? [],
   });
   return Object.freeze({
@@ -918,6 +992,8 @@ export async function prepareConversationMessage(
     identity,
     parsed: Object.freeze({ ...parsed, attachments: parsed.attachments ? Object.freeze([...parsed.attachments]) as unknown as TopicAttachment[] : undefined }),
     agentTurnMode,
+    modelId,
+    reasoningEffort,
     admission,
     requestSignature: stableMessagePreparationSignature(input),
   });
@@ -938,10 +1014,34 @@ function stableConversationCreateRequestHashV2(input: Parameters<typeof stableCo
   })).digest("hex");
 }
 
+function stableConversationCreateRequestHashV3(input: Omit<Parameters<typeof stableConversationCreateRequestHash>[0], "modelId" | "reasoningEffort">): string {
+  return createHash("sha256").update(JSON.stringify({
+    version: 3,
+    productMode: input.productMode,
+    body: input.body,
+    contextRefs: input.contextRefs ?? [],
+    attachments: [...input.attachments]
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .map((attachment) => ({
+        id: attachment.id,
+        kind: attachment.kind,
+        mediaType: attachment.mediaType,
+        size: attachment.size,
+        contentHash: attachment.hash,
+        runtimeMode: attachment.kind === "image" ? "provider-image-input" : "provider-file-reference",
+      })),
+    providerId: input.providerId,
+    skillOverrides: input.skillOverrides,
+    agentTurnMode: input.agentTurnMode,
+  })).digest("hex");
+}
+
 function createPreparedConversation(input: {
   project: ManagedProject;
   productMode: ProductMode;
   agentTurnMode: AgentTurnMode | null;
+  modelId: string | null;
+  reasoningEffort: string | null;
   clientRequestId: string;
   skillOverrides: NewConversationSkillOverride[];
   resolvedText: string;
@@ -962,6 +1062,8 @@ function createPreparedConversation(input: {
     projectId: input.project.id,
     productMode: input.productMode,
     agentTurnMode: input.agentTurnMode,
+    modelId: input.modelId,
+    reasoningEffort: input.reasoningEffort,
     clientRequestId: input.clientRequestId,
     skillOverrides: Object.freeze([...input.skillOverrides]) as unknown as NewConversationSkillOverride[],
     resolvedText: input.resolvedText,
@@ -996,6 +1098,15 @@ function assertExistingCreateReplay(
     skillOverrides: prepared.skillOverrides,
     agentTurnMode: prepared.agentTurnMode,
   });
+  const attachmentRequestHash = stableConversationCreateRequestHashV3({
+    productMode: prepared.productMode,
+    body: prepared.body,
+    contextRefs: prepared.contextRefs,
+    attachments: prepared.attachments,
+    providerId: prepared.selectedProviderId,
+    skillOverrides: prepared.skillOverrides,
+    agentTurnMode: prepared.agentTurnMode,
+  });
   const legacyRequestHash = stableConversationCreateRequestHashV1({
     productMode: prepared.productMode,
     body: prepared.body,
@@ -1005,6 +1116,7 @@ function assertExistingCreateReplay(
     skillOverrides: prepared.skillOverrides,
   });
   const requestMatches = existing.clientCreateRequestHash === prepared.requestHash
+    || existing.clientCreateRequestHash === attachmentRequestHash
     || existing.clientCreateRequestHash === previousRequestHash
     || (existing.agentTurnMode === prepared.agentTurnMode && existing.clientCreateRequestHash === legacyRequestHash);
   if (existing.conversationId !== prepared.conversationId
@@ -1024,6 +1136,8 @@ function stableCreatePreparationSignature(input: CreateWorkbenchConversationInpu
     clientRequestId: input.clientRequestId,
     skillOverrides: input.skillOverrides ?? [],
     agentTurnMode: input.agentTurnMode ?? null,
+    modelId: input.modelId ?? null,
+    reasoningEffort: input.reasoningEffort ?? null,
   })).digest("hex");
 }
 
@@ -1034,9 +1148,12 @@ function assertPreparedCreateIdentity(
 ): void {
   const requestedMode = assertProductMode(input.productMode);
   const requestedAgentTurnMode = normalizeRequestedAgentTurnMode(requestedMode, input.agentTurnMode);
+  const requestedSelection = normalizeRequestedAgentModelSelection(requestedMode, input.modelId, input.reasoningEffort);
   if (prepared.projectId !== project.id
     || prepared.productMode !== requestedMode
     || prepared.agentTurnMode !== requestedAgentTurnMode
+    || prepared.modelId !== requestedSelection.modelId
+    || prepared.reasoningEffort !== requestedSelection.reasoningEffort
     || prepared.clientRequestId !== normalizeClientRequestId(input.clientRequestId)
     || prepared.requestSignature !== stableCreatePreparationSignature(input)) {
     const error = new Error("Prepared Conversation Turn does not match the current request identity.");
@@ -1067,6 +1184,8 @@ function stableMessagePreparationSignature(input: string | TopicMessageInput): s
     providerSwitchIntent: input.providerSwitchIntent ?? null,
     agentSurfaceId: input.agentSurfaceId ?? null,
     agentTurnMode: input.agentTurnMode ?? null,
+    modelId: input.modelId ?? null,
+    reasoningEffort: input.reasoningEffort ?? null,
     contextRefs: input.contextRefs ?? [],
     attachmentIds: input.attachmentIds ?? [],
     planHandoffIntent: input.planHandoffIntent ?? null,
@@ -1096,4 +1215,29 @@ function normalizeRequestedAgentTurnMode(productMode: ProductMode, value: AgentT
     error.name = "BadRequest";
     throw error;
   }
+}
+
+function normalizeRequestedAgentModelSelection(
+  productMode: ProductMode,
+  modelId: string | null | undefined,
+  reasoningEffort: string | null | undefined,
+): { modelId: string | null; reasoningEffort: string | null } {
+  if (productMode === "harness") {
+    if (modelId !== undefined || reasoningEffort !== undefined) {
+      throw conflict("Harness requests cannot carry Agent model selection.");
+    }
+    return { modelId: null, reasoningEffort: null };
+  }
+  return {
+    modelId: normalizeNullableSelection(modelId ?? null, "modelId"),
+    reasoningEffort: normalizeNullableSelection(reasoningEffort ?? null, "reasoningEffort"),
+  };
+}
+
+function normalizeNullableSelection(value: string | null, field: string): string | null {
+  if (value === null) return null;
+  if (typeof value === "string" && value.trim()) return value.trim();
+  const error = new Error(`${field} must be a non-empty string or null.`);
+  error.name = "BadRequest";
+  throw error;
 }

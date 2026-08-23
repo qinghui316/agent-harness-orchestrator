@@ -59,6 +59,7 @@ export function useProviderConfigurationController(input: ProviderConfigurationI
 
   const reload = useCallback(async (): Promise<void> => {
     const generation = ++requestGenerationRef.current;
+    setResolvedScopeIdentity(null);
     const path = providerCapabilitiesPath(input.projectId, productMode);
     const payload = await fetchJson<{ providers?: unknown[] }>(path);
     if (generation !== requestGenerationRef.current) return;
@@ -134,16 +135,42 @@ export function useProviderConfigurationController(input: ProviderConfigurationI
     draftProviderIdRef.current = null;
     draftProviderScopeRef.current = null;
     setSelectedProviderId(providerId);
-    await loadProviderDetails(providerId, generation);
-  }, [loadProviderDetails, visibleSelectedProviderId]);
+    setDiagnostics(null);
+    setModelSettings(null);
+    setResolvedScopeIdentity(null);
+    try {
+      await loadProviderDetails(providerId, generation);
+      if (generation === requestGenerationRef.current) setResolvedScopeIdentity(scopeIdentity);
+    } catch (cause) {
+      if (generation === requestGenerationRef.current) {
+        setCapabilitiesError(cause instanceof Error ? cause.message : String(cause));
+        setResolvedScopeIdentity(scopeIdentity);
+      }
+    }
+  }, [loadProviderDetails, scopeIdentity, visibleSelectedProviderId]);
 
   const restoreDraftProvider = useCallback((providerId: string | null): void => {
     if (input.conversationProviderId) return;
+    const generation = ++requestGenerationRef.current;
     draftProviderIdRef.current = providerId;
     draftProviderScopeRef.current = scopeIdentity;
     setSelectedProviderId(providerId);
-    setResolvedScopeIdentity(scopeIdentity);
-  }, [input.conversationProviderId, scopeIdentity]);
+    setDiagnostics(null);
+    setModelSettings(null);
+    if (!providerId) {
+      setResolvedScopeIdentity(scopeIdentity);
+      return;
+    }
+    setResolvedScopeIdentity(null);
+    void loadProviderDetails(providerId, generation).then(() => {
+      if (generation === requestGenerationRef.current) setResolvedScopeIdentity(scopeIdentity);
+    }).catch((cause: unknown) => {
+      if (generation === requestGenerationRef.current) {
+        setCapabilitiesError(cause instanceof Error ? cause.message : String(cause));
+        setResolvedScopeIdentity(scopeIdentity);
+      }
+    });
+  }, [input.conversationProviderId, loadProviderDetails, scopeIdentity]);
 
   const openModelPicker = useCallback(async (): Promise<void> => {
     const generation = ++requestGenerationRef.current;
@@ -242,6 +269,11 @@ export function isProviderModelSettingsSnapshot(value: unknown): value is Provid
     && (snapshot.effectiveModel === null || typeof snapshot.effectiveModel === "object")
     && (snapshot.effectiveModelSource === "selected" || snapshot.effectiveModelSource === "config" || snapshot.effectiveModelSource === "provider-default")
     && Array.isArray(snapshot.candidates)
+    && snapshot.candidates.every((candidate) => Boolean(candidate)
+      && typeof candidate === "object"
+      && Array.isArray((candidate as ProviderModelSettingsSnapshot["candidates"][number]).supportedReasoningEfforts)
+      && (((candidate as ProviderModelSettingsSnapshot["candidates"][number]).defaultReasoningEffort === null)
+        || typeof (candidate as ProviderModelSettingsSnapshot["candidates"][number]).defaultReasoningEffort === "string"))
     && typeof snapshot.available === "boolean";
 }
 

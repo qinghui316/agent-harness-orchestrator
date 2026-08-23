@@ -436,6 +436,21 @@ function installApiFixture(snapshot: Snapshot): void {
       }] });
     }
     if (url.endsWith("/providers/codex/diagnostics")) return json({ providerId: "codex", displayName: "Codex", models: {} });
+    if (url.endsWith("/providers/codex/models")) return json({
+      providerId: "codex",
+      selectedModel: null,
+      effectiveModel: { providerId: "codex", modelId: "gpt-test" },
+      effectiveModelSource: "provider-default",
+      candidates: [{
+        providerId: "codex",
+        modelId: "gpt-test",
+        label: "GPT Test",
+        source: "runtime",
+        supportedReasoningEfforts: [{ value: "medium", label: "中" }],
+        defaultReasoningEffort: "medium",
+      }],
+      available: true,
+    });
     if (url.endsWith("/providers/codex/model-settings")) return json({ providerId: "codex" });
     if (url.endsWith("/skills")) return json({ skills: [] });
     if (url.endsWith("/removal-confirmation")) return json({

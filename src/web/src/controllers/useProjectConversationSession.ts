@@ -35,6 +35,8 @@ export type CreateDemandConversationInput = {
   projectId: string;
   productMode: ProductMode;
   agentTurnMode?: AgentTurnMode;
+  modelId?: string | null;
+  reasoningEffort?: string | null;
   clientRequestId: string;
   body: string;
   contextRefs: TopicFileReference[];
@@ -907,6 +909,8 @@ const defaultApi: ProjectConversationSessionApi = {
       providerId: input.providerId,
       productMode: input.productMode,
       agentTurnMode: input.agentTurnMode,
+      modelId: input.modelId,
+      reasoningEffort: input.reasoningEffort,
       clientRequestId: input.clientRequestId,
       skillOverrides: input.skillOverrides,
     },

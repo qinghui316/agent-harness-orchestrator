@@ -94,6 +94,8 @@ export interface WorkbenchTopicSummary {
   id: string;
   productMode: ProductMode;
   agentTurnMode?: AgentTurnMode | null;
+  agentModelId?: string | null;
+  agentReasoningEffort?: string | null;
   kind?: "conversation" | "change";
   name: string;
   title: string;

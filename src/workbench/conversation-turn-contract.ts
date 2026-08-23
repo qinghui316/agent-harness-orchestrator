@@ -103,7 +103,24 @@ export interface ConversationTurnAdmissionRequest {
   conversationId: string;
   providerId: ProviderId;
   agentTurnMode: AgentTurnMode | null;
+  modelId: string | null;
+  reasoningEffort: string | null;
   attachments: readonly TopicAttachment[];
+}
+
+export interface AgentTurnModelSelection {
+  modelId: string | null;
+  reasoningEffort: string | null;
+}
+
+export interface AgentTurnModelAdmission {
+  providerId: ProviderId;
+  requested: AgentTurnModelSelection;
+  resolvedModelId: string | null;
+  resolvedReasoningEffort: string | null;
+  modelSource: "explicit" | "provider-configuration";
+  effortSource: "explicit" | "model-default" | "provider-default";
+  catalogGeneration: string;
 }
 
 export interface ConversationTurnAdmission {
@@ -114,6 +131,7 @@ export interface ConversationTurnAdmission {
   agentTurnMode: AgentTurnMode | null;
   capabilitySnapshot: ProviderCapabilitySnapshot | null;
   model: ProviderModelRef | null;
+  modelAdmission: AgentTurnModelAdmission | null;
   sandboxPolicy: "read-only" | "workspace-write";
   writableRoots: readonly string[];
   runtimeState: ProjectRuntimeState;

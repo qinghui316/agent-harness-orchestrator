@@ -99,6 +99,7 @@ export class ConversationTurnRetryOwner {
           }
           const source = database.timeline.readMessage(paths.projectId, conversation.conversationId, existing.rootSourceMessageId);
           if (!source || source.type !== "user.message") throw conflict("Retry source evidence is unavailable.");
+          const sourceEntry = fromStoredThreadMessage(source);
           return freezePrepared({
             project,
             conversation,
@@ -110,6 +111,8 @@ export class ConversationTurnRetryOwner {
               rootSourceMessageId: existing.rootSourceMessageId,
               providerId: request.providerId,
               agentTurnMode: existingAttempt.agentTurnMode ?? "default",
+              modelId: sourceEntry.agentModelId ?? null,
+              reasoningEffort: sourceEntry.agentReasoningEffort ?? null,
             },
             lineage: existing,
             admission: null,
@@ -177,12 +180,16 @@ export class ConversationTurnRetryOwner {
     )];
     assertAttachmentEvidence(sourceEntry.attachments ?? [], attachments);
     const agentTurnMode = failedAttempt.agentTurnMode ?? sourceEntry.agentTurnMode ?? "default";
+    const modelId = sourceEntry.agentModelId ?? null;
+    const reasoningEffort = sourceEntry.agentReasoningEffort ?? null;
     const target: ConversationRetryTargetEvidence = {
       failedAttemptId: failedAttempt.attemptId,
       sourceMessageId: rootSourceMessageId,
       rootSourceMessageId,
       providerId: failedAttempt.providerId,
       agentTurnMode,
+      modelId,
+      reasoningEffort,
     };
     const requestHash = retryRequestHash(project.id, conversation, target, sourceEntry, failedAttempt);
     const lineage: ConversationRetryLineageEvidence = {
@@ -204,6 +211,8 @@ export class ConversationTurnRetryOwner {
       conversationId: conversation.conversationId,
       providerId: failedAttempt.providerId,
       agentTurnMode,
+      modelId,
+      reasoningEffort,
       attachments,
     });
     const skillResolution = await this.turnRouter.resolveTurnSkills(project, conversation, []);

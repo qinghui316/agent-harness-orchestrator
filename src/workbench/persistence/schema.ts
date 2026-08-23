@@ -1,10 +1,10 @@
 import type Database from "better-sqlite3";
 import type { SqliteRow } from "./sql-mappers.js";
 
-export const WORKBENCH_SCHEMA_VERSION = 13;
+export const WORKBENCH_SCHEMA_VERSION = 14;
 
 export function requiresRuntimeSchemaRebuild(currentVersion: number): boolean {
-  return ![9, 10, 11, 12, WORKBENCH_SCHEMA_VERSION].includes(currentVersion);
+  return ![9, 10, 11, 12, 13, WORKBENCH_SCHEMA_VERSION].includes(currentVersion);
 }
 
 export function migrate(db: Database.Database): void {
@@ -49,6 +49,8 @@ export function migrate(db: Database.Database): void {
       conversation_id TEXT NOT NULL,
       product_mode TEXT NOT NULL CHECK(product_mode IN ('agent', 'harness')),
       agent_turn_mode TEXT CHECK(agent_turn_mode IN ('default', 'plan') OR agent_turn_mode IS NULL),
+      agent_model_id TEXT,
+      agent_reasoning_effort TEXT,
       client_create_request_id TEXT,
       client_create_request_hash TEXT,
       title TEXT NOT NULL,
@@ -130,6 +132,7 @@ export function migrate(db: Database.Database): void {
       operation_profile TEXT NOT NULL,
       native_session_id TEXT,
       model_json TEXT,
+      reasoning_effort TEXT,
       capability_snapshot_json TEXT NOT NULL,
       effective_skill_inputs_json TEXT NOT NULL DEFAULT '[]',
       handoff_hash TEXT NOT NULL,
@@ -210,6 +213,8 @@ export function migrate(db: Database.Database): void {
       project_id TEXT NOT NULL,
       product_mode TEXT NOT NULL CHECK(product_mode IN ('agent', 'harness')),
       agent_turn_mode TEXT CHECK(agent_turn_mode IN ('default', 'plan') OR agent_turn_mode IS NULL),
+      agent_model_id TEXT,
+      agent_reasoning_effort TEXT,
       text TEXT NOT NULL DEFAULT '',
       context_refs_json TEXT NOT NULL DEFAULT '[]',
       attachment_ids_json TEXT NOT NULL DEFAULT '[]',
@@ -253,6 +258,11 @@ export function migrate(db: Database.Database): void {
   ensureColumn(db, "conversations", "agent_turn_mode", "TEXT");
   ensureColumn(db, "provider_attempts", "agent_turn_mode", "TEXT");
   ensureColumn(db, "composer_drafts", "agent_turn_mode", "TEXT");
+  ensureColumn(db, "conversations", "agent_model_id", "TEXT");
+  ensureColumn(db, "conversations", "agent_reasoning_effort", "TEXT");
+  ensureColumn(db, "provider_attempts", "reasoning_effort", "TEXT");
+  ensureColumn(db, "composer_drafts", "agent_model_id", "TEXT");
+  ensureColumn(db, "composer_drafts", "agent_reasoning_effort", "TEXT");
   ensureColumn(db, "conversations", "product_mode", "TEXT NOT NULL DEFAULT 'harness' CHECK(product_mode IN ('agent', 'harness'))");
   ensureColumn(db, "conversations", "client_create_request_id", "TEXT");
   ensureColumn(db, "conversations", "client_create_request_hash", "TEXT");
@@ -268,6 +278,8 @@ export function migrate(db: Database.Database): void {
     UPDATE conversations SET agent_turn_mode = NULL WHERE product_mode = 'harness';
     UPDATE provider_attempts SET agent_turn_mode = NULL WHERE product_mode = 'harness';
     UPDATE composer_drafts SET agent_turn_mode = NULL WHERE product_mode = 'harness';
+    UPDATE conversations SET agent_model_id = NULL, agent_reasoning_effort = NULL WHERE product_mode = 'harness';
+    UPDATE composer_drafts SET agent_model_id = NULL, agent_reasoning_effort = NULL WHERE product_mode = 'harness';
   `);
   db.exec("DELETE FROM skill_roots WHERE source_kind <> 'custom';");
   db.exec(`
@@ -343,6 +355,20 @@ export function migrate(db: Database.Database): void {
       SELECT RAISE(ABORT, 'Conversation agent_turn_mode must match product_mode');
     END;
     DROP TRIGGER IF EXISTS trg_provider_attempt_agent_turn_mode_insert;
+    DROP TRIGGER IF EXISTS trg_conversations_agent_model_insert;
+    CREATE TRIGGER trg_conversations_agent_model_insert
+    BEFORE INSERT ON conversations
+    WHEN NEW.product_mode = 'harness' AND (NEW.agent_model_id IS NOT NULL OR NEW.agent_reasoning_effort IS NOT NULL)
+    BEGIN
+      SELECT RAISE(ABORT, 'Harness Conversation cannot store Agent model selection');
+    END;
+    DROP TRIGGER IF EXISTS trg_conversations_agent_model_update;
+    CREATE TRIGGER trg_conversations_agent_model_update
+    BEFORE UPDATE OF agent_model_id, agent_reasoning_effort, product_mode ON conversations
+    WHEN NEW.product_mode = 'harness' AND (NEW.agent_model_id IS NOT NULL OR NEW.agent_reasoning_effort IS NOT NULL)
+    BEGIN
+      SELECT RAISE(ABORT, 'Harness Conversation cannot store Agent model selection');
+    END;
     CREATE TRIGGER trg_provider_attempt_agent_turn_mode_insert
     BEFORE INSERT ON provider_attempts
     WHEN (NEW.product_mode = 'agent' AND (NEW.agent_turn_mode IS NULL OR NEW.agent_turn_mode NOT IN ('default', 'plan')))
@@ -373,6 +399,20 @@ export function migrate(db: Database.Database): void {
       OR (NEW.product_mode = 'harness' AND NEW.agent_turn_mode IS NOT NULL)
     BEGIN
       SELECT RAISE(ABORT, 'ComposerDraft agent_turn_mode must match product_mode');
+    END;
+    DROP TRIGGER IF EXISTS trg_composer_draft_agent_model_insert;
+    CREATE TRIGGER trg_composer_draft_agent_model_insert
+    BEFORE INSERT ON composer_drafts
+    WHEN NEW.product_mode = 'harness' AND (NEW.agent_model_id IS NOT NULL OR NEW.agent_reasoning_effort IS NOT NULL)
+    BEGIN
+      SELECT RAISE(ABORT, 'Harness ComposerDraft cannot store Agent model selection');
+    END;
+    DROP TRIGGER IF EXISTS trg_composer_draft_agent_model_update;
+    CREATE TRIGGER trg_composer_draft_agent_model_update
+    BEFORE UPDATE OF agent_model_id, agent_reasoning_effort, product_mode ON composer_drafts
+    WHEN NEW.product_mode = 'harness' AND (NEW.agent_model_id IS NOT NULL OR NEW.agent_reasoning_effort IS NOT NULL)
+    BEGIN
+      SELECT RAISE(ABORT, 'Harness ComposerDraft cannot store Agent model selection');
     END;
   `);
   db.pragma(`user_version = ${WORKBENCH_SCHEMA_VERSION}`);
