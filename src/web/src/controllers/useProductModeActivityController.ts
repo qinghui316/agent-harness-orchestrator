@@ -58,8 +58,8 @@ export function useProductModeActivityController(
       (portsRef.current.clearTimer ?? clearTimeout)(timerRef.current);
       timerRef.current = null;
     }
+    setSnapshot((current) => current?.projectId === projectId ? current : null);
     if (!projectId) {
-      setSnapshot(null);
       return;
     }
     void refresh(projectId);
@@ -70,7 +70,11 @@ export function useProductModeActivityController(
     if (timerRef.current !== null) (portsRef.current.clearTimer ?? clearTimeout)(timerRef.current);
   }, []);
 
-  return { snapshot, refresh, invalidate };
+  return {
+    snapshot: snapshot?.projectId === projectId ? snapshot : null,
+    refresh,
+    invalidate,
+  };
 }
 
 async function defaultLoad(projectId: string): Promise<ProjectProductModeActivitySnapshot> {

@@ -27,6 +27,29 @@ describe("useProductModeActivityController", () => {
     await waitFor(() => expect(load).toHaveBeenCalledTimes(3));
   });
 
+  it("hides a committed snapshot while the next project load is unresolved or fails", async () => {
+    const pending = new Map<string, {
+      resolve: (value: ProjectProductModeActivitySnapshot) => void;
+      reject: (reason: Error) => void;
+    }>();
+    const load = vi.fn((projectId: string) => new Promise<ProjectProductModeActivitySnapshot>((resolve, reject) => {
+      pending.set(projectId, { resolve, reject });
+    }));
+    const { result, rerender } = renderHook(
+      ({ projectId }) => useProductModeActivityController(projectId, "agent", { load }),
+      { initialProps: { projectId: "project-a" } },
+    );
+
+    await act(async () => pending.get("project-a")?.resolve(activity("project-a", "failed")));
+    expect(result.current.snapshot?.projectId).toBe("project-a");
+
+    rerender({ projectId: "project-b" });
+    expect(result.current.snapshot).toBeNull();
+
+    await act(async () => pending.get("project-b")?.reject(new Error("unavailable")));
+    expect(result.current.snapshot).toBeNull();
+  });
+
   it("debounces invalidations and ignores events from another project", async () => {
     vi.useFakeTimers();
     const load = vi.fn(async (projectId: string) => activity(projectId, "idle"));
