@@ -174,6 +174,26 @@ or running later turn removes eligibility. Provider approvals and temporary
 permission grants are not replayed, Composer state is untouched, and this Agent
 action does not enter Harness workflow or task retry paths.
 
+Completed top-level ordinary Agent turns can also create an independent
+same-Provider Conversation branch. The source Conversation and native Session
+remain unchanged; the target receives a new graph scope and Provider Session,
+inherits Agent turn/model/effort and Conversation Skill preferences, and copies
+canonical history only through the selected completed Turn. Copied rows receive
+new identities and strip Attempt, run, Session, thread, turn, item, approval, and
+Retry lineage. Fork never runs a model, sends a message, clears the shared
+Composer draft, or restores/modifies project files. Schema 15 stores one bounded
+idempotent operation per client request; uncertain transport remains submitting
+and is not replayed after restart.
+
+When Codex explicitly rejects `thread/resume` before accepting a new Turn, the
+failed row may offer `创建恢复分支` from the last successful completed Turn. The
+same Fork owner revalidates the stale binding and exact recovery anchor; the
+failed input remains an unsent draft and is never resent automatically. If the
+Provider can no longer fork that native Session, the UI keeps the source
+Conversation and directs the user to create a new Conversation. AHO mode exposes
+no Fork action and its API assertion is rejected before Provider or governance
+effects.
+
 ## 1. Purpose
 
 The AHO Workbench should feel like a Codex-style development workspace, not a traditional admin console, ticket board, or raw agent terminal.

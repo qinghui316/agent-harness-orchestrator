@@ -115,6 +115,24 @@ export interface StoredProviderAttempt {
   updatedAt: string;
 }
 
+export interface StoredConversationForkOperation {
+  projectId: string;
+  clientRequestId: string;
+  requestHash: string;
+  sourceConversationId: string;
+  targetConversationId: string | null;
+  providerId: ProviderId;
+  sourceMessageId: string;
+  anchorCompletedTurnSequence: number;
+  expectedTimelineRevision: number;
+  contextRevision: string;
+  sourceGraphScopeId: string;
+  status: "pending" | "submitting" | "completed" | "failed" | "interrupted";
+  diagnostic: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface StoredComposerDraft {
   projectId: string;
   productMode: ProductMode;

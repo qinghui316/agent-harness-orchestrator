@@ -46,6 +46,32 @@ export interface ProviderContextCompactRequest {
   onContextEvent?: (event: ProviderContextEvent) => void;
 }
 
+export interface ProviderSessionForkRequest {
+  providerId: ProviderId;
+  projectId: string;
+  cwd: string;
+  sourceSession: ProviderSessionRef;
+  anchorTurn: ProviderTurnRef;
+}
+
+export interface ProviderSessionForkResult {
+  session: ProviderSessionRef;
+  inheritedThroughTurn: ProviderTurnRef;
+}
+
+export type ProviderSessionForkTransportStage =
+  | "source-resume"
+  | "source-read"
+  | "child-create"
+  | "child-rollback"
+  | "child-verify";
+
+export interface ProviderSessionForkTransportDiagnostic {
+  name: "ProviderSessionForkTransportUncertain";
+  stage: ProviderSessionForkTransportStage;
+  timeoutMs?: number;
+}
+
 export interface ProviderTurnRef extends ProviderSessionRef {
   turnId: string;
 }
@@ -422,6 +448,7 @@ export interface ProviderTurnResult {
   childThreads: ProviderChildThreadResult[];
   changedFiles: string[];
   runtimeHost?: ProviderRuntimeHostRef;
+  failureKind?: "stale-session";
   error?: string;
 }
 
@@ -449,6 +476,7 @@ export interface ConversationProviderPort {
   getActiveTurn(runId: string): ActiveProviderTurn | null;
   listActiveTurns(): ActiveProviderTurn[];
   compactContext(request: ProviderContextCompactRequest): Promise<{ status: "accepted" }>;
+  forkSession(request: ProviderSessionForkRequest): Promise<ProviderSessionForkResult>;
 }
 
 export interface LeafExecutionProviderPort {

@@ -4,9 +4,9 @@ import { getCodexProviderCapabilitySnapshot, getCodexProviderRuntimeSummary } fr
 import { executeCodexProjectAction, getCodexDiagnostics, listCodexProjectActions } from "./codex-diagnostics.js";
 import { codexModelSettings, selectCodexModel } from "./codex-models.js";
 import { listCodexNativeSkills, setCodexNativeSkillEnabled } from "../codex/native-skills.js";
-import { CodexAppServerJsonRpcError, defaultCodexAppServerHostRegistry } from "../codex/app-server-host.js";
+import { CodexAppServerJsonRpcError, CodexAppServerRequestTimeoutError, defaultCodexAppServerHostRegistry } from "../codex/app-server-host.js";
 import { defaultProjectRemovalFence } from "../project-runtime/removal.js";
-import type { ActiveProviderTurn, ProviderApprovalRequest, ProviderChildCloseRequest, ProviderChildLifecycleEvent, ProviderChildSessionRequest, ProviderChildThreadResult, ProviderChildTurnRequest, ProviderContextCompactRequest, ProviderContextEvent, ProviderDescriptor, ProviderObjectiveState, ProviderRealtimeEvent, ProviderTurnRequest, ProviderTurnResult, ProviderUserInputRequest } from "./contracts.js";
+import type { ActiveProviderTurn, ProviderApprovalRequest, ProviderChildCloseRequest, ProviderChildLifecycleEvent, ProviderChildSessionRequest, ProviderChildThreadResult, ProviderChildTurnRequest, ProviderContextCompactRequest, ProviderContextEvent, ProviderDescriptor, ProviderObjectiveState, ProviderRealtimeEvent, ProviderSessionForkRequest, ProviderSessionForkResult, ProviderSessionForkTransportStage, ProviderTurnRequest, ProviderTurnResult, ProviderUserInputRequest } from "./contracts.js";
 import { agentThreadSurfaceId } from "./agent-surface-id.js";
 
 export const CODEX_PROVIDER_ID = "codex" as const;
@@ -28,7 +28,7 @@ export const codexProviderDescriptor: ProviderDescriptor = {
     list: listCodexNativeSkills,
     setEnabled: setCodexNativeSkillEnabled,
   },
-  conversation: { runTurn: runCodexTurn, inspectChild: inspectCodexChild, continueChild: runCodexChildTurn, closeChild: closeCodexChild, getActiveTurn: activeCodexTurn, listActiveTurns: activeCodexTurns, compactContext: compactCodexContext },
+  conversation: { runTurn: runCodexTurn, inspectChild: inspectCodexChild, continueChild: runCodexChildTurn, closeChild: closeCodexChild, getActiveTurn: activeCodexTurn, listActiveTurns: activeCodexTurns, compactContext: compactCodexContext, forkSession: forkCodexSession },
   leafExecution: { runTurn: runCodexTurn },
 };
 
@@ -157,6 +157,7 @@ export async function runCodexTurn(request: ProviderTurnRequest): Promise<Provid
     childThreads: result.childThreads.map(mapChild),
     changedFiles: result.changedFiles,
     ...(result.host ? { runtimeHost: result.host } : {}),
+    ...(result.failureKind ? { failureKind: result.failureKind } : {}),
     error: result.error,
   };
 }
@@ -220,6 +221,122 @@ export async function compactCodexContext(request: ProviderContextCompactRequest
     if (!(error instanceof Error) || error.name !== "CodexAppServerRequestTimeout") release();
     throw error;
   }
+}
+
+export async function forkCodexSession(request: ProviderSessionForkRequest): Promise<ProviderSessionForkResult> {
+  if (request.providerId !== CODEX_PROVIDER_ID
+    || request.sourceSession.providerId !== CODEX_PROVIDER_ID
+    || request.anchorTurn.providerId !== CODEX_PROVIDER_ID
+    || request.anchorTurn.sessionId !== request.sourceSession.sessionId) {
+    throw providerForkRejected("Codex session fork requires one exact Codex source session and anchor Turn.");
+  }
+  const generation = defaultProjectRemovalFence.capture(request.projectId);
+  const host = defaultCodexAppServerHostRegistry.hostForProject(request.projectId, request.cwd);
+  const lease = await host.acquire({ onLine() {}, onStderr() {}, onExit() {} });
+  let childSessionId: string | null = null;
+  let stage: ProviderSessionForkTransportStage = "source-resume";
+  try {
+    defaultProjectRemovalFence.assertCurrent(request.projectId, generation);
+    const resumed = await lease.request("thread/resume", { threadId: request.sourceSession.sessionId }, { timeoutMs: 20_000 });
+    const resumedThread = codexThread(resumed);
+    assertForkSourceThread(resumedThread, request.sourceSession.sessionId);
+    stage = "source-read";
+    const sourceRead = await lease.request("thread/read", { threadId: request.sourceSession.sessionId, includeTurns: true }, { timeoutMs: 20_000 });
+    const sourceThread = codexThread(sourceRead);
+    assertForkSourceThread(sourceThread, request.sourceSession.sessionId);
+    const sourceTurns = codexThreadTurnIds(sourceThread);
+    const anchorIndex = sourceTurns.indexOf(request.anchorTurn.turnId);
+    if (anchorIndex < 0) throw providerForkRejected("The requested anchor Turn is not present in the source Provider session.");
+
+    stage = "child-create";
+    const forked = await lease.request("thread/fork", {
+      threadId: request.sourceSession.sessionId,
+      cwd: request.cwd,
+      threadSource: "user",
+    }, { timeoutMs: 30_000 });
+    const forkedThread = codexThread(forked);
+    childSessionId = codexThreadIdentity(forkedThread);
+    if (!childSessionId || childSessionId === request.sourceSession.sessionId) {
+      throw providerForkRejected("Provider did not return a distinct forked session.");
+    }
+    const dropCount = sourceTurns.length - anchorIndex - 1;
+    if (dropCount > 0) {
+      stage = "child-rollback";
+      await lease.request("thread/rollback", { threadId: childSessionId, numTurns: dropCount }, { timeoutMs: 30_000 });
+    }
+    stage = "child-verify";
+    const childRead = await lease.request("thread/read", { threadId: childSessionId, includeTurns: true }, { timeoutMs: 20_000 });
+    const childThread = codexThread(childRead);
+    assertForkSourceThread(childThread, childSessionId);
+    const childTurns = codexThreadTurnIds(childThread);
+    if (childTurns.at(-1) !== request.anchorTurn.turnId || childTurns.length !== anchorIndex + 1) {
+      throw providerForkRejected("Forked Provider history does not end at the requested anchor Turn.");
+    }
+    return {
+      session: { providerId: CODEX_PROVIDER_ID, sessionId: childSessionId },
+      inheritedThroughTurn: { providerId: CODEX_PROVIDER_ID, sessionId: childSessionId, turnId: request.anchorTurn.turnId },
+    };
+  } catch (error) {
+    if (childSessionId) {
+      await lease.request("thread/archive", { threadId: childSessionId }, { timeoutMs: 5_000 }).catch(() => undefined);
+    }
+    if (error instanceof CodexAppServerJsonRpcError
+      || (error instanceof Error && ["Conflict", "StaleProviderSession", "ProviderSessionForkRejected"].includes(error.name))) {
+      throw providerForkRejected(error instanceof Error ? error.message : "Provider rejected session fork.", error);
+    }
+    throw providerForkTransportUncertain(stage, error);
+  } finally {
+    lease.release();
+  }
+}
+
+function codexThread(response: Record<string, unknown>): Record<string, unknown> | null {
+  return response.thread && typeof response.thread === "object" && !Array.isArray(response.thread)
+    ? response.thread as Record<string, unknown>
+    : null;
+}
+
+function codexThreadIdentity(thread: Record<string, unknown> | null): string | null {
+  return thread && typeof thread.id === "string" ? thread.id : null;
+}
+
+function codexThreadTurnIds(thread: Record<string, unknown> | null): string[] {
+  if (!thread || !Array.isArray(thread.turns)) return [];
+  return thread.turns.flatMap((turn) => turn && typeof turn === "object" && !Array.isArray(turn)
+    && typeof (turn as Record<string, unknown>).id === "string"
+    ? [(turn as Record<string, unknown>).id as string]
+    : []);
+}
+
+function assertForkSourceThread(thread: Record<string, unknown> | null, expectedSessionId: string): void {
+  if (codexThreadIdentity(thread) !== expectedSessionId) {
+    throw providerForkRejected("Provider could not prove the requested session identity.");
+  }
+  const status = thread?.status;
+  const type = typeof status === "string"
+    ? status
+    : status && typeof status === "object" && !Array.isArray(status) && typeof (status as Record<string, unknown>).type === "string"
+      ? (status as Record<string, unknown>).type as string
+      : null;
+  if (type && type.toLowerCase() !== "idle") {
+    throw providerForkRejected("Provider session must be idle before it can be forked.");
+  }
+}
+
+function providerForkRejected(message: string, cause?: unknown): Error {
+  const error = new Error(message, cause === undefined ? undefined : { cause });
+  error.name = "ProviderSessionForkRejected";
+  return error;
+}
+
+function providerForkTransportUncertain(stage: ProviderSessionForkTransportStage, cause: unknown): Error {
+  const error = new Error("Provider session fork transport outcome is uncertain.", { cause });
+  error.name = "ProviderSessionForkTransportUncertain";
+  Object.assign(error, {
+    stage,
+    ...(cause instanceof CodexAppServerRequestTimeoutError ? { timeoutMs: cause.timeoutMs } : {}),
+  });
+  return error;
 }
 
 function codexThreadId(response: Record<string, unknown>): string | null {

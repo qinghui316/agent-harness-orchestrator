@@ -374,7 +374,7 @@ export type Snapshot = {
   warnings: string[];
 };
 
-export type Topic = { id: string; productMode: ProductMode; agentTurnMode?: AgentTurnMode | null; agentModelId?: string | null; agentReasoningEffort?: string | null; title: string; state: string; updatedAt?: string; kind?: "conversation" | "change"; boundChangeId?: string | null; graphScopeId?: string; selectedProviderId?: string };
+export type Topic = { id: string; productMode: ProductMode; agentTurnMode?: AgentTurnMode | null; agentModelId?: string | null; agentReasoningEffort?: string | null; title: string; state: string; updatedAt?: string; kind?: "conversation" | "change"; boundChangeId?: string | null; graphScopeId?: string; selectedProviderId?: string; completedTurnSequence?: number; timelineRevision?: number; forkBoundary?: { sourceConversationId: string; sourceMessageId: string; completedTurnSequence: number } };
 export type WorkpadRuntimeStatus = "active" | "running" | "queued" | "blocked" | "waiting-decision" | "archived" | "readonly";
 export type WorkpadUserStatus = "processing" | "waiting-confirmation" | "needs-rework" | "later" | "completed" | "abandoned";
 export type ConversationLifecycle = "active" | "running" | "waiting-user" | "archived-readonly" | "abandoned";
@@ -446,6 +446,14 @@ export type ParentAgentTranscriptCell = {
     agentTurnMode: AgentTurnMode;
     modelId: string | null;
     reasoningEffort: string | null;
+  };
+  forkTarget?: {
+    sourceMessageId: string;
+    providerId: string;
+    completedTurnSequence: number;
+    timelineRevision: number;
+    contextRevision: string;
+    recovery?: true;
   };
 };
 
@@ -1662,6 +1670,7 @@ export type WorkbenchLiveEvent =
   | { event: "agent-surfaces.invalidated"; data: AgentSurfacesInvalidated }
   | { event: "conversation.turn-control.invalidated"; data: { conversationId: string; attemptId: string } }
   | { event: "conversation.context.invalidated"; data: { conversationId: string } }
+  | { event: "conversation.fork.completed"; data: { sourceConversationId: string; targetConversationId: string } }
   | { event: "run.started"; data: WorkbenchLiveIdentity & { runId: string; actionType?: string; runtime?: string; taskIds?: string[] } }
   | { event: "run.status"; data: WorkbenchLiveIdentity & { actionRunId?: string; status: string; label?: string } }
   | { event: "assistant.delta"; data: WorkbenchLiveIdentity & { delta: string } }

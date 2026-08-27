@@ -26,7 +26,7 @@ import { sendWorkbenchActionLive } from "./live-actions.js";
 import { readCreateTopicBody, sendConversationMessageLive, sendCreateTopicLive } from "./topic-messages.js";
 import { executeWorkbenchAction } from "./actions.js";
 import { sendProjectLiveEvents } from "./project-live-events.js";
-import type { ConversationContextCompactBody, ConversationTurnInterruptBody, ConversationTurnSteerBody, IntakeRequest, UpdateConversationTitleRequest, WorkbenchActionRequest, WorkbenchServerContext } from "./types.js";
+import type { ConversationContextCompactBody, ConversationForkBody, ConversationTurnInterruptBody, ConversationTurnSteerBody, IntakeRequest, UpdateConversationTitleRequest, WorkbenchActionRequest, WorkbenchServerContext } from "./types.js";
 import { conversationSteerTimelineIds } from "../../workbench/conversation-turn-control.js";
 import { sendConversationRetryLive } from "./conversation-retry.js";
 
@@ -268,6 +268,39 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
       productMode,
       conversationId: decodeURIComponent(contextCompactMatch[1]),
       providerId: body.providerId.trim(),
+      contextRevision: body.contextRevision.trim(),
+      clientRequestId: body.clientRequestId.trim(),
+    }));
+    return;
+  }
+  const conversationForkMatch = rest.match(/^conversations\/([^/]+)\/fork$/);
+  if (request.method === "POST" && conversationForkMatch?.[1]) {
+    assertRegisteredProject(input);
+    const body = await readJsonBody<ConversationForkBody>(request);
+    const productMode = requireProductMode(typeof body.productMode === "string" ? body.productMode : null);
+    if (productMode !== "agent") {
+      const error = new Error("Conversation fork is available only in Agent mode.");
+      error.name = "Conflict";
+      throw error;
+    }
+    if (typeof body.providerId !== "string" || !body.providerId.trim()
+      || typeof body.sourceMessageId !== "string" || !body.sourceMessageId.trim()
+      || typeof body.expectedCompletedTurnSequence !== "number" || !Number.isSafeInteger(body.expectedCompletedTurnSequence)
+      || typeof body.expectedTimelineRevision !== "number" || !Number.isSafeInteger(body.expectedTimelineRevision)
+      || typeof body.contextRevision !== "string" || !body.contextRevision.trim()
+      || typeof body.clientRequestId !== "string" || !body.clientRequestId.trim()) {
+      const error = new Error("Conversation fork requires Provider, anchor, Timeline, context, and client request identity.");
+      error.name = "BadRequest";
+      throw error;
+    }
+    sendJson(response, 200, await context.conversationFork.fork(input.project, {
+      projectId: input.project.id,
+      productMode,
+      conversationId: decodeURIComponent(conversationForkMatch[1]),
+      providerId: body.providerId.trim(),
+      sourceMessageId: body.sourceMessageId.trim(),
+      expectedCompletedTurnSequence: body.expectedCompletedTurnSequence,
+      expectedTimelineRevision: body.expectedTimelineRevision,
       contextRevision: body.contextRevision.trim(),
       clientRequestId: body.clientRequestId.trim(),
     }));

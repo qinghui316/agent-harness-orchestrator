@@ -27,6 +27,7 @@ import { TurnAttachmentResolver } from "../workbench/turn-attachment-resolver.js
 import { ComposerDraftRecoveryService } from "../workbench/composer-draft-recovery.js";
 import { ProductModeActivityProjectionOwner } from "../workbench/product-mode-activity.js";
 import { ConversationContextLifecycleOwner } from "../workbench/conversation-context-lifecycle.js";
+import { ConversationForkLifecycleOwner } from "../workbench/conversation-fork-lifecycle.js";
 
 export type { WorkbenchServeOptions, WorkbenchServerHandle } from "./workbench/types.js";
 export { executeWorkbenchAction } from "./workbench/actions.js";
@@ -57,6 +58,12 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
     providerRegistry,
     projectRuntimeCoordinator,
   });
+  const conversationFork = options.conversationFork ?? new ConversationForkLifecycleOwner({
+    providerRegistry,
+    projectRuntimeCoordinator,
+    turnControl,
+    conversationContext,
+  });
   const attachmentResolver = new TurnAttachmentResolver({
     resolveRuntimePaths: (projectId) => projectRuntimeCoordinator.runtimePaths(projectId),
   });
@@ -84,7 +91,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
       conversationContextSnapshotResolver: (project: ManagedProject, productMode: import("../provider-runtime/index.js").ProductMode, conversationId: string) => conversationContext.read(project, productMode, conversationId),
     }
     : restoredInput;
-  await recoverWorkbenchProjects(store, composedInput, projectRuntimeCoordinator, providerRegistry, conversationContext);
+  await recoverWorkbenchProjects(store, composedInput, projectRuntimeCoordinator, providerRegistry, conversationContext, conversationFork);
   const context: WorkbenchServerContext = {
     input: composedInput,
     staticRoot,
@@ -99,6 +106,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
     composerDraftRecovery,
     productModeActivity,
     conversationContext,
+    conversationFork,
   };
   const server = createServer((request, response) => {
     handleRequest(context, request, response).catch((error: unknown) => {
@@ -135,6 +143,7 @@ export async function recoverWorkbenchProjects(
   }),
   providerRegistry = defaultProviderRegistry,
   conversationContext?: ConversationContextLifecycleOwner,
+  conversationFork?: ConversationForkLifecycleOwner,
 ): Promise<void> {
   const projects = await store.listProjects();
   if (directInput?.project && !projects.some((project) => project.id === directInput.project?.id || project.path === directInput.project?.path)) {
@@ -147,6 +156,7 @@ export async function recoverWorkbenchProjects(
     const runtimePaths = runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
     await reconcileStaleProviderInputRequests({ runtime: runtimePaths, providerRegistry });
     await conversationContext?.reconcileProject(runtimePaths);
+    await conversationFork?.reconcileProject(runtimePaths);
     if (runtime.state !== "ready") continue;
     const reconcileReceipt = (receipt: Parameters<typeof reconcileRecoveredApprovalDecisions>[1][number]) => (
       reconcileRecoveredApprovalDecisions(project, [receipt])

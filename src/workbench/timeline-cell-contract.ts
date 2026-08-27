@@ -100,4 +100,12 @@ export interface ParentAgentTranscriptCell {
     providerId: string;
     agentTurnMode: "default" | "plan";
   };
+  forkTarget?: {
+    sourceMessageId: string;
+    providerId: string;
+    completedTurnSequence: number;
+    timelineRevision: number;
+    contextRevision: string;
+    recovery?: true;
+  };
 }

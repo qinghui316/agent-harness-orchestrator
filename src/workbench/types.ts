@@ -63,6 +63,8 @@ export interface TopicThreadEntry {
   agentReasoningEffort?: string | null;
   retryTarget?: ConversationRetryTargetEvidence;
   retryLineage?: ConversationRetryLineageEvidence;
+  forkTarget?: ConversationForkTargetEvidence;
+  forkBoundary?: ConversationForkBoundaryEvidence;
   document?: CanonicalPlanDocument;
 }
 
@@ -82,6 +84,21 @@ export interface ConversationRetryLineageEvidence {
   sourceMessageId: string;
   rootSourceMessageId: string;
   failedAttemptId: string;
+}
+
+export interface ConversationForkTargetEvidence {
+  sourceMessageId: string;
+  providerId: ProviderId;
+  completedTurnSequence: number;
+  timelineRevision: number;
+  contextRevision: string;
+  recovery?: true;
+}
+
+export interface ConversationForkBoundaryEvidence {
+  sourceConversationId: string;
+  sourceMessageId: string;
+  completedTurnSequence: number;
 }
 
 export interface CanonicalPlanDocument {
@@ -284,6 +301,7 @@ export type WorkbenchLiveEvent =
   | { event: "agent-surfaces.invalidated"; data: AgentSurfacesInvalidated }
   | { event: "conversation.turn-control.invalidated"; data: { conversationId: string; attemptId: string } }
   | { event: "conversation.context.invalidated"; data: { conversationId: string } }
+  | { event: "conversation.fork.completed"; data: { sourceConversationId: string; targetConversationId: string } }
   | { event: "run.started"; data: WorkbenchLiveIdentity & { runId: string; actionType?: string; runtime?: string; taskIds?: string[] } }
   | { event: "run.status"; data: WorkbenchLiveIdentity & { actionRunId?: string; status: string; label?: string } }
   | { event: "assistant.delta"; data: WorkbenchLiveIdentity & { delta: string } }

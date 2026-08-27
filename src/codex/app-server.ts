@@ -257,6 +257,7 @@ export interface CodexAppServerTurnResult {
   childThreads: CodexAppServerChildThreadResult[];
   changedFiles: string[];
   host?: CodexAppServerHostIdentity;
+  failureKind?: "stale-session";
   error?: string;
 }
 
@@ -911,10 +912,13 @@ async function runCodexAppServerOperation(
   } catch (error) {
     terminalStatus = "failed";
     terminalError = error instanceof Error ? error.message : String(error);
+    const failureKind = options.existingThreadId && !turnId && isExplicitStaleSessionError(error)
+      ? "stale-session" as const
+      : undefined;
     options.onError?.(error);
     await writeFile(options.paths.lastMessage, lastMessage || terminalError, "utf8");
     await writeSession("failed", terminalError).catch(() => undefined);
-    return { status: "failed", threadId, turnId, lastMessageItemId, lastMessage, planText, goal, childThreads, changedFiles: [...changedFiles], ...(hostLease ? { host: hostLeaseIdentity(hostLease) } : {}), error: terminalError };
+    return { status: "failed", threadId, turnId, lastMessageItemId, lastMessage, planText, goal, childThreads, changedFiles: [...changedFiles], ...(hostLease ? { host: hostLeaseIdentity(hostLease) } : {}), ...(failureKind ? { failureKind } : {}), error: terminalError };
   } finally {
     activeTurns.delete(activeScopeId);
     activeSessionScopes.delete(activeSessionKey);
@@ -1425,6 +1429,12 @@ async function runCodexAppServerOperation(
     if (!hostLease) throw new Error("Codex app-server Host lease is unavailable.");
     hostLease.respond(id, result);
   }
+}
+
+function isExplicitStaleSessionError(error: unknown): boolean {
+  return error instanceof CodexAppServerJsonRpcError
+    ? error.method === "thread/resume"
+    : error instanceof Error && error.name === "StaleProviderSession";
 }
 
 function childFollowupPrompt(targetThreadId: string, targetDisplayName: string | undefined, message: string): string {

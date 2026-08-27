@@ -28,6 +28,7 @@ export function MainConversationView({
   documentResources,
   onEnsureDocument,
   onRetry,
+  onFork,
 }: {
   transcript: ParentAgentTranscript;
   scrollContainerRef: RefObject<HTMLDivElement | null>;
@@ -38,6 +39,7 @@ export function MainConversationView({
   documentResources: Record<string, import("../../types.js").TextDocumentResource>;
   onEnsureDocument: (document: import("../../types.js").CanonicalDocumentReference) => void;
   onRetry?: (target: NonNullable<import("../../types.js").ParentAgentTranscriptCell["retryTarget"]>) => Promise<void>;
+  onFork?: (target: NonNullable<import("../../types.js").ParentAgentTranscriptCell["forkTarget"]>) => Promise<void>;
 }): ReactElement {
   return (
     <div className="main-conversation-view" data-testid="main-conversation-view">
@@ -51,6 +53,7 @@ export function MainConversationView({
         documentResources={documentResources}
         onEnsureDocument={onEnsureDocument}
         onRetry={onRetry}
+        onFork={onFork}
       />
     </div>
   );
@@ -66,6 +69,7 @@ function ParentAgentTranscriptView({
   documentResources,
   onEnsureDocument,
   onRetry,
+  onFork,
 }: {
   transcript: ParentAgentTranscript;
   scrollContainerRef: RefObject<HTMLDivElement | null>;
@@ -76,7 +80,11 @@ function ParentAgentTranscriptView({
   documentResources: Record<string, import("../../types.js").TextDocumentResource>;
   onEnsureDocument: (document: import("../../types.js").CanonicalDocumentReference) => void;
   onRetry?: (target: NonNullable<import("../../types.js").ParentAgentTranscriptCell["retryTarget"]>) => Promise<void>;
+  onFork?: (target: NonNullable<import("../../types.js").ParentAgentTranscriptCell["forkTarget"]>) => Promise<void>;
 }): ReactElement {
+  const [forkTarget, setForkTarget] = useState<NonNullable<import("../../types.js").ParentAgentTranscriptCell["forkTarget"]> | null>(null);
+  const [forking, setForking] = useState(false);
+  const [forkError, setForkError] = useState<string | null>(null);
   const cells = transcript.cells?.length ? transcript.cells.filter((cell) => cell.kind !== "detail-only") : [];
   const latestTurnBoundary = [...cells].reverse().find((cell) =>
     cell.kind === "user-message" || (cell.kind === "process-row" && cell.activityKind === "turn"));
@@ -107,9 +115,41 @@ function ParentAgentTranscriptView({
             documentResources={documentResources}
             onEnsureDocument={onEnsureDocument}
             onRetry={cell.id === retryCellId ? onRetry : undefined}
+            onFork={cell.forkTarget && onFork ? (target) => {
+              setForkError(null);
+              setForkTarget(target);
+            } : undefined}
           />
         )}
       />
+      {forkTarget ? (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget && !forking) setForkTarget(null);
+        }}>
+          <section className="conversation-fork-dialog" role="dialog" aria-modal="true" aria-labelledby="conversation-fork-title">
+            <div className="conversation-fork-dialog-heading">
+              <h2 id="conversation-fork-title">{forkTarget.recovery ? "创建恢复分支" : "从此回合分叉"}</h2>
+              <button type="button" className="icon-button" title="关闭" aria-label="关闭" disabled={forking} onClick={() => setForkTarget(null)}><X size={17} /></button>
+            </div>
+            <p>{forkTarget.recovery
+              ? "当前 Provider Session 已失效。将从失败请求前最后一个成功回合创建新会话，失败输入不会自动重发。"
+              : "将创建一个保留至此回合的新会话，当前会话保持不变。"}</p>
+            <p className="conversation-fork-warning">分叉只复制会话历史，不会恢复、回滚或修改项目文件。</p>
+            {forkError ? <p className="conversation-fork-error" role="alert">{forkError}</p> : null}
+            <div className="conversation-fork-dialog-actions">
+              <button type="button" className="outline-button" disabled={forking} onClick={() => setForkTarget(null)}>取消</button>
+              <button type="button" className="primary-button" disabled={forking} onClick={() => {
+                if (!onFork) return;
+                setForking(true);
+                setForkError(null);
+                void onFork(forkTarget).then(() => setForkTarget(null)).catch((error: unknown) => {
+                  setForkError(error instanceof Error ? error.message : String(error));
+                }).finally(() => setForking(false));
+              }}>{forking ? "正在分叉..." : forkTarget.recovery ? "创建恢复分支" : "确认分叉"}</button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }

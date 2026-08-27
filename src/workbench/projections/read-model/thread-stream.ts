@@ -210,6 +210,7 @@ function threadItemFromMessage(message: TopicThreadEntry, sortKey: number): Thre
       blocks: blocksFromMessage(message),
       providerUserInput: message.providerUserInput,
       retryTarget: message.retryTarget,
+      forkTarget: message.forkTarget,
       sortKey,
       subOrder: 0,
     };

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { createRef } from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MainConversationView } from "../../src/web/src/panels/workbench/ConversationPanel.js";
 import type { ParentAgentTranscript, ParentAgentTranscriptCell } from "../../src/web/src/types.js";
@@ -70,6 +70,35 @@ describe("main conversation virtualization", () => {
     ], vi.fn(async () => undefined));
 
     expect(screen.queryByRole("button", { name: "重试上一条消息" })).toBeNull();
+  });
+
+  it("confirms normal Fork and stale-session recovery without exposing an action when the port is absent", async () => {
+    const normalTarget = {
+      sourceMessageId: "assistant-1",
+      providerId: "codex",
+      completedTurnSequence: 1,
+      timelineRevision: 4,
+      contextRevision: "",
+    };
+    const recoveryTarget = { ...normalTarget, sourceMessageId: "assistant-2", recovery: true as const };
+    const onFork = vi.fn(async () => undefined);
+    const cells: ParentAgentTranscriptCell[] = [
+      { id: "fork-normal", kind: "process-row", source: "provider-runtime", activityKind: "turn", title: "已完成", text: "", status: "completed", forkTarget: normalTarget },
+      { id: "fork-recovery", kind: "process-row", source: "provider-runtime", activityKind: "turn", title: "本轮需要处理", text: "", status: "failed", isError: true, forkTarget: recoveryTarget },
+    ];
+    renderForkTranscript(cells, onFork);
+
+    expect(screen.getByRole("button", { name: "从此回合分叉" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "创建恢复分支" }));
+    const dialog = screen.getByRole("dialog", { name: "创建恢复分支" });
+    expect(screen.getByText(/失败输入不会自动重发/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "创建恢复分支" }));
+    await waitFor(() => expect(onFork).toHaveBeenCalledWith(recoveryTarget));
+
+    cleanup();
+    renderForkTranscript(cells);
+    expect(screen.queryByRole("button", { name: "从此回合分叉" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "创建恢复分支" })).toBeNull();
   });
 
   it("keeps a sub-threshold transcript at natural grid height after repeated measurements", async () => {
@@ -143,6 +172,22 @@ function renderTranscript(cells: ParentAgentTranscriptCell[], onRetry: NonNullab
         onOpenAgent={() => {}}
         canOpenAgent={() => true}
         onRetry={onRetry}
+      />
+    </div>,
+  );
+}
+
+function renderForkTranscript(cells: ParentAgentTranscriptCell[], onFork?: NonNullable<Parameters<typeof MainConversationView>[0]["onFork"]>): void {
+  const scrollRef = createRef<HTMLDivElement>();
+  render(
+    <div ref={scrollRef}>
+      <MainConversationView
+        transcript={{ title: "Fork transcript", items: [], cells }}
+        scrollContainerRef={scrollRef}
+        loadingEarlierTranscript={false}
+        onOpenAgent={() => {}}
+        canOpenAgent={() => true}
+        onFork={onFork}
       />
     </div>,
   );

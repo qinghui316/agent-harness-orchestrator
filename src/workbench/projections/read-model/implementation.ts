@@ -277,7 +277,9 @@ export async function listWorkbenchTopics(input: WorkbenchProjectInput, productM
   const paths = runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
   const store = await openProjectRuntimeWorkbenchDatabase(paths);
   try {
-    return store.conversations.listConversations(paths.projectId, productMode).map((conversation) => ({
+    return store.conversations.listConversations(paths.projectId, productMode).map((conversation) => {
+      const forkOperation = store.conversationForks.readByTargetConversation(paths.projectId, conversation.conversationId);
+      return {
       id: conversation.conversationId,
       productMode: conversation.productMode,
       agentTurnMode: conversation.agentTurnMode,
@@ -291,9 +293,13 @@ export async function listWorkbenchTopics(input: WorkbenchProjectInput, productM
       boundChangeId: conversation.boundChangeId,
       graphScopeId: conversation.currentGraphScopeId ?? undefined,
       selectedProviderId: conversation.selectedProviderId,
+      completedTurnSequence: conversation.completedTurnSequence,
+      timelineRevision: conversation.timelineRevision,
+      forkBoundary: forkOperation ? forkBoundaryFromOperation(forkOperation) : undefined,
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
-    }));
+      };
+    });
   } finally {
     store.close();
   }
@@ -320,7 +326,9 @@ async function buildAgentModeSnapshot(
       error.name = other ? "Conflict" : "NotFound";
       throw error;
     }
-    const topics: WorkbenchTopicSummary[] = conversations.map((conversation) => ({
+    const topics: WorkbenchTopicSummary[] = conversations.map((conversation) => {
+      const forkOperation = database.conversationForks.readByTargetConversation(paths.projectId, conversation.conversationId);
+      return {
       id: conversation.conversationId,
       productMode: "agent",
       agentTurnMode: conversation.agentTurnMode,
@@ -334,9 +342,13 @@ async function buildAgentModeSnapshot(
       boundChangeId: conversation.boundChangeId,
       graphScopeId: conversation.currentGraphScopeId ?? undefined,
       selectedProviderId: conversation.selectedProviderId,
+      completedTurnSequence: conversation.completedTurnSequence,
+      timelineRevision: conversation.timelineRevision,
+      forkBoundary: forkOperation ? forkBoundaryFromOperation(forkOperation) : undefined,
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
-    }));
+      };
+    });
     let selectedTopic: WorkbenchTopicDetail | null = null;
     if (selected) {
       const topic = topics.find((candidate) => candidate.id === selected.conversationId)!;
@@ -453,6 +465,14 @@ async function buildAgentModeSnapshot(
   } finally {
     database.close();
   }
+}
+
+function forkBoundaryFromOperation(operation: import("../../persistence/contracts.js").StoredConversationForkOperation): import("../../types.js").ConversationForkBoundaryEvidence {
+  return {
+    sourceConversationId: operation.sourceConversationId,
+    sourceMessageId: operation.sourceMessageId,
+    completedTurnSequence: operation.anchorCompletedTurnSequence,
+  };
 }
 
 async function assertRequestedConversationMode(

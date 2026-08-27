@@ -47,6 +47,7 @@ export interface ConversationActionPorts {
   clearConfirmation: () => void;
   chooseRun: (runId: string) => Promise<void>;
   openOrchestration: () => void;
+  navigateConversation: (conversationId: string) => Promise<void>;
   requestReanalysisMessage?: () => string | null;
 }
 
@@ -92,6 +93,16 @@ export interface ConversationActionController {
     sourceMessageId: string;
     clientRequestId: string;
   }) => Promise<void>;
+  forkAgentConversation: (request: {
+    projectId: string;
+    conversationId: string;
+    providerId: string;
+    sourceMessageId: string;
+    expectedCompletedTurnSequence: number;
+    expectedTimelineRevision: number;
+    contextRevision: string;
+    clientRequestId: string;
+  }) => Promise<{ targetConversationId: string }>;
   settleInteraction: (interactionId: string, settlement: ConversationInteractionSettlement) => Promise<void>;
   getInteractionDraft: (interactionId: string) => ConversationInteractionDraft | undefined;
   setInteractionDraft: (interactionId: string, draft: ConversationInteractionDraft) => void;
@@ -106,6 +117,7 @@ export function useConversationActionController({
   const portsRef = useRef(ports);
   const interactionDraftsRef = useRef(new Map<string, ConversationInteractionDraft>());
   const retryRequestRef = useRef<{ key: string; clientRequestId: string } | null>(null);
+  const forkRequestRef = useRef<{ key: string; clientRequestId: string } | null>(null);
   sessionRef.current = session;
   portsRef.current = ports;
   const isCurrentScope = (projectId: string, conversationId: string | null): boolean => (
@@ -397,6 +409,76 @@ export function useConversationActionController({
     }
   }, []);
 
+  const forkAgentConversation = useCallback(async (request: {
+    projectId: string;
+    conversationId: string;
+    providerId: string;
+    sourceMessageId: string;
+    expectedCompletedTurnSequence: number;
+    expectedTimelineRevision: number;
+    contextRevision: string;
+    clientRequestId: string;
+  }): Promise<{ targetConversationId: string }> => {
+    const actionPorts = portsRef.current;
+    const forkKey = [
+      request.projectId,
+      request.conversationId,
+      request.providerId,
+      request.sourceMessageId,
+      request.expectedCompletedTurnSequence,
+      request.expectedTimelineRevision,
+      request.contextRevision,
+    ].join("\0");
+    const clientRequestId = forkRequestRef.current?.key === forkKey
+      ? forkRequestRef.current.clientRequestId
+      : request.clientRequestId;
+    forkRequestRef.current = { key: forkKey, clientRequestId };
+    const operationToken = actionPorts.operationGate.begin(`conversation.fork.${request.sourceMessageId}`);
+    actionPorts.setError(null);
+    const ownsSourceScope = (): boolean => {
+      const current = sessionRef.current;
+      const topic = current.snapshot.center.selectedTopic;
+      return current.projectId === request.projectId
+        && current.conversationId === request.conversationId
+        && current.snapshot.productMode === "agent"
+        && topic?.id === request.conversationId
+        && topic.selectedProviderId === request.providerId
+        && topic.timelineRevision === request.expectedTimelineRevision
+        && current.snapshot.center.conversationContext?.contextRevision === request.contextRevision;
+    };
+    try {
+      const receipt = await (actionPorts.postJson ?? postJson)<{
+        status: "forked" | "replayed";
+        sourceConversationId: string;
+        targetConversationId: string;
+      }>(
+        `/api/projects/${encodeURIComponent(request.projectId)}/workbench/conversations/${encodeURIComponent(request.conversationId)}/fork`,
+        {
+          productMode: "agent",
+          providerId: request.providerId,
+          sourceMessageId: request.sourceMessageId,
+          expectedCompletedTurnSequence: request.expectedCompletedTurnSequence,
+          expectedTimelineRevision: request.expectedTimelineRevision,
+          contextRevision: request.contextRevision,
+          clientRequestId,
+        },
+      );
+      if (receipt.sourceConversationId !== request.conversationId || !receipt.targetConversationId) {
+        throw new Error("Conversation fork returned invalid target identity.");
+      }
+      if (ownsSourceScope()) await actionPorts.navigateConversation(receipt.targetConversationId);
+      if (forkRequestRef.current?.key === forkKey && forkRequestRef.current.clientRequestId === clientRequestId) {
+        forkRequestRef.current = null;
+      }
+      return { targetConversationId: receipt.targetConversationId };
+    } catch (error) {
+      if (ownsSourceScope()) actionPorts.setError(error instanceof Error ? error.message : String(error));
+      throw error;
+    } finally {
+      actionPorts.operationGate.release(operationToken);
+    }
+  }, []);
+
   const requestDecisionFeedback = useCallback(async (
     context: DecisionContext,
     action: DecisionAction,
@@ -520,6 +602,7 @@ export function useConversationActionController({
     steerAgentTurn,
     steerHarnessTurn,
     retryAgentTurn,
+    forkAgentConversation,
     settleInteraction,
     getInteractionDraft,
     setInteractionDraft,

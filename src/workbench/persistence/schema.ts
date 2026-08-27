@@ -1,10 +1,10 @@
 import type Database from "better-sqlite3";
 import type { SqliteRow } from "./sql-mappers.js";
 
-export const WORKBENCH_SCHEMA_VERSION = 14;
+export const WORKBENCH_SCHEMA_VERSION = 15;
 
 export function requiresRuntimeSchemaRebuild(currentVersion: number): boolean {
-  return ![9, 10, 11, 12, 13, WORKBENCH_SCHEMA_VERSION].includes(currentVersion);
+  return ![9, 10, 11, 12, 13, 14, WORKBENCH_SCHEMA_VERSION].includes(currentVersion);
 }
 
 export function migrate(db: Database.Database): void {
@@ -253,6 +253,27 @@ export function migrate(db: Database.Database): void {
       PRIMARY KEY(project_id, id)
     );
     CREATE INDEX IF NOT EXISTS idx_decision_records_topic ON decision_records(project_id, change_id, updated_at);
+
+    CREATE TABLE IF NOT EXISTS conversation_fork_operations (
+      project_id TEXT NOT NULL,
+      client_request_id TEXT NOT NULL,
+      request_hash TEXT NOT NULL,
+      source_conversation_id TEXT NOT NULL,
+      target_conversation_id TEXT,
+      provider_id TEXT NOT NULL,
+      source_message_id TEXT NOT NULL,
+      anchor_completed_turn_sequence INTEGER NOT NULL,
+      expected_timeline_revision INTEGER NOT NULL,
+      context_revision TEXT NOT NULL,
+      source_graph_scope_id TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('pending', 'submitting', 'completed', 'failed', 'interrupted')),
+      diagnostic TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, client_request_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_conversation_fork_source
+      ON conversation_fork_operations(project_id, source_conversation_id, updated_at);
   `);
   ensureColumn(db, "provider_attempts", "parent_agent_surface_id", "TEXT");
   ensureColumn(db, "conversations", "agent_turn_mode", "TEXT");

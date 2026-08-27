@@ -21,6 +21,7 @@ import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persist
 import type { ConversationTurnControlOwner } from "../../src/workbench/conversation-turn-control.js";
 import type { ConversationTurnRetryOwner } from "../../src/workbench/conversation-turn-retry.js";
 import type { ConversationContextLifecycleOwner } from "../../src/workbench/conversation-context-lifecycle.js";
+import type { ConversationForkLifecycleOwner } from "../../src/workbench/conversation-fork-lifecycle.js";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
 import { createFakeCodexRuntime } from "../helpers/fake-codex-runtime.js";
 import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
@@ -252,6 +253,69 @@ describe("workbench server", () => {
         clientRequestId: `compact-${productMode}`,
       });
     }
+  });
+
+  it("serves the exact Agent Conversation fork contract and rejects Harness before the Owner", async () => {
+    await new Promise<void>((resolve) => handle!.server.close(() => resolve()));
+    const fork = vi.fn(async () => ({
+      status: "forked" as const,
+      sourceConversationId: "conversation-agent",
+      targetConversationId: "conversation-forked",
+    }));
+    const conversationFork = { fork, reconcileProject: async () => 0 } as unknown as ConversationForkLifecycleOwner;
+    handle = await startWorkbenchServer({ project: project(), path: tempDir }, {
+      port: 0,
+      staticRoot,
+      conversationFork,
+    });
+    const endpoint = `${handle.url}/api/projects/repo/workbench/conversations/conversation-agent/fork`;
+
+    const wrongMode = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        productMode: "harness", providerId: "codex", sourceMessageId: "assistant-anchor",
+        expectedCompletedTurnSequence: 2, expectedTimelineRevision: 9,
+        contextRevision: "context-1", clientRequestId: "fork-1",
+      }),
+    });
+    expect(wrongMode.status).toBe(409);
+    expect(fork).not.toHaveBeenCalled();
+
+    const incomplete = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ productMode: "agent", providerId: "codex", sourceMessageId: "assistant-anchor" }),
+    });
+    expect(incomplete.status).toBe(400);
+    expect(fork).not.toHaveBeenCalled();
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        productMode: "agent", providerId: " codex ", sourceMessageId: " assistant-anchor ",
+        expectedCompletedTurnSequence: 2, expectedTimelineRevision: 9,
+        contextRevision: " context-1 ", clientRequestId: " fork-1 ",
+      }),
+    });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      status: "forked",
+      sourceConversationId: "conversation-agent",
+      targetConversationId: "conversation-forked",
+    });
+    expect(fork).toHaveBeenCalledWith(project(), {
+      projectId: "repo",
+      productMode: "agent",
+      conversationId: "conversation-agent",
+      providerId: "codex",
+      sourceMessageId: "assistant-anchor",
+      expectedCompletedTurnSequence: 2,
+      expectedTimelineRevision: 9,
+      contextRevision: "context-1",
+      clientRequestId: "fork-1",
+    });
   });
 
   it("prepares Agent Retry before SSE and emits a completed replay stream", async () => {

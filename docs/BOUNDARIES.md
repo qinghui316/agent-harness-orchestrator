@@ -205,6 +205,29 @@ temporary grants never carry over. The owner cannot accept Harness mode or
 create Change, WorkflowGraph, AgentTask, Lane, worktree, Apply, Integration, I2,
 or E1 evidence, and it does not alter Harness task/workflow retry semantics.
 
+`ConversationForkLifecycleOwner` is the only public owner for Direct Agent
+Conversation branching and stale-Session recovery. The optional `session.fork`
+capability does not affect minimum Provider readiness. Public requests bind the
+project, Agent mode, Conversation, Provider, completed Main anchor, Timeline and
+opaque context revisions, and client request identity; only the adapter receives
+native Session/Turn references and constructs fork, rollback, read, resume, or
+archive protocol payloads. The source Conversation and native Session are
+immutable, and Provider rollback is history-only: it must never restore or edit
+project files.
+
+Schema 15 stores one neutral fork operation and no native thread/turn payload.
+The target Conversation receives a new graph scope and ready binding, inherits
+Agent preferences and Conversation Skill enablement, and copies self-contained
+canonical history through the anchor with fresh row identities and private
+runtime lineage removed. Explicit stale-session recovery is admitted only from
+provider-neutral evidence produced when Session resume failed before Turn start;
+it targets the last successful Turn and never automatically resends failed input.
+Harness requests fail before Provider transport and cannot create Change,
+WorkflowGraph, AgentTask, Lane, worktree, approval, authorization, Apply, Close,
+Integration, I2, or E1 evidence. Unknown transport remains submitting and is
+never replayed automatically; restart interrupts operations without exact live
+proof.
+
 After Workbench restart, Agent Main Attempts left queued or running require
 exact active Provider proof. Without it, startup recovery atomically marks the
 Attempt failed, records a bounded Timeline diagnostic, and marks its Session

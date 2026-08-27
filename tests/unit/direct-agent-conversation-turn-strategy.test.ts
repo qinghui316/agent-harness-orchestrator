@@ -143,6 +143,7 @@ describe("DirectAgentConversationTurnStrategy", () => {
       expect.objectContaining({ type: "user.message", text: "Read the current project marker." }),
       expect.objectContaining({ type: "assistant.message", text: "Direct Agent completed without realtime text.", status: "completed" }),
     ]);
+    expect(JSON.parse(state.messages[1]!.rawJson)).toMatchObject({ completedTurnSequence: 1 });
   });
 
   it("deduplicates a pending Stop before Provider Turn identity and settles interrupted without advancing sequence", async () => {

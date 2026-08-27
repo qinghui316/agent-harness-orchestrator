@@ -101,10 +101,45 @@ export function fromStoredThreadMessage(row: StoredTopicMessage): TopicThreadEnt
     agentReasoningEffort: typeof raw.agentReasoningEffort === "string" || raw.agentReasoningEffort === null ? raw.agentReasoningEffort : undefined,
     retryTarget: isConversationRetryTargetEvidence(raw.retryTarget) ? raw.retryTarget : undefined,
     retryLineage: isConversationRetryLineageEvidence(raw.retryLineage) ? raw.retryLineage : undefined,
+    forkTarget: conversationForkTarget(row, raw),
+    forkBoundary: isConversationForkBoundary(raw.conversationForkBoundary) ? raw.conversationForkBoundary : undefined,
     document: isCanonicalPlanDocument(raw.document) ? raw.document : undefined,
     position: row.position,
     completedTurnSequence: typeof raw.completedTurnSequence === "number" ? raw.completedTurnSequence : undefined,
   };
+}
+
+function conversationForkTarget(row: StoredTopicMessage, raw: Record<string, unknown>): import("./types.js").ConversationForkTargetEvidence | undefined {
+  if (row.type !== "assistant.message" || row.agentSurfaceId !== "main-agent") return undefined;
+  if (row.status === "completed" && typeof raw.completedTurnSequence === "number" && typeof row.providerId === "string") {
+    return {
+      sourceMessageId: row.id,
+      providerId: row.providerId,
+      completedTurnSequence: raw.completedTurnSequence,
+      timelineRevision: row.revision,
+      contextRevision: "",
+    };
+  }
+  const recovery = isRecord(raw.sessionRecovery) ? raw.sessionRecovery : null;
+  if (row.status !== "failed" || !recovery
+    || typeof recovery.sourceMessageId !== "string"
+    || typeof recovery.providerId !== "string"
+    || typeof recovery.completedTurnSequence !== "number") return undefined;
+  return {
+    sourceMessageId: recovery.sourceMessageId,
+    providerId: recovery.providerId,
+    completedTurnSequence: recovery.completedTurnSequence,
+    timelineRevision: row.revision,
+    contextRevision: "",
+    recovery: true,
+  };
+}
+
+function isConversationForkBoundary(value: unknown): value is import("./types.js").ConversationForkBoundaryEvidence {
+  return isRecord(value)
+    && typeof value.sourceConversationId === "string"
+    && typeof value.sourceMessageId === "string"
+    && typeof value.completedTurnSequence === "number";
 }
 
 function isConversationRetryTargetEvidence(value: unknown): value is import("./types.js").ConversationRetryTargetEvidence {

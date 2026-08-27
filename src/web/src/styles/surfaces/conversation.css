@@ -521,7 +521,8 @@
   gap: 6px;
 }
 
-.transcript-retry-button {
+.transcript-retry-button,
+.transcript-fork-button {
   display: inline-flex;
   width: 30px;
   height: 30px;
@@ -534,7 +535,8 @@
   color: var(--text-muted);
 }
 
-.transcript-retry-button:hover:not(:disabled) {
+.transcript-retry-button:hover:not(:disabled),
+.transcript-fork-button:hover:not(:disabled) {
   border-color: var(--border-strong);
   color: var(--text-strong);
 }
@@ -542,6 +544,60 @@
 .transcript-retry-button:disabled {
   cursor: wait;
   opacity: 0.65;
+}
+
+.conversation-fork-dialog {
+  width: min(440px, 100%);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-lg);
+  padding: 20px;
+}
+
+.conversation-fork-dialog-heading,
+.conversation-fork-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.conversation-fork-dialog h2 {
+  margin: 0;
+  font-size: 17px;
+  letter-spacing: 0;
+}
+
+.conversation-fork-dialog p {
+  margin: 14px 0 0;
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+
+.conversation-fork-dialog .conversation-fork-warning {
+  color: var(--text-strong);
+}
+
+.conversation-fork-dialog .conversation-fork-error {
+  color: var(--danger);
+}
+
+.conversation-fork-dialog-actions {
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+.conversation-fork-boundary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  font-size: 12px;
 }
 
 .transcript-retry-button .spin {

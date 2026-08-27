@@ -838,6 +838,10 @@ export function App(): ReactElement {
         setOrchestrationOpen(true);
         syncWorkbenchOrchestrationTab(true);
       },
+      navigateConversation: async (conversationId) => {
+        if (!selectedProjectId) return;
+        await chooseConversation(selectedProjectId, conversationId);
+      },
     },
   });
   const activeConversationInteraction = snapshot.center.conversationInteractions?.items[0] ?? null;
@@ -1093,6 +1097,12 @@ export function App(): ReactElement {
                 </span>
               </div>
             </header>
+            {activeTopic.forkBoundary ? (
+              <div className="conversation-fork-boundary" data-testid="conversation-fork-boundary">
+                <span>此会话从第 {activeTopic.forkBoundary.completedTurnSequence} 个已完成回合分叉，源会话保持不变。</span>
+                <button type="button" className="outline-button" onClick={() => selectedProjectId && void chooseConversation(selectedProjectId, activeTopic.forkBoundary!.sourceConversationId)}>查看源会话</button>
+              </div>
+            ) : null}
 
             <section className={`center-grid${orchestrationOpen ? " agent-office-center-grid" : ""}`}>
               {orchestrationOpen ? (
@@ -1152,6 +1162,25 @@ export function App(): ReactElement {
                           ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`}`,
                       });
                     }}
+                    onFork={appMode.productMode !== "agent"
+                      || activeWorkpad.conversationLifecycle === "running"
+                      || !snapshot.center.conversationContext?.contextRevision
+                      || activeTopic.timelineRevision === undefined
+                      ? undefined
+                      : async (target) => {
+                          if (!selectedProjectId || !activeTopic?.id) return;
+                          await conversationActions.forkAgentConversation({
+                            projectId: selectedProjectId,
+                            conversationId: activeTopic.id,
+                            providerId: target.providerId,
+                            sourceMessageId: target.sourceMessageId,
+                            expectedCompletedTurnSequence: target.completedTurnSequence,
+                            expectedTimelineRevision: activeTopic.timelineRevision!,
+                            contextRevision: snapshot.center.conversationContext!.contextRevision,
+                            clientRequestId: `fork-${globalThis.crypto?.randomUUID?.()
+                              ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`}`,
+                          });
+                        }}
                   />
                 </div>
                 {mainViewport.showLatest ? <button className="latest-button" onClick={mainViewport.scrollToLatest}>最新</button> : null}

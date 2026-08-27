@@ -61,6 +61,7 @@ interface TranscriptThreadItemInput {
   attachments?: TopicAttachment[];
   providerUserInput?: WorkbenchProviderUserInputRequest;
   retryTarget?: import("./types.js").ConversationRetryTargetEvidence;
+  forkTarget?: import("./types.js").ConversationForkTargetEvidence;
 }
 
 export function canonicalTranscriptCellsFromThreadItem(
@@ -160,6 +161,7 @@ export function canonicalTranscriptCellsFromThreadItem(
       isError: true,
       activityKind: "turn",
       retryTarget: item.retryTarget,
+      forkTarget: item.forkTarget?.recovery ? item.forkTarget : undefined,
     });
   }
   return normalizeCellEvidenceRefs(cells.filter((cell) => Boolean(cell.text.trim() || cell.detailText?.trim())));
@@ -235,7 +237,8 @@ function activityCellsFromThreadItem(item: TranscriptThreadItemInput, agentRoleI
     status: terminal.label,
     isError: failed,
     activityKind: "turn",
-    retryTarget: failed ? item.retryTarget : undefined,
+      retryTarget: failed ? item.retryTarget : undefined,
+      forkTarget: !failed || item.forkTarget?.recovery ? item.forkTarget : undefined,
   }];
 }
 

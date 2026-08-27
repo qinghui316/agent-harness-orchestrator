@@ -182,6 +182,50 @@ describe("Conversation action controller", () => {
     expect(harness.ports.consumeLiveStream).not.toHaveBeenCalled();
   });
 
+  it("forks with exact Snapshot generations, preserves Composer state, and navigates only from the owning scope", async () => {
+    const current = snapshot("conversation-1");
+    current.productMode = "agent";
+    current.center.selectedTopic = {
+      ...current.center.selectedTopic!,
+      selectedProviderId: "codex",
+      timelineRevision: 12,
+    };
+    current.center.conversationContext = { contextRevision: "context-12" } as never;
+    const harness = controllerHarness({ snapshot: current, composerText: "unsent draft" });
+    harness.ports.postJson = vi.fn(async () => ({
+      status: "forked",
+      sourceConversationId: "conversation-1",
+      targetConversationId: "conversation-child",
+    }));
+    const { result } = renderHook(() => useConversationActionController(harness.options));
+
+    await act(async () => result.current.forkAgentConversation({
+      projectId: "repo-1",
+      conversationId: "conversation-1",
+      providerId: "codex",
+      sourceMessageId: "assistant-1",
+      expectedCompletedTurnSequence: 1,
+      expectedTimelineRevision: 12,
+      contextRevision: "context-12",
+      clientRequestId: "fork-1",
+    }));
+
+    expect(harness.ports.postJson).toHaveBeenCalledWith(
+      "/api/projects/repo-1/workbench/conversations/conversation-1/fork",
+      {
+        productMode: "agent",
+        providerId: "codex",
+        sourceMessageId: "assistant-1",
+        expectedCompletedTurnSequence: 1,
+        expectedTimelineRevision: 12,
+        contextRevision: "context-12",
+        clientRequestId: "fork-1",
+      },
+    );
+    expect(harness.ports.navigateConversation).toHaveBeenCalledWith("conversation-child");
+    expect(harness.ports.setComposerText).not.toHaveBeenCalled();
+  });
+
   it("owns Agent Retry SSE identity, reports failure, and preserves stale Conversation isolation", async () => {
     const current = snapshot("conversation-1");
     current.productMode = "agent";
@@ -492,6 +536,7 @@ function controllerHarness(overrides: Partial<ConversationActionSession> = {}) {
     clearConfirmation: vi.fn(),
     chooseRun: vi.fn(async () => undefined),
     openOrchestration: vi.fn(),
+    navigateConversation: vi.fn(async () => undefined),
     requestReanalysisMessage: vi.fn(() => null),
   };
   return { options: { session, ports }, ports, gateBegins, gateReleases };

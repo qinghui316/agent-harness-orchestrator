@@ -263,6 +263,9 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
         bindMainThread(database, paths.projectId, attemptId, sessionId, runId);
         liveMainThreadId = sessionId;
       }
+      const sessionRecoveryAnchor = result?.failureKind === "stale-session"
+        ? resolveSessionRecoveryAnchor(database, paths.projectId, conversation.conversationId, graphScopeId, input.providerId, conversation.completedTurnSequence)
+        : undefined;
       const writes = terminalCaptureWrites({
         projectId: paths.projectId,
         conversationId: conversation.conversationId,
@@ -280,7 +283,9 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
         modelId: input.admission.modelAdmission?.requested.modelId ?? null,
         reasoningEffort: input.admission.modelAdmission?.requested.reasoningEffort ?? null,
         sourceMessageId: input.committedMessage.id,
+        completedTurnSequence: status === "completed" ? conversation.completedTurnSequence + 1 : undefined,
         retryLineage: input.retryLineage,
+        sessionRecoveryAnchor,
       });
       terminalRecoveryWrites = writes;
       const terminal = database.unitOfWork.commitProviderTurnTerminal({
@@ -676,7 +681,9 @@ function terminalCaptureWrites(input: {
   modelId: string | null;
   reasoningEffort: string | null;
   sourceMessageId: string;
+  completedTurnSequence?: number;
   retryLineage?: Readonly<import("./types.js").ConversationRetryLineageEvidence>;
+  sessionRecoveryAnchor?: Pick<import("./types.js").ConversationForkTargetEvidence, "sourceMessageId" | "providerId" | "completedTurnSequence">;
 }): StoredTopicMessageWrite[] {
   const writes = buildCanonicalCaptureWrites({
     projectId: input.projectId,
@@ -731,12 +738,29 @@ function terminalCaptureWrites(input: {
     modelId: input.modelId,
     reasoningEffort: input.reasoningEffort,
   } : undefined;
-  return writes.map((write) => updateCanonicalWrite(write, {
+  const updated = writes.map((write) => updateCanonicalWrite(write, {
     status: input.status,
     error: input.status === "failed" ? input.failure?.message ?? input.result?.error : undefined,
     ...(input.retryLineage ? { retryLineage: input.retryLineage } : {}),
     ...(retryTarget?.sourceMessageId ? { retryTarget } : {}),
+    ...(input.completedTurnSequence !== undefined ? { completedTurnSequence: input.completedTurnSequence } : {}),
   }));
+  if (input.status === "failed" && input.result?.failureKind === "stale-session" && input.sessionRecoveryAnchor) {
+    let index = -1;
+    for (let candidate = updated.length - 1; candidate >= 0; candidate -= 1) {
+      const write = updated[candidate];
+      if (write?.agentSurfaceId === "main-agent" && write.type === "assistant.message") {
+        index = candidate;
+        break;
+      }
+    }
+    if (index >= 0) {
+      updated[index] = updateCanonicalWrite(updated[index]!, {
+        sessionRecovery: input.sessionRecoveryAnchor,
+      });
+    }
+  }
+  return updated;
 }
 
 function replaceCanonicalText(write: StoredTopicMessageWrite, text: string): StoredTopicMessageWrite {
@@ -785,7 +809,15 @@ function addFallbackProse(write: StoredTopicMessageWrite, text: string): StoredT
 
 function updateCanonicalWrite(
   write: StoredTopicMessageWrite,
-  patch: { text?: string; status?: string; error?: string; retryLineage?: Readonly<import("./types.js").ConversationRetryLineageEvidence>; retryTarget?: import("./types.js").ConversationRetryTargetEvidence },
+  patch: {
+    text?: string;
+    status?: string;
+    error?: string;
+    retryLineage?: Readonly<import("./types.js").ConversationRetryLineageEvidence>;
+    retryTarget?: import("./types.js").ConversationRetryTargetEvidence;
+    completedTurnSequence?: number;
+    sessionRecovery?: Pick<import("./types.js").ConversationForkTargetEvidence, "sourceMessageId" | "providerId" | "completedTurnSequence">;
+  },
 ): StoredTopicMessageWrite {
   let raw: Record<string, unknown> = {};
   try {
@@ -801,6 +833,26 @@ function updateCanonicalWrite(
     ...(patch.error !== undefined ? { error: patch.error } : {}),
     rawJson: JSON.stringify({ ...raw, ...patch }),
   };
+}
+
+function resolveSessionRecoveryAnchor(
+  database: WorkbenchDatabase,
+  projectId: string,
+  conversationId: string,
+  graphScopeId: string,
+  providerId: string,
+  completedTurnSequence: number,
+): Pick<import("./types.js").ConversationForkTargetEvidence, "sourceMessageId" | "providerId" | "completedTurnSequence"> | undefined {
+  if (completedTurnSequence < 1) return undefined;
+  const anchor = [...database.timeline.listConversationMessages(projectId, conversationId)].reverse().find((message) => {
+    if (message.agentSurfaceId !== "main-agent" || message.type !== "assistant.message" || message.status !== "completed") return false;
+    const entry = fromStoredThreadMessage(message);
+    return entry.graphScopeId === graphScopeId
+      && entry.providerId === providerId
+      && entry.completedTurnSequence === completedTurnSequence
+      && Boolean(message.turnId);
+  });
+  return anchor ? { sourceMessageId: anchor.id, providerId, completedTurnSequence } : undefined;
 }
 
 function bindMainThread(

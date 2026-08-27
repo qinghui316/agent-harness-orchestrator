@@ -13,7 +13,7 @@ import { getActiveCodexAppServerTurn, runCodexAppServerChildClose, runCodexAppSe
 import { CodexAppServerHost, CodexAppServerHostRegistry, defaultCodexAppServerHostRegistry } from "../../src/codex/app-server-host.js";
 import { listCodexRuntimeModels } from "../../src/codex/model-settings.js";
 import { defaultProjectRemovalFence } from "../../src/project-runtime/removal.js";
-import { compactCodexContext, runCodexTurn } from "../../src/provider-runtime/codex-adapter.js";
+import { compactCodexContext, forkCodexSession, runCodexTurn } from "../../src/provider-runtime/codex-adapter.js";
 
 const tempDirs: string[] = [];
 
@@ -431,6 +431,74 @@ describe("Codex persistent app-server Host", () => {
     expect(events).toEqual(["compact-item-1:started", "compact-item-1:completed"]);
   });
 
+  it("classifies an explicit pre-Turn thread resume rejection as a stale Provider session", async () => {
+    const cwd = await tempDir();
+    const server = new PersistentCollaborationServer(4054, false);
+    server.rejectNextResume("thread is no longer available");
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+    const base = await turnOptions(cwd, "stale-session-run", "thread-main");
+
+    const result = await runCodexTurn({
+      ...base,
+      providerId: "codex",
+      operationProfile: "agent",
+      attemptId: "attempt-stale-session",
+      existingSession: { providerId: "codex", sessionId: "thread-main" },
+    });
+
+    expect(result).toMatchObject({ status: "failed", failureKind: "stale-session" });
+    expect(server.methods).toContain("thread/resume");
+    expect(server.methods).not.toContain("turn/start");
+  });
+
+  it("forks, rolls back, and verifies one exact anchor without exposing Codex identity in the public request", async () => {
+    const cwd = await tempDir();
+    const server = new PersistentCollaborationServer(4520);
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+
+    await expect(forkCodexSession({
+      providerId: "codex",
+      projectId: "project-host",
+      cwd,
+      sourceSession: { providerId: "codex", sessionId: "thread-main" },
+      anchorTurn: { providerId: "codex", sessionId: "thread-main", turnId: "turn-history-2" },
+    })).resolves.toEqual({
+      session: { providerId: "codex", sessionId: "thread-fork" },
+      inheritedThroughTurn: { providerId: "codex", sessionId: "thread-fork", turnId: "turn-history-2" },
+    });
+    expect(server.methods.filter((method) => ["thread/resume", "thread/read", "thread/fork", "thread/rollback"].includes(method)))
+      .toEqual(["thread/resume", "thread/read", "thread/fork", "thread/rollback", "thread/read"]);
+    expect(server.forkParams).toEqual([{ threadId: "thread-main", cwd, threadSource: "user" }]);
+    expect(server.rollbackParams).toEqual([{ threadId: "thread-fork", numTurns: 1 }]);
+    expect(server.archiveParams).toEqual([]);
+  });
+
+  it("reports the provider-neutral stage when child creation times out", async () => {
+    vi.useFakeTimers();
+    const cwd = await tempDir();
+    const server = new PersistentCollaborationServer(4521);
+    server.holdNextForkResponse();
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+
+    const outcome = forkCodexSession({
+      providerId: "codex",
+      projectId: "project-host",
+      cwd,
+      sourceSession: { providerId: "codex", sessionId: "thread-main" },
+      anchorTurn: { providerId: "codex", sessionId: "thread-main", turnId: "turn-history-2" },
+    }).catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(server.methods).toContain("thread/fork");
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    await expect(outcome).resolves.toMatchObject({
+      name: "ProviderSessionForkTransportUncertain",
+      stage: "child-create",
+      timeoutMs: 30_000,
+    });
+    expect(server.archiveParams).toEqual([]);
+  });
+
   it("holds the Host lease until compaction completes and blocks a concurrent Turn", async () => {
     const cwd = await tempDir();
     const server = new PersistentCollaborationServer(4522);
@@ -706,6 +774,9 @@ class PersistentCollaborationServer extends EventEmitter {
   readonly threadParams: Array<Record<string, unknown>> = [];
   readonly steerParams: Array<Record<string, unknown>> = [];
   readonly compactParams: Array<Record<string, unknown>> = [];
+  readonly forkParams: Array<Record<string, unknown>> = [];
+  readonly rollbackParams: Array<Record<string, unknown>> = [];
+  readonly archiveParams: Array<Record<string, unknown>> = [];
   readonly interruptParams: Array<{ threadId: string; turnId: string }> = [];
   readonly serverResponses: Array<{ id: number; result: Record<string, unknown> }> = [];
   readonly pid: number;
@@ -721,6 +792,9 @@ class PersistentCollaborationServer extends EventEmitter {
   private holdCompaction = false;
   private heldCompactionItemId: string | null = null;
   private nextCompactError: string | null = null;
+  private nextResumeError: string | null = null;
+  private holdFork = false;
+  private forkTurns = ["turn-history-1", "turn-history-2", "turn-history-3"];
 
   constructor(
     pid: number,
@@ -785,6 +859,14 @@ class PersistentCollaborationServer extends EventEmitter {
     this.nextCompactError = message;
   }
 
+  rejectNextResume(message: string): void {
+    this.nextResumeError = message;
+  }
+
+  holdNextForkResponse(): void {
+    this.holdFork = true;
+  }
+
   rejectNextInterrupt(message: string): void {
     this.nextInterruptError = message;
   }
@@ -838,7 +920,26 @@ class PersistentCollaborationServer extends EventEmitter {
       case "thread/start":
       case "thread/resume":
         this.threadParams.push({ ...params });
-        this.respond(id, { thread: { id: "thread-main" } });
+        if (message.method === "thread/resume" && this.nextResumeError) {
+          const resumeError = this.nextResumeError;
+          this.nextResumeError = null;
+          this.reject(id, { code: -32000, message: resumeError });
+          return;
+        }
+        this.respond(id, { thread: { id: "thread-main", status: { type: "idle" }, turns: this.forkTurns.map((turnId) => ({ id: turnId })) } });
+        return;
+      case "thread/fork":
+        this.forkParams.push({ ...params });
+        if (this.holdFork) {
+          this.holdFork = false;
+          return;
+        }
+        this.respond(id, { thread: { id: "thread-fork", status: { type: "idle" }, turns: this.forkTurns.map((turnId) => ({ id: turnId })) } });
+        return;
+      case "thread/rollback":
+        this.rollbackParams.push({ ...params });
+        this.forkTurns = this.forkTurns.slice(0, -Number(params.numTurns ?? 0));
+        this.respond(id, { thread: { id: String(params.threadId), status: { type: "idle" }, turns: this.forkTurns.map((turnId) => ({ id: turnId })) } });
         return;
       case "turn/start": {
         this.turnCount += 1;
@@ -963,11 +1064,16 @@ class PersistentCollaborationServer extends EventEmitter {
         this.notify("turn/completed", { threadId: String(params.threadId), turn: { id: String(params.turnId), status: "interrupted" } });
         return;
       case "thread/archive":
+        this.archiveParams.push({ ...params });
         this.closePrompts.push(JSON.stringify(params));
         this.respond(id, {});
         this.notify("thread/archived", { threadId: String(params.threadId) });
         return;
       case "thread/read":
+        if (params.threadId === "thread-main" || params.threadId === "thread-fork") {
+          this.respond(id, { thread: { id: String(params.threadId), status: { type: "idle" }, turns: this.forkTurns.map((turnId) => ({ id: turnId })) } });
+          return;
+        }
         this.respond(id, { thread: {
           id: "thread-hume",
           agentNickname: "Hume",

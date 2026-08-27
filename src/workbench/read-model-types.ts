@@ -105,6 +105,9 @@ export interface WorkbenchTopicSummary {
   boundChangeId?: string | null;
   graphScopeId?: string;
   selectedProviderId?: string;
+  completedTurnSequence?: number;
+  timelineRevision?: number;
+  forkBoundary?: import("./types.js").ConversationForkBoundaryEvidence;
   createdAt?: string;
   updatedAt?: string;
   closedAt?: string | null;
@@ -260,6 +263,7 @@ export interface ThreadStreamItem {
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
   retryTarget?: ConversationRetryTargetEvidence;
+  forkTarget?: import("./types.js").ConversationForkTargetEvidence;
 }
 
 export interface WorkbenchApprovalItem {

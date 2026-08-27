@@ -128,6 +128,35 @@ describe("canonical parent agent transcript cells", () => {
     })]);
   });
 
+  it("projects an explicit stale-session recovery target on the failed Turn boundary", () => {
+    const forkTarget = {
+      sourceMessageId: "assistant-success-2",
+      providerId: "codex",
+      completedTurnSequence: 2,
+      timelineRevision: 12,
+      contextRevision: "",
+      recovery: true as const,
+    };
+    const cells = renderThreadItems([{
+      id: "assistant-stale",
+      kind: "assistant-turn",
+      label: "AI",
+      source: "chat",
+      providerId: "codex",
+      attemptId: "attempt-stale",
+      threadId: "thread-stale",
+      turnId: "turn-stale",
+      status: "failed",
+      forkTarget,
+      activity: [
+        { kind: "status", label: "started", timestamp: "2026-08-27T00:00:00.000Z" },
+        { kind: "status", label: "failed", timestamp: "2026-08-27T00:00:01.000Z" },
+      ],
+    }]);
+
+    expect(cells).toEqual([expect.objectContaining({ status: "failed", forkTarget })]);
+  });
+
   it("projects a provider child lifecycle as one navigable canonical process row", () => {
     const cells = renderThreadItems([{
       id: "assistant-child-lifecycle",

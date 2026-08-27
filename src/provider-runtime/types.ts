@@ -30,7 +30,8 @@ export type ProviderCapabilityKey =
   | "model.list"
   | "reasoning.effort"
   | "context.usage"
-  | "context.compact";
+  | "context.compact"
+  | "session.fork";
 
 export type ProviderOperationProfile =
   | "agent"

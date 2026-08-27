@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
-import { ArrowUpRight, Bot, Brain, CheckCircle2, FilePenLine, FileText, LoaderCircle, RotateCcw, Search, Terminal, Wrench } from "lucide-react";
+import { ArrowUpRight, Bot, Brain, CheckCircle2, FilePenLine, FileText, GitFork, LoaderCircle, RotateCcw, Search, Terminal, Wrench } from "lucide-react";
 import { artifactName } from "./RunReplayPanel.js";
 import { formatTime, humanStatus } from "../../formatters.js";
 import { cleanTranscriptText, cleanTranscriptTitle } from "./transcriptDisplay.js";
@@ -33,7 +33,7 @@ export function AgentTranscriptPane({ cells, emptyMessage = "暂无 Agent 消息
   );
 }
 
-export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded, onOpenAgent, canOpenAgent, onOpenDocument, documentResources, onEnsureDocument, onRetry }: {
+export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded, onOpenAgent, canOpenAgent, onOpenDocument, documentResources, onEnsureDocument, onRetry, onFork }: {
   cell: ParentAgentTranscriptCell;
   expanded: boolean;
   onToggleExpanded: () => void;
@@ -43,6 +43,7 @@ export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded
   documentResources?: Record<string, TextDocumentResource>;
   onEnsureDocument?: (document: CanonicalDocumentReference) => void;
   onRetry?: (target: NonNullable<ParentAgentTranscriptCell["retryTarget"]>) => Promise<void>;
+  onFork?: (target: NonNullable<ParentAgentTranscriptCell["forkTarget"]>) => void;
 }): ReactElement {
   const isUser = cell.kind === "user-message";
   const rowKind = isUser ? "user" : "parent";
@@ -71,7 +72,7 @@ export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded
             onOpen={() => onOpenDocument?.(cell.documentRef!)}
           />
         ) : (
-          <TranscriptActivityRow cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} onOpenAgent={onOpenAgent} canOpenAgent={canOpenAgent} onRetry={onRetry} />
+          <TranscriptActivityRow cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} onOpenAgent={onOpenAgent} canOpenAgent={canOpenAgent} onRetry={onRetry} onFork={onFork} />
         )}
       </div>
       {cell.timestamp && (cell.kind === "user-message" || cell.kind === "assistant-message") ? <time>{formatTime(cell.timestamp)}</time> : null}
@@ -137,13 +138,14 @@ function TranscriptMessageProse({ cell, expanded, onToggleExpanded, className }:
   );
 }
 
-export function TranscriptActivityRow({ cell, expanded, onToggleExpanded, onOpenAgent, canOpenAgent, onRetry }: {
+export function TranscriptActivityRow({ cell, expanded, onToggleExpanded, onOpenAgent, canOpenAgent, onRetry, onFork }: {
   cell: ParentAgentTranscriptCell;
   expanded: boolean;
   onToggleExpanded: () => void;
   onOpenAgent?: (agentSurfaceId: string) => void;
   canOpenAgent?: (agentSurfaceId: string) => boolean;
   onRetry?: (target: NonNullable<ParentAgentTranscriptCell["retryTarget"]>) => Promise<void>;
+  onFork?: (target: NonNullable<ParentAgentTranscriptCell["forkTarget"]>) => void;
 }): ReactElement {
   const [retrying, setRetrying] = useState(false);
   const elapsed = useElapsedSeconds(cell.realtime ? cell.timestamp : undefined);
@@ -195,6 +197,17 @@ export function TranscriptActivityRow({ cell, expanded, onToggleExpanded, onOpen
             }}
           >
             {retrying ? <LoaderCircle size={15} className="spin" aria-hidden="true" /> : <RotateCcw size={15} aria-hidden="true" />}
+          </button>
+        ) : null}
+        {cell.forkTarget && onFork ? (
+          <button
+            type="button"
+            className="transcript-fork-button"
+            title={cell.forkTarget.recovery ? "创建恢复分支" : "从此回合分叉"}
+            aria-label={cell.forkTarget.recovery ? "创建恢复分支" : "从此回合分叉"}
+            onClick={() => onFork(cell.forkTarget!)}
+          >
+            <GitFork size={15} aria-hidden="true" />
           </button>
         ) : null}
       </div>

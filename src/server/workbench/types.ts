@@ -13,6 +13,7 @@ import type { ConversationTurnRetryOwner } from "../../workbench/conversation-tu
 import type { ComposerDraftRecoveryService } from "../../workbench/composer-draft-recovery.js";
 import type { ProductModeActivityProjectionOwner } from "../../workbench/product-mode-activity.js";
 import type { ConversationContextLifecycleOwner } from "../../workbench/conversation-context-lifecycle.js";
+import type { ConversationForkLifecycleOwner } from "../../workbench/conversation-fork-lifecycle.js";
 
 export interface WorkbenchServeOptions {
   host?: string;
@@ -28,6 +29,7 @@ export interface WorkbenchServeOptions {
   composerDraftRecovery?: ComposerDraftRecoveryService;
   productModeActivity?: ProductModeActivityProjectionOwner;
   conversationContext?: ConversationContextLifecycleOwner;
+  conversationFork?: ConversationForkLifecycleOwner;
 }
 
 export interface WorkbenchServerHandle {
@@ -50,6 +52,7 @@ export interface WorkbenchServerContext {
   composerDraftRecovery: ComposerDraftRecoveryService;
   productModeActivity: ProductModeActivityProjectionOwner;
   conversationContext: ConversationContextLifecycleOwner;
+  conversationFork: ConversationForkLifecycleOwner;
 }
 
 export interface ConversationTurnRetryBody {
@@ -57,6 +60,16 @@ export interface ConversationTurnRetryBody {
   providerId?: unknown;
   expectedAttemptId?: unknown;
   sourceMessageId?: unknown;
+  clientRequestId?: unknown;
+}
+
+export interface ConversationForkBody {
+  productMode?: unknown;
+  providerId?: unknown;
+  sourceMessageId?: unknown;
+  expectedCompletedTurnSequence?: unknown;
+  expectedTimelineRevision?: unknown;
+  contextRevision?: unknown;
   clientRequestId?: unknown;
 }
 

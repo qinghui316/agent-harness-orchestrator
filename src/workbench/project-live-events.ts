@@ -24,6 +24,10 @@ export function publishConversationContextInvalidated(projectId: string, data: {
   publishProjectLiveEvent(projectId, { event: "conversation.context.invalidated", data });
 }
 
+export function publishConversationForkCompleted(projectId: string, data: { sourceConversationId: string; targetConversationId: string }): void {
+  publishProjectLiveEvent(projectId, { event: "conversation.fork.completed", data });
+}
+
 export function subscribeProjectLiveEvents(projectId: string, subscriber: ProjectLiveSubscriber): () => void {
   const projectSubscribers = subscribers.get(projectId) ?? new Set<ProjectLiveSubscriber>();
   projectSubscribers.add(subscriber);

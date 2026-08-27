@@ -594,7 +594,7 @@ describe("provider-neutral runtime contract", () => {
     migrated.close();
     const inspected = new Database(memory.workbenchDbPath, { readonly: true });
     expect(inspected.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'bridge_sync'").get()).toBeUndefined();
-    expect(Number(inspected.pragma("user_version", { simple: true }))).toBe(14);
+    expect(Number(inspected.pragma("user_version", { simple: true }))).toBe(15);
     inspected.close();
   });
 
