@@ -42,7 +42,11 @@ type PreparedFork = {
 
 export class ConversationForkLifecycleOwner {
   private readonly submissions = new Map<string, { requestHash: string; promise: Promise<ConversationForkReceipt> }>();
-  private readonly accepted = new Map<string, { requestHash: string; result: ProviderSessionForkResult }>();
+  private readonly accepted = new Map<string, {
+    requestHash: string;
+    prepared: PreparedFork;
+    result: ProviderSessionForkResult;
+  }>();
 
   constructor(private readonly options: {
     providerRegistry: ProviderRegistry;
@@ -90,15 +94,15 @@ export class ConversationForkLifecycleOwner {
   }
 
   private async submit(project: ManagedProject, request: ConversationForkRequest, requestHash: string): Promise<ConversationForkReceipt> {
-    const prepared = await this.prepare(project, request, requestHash);
-    if (prepared.operation.status === "completed" && prepared.operation.targetConversationId) {
-      return replayReceipt(prepared.operation);
-    }
     const retainedKey = `${request.projectId}\0${request.clientRequestId}`;
     const retained = this.accepted.get(retainedKey);
     if (retained) {
       if (retained.requestHash !== requestHash) throw conflict("Conversation fork clientRequestId conflicts with accepted Provider evidence.");
-      return this.materialize(prepared, retained.result, true);
+      return this.materialize(retained.prepared, retained.result, true);
+    }
+    const prepared = await this.prepare(project, request, requestHash);
+    if (prepared.operation.status === "completed" && prepared.operation.targetConversationId) {
+      return replayReceipt(prepared.operation);
     }
     if (prepared.operation.status === "submitting") {
       throw uncertain("Conversation fork outcome is uncertain and cannot be sent again automatically.");
@@ -136,7 +140,7 @@ export class ConversationForkLifecycleOwner {
       || result.session.sessionId === prepared.sourceSessionId) {
       throw uncertain("Provider returned fork evidence that does not match the admitted anchor.");
     }
-    this.accepted.set(retainedKey, { requestHash, result });
+    this.accepted.set(retainedKey, { requestHash, prepared, result });
     return this.materialize(prepared, result, false);
   }
 
@@ -412,7 +416,7 @@ function copyTimelineRow(row: StoredTopicMessage, targetConversationId: string, 
     turnId: null,
     itemId: null,
     artifact: row.artifact,
-    error: row.error,
+    error: null,
     rawJson: JSON.stringify({ ...raw, graphScopeId: targetGraphScopeId, forkedHistory: true }),
   };
 }
@@ -449,7 +453,8 @@ function forkBoundaryMessage(prepared: PreparedFork, targetConversationId: strin
 }
 
 const PRIVATE_FORK_KEYS = new Set([
-  "attemptId", "runId", "sessionId", "threadId", "turnId", "itemId", "requestId", "requestKey",
+  "attemptId", "runId", "sessionId", "sourceSessionId", "targetSessionId", "nativeSessionId", "providerSessionId",
+  "threadId", "parentThreadId", "childThreadId", "providerThreadId", "turnId", "itemId", "requestId", "requestKey",
   "providerUserInput", "providerApproval", "retryTarget", "retryLineage", "runtimeScopeId", "agentTaskId",
 ]);
 

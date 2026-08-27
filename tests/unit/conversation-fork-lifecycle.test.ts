@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ManagedProject } from "../../src/types/index.js";
 import { resolveProjectRuntimePaths, type ProjectRuntimePaths } from "../../src/project-runtime/paths.js";
@@ -78,6 +79,9 @@ describe("ConversationForkLifecycleOwner", () => {
       expect(serialized).not.toContain(sourceSessionId);
       expect(serialized).not.toContain("attempt-1");
       expect(serialized).not.toContain("turn-1");
+      expect(serialized).not.toContain("private-parent-thread");
+      expect(serialized).not.toContain("private-native-session");
+      expect(serialized).not.toContain("private-provider-error");
       const copiedAssistant = targetRows.find((row) => row.text === "first answer")!;
       expect(projectCanonicalTimelineEnvelope(copiedAssistant, "agent").cells).toEqual([
         expect.objectContaining({
@@ -184,6 +188,41 @@ describe("ConversationForkLifecycleOwner", () => {
       expect(JSON.stringify(operation)).not.toContain(sourceSessionId);
       expect(JSON.stringify(operation)).not.toContain("private thread id");
     } finally { database.close(); }
+  });
+
+  it("materializes accepted Provider evidence without re-admitting a changed source", async () => {
+    const forkSession = vi.fn(async () => {
+      const database = new Database(paths.workbenchDbPath);
+      try {
+        database.exec(`
+          CREATE TRIGGER fail_fork_materialization
+          BEFORE INSERT ON conversations
+          WHEN NEW.conversation_id <> '${conversationId}'
+          BEGIN
+            SELECT RAISE(ABORT, 'forced local materialization failure');
+          END;
+        `);
+      } finally { database.close(); }
+      return {
+        session: { providerId: "codex", sessionId: "private-accepted-thread" },
+        inheritedThroughTurn: { providerId: "codex", sessionId: "private-accepted-thread", turnId: "turn-2" },
+      };
+    });
+    const owner = createOwner(forkSession);
+    const request = await forkRequest("assistant-2", 2, "fork-request-accepted-repair");
+
+    await expect(owner.fork(project, request)).rejects.toThrow("forced local materialization failure");
+
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      const triggerDatabase = new Database(paths.workbenchDbPath);
+      try { triggerDatabase.exec("DROP TRIGGER fail_fork_materialization;"); }
+      finally { triggerDatabase.close(); }
+      database.timeline.appendMessage(message("later-source-fact", "system.event", "later", null, null, { graphScopeId }));
+    } finally { database.close(); }
+
+    await expect(owner.fork(project, request)).resolves.toMatchObject({ status: "replayed" });
+    expect(forkSession).toHaveBeenCalledOnce();
   });
 
   it("recovers an explicitly stale Agent session through the exact last successful Turn", async () => {
@@ -345,12 +384,14 @@ async function seedCompletedConversation(): Promise<void> {
         graphScopeId,
         completedTurnSequence: sequence,
       }));
-      database.timeline.appendMessage(message(`assistant-${sequence}`, "assistant.message", sequence === 1 ? "first answer" : "second answer", sourceSessionId, `turn-${sequence}`, {
+      database.timeline.appendMessage({ ...message(`assistant-${sequence}`, "assistant.message", sequence === 1 ? "first answer" : "second answer", sourceSessionId, `turn-${sequence}`, {
         graphScopeId,
         attemptId: `attempt-${sequence}`,
         completedTurnSequence: sequence,
+        parentThreadId: "private-parent-thread",
+        nativeSessionId: "private-native-session",
         blocks: [{ id: `private-item-${sequence}`, attemptId: `attempt-${sequence}`, threadId: sourceSessionId, turnId: `turn-${sequence}`, itemId: `item-${sequence}`, kind: "prose", source: "provider", sequence: 1, timestamp: now, text: "answer" }],
-      }));
+      }), ...(sequence === 1 ? { error: "private-provider-error" } : {}) });
     }
     database.providerAttempts.writeConversationProviderBinding({
       projectId,
