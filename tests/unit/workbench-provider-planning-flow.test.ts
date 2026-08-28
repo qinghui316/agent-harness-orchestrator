@@ -1819,6 +1819,42 @@ describe("Workbench provider planning flow", () => {
     expect(await listWorkflowRuns(runtimePaths, changeId)).toEqual([]);
   });
 
+  it("rejects a queued Plan handoff that also requests a Provider switch before side effects", async () => {
+    const { conversation, plan } = await createSimplePlannerProposal();
+    await seedActiveHarnessConversationQueue(conversation.conversationId, conversation.selectedProviderId);
+    const before = await readQueueRoutingState(conversation.conversationId);
+    const switchProviderAtSafePoint = vi.fn(async () => {
+      throw new Error("Provider switching must not run for a queued Plan handoff.");
+    });
+    const admit = vi.fn(turnRouter.admit);
+    const route = vi.fn(turnRouter.route);
+    const guardedRouter: ConversationTurnRoutingPort = {
+      assertRequestedMode: turnRouter.assertRequestedMode,
+      admit,
+      resolveAttachments: turnRouter.resolveAttachments,
+      route,
+      resolveProviderId: turnRouter.resolveProviderId,
+      resolveRuntimeState: turnRouter.resolveRuntimeState,
+      switchProviderAtSafePoint,
+    };
+
+    await expect(postConversationMessageRaw(project(), conversation.conversationId, {
+      mode: "chat",
+      message: "执行当前计划并切换 Provider",
+      productMode: "harness",
+      providerId: "other-provider",
+      planHandoffIntent: planHandoffIntent(plan),
+    }, undefined, { turnRouter: guardedRouter })).rejects.toMatchObject({
+      name: "Conflict",
+      message: "An active Conversation Turn queue must dispatch its FIFO head before another Turn.",
+    });
+
+    expect(switchProviderAtSafePoint).not.toHaveBeenCalled();
+    expect(admit).not.toHaveBeenCalled();
+    expect(route).not.toHaveBeenCalled();
+    expect(await readQueueRoutingState(conversation.conversationId)).toEqual(before);
+  });
+
   it("rolls back Main acceptance when scoped preflight finds a Registry conflict", async () => {
     const seedContext = await resolveProjectHarnessRegistryContext({
       projectId: project().id,
@@ -1957,6 +1993,71 @@ function planHandoffIntent(plan: Awaited<ReturnType<typeof listConversationMessa
     sourceProposalHash: plan.document?.proposalHash,
     executionMode: "stepwise" as const,
   };
+}
+
+async function seedActiveHarnessConversationQueue(conversationId: string, providerId: string): Promise<void> {
+  const database = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
+  try {
+    const queuedAt = new Date().toISOString();
+    const queue = database.conversationTurnQueues.ensureQueue({
+      projectId: project().id,
+      conversationId,
+      productMode: "harness",
+      updatedAt: queuedAt,
+    });
+    database.transaction(() => {
+      database.conversationTurnQueues.insertItem({
+        projectId: project().id,
+        conversationId,
+        productMode: "harness",
+        queueItemId: "queue-plan-provider-boundary",
+        clientRequestId: "queue-plan-provider-boundary-request",
+        requestHash: "queue-plan-provider-boundary-hash",
+        position: 1,
+        status: "queued",
+        retryCount: 0,
+        predecessorExecutionRevision: "execution:idle",
+        dispatchRequestId: "queue-plan-provider-boundary-dispatch",
+        text: "Queued Harness follow-up.",
+        contextRefsJson: "[]",
+        attachmentIdsJson: "[]",
+        skillOverridesJson: "{}",
+        providerId,
+        agentTurnMode: null,
+        agentModelId: null,
+        agentReasoningEffort: null,
+        diagnostic: null,
+        createdAt: queuedAt,
+        updatedAt: queuedAt,
+        dispatchedAt: null,
+      });
+      database.conversationTurnQueues.advanceRevision(
+        project().id,
+        conversationId,
+        queue.revision,
+        queuedAt,
+      );
+    });
+  } finally {
+    database.close();
+  }
+}
+
+async function readQueueRoutingState(conversationId: string) {
+  const database = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
+  try {
+    const conversation = database.conversations.readConversation(project().id, conversationId)!;
+    return {
+      selectedProviderId: conversation.selectedProviderId,
+      currentGraphScopeId: conversation.currentGraphScopeId,
+      messages: database.timeline.listConversationMessages(project().id, conversationId).map((message) => message.id),
+      attempts: database.providerAttempts.listProviderAttempts(project().id, conversationId).map((attempt) => attempt.attemptId),
+      resumePoint: database.providerAttempts.readLatestProviderResumePoint(project().id, conversationId),
+      queue: database.conversationTurnQueues.listItems(project().id, conversationId),
+    };
+  } finally {
+    database.close();
+  }
 }
 
 async function createSkillNativeConversationChange(

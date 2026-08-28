@@ -984,6 +984,7 @@ export async function prepareConversationMessage(
     }
     throw conflict("Native child follow-up does not use top-level prepared Turn admission.");
   }
+  await assertConversationQueueAdmission(identity, parsed);
   if (parsed.providerId && parsed.providerId !== identity.conversation.selectedProviderId) {
     throw conflict("Direct Agent provider switching is not supported in this increment.");
   }
@@ -1242,7 +1243,7 @@ async function assertConversationQueueAdmission(
       }
       return;
     }
-    if (identity.conversation.productMode === "harness" && parsed.planHandoffIntent) {
+    if (identity.conversation.productMode === "harness" && parsed.planHandoffIntent && !parsed.providerId) {
       validatePlanHandoffIntent(
         database.timeline.listConversationMessages(identity.conversation.projectId, identity.conversationId)
           .map(fromStoredThreadMessage),

@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createWorkbenchConversation, postConversationMessage } from "../../src/workbench/conversation-service.js";
+import {
+  createWorkbenchConversation,
+  postConversationMessage,
+  prepareConversationMessage,
+} from "../../src/workbench/conversation-service.js";
 import type { ConversationTurnRoutingPort } from "../../src/workbench/conversation-turn-contract.js";
 import { getCanonicalTimelinePage } from "../../src/workbench/canonical-timeline-query.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
@@ -391,51 +395,7 @@ describe("dual product-mode foundation", () => {
       productMode: "harness",
       clientRequestId: "harness-queue-provider-boundary",
     }, undefined, { runMainAgent: false });
-    const database = await openProjectRuntimeWorkbenchDatabase(fixture.resolution.paths);
-    try {
-      const queuedAt = new Date().toISOString();
-      const queue = database.conversationTurnQueues.ensureQueue({
-        projectId: project().id,
-        conversationId: conversation.conversationId,
-        productMode: "harness",
-        updatedAt: queuedAt,
-      });
-      database.transaction(() => {
-        database.conversationTurnQueues.insertItem({
-          projectId: project().id,
-          conversationId: conversation.conversationId,
-          productMode: "harness",
-          queueItemId: "queue-provider-boundary-item",
-          clientRequestId: "queue-provider-boundary-request",
-          requestHash: "queue-provider-boundary-hash",
-          position: 1,
-          status: "queued",
-          retryCount: 0,
-          predecessorExecutionRevision: "execution:idle",
-          dispatchRequestId: "queue-provider-boundary-dispatch",
-          text: "Queued Harness follow-up.",
-          contextRefsJson: "[]",
-          attachmentIdsJson: "[]",
-          skillOverridesJson: "{}",
-          providerId: conversation.selectedProviderId,
-          agentTurnMode: null,
-          agentModelId: null,
-          agentReasoningEffort: null,
-          diagnostic: null,
-          createdAt: queuedAt,
-          updatedAt: queuedAt,
-          dispatchedAt: null,
-        });
-        database.conversationTurnQueues.advanceRevision(
-          project().id,
-          conversation.conversationId,
-          queue.revision,
-          queuedAt,
-        );
-      });
-    } finally {
-      database.close();
-    }
+    await seedActiveConversationQueue(conversation.conversationId, "harness", conversation.selectedProviderId);
 
     const before = await conversationRoutingState(conversation.conversationId);
     const switchProviderAtSafePoint = vi.fn(async () => {
@@ -463,6 +423,30 @@ describe("dual product-mode foundation", () => {
     expect(switchProviderAtSafePoint).not.toHaveBeenCalled();
     expect(admit).not.toHaveBeenCalled();
     expect(route).not.toHaveBeenCalled();
+    expect(await conversationRoutingState(conversation.conversationId)).toEqual(before);
+  });
+
+  it("rejects prepared Agent admission while the FIFO head is active", async () => {
+    const conversation = await createWorkbenchConversation(project(), {
+      body: "Agent prepared queue boundary",
+      productMode: "agent",
+      clientRequestId: "agent-prepared-queue-boundary",
+    }, undefined, { runMainAgent: false });
+    await seedActiveConversationQueue(conversation.conversationId, "agent", conversation.selectedProviderId);
+    const before = await conversationRoutingState(conversation.conversationId);
+    const admit = vi.fn(testAdmission);
+
+    await expect(prepareConversationMessage(project(), conversation.conversationId, {
+      message: "Prepared admission must not bypass the queued head.",
+      productMode: "agent",
+    }, {
+      turnRouter: { ...testTurnRouter(), admit },
+    })).rejects.toMatchObject({
+      name: "Conflict",
+      message: "An active Conversation Turn queue must dispatch its FIFO head before another Turn.",
+    });
+
+    expect(admit).not.toHaveBeenCalled();
     expect(await conversationRoutingState(conversation.conversationId)).toEqual(before);
   });
 });
@@ -555,6 +539,58 @@ async function conversationRoutingState(conversationId: string) {
       resumePoint: database.providerAttempts.readLatestProviderResumePoint(project().id, conversationId),
       queue: database.conversationTurnQueues.listItems(project().id, conversationId),
     };
+  } finally {
+    database.close();
+  }
+}
+
+async function seedActiveConversationQueue(
+  conversationId: string,
+  productMode: "agent" | "harness",
+  providerId: string,
+): Promise<void> {
+  const database = await openProjectRuntimeWorkbenchDatabase(fixture.resolution.paths);
+  try {
+    const queuedAt = new Date().toISOString();
+    const queue = database.conversationTurnQueues.ensureQueue({
+      projectId: project().id,
+      conversationId,
+      productMode,
+      updatedAt: queuedAt,
+    });
+    database.transaction(() => {
+      database.conversationTurnQueues.insertItem({
+        projectId: project().id,
+        conversationId,
+        productMode,
+        queueItemId: `queue-boundary-${productMode}`,
+        clientRequestId: `queue-boundary-request-${productMode}`,
+        requestHash: `queue-boundary-hash-${productMode}`,
+        position: 1,
+        status: "queued",
+        retryCount: 0,
+        predecessorExecutionRevision: "execution:idle",
+        dispatchRequestId: `queue-boundary-dispatch-${productMode}`,
+        text: "Queued follow-up.",
+        contextRefsJson: "[]",
+        attachmentIdsJson: "[]",
+        skillOverridesJson: "{}",
+        providerId,
+        agentTurnMode: productMode === "agent" ? "default" : null,
+        agentModelId: null,
+        agentReasoningEffort: null,
+        diagnostic: null,
+        createdAt: queuedAt,
+        updatedAt: queuedAt,
+        dispatchedAt: null,
+      });
+      database.conversationTurnQueues.advanceRevision(
+        project().id,
+        conversationId,
+        queue.revision,
+        queuedAt,
+      );
+    });
   } finally {
     database.close();
   }
