@@ -384,6 +384,87 @@ describe("dual product-mode foundation", () => {
 
     expect(await conversationState(conversation.conversationId)).toEqual(before);
   });
+
+  it("rejects an ordinary Harness provider switch before queue or routing side effects", async () => {
+    const conversation = await createWorkbenchConversation(project(), {
+      body: "Harness queue provider boundary",
+      productMode: "harness",
+      clientRequestId: "harness-queue-provider-boundary",
+    }, undefined, { runMainAgent: false });
+    const database = await openProjectRuntimeWorkbenchDatabase(fixture.resolution.paths);
+    try {
+      const queuedAt = new Date().toISOString();
+      const queue = database.conversationTurnQueues.ensureQueue({
+        projectId: project().id,
+        conversationId: conversation.conversationId,
+        productMode: "harness",
+        updatedAt: queuedAt,
+      });
+      database.transaction(() => {
+        database.conversationTurnQueues.insertItem({
+          projectId: project().id,
+          conversationId: conversation.conversationId,
+          productMode: "harness",
+          queueItemId: "queue-provider-boundary-item",
+          clientRequestId: "queue-provider-boundary-request",
+          requestHash: "queue-provider-boundary-hash",
+          position: 1,
+          status: "queued",
+          retryCount: 0,
+          predecessorExecutionRevision: "execution:idle",
+          dispatchRequestId: "queue-provider-boundary-dispatch",
+          text: "Queued Harness follow-up.",
+          contextRefsJson: "[]",
+          attachmentIdsJson: "[]",
+          skillOverridesJson: "{}",
+          providerId: conversation.selectedProviderId,
+          agentTurnMode: null,
+          agentModelId: null,
+          agentReasoningEffort: null,
+          diagnostic: null,
+          createdAt: queuedAt,
+          updatedAt: queuedAt,
+          dispatchedAt: null,
+        });
+        database.conversationTurnQueues.advanceRevision(
+          project().id,
+          conversation.conversationId,
+          queue.revision,
+          queuedAt,
+        );
+      });
+    } finally {
+      database.close();
+    }
+
+    const before = await conversationRoutingState(conversation.conversationId);
+    const switchProviderAtSafePoint = vi.fn(async () => {
+      throw new Error("Provider switching must not run while the FIFO is active.");
+    });
+    const admit = vi.fn(testAdmission);
+    const route = vi.fn(testTurnRouter().route);
+
+    await expect(postConversationMessage(project(), conversation.conversationId, {
+      message: "This ordinary Turn must not bypass the queued head.",
+      productMode: "harness",
+      providerId: "other-provider",
+    }, undefined, {
+      turnRouter: {
+        ...testTurnRouter(),
+        switchProviderAtSafePoint,
+        admit,
+        route,
+      },
+    })).rejects.toMatchObject({
+      name: "Conflict",
+      message: "An active Conversation Turn queue must dispatch its FIFO head before another Turn.",
+    });
+
+    expect(switchProviderAtSafePoint).not.toHaveBeenCalled();
+    expect(admit).not.toHaveBeenCalled();
+    expect(route).not.toHaveBeenCalled();
+    expect(await conversationRoutingState(conversation.conversationId)).toEqual(before);
+  });
 });
 
 function failAfterCommitRouter() {
@@ -456,6 +537,23 @@ async function conversationState(conversationId: string): Promise<{
       attempts: database.providerAttempts.listProviderAttempts(project().id, conversationId).map((attempt) => attempt.attemptId),
       hasBinding: Boolean(database.providerAttempts.readConversationProviderBinding(project().id, conversationId, conversation.selectedProviderId)),
       completedTurnSequence: conversation.completedTurnSequence,
+    };
+  } finally {
+    database.close();
+  }
+}
+
+async function conversationRoutingState(conversationId: string) {
+  const database = await openProjectRuntimeWorkbenchDatabase(fixture.resolution.paths);
+  try {
+    const conversation = database.conversations.readConversation(project().id, conversationId)!;
+    return {
+      selectedProviderId: conversation.selectedProviderId,
+      currentGraphScopeId: conversation.currentGraphScopeId,
+      messages: database.timeline.listConversationMessages(project().id, conversationId).map((message) => message.id),
+      attempts: database.providerAttempts.listProviderAttempts(project().id, conversationId).map((attempt) => attempt.attemptId),
+      resumePoint: database.providerAttempts.readLatestProviderResumePoint(project().id, conversationId),
+      queue: database.conversationTurnQueues.listItems(project().id, conversationId),
     };
   } finally {
     database.close();

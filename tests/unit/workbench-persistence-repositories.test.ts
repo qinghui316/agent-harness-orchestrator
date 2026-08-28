@@ -215,6 +215,7 @@ describe("Workbench persistence owners", () => {
       database.unitOfWork.commitConversationMessage({
         projectId,
         conversationId: "conversation-1",
+        graphScopeId: "graph-1",
         message: message("shared-message", "conversation-1"),
         skillOverrides: [{ skillId: "queued-skill", enabled: true }],
         updatedAt: now,
@@ -228,6 +229,7 @@ describe("Workbench persistence owners", () => {
       expect(() => database.unitOfWork.commitConversationMessage({
         projectId,
         conversationId: "conversation-2",
+        graphScopeId: "graph-1",
         message: message("shared-message", "conversation-2"),
         skillOverrides: [{ skillId: "must-not-persist", enabled: true }],
         updatedAt: now,

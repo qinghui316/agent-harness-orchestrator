@@ -398,6 +398,7 @@ describe("ConversationTurnQueueOwner", () => {
       expect(() => database.unitOfWork.commitAgentConversationMessage({
         projectId,
         conversationId,
+        graphScopeId: "graph-current",
         expectedAgentTurnMode: "plan",
         expectedAgentModelId: "gpt-test",
         expectedAgentReasoningEffort: "high",
@@ -420,6 +421,7 @@ describe("ConversationTurnQueueOwner", () => {
       expect(() => database.unitOfWork.commitAgentConversationMessage({
         projectId,
         conversationId,
+        graphScopeId: "graph-current",
         expectedAgentTurnMode: "plan",
         expectedAgentModelId: "gpt-test",
         expectedAgentReasoningEffort: "high",

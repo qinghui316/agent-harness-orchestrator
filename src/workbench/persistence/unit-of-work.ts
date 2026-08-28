@@ -234,6 +234,7 @@ export class WorkbenchUnitOfWork {
   commitAgentConversationMessage(input: {
     projectId: string;
     conversationId: string;
+    graphScopeId: string;
     expectedAgentTurnMode: AgentTurnMode;
     expectedAgentModelId: string | null;
     expectedAgentReasoningEffort: string | null;
@@ -245,7 +246,7 @@ export class WorkbenchUnitOfWork {
     allowActiveQueue?: boolean;
     updatedAt: string;
     message: StoredTopicMessageWrite;
-  }): StoredTopicMessage {
+  }): { message: StoredTopicMessage; graphScopeRows: StoredTopicMessage[] } {
     return this.db.transaction(() => {
       this.assertConversationQueueCommit(
         input.projectId,
@@ -253,22 +254,29 @@ export class WorkbenchUnitOfWork {
         input.queuedTurnDispatch,
         input.allowActiveQueue ?? false,
       );
+      const graphScopeRows = this.startConversationGraphScopeCore(
+        input.projectId,
+        input.conversationId,
+        input.graphScopeId,
+        input.updatedAt,
+      );
       this.conversations.updateAgentTurnPreferences(input);
       const message = this.timeline.appendMessage(input.message);
       this.applyConversationSkillOverrides(input.projectId, input.conversationId, input.skillOverrides, input.updatedAt);
-      return message;
+      return { message, graphScopeRows };
     }).immediate();
   }
 
   commitConversationMessage(input: {
     projectId: string;
     conversationId: string;
+    graphScopeId: string;
     message: StoredTopicMessageWrite;
     skillOverrides: Array<{ skillId: string; enabled: boolean }>;
     queuedTurnDispatch?: ConversationQueuedTurnDispatchEvidence;
     allowActiveQueue?: boolean;
     updatedAt: string;
-  }): StoredTopicMessage {
+  }): { message: StoredTopicMessage; graphScopeRows: StoredTopicMessage[] } {
     return this.db.transaction(() => {
       this.assertConversationQueueCommit(
         input.projectId,
@@ -276,9 +284,15 @@ export class WorkbenchUnitOfWork {
         input.queuedTurnDispatch,
         input.allowActiveQueue ?? false,
       );
+      const graphScopeRows = this.startConversationGraphScopeCore(
+        input.projectId,
+        input.conversationId,
+        input.graphScopeId,
+        input.updatedAt,
+      );
       const message = this.timeline.appendMessage(input.message);
       this.applyConversationSkillOverrides(input.projectId, input.conversationId, input.skillOverrides, input.updatedAt);
-      return message;
+      return { message, graphScopeRows };
     }).immediate();
   }
 
@@ -482,15 +496,28 @@ export class WorkbenchUnitOfWork {
   }
 
   startConversationGraphScope(projectId: string, conversationId: string, graphScopeId: string, updatedAt: string): StoredTopicMessage[] {
-    return this.db.transaction(() => {
-      let rows: StoredTopicMessage[] = [];
-      const currentScopeId = this.conversations.readConversation(projectId, conversationId)?.currentGraphScopeId;
-      if (currentScopeId && currentScopeId !== graphScopeId) {
-        rows = this.interactions.supersedeGraphScope(projectId, conversationId, currentScopeId, updatedAt);
-      }
-      this.conversations.activateGraphScope(projectId, conversationId, graphScopeId, updatedAt);
-      return rows;
-    })();
+    return this.db.transaction(() => this.startConversationGraphScopeCore(
+      projectId,
+      conversationId,
+      graphScopeId,
+      updatedAt,
+    ))();
+  }
+
+  private startConversationGraphScopeCore(
+    projectId: string,
+    conversationId: string,
+    graphScopeId: string,
+    updatedAt: string,
+  ): StoredTopicMessage[] {
+    let rows: StoredTopicMessage[] = [];
+    const currentScopeId = this.conversations.readConversation(projectId, conversationId)?.currentGraphScopeId;
+    if (currentScopeId === graphScopeId) return rows;
+    if (currentScopeId) {
+      rows = this.interactions.supersedeGraphScope(projectId, conversationId, currentScopeId, updatedAt);
+    }
+    this.conversations.activateGraphScope(projectId, conversationId, graphScopeId, updatedAt);
+    return rows;
   }
 
   createProviderChildCallback(input: {

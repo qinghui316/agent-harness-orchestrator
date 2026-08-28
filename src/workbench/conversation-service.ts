@@ -494,6 +494,7 @@ export async function postConversationMessage(
     error.name = "Conflict";
     throw error;
   }
+  await assertConversationQueueAdmission(identity, parsed);
   if (parsed.agentSurfaceId) {
     if (identity.conversation.productMode === "agent") {
       if (parsed.contextRefs?.length || parsed.attachments?.length || parsed.planHandoffIntent || parsed.providerId) {
@@ -799,10 +800,7 @@ async function commitTopLevelConversationMessage(
         ? conversation.currentGraphScopeId
         : createConversationGraphScopeId(conversationId);
     }
-    if (graphScopeId !== conversation.currentGraphScopeId) {
-      delivery.publishCommittedMany(database.unitOfWork.startConversationGraphScope(projectId, conversationId, graphScopeId, now));
-      publishAgentSurfacesInvalidated(projectId, { conversationId, graphScopeId, reason: "scope-changed" });
-    }
+    const graphScopeChanged = graphScopeId !== conversation.currentGraphScopeId;
     const user: TopicThreadEntry = {
       id: `user:${conversationId}:${Date.now().toString(36)}`,
       type: "user.message",
@@ -822,9 +820,10 @@ async function commitTopLevelConversationMessage(
     };
     const userWrite = toCanonicalTimelineMessage(projectId, conversationId, user);
     if (conversation.productMode === "agent") {
-      const committedUser = database.unitOfWork.commitAgentConversationMessage({
+      const committed = database.unitOfWork.commitAgentConversationMessage({
         projectId,
         conversationId,
+        graphScopeId,
         expectedAgentTurnMode: conversation.agentTurnMode ?? "default",
         expectedAgentModelId: conversation.agentModelId,
         expectedAgentReasoningEffort: conversation.agentReasoningEffort,
@@ -836,17 +835,24 @@ async function commitTopLevelConversationMessage(
         updatedAt: now,
         message: userWrite,
       });
-      delivery.publishCommitted(committedUser);
+      delivery.publishCommittedMany(committed.graphScopeRows);
+      delivery.publishCommitted(committed.message);
     } else {
-      delivery.publishCommitted(database.unitOfWork.commitConversationMessage({
+      const committed = database.unitOfWork.commitConversationMessage({
         projectId,
         conversationId,
+        graphScopeId,
         message: userWrite,
         skillOverrides: parsed.skillOverrides,
         queuedTurnDispatch: parsed.queuedTurnDispatch,
         allowActiveQueue: Boolean(planHandoff),
         updatedAt: now,
-      }));
+      });
+      delivery.publishCommittedMany(committed.graphScopeRows);
+      delivery.publishCommitted(committed.message);
+    }
+    if (graphScopeChanged) {
+      publishAgentSurfacesInvalidated(projectId, { conversationId, graphScopeId, reason: "scope-changed" });
     }
     const proposalStatus = planHandoff?.kind === "revise-plan"
       ? "revision-requested"
@@ -1207,6 +1213,47 @@ function stableMessagePreparationSignature(input: string | TopicMessageInput): s
     planHandoffIntent: input.planHandoffIntent ?? null,
     queuedTurnDispatch: input.queuedTurnDispatch ?? null,
   })).digest("hex");
+}
+
+async function assertConversationQueueAdmission(
+  identity: Awaited<ReturnType<typeof resolveStoredConversationIdentity>>,
+  parsed: Awaited<ReturnType<typeof normalizeTopicMessageInput>>,
+): Promise<void> {
+  if (parsed.agentSurfaceId) return;
+  const paths = identity.runtimeState.state === "onboarding"
+    ? identity.runtimeState.paths
+    : identity.runtimeState.resolution.paths;
+  const database = await openProjectRuntimeWorkbenchDatabase(paths);
+  try {
+    const head = database.conversationTurnQueues.listItems(
+      identity.conversation.projectId,
+      identity.conversationId,
+    )[0];
+    if (!head) {
+      if (parsed.queuedTurnDispatch) throw conflict("Queued Turn dispatch no longer matches an active FIFO item.");
+      return;
+    }
+    if (parsed.queuedTurnDispatch) {
+      if (parsed.planHandoffIntent || head.status !== "dispatching"
+        || head.queueItemId !== parsed.queuedTurnDispatch.queueItemId
+        || head.dispatchRequestId !== parsed.queuedTurnDispatch.dispatchRequestId
+        || head.requestHash !== parsed.queuedTurnDispatch.requestHash) {
+        throw conflict("Queued Turn dispatch does not match the exact dispatching FIFO head.");
+      }
+      return;
+    }
+    if (identity.conversation.productMode === "harness" && parsed.planHandoffIntent) {
+      validatePlanHandoffIntent(
+        database.timeline.listConversationMessages(identity.conversation.projectId, identity.conversationId)
+          .map(fromStoredThreadMessage),
+        parsed.planHandoffIntent,
+      );
+      return;
+    }
+    throw conflict("An active Conversation Turn queue must dispatch its FIFO head before another Turn.");
+  } finally {
+    database.close();
+  }
 }
 
 function conflict(message: string): Error {
