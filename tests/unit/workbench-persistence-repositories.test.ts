@@ -23,6 +23,45 @@ afterEach(async () => {
 });
 
 describe("Workbench persistence owners", () => {
+  it("materializes a preselected Conversation graph scope without superseding it", async () => {
+    const database = await openProjectRuntimeWorkbenchDatabase(runtimePaths());
+    try {
+      const createdAt = "2026-08-29T00:00:00.000Z";
+      database.conversations.createConversation({
+        projectId,
+        conversationId: "conversation-preselected-scope",
+        productMode: "harness",
+        agentTurnMode: null,
+        agentModelId: null,
+        agentReasoningEffort: null,
+        title: "Preselected scope",
+        state: "active",
+        boundChangeId: null,
+        currentGraphScopeId: "graph-preselected",
+        selectedProviderId: "codex",
+        completedTurnSequence: 0,
+        createdAt,
+        updatedAt: createdAt,
+        deletedAt: null,
+      });
+
+      expect(database.conversations.readConversationGraphScope(projectId, "graph-preselected")).toBeNull();
+      expect(database.unitOfWork.startConversationGraphScope(
+        projectId,
+        "conversation-preselected-scope",
+        "graph-preselected",
+        createdAt,
+      )).toEqual([]);
+      expect(database.conversations.readConversationGraphScope(projectId, "graph-preselected")).toMatchObject({
+        conversationId: "conversation-preselected-scope",
+        graphScopeId: "graph-preselected",
+        status: "active",
+      });
+    } finally {
+      database.close();
+    }
+  });
+
   it("persists full Composer drafts with CAS and rejects Harness mode leakage", async () => {
     const database = await openProjectRuntimeWorkbenchDatabase(runtimePaths());
     try {

@@ -512,8 +512,7 @@ export class WorkbenchUnitOfWork {
   ): StoredTopicMessage[] {
     let rows: StoredTopicMessage[] = [];
     const currentScopeId = this.conversations.readConversation(projectId, conversationId)?.currentGraphScopeId;
-    if (currentScopeId === graphScopeId) return rows;
-    if (currentScopeId) {
+    if (currentScopeId && currentScopeId !== graphScopeId) {
       rows = this.interactions.supersedeGraphScope(projectId, conversationId, currentScopeId, updatedAt);
     }
     this.conversations.activateGraphScope(projectId, conversationId, graphScopeId, updatedAt);
