@@ -2,7 +2,8 @@
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { TopicComposer } from "../../src/web/src/shell/composer.js";
+import { ConversationTurnQueue, TopicComposer } from "../../src/web/src/shell/composer.js";
+import type { ConversationTurnQueueSnapshot } from "../../src/web/src/types.js";
 
 afterEach(cleanup);
 
@@ -128,7 +129,15 @@ describe("Topic Composer height", () => {
       onStopAndContinue={onStop}
       actionRunning={null}
       currentWorkpadStatus="running"
-      runControlState={{ state: "running", canStop: true, canSteer: true, steerState: "idle" }}
+      runControlState={{
+        state: "running",
+        canStop: true,
+        canSteer: true,
+        steerState: "idle",
+        providerId: "codex",
+        attemptId: "attempt-agent",
+        runId: "run-agent",
+      }}
     />);
 
     fireEvent.click(screen.getByRole("button", { name: "发送给当前执行" }));
@@ -164,6 +173,58 @@ describe("Topic Composer height", () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 });
+
+describe("Conversation Turn queue surface", () => {
+  it("renders stable FIFO actions and exposes blocked retry without allowing dispatching removal", () => {
+    const onReclaim = vi.fn();
+    const onRemove = vi.fn();
+    const onRetry = vi.fn();
+    const snapshot: ConversationTurnQueueSnapshot = {
+      projectId: "project",
+      productMode: "agent",
+      conversationId: "conversation",
+      revision: "queue:2",
+      executionRevision: "execution:1",
+      canEnqueue: true,
+      canDispatch: false,
+      items: [
+        queuedItem("blocked", "blocked-item", "Fix the failing admission", 1),
+        queuedItem("dispatching", "dispatching-item", "Already accepted for dispatch", 2),
+      ],
+    };
+    render(<ConversationTurnQueue snapshot={snapshot} busy={false} onReclaim={onReclaim} onRemove={onRemove} onRetry={onRetry} />);
+
+    expect(screen.getByLabelText("下一回合队列")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "重新尝试队列项" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "移回输入框" })[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "删除队列项" })[0]!);
+    expect(onRetry).toHaveBeenCalledWith("blocked-item");
+    expect(onReclaim).toHaveBeenCalledWith("blocked-item");
+    expect(onRemove).toHaveBeenCalledWith("blocked-item");
+    expect(screen.getAllByRole("button", { name: "移回输入框" })[1]!.hasAttribute("disabled")).toBe(true);
+    expect(screen.getAllByRole("button", { name: "删除队列项" })[1]!.hasAttribute("disabled")).toBe(true);
+  });
+});
+
+function queuedItem(status: "blocked" | "dispatching", queueItemId: string, text: string, position: number) {
+  return {
+    queueItemId,
+    clientRequestId: `${queueItemId}-request`,
+    position,
+    status,
+    retryCount: status === "blocked" ? 1 : 0,
+    text,
+    contextRefs: [],
+    attachmentIds: status === "blocked" ? ["attachment-1"] : [],
+    skillOverrides: {},
+    providerId: "codex",
+    agentTurnMode: "default" as const,
+    modelId: null,
+    reasoningEffort: null,
+    createdAt: "2026-08-28T00:00:00.000Z",
+    updatedAt: "2026-08-28T00:00:00.000Z",
+  };
+}
 
 function renderComposer(value: string) { return render(composer(value)); }
 

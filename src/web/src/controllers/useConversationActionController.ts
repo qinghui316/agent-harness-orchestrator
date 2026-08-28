@@ -58,7 +58,6 @@ export interface UseConversationActionControllerOptions {
 
 export type ConversationSteerOutcome =
   | { status: "accepted" }
-  | { status: "pending-feedback" }
   | { status: "already-terminal" };
 
 export interface ConversationActionController {
@@ -615,7 +614,6 @@ function conversationSteerOutcome(value: unknown): ConversationSteerOutcome {
     ? (value as { status?: unknown }).status
     : undefined;
   if (status === "steer-accepted" || status === "steered") return { status: "accepted" };
-  if (status === "pending-feedback") return { status: "pending-feedback" };
   if (status === "already-terminal") return { status: "already-terminal" };
   throw new Error("Conversation steering returned an invalid settlement.");
 }

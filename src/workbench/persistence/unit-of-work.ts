@@ -4,6 +4,8 @@ import { agentThreadSurfaceId } from "../../provider-runtime/agent-surface-id.js
 import type {
   StoredConversation,
   StoredConversationProviderBinding,
+  StoredConversationQueuedTurn,
+  StoredConversationTurnQueue,
   StoredProviderAttempt,
   StoredProviderResumePoint,
   StoredTopicMessage,
@@ -14,7 +16,8 @@ import type { InteractionRepository } from "./repositories/interaction-repositor
 import type { ProviderAttemptRepository } from "./repositories/provider-attempt-repository.js";
 import type { TimelineRepository } from "./repositories/timeline-repository.js";
 import type { SkillRepository } from "./repositories/skill-repository.js";
-import type { ComposerDraftRepository } from "./repositories/composer-draft-repository.js";
+import { ComposerDraftConflictError, type ComposerDraftRepository } from "./repositories/composer-draft-repository.js";
+import type { ConversationTurnQueueRepository } from "./repositories/conversation-turn-queue-repository.js";
 
 export class WorkbenchUnitOfWork {
   constructor(
@@ -25,7 +28,120 @@ export class WorkbenchUnitOfWork {
     private readonly interactions: InteractionRepository,
     private readonly skills: SkillRepository,
     private readonly drafts: ComposerDraftRepository,
+    private readonly conversationTurnQueues: ConversationTurnQueueRepository,
   ) {}
+
+  enqueueConversationTurn(input: {
+    item: Omit<StoredConversationQueuedTurn, "position">;
+    expectedQueueRevision: number;
+    expectedDraftUpdatedAt: string | null;
+  }): { queue: StoredConversationTurnQueue; item: StoredConversationQueuedTurn } {
+    return this.db.transaction(() => {
+      const existing = this.conversationTurnQueues.readByClientRequestId(
+        input.item.projectId,
+        input.item.conversationId,
+        input.item.clientRequestId,
+      );
+      if (existing) {
+        if (existing.requestHash !== input.item.requestHash) throw conflict("Queue clientRequestId was used for different content.");
+        return {
+          queue: this.conversationTurnQueues.readQueue(input.item.projectId, input.item.conversationId)!,
+          item: existing,
+        };
+      }
+      const queue = this.conversationTurnQueues.ensureQueue({
+        projectId: input.item.projectId,
+        conversationId: input.item.conversationId,
+        productMode: input.item.productMode,
+        updatedAt: input.item.updatedAt,
+      });
+      if (queue.revision !== input.expectedQueueRevision) throw conflict("Conversation Turn queue changed in another window.");
+      if (this.conversationTurnQueues.listItems(input.item.projectId, input.item.conversationId).length >= 20) {
+        throw conflict("Conversation Turn queue already contains 20 active items.");
+      }
+      const item = { ...input.item, position: this.conversationTurnQueues.nextPosition(input.item.projectId, input.item.conversationId) };
+      this.conversationTurnQueues.insertItem(item);
+      const draft = this.drafts.readDraft(input.item.projectId, input.item.productMode);
+      if ((draft?.updatedAt ?? null) !== input.expectedDraftUpdatedAt) {
+        throw new ComposerDraftConflictError(draft);
+      }
+      if (draft) {
+        this.drafts.upsertDraft({
+          projectId: draft.projectId,
+          productMode: draft.productMode,
+          agentTurnMode: draft.agentTurnMode,
+          agentModelId: draft.agentModelId,
+          agentReasoningEffort: draft.agentReasoningEffort,
+          text: "",
+          contextRefsJson: "[]",
+          attachmentIdsJson: "[]",
+          skillOverridesJson: "{}",
+          selectedProviderId: draft.selectedProviderId,
+          updatedAt: input.item.updatedAt,
+        }, draft.updatedAt);
+      }
+      return {
+        queue: this.conversationTurnQueues.advanceRevision(
+          input.item.projectId,
+          input.item.conversationId,
+          queue.revision,
+          input.item.updatedAt,
+        ),
+        item,
+      };
+    }).immediate();
+  }
+
+  reclaimConversationQueuedTurn(input: {
+    projectId: string;
+    conversationId: string;
+    queueItemId: string;
+    expectedQueueRevision: number;
+    expectedDraftUpdatedAt: string | null;
+    updatedAt: string;
+  }): StoredConversationTurnQueue {
+    return this.db.transaction(() => {
+      const queue = this.conversationTurnQueues.readQueue(input.projectId, input.conversationId);
+      const item = this.conversationTurnQueues.readItem(input.projectId, input.conversationId, input.queueItemId);
+      if (!queue || queue.revision !== input.expectedQueueRevision || !item || !["queued", "blocked"].includes(item.status)) {
+        throw conflict("Conversation queued Turn changed before it could be reclaimed.");
+      }
+      const draft = this.drafts.readDraft(input.projectId, item.productMode);
+      if ((draft?.updatedAt ?? null) !== input.expectedDraftUpdatedAt) {
+        throw new ComposerDraftConflictError(draft);
+      }
+      if (draft && this.drafts.hasSendableContent(draft)) {
+        throw conflict("Current Composer draft must be empty before reclaiming a queued Turn.");
+      }
+      this.drafts.upsertDraft({
+        projectId: item.projectId,
+        productMode: item.productMode,
+        agentTurnMode: item.agentTurnMode,
+        agentModelId: item.agentModelId,
+        agentReasoningEffort: item.agentReasoningEffort,
+        text: item.text,
+        contextRefsJson: item.contextRefsJson,
+        attachmentIdsJson: item.attachmentIdsJson,
+        skillOverridesJson: item.skillOverridesJson,
+        selectedProviderId: item.providerId,
+        updatedAt: input.updatedAt,
+      }, draft?.updatedAt ?? null);
+      this.conversationTurnQueues.transitionItem({
+        projectId: input.projectId,
+        conversationId: input.conversationId,
+        queueItemId: item.queueItemId,
+        expectedStatus: item.status,
+        status: "cancelled",
+        updatedAt: input.updatedAt,
+      });
+      return this.conversationTurnQueues.advanceRevision(
+        input.projectId,
+        input.conversationId,
+        queue.revision,
+        input.updatedAt,
+      );
+    }).immediate();
+  }
 
   createConversationWithInitialMessage(
     conversation: Omit<StoredConversation, "timelinePosition" | "timelineRevision"> & Partial<Pick<StoredConversation, "timelinePosition" | "timelineRevision">>,
@@ -109,13 +225,48 @@ export class WorkbenchUnitOfWork {
     agentTurnMode: AgentTurnMode;
     agentModelId: string | null;
     agentReasoningEffort: string | null;
+    skillOverrides: Array<{ skillId: string; enabled: boolean }>;
     updatedAt: string;
     message: StoredTopicMessageWrite;
   }): StoredTopicMessage {
     return this.db.transaction(() => {
       this.conversations.updateAgentTurnPreferences(input);
-      return this.timeline.appendMessage(input.message);
+      const message = this.timeline.appendMessage(input.message);
+      this.applyConversationSkillOverrides(input.projectId, input.conversationId, input.skillOverrides, input.updatedAt);
+      return message;
     }).immediate();
+  }
+
+  commitConversationMessage(input: {
+    projectId: string;
+    conversationId: string;
+    message: StoredTopicMessageWrite;
+    skillOverrides: Array<{ skillId: string; enabled: boolean }>;
+    updatedAt: string;
+  }): StoredTopicMessage {
+    return this.db.transaction(() => {
+      const message = this.timeline.appendMessage(input.message);
+      this.applyConversationSkillOverrides(input.projectId, input.conversationId, input.skillOverrides, input.updatedAt);
+      return message;
+    }).immediate();
+  }
+
+  private applyConversationSkillOverrides(
+    projectId: string,
+    conversationId: string,
+    skillOverrides: Array<{ skillId: string; enabled: boolean }>,
+    updatedAt: string,
+  ): void {
+    for (const override of skillOverrides) {
+      this.skills.setSkillEnablement({
+        projectId,
+        changeId: conversationId,
+        skillId: override.skillId,
+        scope: "topic",
+        enabled: override.enabled,
+        updatedAt,
+      });
+    }
   }
 
   commitProviderTurnTerminal(input: {
@@ -672,4 +823,10 @@ export class WorkbenchUnitOfWork {
       this.providerAttempts.createProviderAttempt(resumeAttempt);
     })();
   }
+}
+
+function conflict(message: string): Error {
+  const error = new Error(message);
+  error.name = "Conflict";
+  return error;
 }

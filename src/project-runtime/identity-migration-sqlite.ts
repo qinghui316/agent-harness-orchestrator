@@ -36,6 +36,8 @@ export const WORKBENCH_PROJECT_IDENTITY_COLUMNS: readonly SqliteProjectIdentityC
   { table: "skill_roots", column: "project_id" },
   { table: "skill_enablement", column: "project_id" },
   { table: "composer_drafts", column: "project_id" },
+  { table: "conversation_turn_queues", column: "project_id" },
+  { table: "conversation_turn_queue_items", column: "project_id" },
   { table: "approval_cache", column: "project_id" },
   { table: "decision_records", column: "project_id" },
   { table: "conversation_fork_operations", column: "project_id" },

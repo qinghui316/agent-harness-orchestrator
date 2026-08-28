@@ -1,10 +1,10 @@
 import type Database from "better-sqlite3";
 import type { SqliteRow } from "./sql-mappers.js";
 
-export const WORKBENCH_SCHEMA_VERSION = 15;
+export const WORKBENCH_SCHEMA_VERSION = 16;
 
 export function requiresRuntimeSchemaRebuild(currentVersion: number): boolean {
-  return ![9, 10, 11, 12, 13, 14, WORKBENCH_SCHEMA_VERSION].includes(currentVersion);
+  return ![9, 10, 11, 12, 13, 14, 15, WORKBENCH_SCHEMA_VERSION].includes(currentVersion);
 }
 
 export function migrate(db: Database.Database): void {
@@ -274,6 +274,46 @@ export function migrate(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_conversation_fork_source
       ON conversation_fork_operations(project_id, source_conversation_id, updated_at);
+
+    CREATE TABLE IF NOT EXISTS conversation_turn_queues (
+      project_id TEXT NOT NULL,
+      conversation_id TEXT NOT NULL,
+      product_mode TEXT NOT NULL CHECK(product_mode IN ('agent', 'harness')),
+      revision INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, conversation_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS conversation_turn_queue_items (
+      project_id TEXT NOT NULL,
+      conversation_id TEXT NOT NULL,
+      product_mode TEXT NOT NULL CHECK(product_mode IN ('agent', 'harness')),
+      queue_item_id TEXT NOT NULL,
+      client_request_id TEXT NOT NULL,
+      request_hash TEXT NOT NULL,
+      position INTEGER NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('queued', 'dispatching', 'blocked', 'dispatched', 'cancelled')),
+      retry_count INTEGER NOT NULL DEFAULT 0 CHECK(retry_count BETWEEN 0 AND 1),
+      predecessor_execution_revision TEXT NOT NULL,
+      dispatch_request_id TEXT NOT NULL,
+      text TEXT NOT NULL,
+      context_refs_json TEXT NOT NULL DEFAULT '[]',
+      attachment_ids_json TEXT NOT NULL DEFAULT '[]',
+      skill_overrides_json TEXT NOT NULL DEFAULT '{}',
+      provider_id TEXT NOT NULL,
+      agent_turn_mode TEXT CHECK(agent_turn_mode IN ('default', 'plan') OR agent_turn_mode IS NULL),
+      agent_model_id TEXT,
+      agent_reasoning_effort TEXT,
+      diagnostic TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      dispatched_at TEXT,
+      PRIMARY KEY(project_id, queue_item_id),
+      UNIQUE(project_id, conversation_id, client_request_id),
+      UNIQUE(project_id, conversation_id, position)
+    );
+    CREATE INDEX IF NOT EXISTS idx_conversation_turn_queue_active
+      ON conversation_turn_queue_items(project_id, conversation_id, status, position);
   `);
   ensureColumn(db, "provider_attempts", "parent_agent_surface_id", "TEXT");
   ensureColumn(db, "conversations", "agent_turn_mode", "TEXT");
@@ -435,6 +475,75 @@ export function migrate(db: Database.Database): void {
     BEGIN
       SELECT RAISE(ABORT, 'Harness ComposerDraft cannot store Agent model selection');
     END;
+    DROP TRIGGER IF EXISTS trg_conversation_turn_queue_mode_insert;
+    CREATE TRIGGER trg_conversation_turn_queue_mode_insert
+    BEFORE INSERT ON conversation_turn_queues
+    WHEN NOT EXISTS (
+      SELECT 1 FROM conversations
+      WHERE project_id = NEW.project_id AND conversation_id = NEW.conversation_id
+        AND product_mode = NEW.product_mode AND deleted_at IS NULL
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'Conversation Turn queue mode must match active Conversation');
+    END;
+    DROP TRIGGER IF EXISTS trg_conversation_turn_queue_mode_update;
+    CREATE TRIGGER trg_conversation_turn_queue_mode_update
+    BEFORE UPDATE OF project_id, conversation_id, product_mode ON conversation_turn_queues
+    WHEN NOT EXISTS (
+      SELECT 1 FROM conversations
+      WHERE project_id = NEW.project_id AND conversation_id = NEW.conversation_id
+        AND product_mode = NEW.product_mode AND deleted_at IS NULL
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'Conversation Turn queue mode must match active Conversation');
+    END;
+    DROP TRIGGER IF EXISTS trg_conversation_turn_queue_item_mode_insert;
+    CREATE TRIGGER trg_conversation_turn_queue_item_mode_insert
+    BEFORE INSERT ON conversation_turn_queue_items
+    WHEN NOT EXISTS (
+      SELECT 1 FROM conversation_turn_queues
+      WHERE project_id = NEW.project_id AND conversation_id = NEW.conversation_id
+        AND product_mode = NEW.product_mode
+    ) OR (NEW.product_mode = 'agent' AND NEW.agent_turn_mode IS NULL)
+      OR (NEW.product_mode = 'harness' AND (
+        NEW.agent_turn_mode IS NOT NULL OR NEW.agent_model_id IS NOT NULL OR NEW.agent_reasoning_effort IS NOT NULL
+      ))
+    BEGIN
+      SELECT RAISE(ABORT, 'Conversation queued Turn fields must match product_mode');
+    END;
+    DROP TRIGGER IF EXISTS trg_conversation_turn_queue_item_mode_update;
+    CREATE TRIGGER trg_conversation_turn_queue_item_mode_update
+    BEFORE UPDATE OF project_id, conversation_id, product_mode, agent_turn_mode, agent_model_id, agent_reasoning_effort
+      ON conversation_turn_queue_items
+    WHEN NOT EXISTS (
+      SELECT 1 FROM conversation_turn_queues
+      WHERE project_id = NEW.project_id AND conversation_id = NEW.conversation_id
+        AND product_mode = NEW.product_mode
+    ) OR (NEW.product_mode = 'agent' AND NEW.agent_turn_mode IS NULL)
+      OR (NEW.product_mode = 'harness' AND (
+        NEW.agent_turn_mode IS NOT NULL OR NEW.agent_model_id IS NOT NULL OR NEW.agent_reasoning_effort IS NOT NULL
+      ))
+    BEGIN
+      SELECT RAISE(ABORT, 'Conversation queued Turn fields must match product_mode');
+    END;
+    DROP TRIGGER IF EXISTS trg_conversation_turn_queue_cancel_inactive;
+    CREATE TRIGGER trg_conversation_turn_queue_cancel_inactive
+    AFTER UPDATE OF state, deleted_at ON conversations
+    WHEN NEW.state <> 'active' OR NEW.deleted_at IS NOT NULL
+    BEGIN
+      UPDATE conversation_turn_queues
+      SET revision = revision + 1, updated_at = NEW.updated_at
+      WHERE project_id = NEW.project_id AND conversation_id = NEW.conversation_id
+        AND EXISTS (
+          SELECT 1 FROM conversation_turn_queue_items
+          WHERE project_id = NEW.project_id AND conversation_id = NEW.conversation_id
+            AND status IN ('queued', 'blocked')
+        );
+      UPDATE conversation_turn_queue_items
+      SET status = 'cancelled', diagnostic = NULL, updated_at = NEW.updated_at
+      WHERE project_id = NEW.project_id AND conversation_id = NEW.conversation_id
+        AND status IN ('queued', 'blocked');
+    END;
   `);
   db.pragma(`user_version = ${WORKBENCH_SCHEMA_VERSION}`);
 }
@@ -493,6 +602,8 @@ export function resetWorkbenchConversationRunSchema(db: Database.Database): void
     DROP TABLE IF EXISTS conversation_graph_scopes;
     DROP TABLE IF EXISTS planning_acceptance_commits;
     DROP TABLE IF EXISTS composer_drafts;
+    DROP TABLE IF EXISTS conversation_turn_queue_items;
+    DROP TABLE IF EXISTS conversation_turn_queues;
     DROP TABLE IF EXISTS approval_cache;
     DROP TABLE IF EXISTS decision_records;
   `);

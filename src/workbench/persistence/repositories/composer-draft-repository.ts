@@ -26,6 +26,13 @@ export interface ComposerDraftWrite {
 export class ComposerDraftRepository {
   constructor(private readonly db: Database.Database) {}
 
+  hasSendableContent(draft: StoredComposerDraft): boolean {
+    return Boolean(draft.text.trim())
+      || !isEmptyJsonCollection(draft.contextRefsJson, "array")
+      || !isEmptyJsonCollection(draft.attachmentIdsJson, "array")
+      || !isEmptyJsonCollection(draft.skillOverridesJson, "object");
+  }
+
   deleteDraft(projectId: string, productMode: ProductMode, expectedUpdatedAt: string | null): boolean {
     return this.db.transaction(() => {
       const current = this.readDraft(projectId, productMode);
@@ -102,5 +109,16 @@ export class ComposerDraftRepository {
       );
       return this.readDraft(input.projectId, input.productMode)!;
     })();
+  }
+}
+
+function isEmptyJsonCollection(value: string, kind: "array" | "object"): boolean {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return kind === "array"
+      ? Array.isArray(parsed) && parsed.length === 0
+      : Boolean(parsed && typeof parsed === "object" && !Array.isArray(parsed) && Object.keys(parsed).length === 0);
+  } catch {
+    return false;
   }
 }

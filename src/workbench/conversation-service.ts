@@ -76,6 +76,8 @@ type NormalizedTopicMessageInput = Required<Pick<TopicMessageInput, "mode" | "me
   agentTurnMode?: AgentTurnMode;
   modelId?: string | null;
   reasoningEffort?: string | null;
+  skillOverrides: NewConversationSkillOverride[];
+  queuedTurnDispatch?: TopicMessageInput["queuedTurnDispatch"];
 };
 
 export interface PreparedConversationMessage {
@@ -700,6 +702,8 @@ async function normalizeTopicMessageInput(
     reasoningEffort: typeof input === "string" || input.reasoningEffort === undefined
       ? undefined
       : normalizeNullableSelection(input.reasoningEffort, "reasoningEffort"),
+    skillOverrides: normalizeSkillOverrides(typeof input === "string" ? undefined : input.skillOverrides),
+    queuedTurnDispatch: typeof input === "string" ? undefined : input.queuedTurnDispatch,
   };
 }
 
@@ -814,6 +818,7 @@ async function commitTopLevelConversationMessage(
       agentTurnMode: parsed.agentTurnMode,
       agentModelId: parsed.modelId,
       agentReasoningEffort: parsed.reasoningEffort,
+      queuedTurnDispatch: parsed.queuedTurnDispatch,
     };
     const userWrite = toCanonicalTimelineMessage(projectId, conversationId, user);
     if (conversation.productMode === "agent") {
@@ -826,12 +831,19 @@ async function commitTopLevelConversationMessage(
         agentTurnMode: parsed.agentTurnMode ?? conversation.agentTurnMode ?? "default",
         agentModelId: parsed.modelId ?? null,
         agentReasoningEffort: parsed.reasoningEffort ?? null,
+        skillOverrides: parsed.skillOverrides,
         updatedAt: now,
         message: userWrite,
       });
       delivery.publishCommitted(committedUser);
     } else {
-      delivery.append(userWrite);
+      delivery.publishCommitted(database.unitOfWork.commitConversationMessage({
+        projectId,
+        conversationId,
+        message: userWrite,
+        skillOverrides: parsed.skillOverrides,
+        updatedAt: now,
+      }));
     }
     const proposalStatus = planHandoff?.kind === "revise-plan"
       ? "revision-requested"
@@ -1186,9 +1198,11 @@ function stableMessagePreparationSignature(input: string | TopicMessageInput): s
     agentTurnMode: input.agentTurnMode ?? null,
     modelId: input.modelId ?? null,
     reasoningEffort: input.reasoningEffort ?? null,
+    skillOverrides: input.skillOverrides ?? [],
     contextRefs: input.contextRefs ?? [],
     attachmentIds: input.attachmentIds ?? [],
     planHandoffIntent: input.planHandoffIntent ?? null,
+    queuedTurnDispatch: input.queuedTurnDispatch ?? null,
   })).digest("hex");
 }
 

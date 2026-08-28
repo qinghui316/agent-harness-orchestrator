@@ -69,7 +69,7 @@ describe("conversation interrupt handler", () => {
     ]);
   });
 
-  it("keeps the Harness pending-feedback fallback only when no Provider Turn is owned", async () => {
+  it("rejects Harness steering without an owned Provider Turn and writes no pending feedback", async () => {
     const steerProviderTurn = vi.fn(async () => null);
     const findRunningRunForChange = vi.fn(async () => ({ id: "run-local" } as never));
 
@@ -81,15 +81,11 @@ describe("conversation interrupt handler", () => {
       "request-2",
       undefined,
       { steerProviderTurn, findRunningRunForChange },
-    )).resolves.toMatchObject({ status: "pending-feedback", realtime: false });
+    )).rejects.toMatchObject({ name: "Conflict" });
 
     expect(mocks.upsert).not.toHaveBeenCalled();
-    expect(mocks.append).toHaveBeenCalledWith(
-      project(),
-      "change-1",
-      expect.objectContaining({ status: "pending-feedback", runId: "run-local" }),
-      undefined,
-    );
+    expect(mocks.append).not.toHaveBeenCalled();
+    expect(findRunningRunForChange).not.toHaveBeenCalled();
   });
 
   it("uses the shared Provider Turn owner before considering the local-run fallback", async () => {

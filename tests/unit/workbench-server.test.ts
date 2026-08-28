@@ -22,6 +22,7 @@ import type { ConversationTurnControlOwner } from "../../src/workbench/conversat
 import type { ConversationTurnRetryOwner } from "../../src/workbench/conversation-turn-retry.js";
 import type { ConversationContextLifecycleOwner } from "../../src/workbench/conversation-context-lifecycle.js";
 import type { ConversationForkLifecycleOwner } from "../../src/workbench/conversation-fork-lifecycle.js";
+import type { ConversationTurnQueueOwner } from "../../src/workbench/conversation-turn-queue.js";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
 import { createFakeCodexRuntime } from "../helpers/fake-codex-runtime.js";
 import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
@@ -316,6 +317,121 @@ describe("workbench server", () => {
       contextRevision: "context-1",
       clientRequestId: "fork-1",
     });
+  });
+
+  it("serves one strict shared Conversation Turn queue API for Agent and AHO", async () => {
+    await new Promise<void>((resolve) => handle!.server.close(() => resolve()));
+    const snapshot = {
+      projectId: "repo",
+      productMode: "agent" as const,
+      conversationId: "conversation-agent",
+      revision: "queue:1",
+      executionRevision: "execution:1",
+      items: [],
+      canEnqueue: true,
+      canDispatch: false,
+    };
+    const read = vi.fn(async () => snapshot);
+    const enqueue = vi.fn(async () => snapshot);
+    const remove = vi.fn(async () => snapshot);
+    const reclaim = vi.fn(async () => snapshot);
+    const retry = vi.fn(async () => snapshot);
+    const dispatchNext = vi.fn(async () => snapshot);
+    const conversationTurnQueue = {
+      read,
+      enqueue,
+      remove,
+      reclaim,
+      retry,
+      dispatchNext,
+      reconcileProject: async () => 0,
+    } as unknown as ConversationTurnQueueOwner;
+    handle = await startWorkbenchServer({ project: project(), path: tempDir }, {
+      port: 0,
+      staticRoot,
+      conversationTurnQueue,
+    });
+    const endpoint = `${handle.url}/api/projects/repo/workbench/conversations/conversation-agent/turn-queue`;
+
+    const getResponse = await fetch(`${endpoint}?productMode=agent`);
+    expect(getResponse.status).toBe(200);
+    expect(read).toHaveBeenCalledWith(project(), "agent", "conversation-agent");
+
+    const invalid = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        productMode: "harness",
+        clientRequestId: "queue-1",
+        expectedRevision: "queue:0",
+        expectedExecutionRevision: "execution:0",
+        expectedDraftUpdatedAt: null,
+        text: "next",
+        contextRefs: [],
+        attachmentIds: [],
+        skillOverrides: {},
+        providerId: "codex",
+        agentTurnMode: "plan",
+        modelId: null,
+        reasoningEffort: null,
+      }),
+    });
+    expect(invalid.status).toBe(409);
+    expect(enqueue).not.toHaveBeenCalled();
+
+    const enqueueResponse = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        productMode: "agent",
+        clientRequestId: " queue-1 ",
+        expectedRevision: " queue:0 ",
+        expectedExecutionRevision: " execution:0 ",
+        expectedDraftUpdatedAt: null,
+        text: " next ",
+        contextRefs: [{ relativePath: "src/app.ts", name: "app.ts", kind: "file" }],
+        attachmentIds: [" attachment-1 "],
+        skillOverrides: { reviewer: true },
+        providerId: " codex ",
+        agentTurnMode: "plan",
+        modelId: " gpt-test ",
+        reasoningEffort: " high ",
+      }),
+    });
+    expect(enqueueResponse.status).toBe(200);
+    expect(enqueue).toHaveBeenCalledWith(project(), expect.objectContaining({
+      projectId: "repo",
+      productMode: "agent",
+      conversationId: "conversation-agent",
+      clientRequestId: "queue-1",
+      expectedRevision: "queue:0",
+      expectedExecutionRevision: "execution:0",
+      contextRefs: [{ relativePath: "src/app.ts", name: "app.ts", kind: "file", source: "composer" }],
+      attachmentIds: ["attachment-1"],
+      skillOverrides: { reviewer: true },
+      providerId: "codex",
+      agentTurnMode: "plan",
+      modelId: "gpt-test",
+      reasoningEffort: "high",
+    }));
+
+    expect((await fetch(`${endpoint}/item-1?productMode=agent&expectedRevision=queue%3A1`, { method: "DELETE" })).status).toBe(200);
+    expect(remove).toHaveBeenCalledWith(project(), "agent", "conversation-agent", "item-1", "queue:1");
+    expect((await fetch(`${endpoint}/item-1/reclaim`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ productMode: "agent", expectedRevision: "queue:1", expectedDraftUpdatedAt: null }),
+    })).status).toBe(200);
+    expect(reclaim).toHaveBeenCalledWith(project(), "agent", "conversation-agent", "item-1", "queue:1", null);
+    expect((await fetch(`${endpoint}/item-1/retry`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ productMode: "agent", expectedRevision: "queue:1" }),
+    })).status).toBe(200);
+    expect(retry).toHaveBeenCalledWith(project(), "agent", "conversation-agent", "item-1", "queue:1");
+    expect((await fetch(`${endpoint}/dispatch-next`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ productMode: "agent", expectedRevision: "queue:1" }),
+    })).status).toBe(200);
+    expect(dispatchNext).toHaveBeenCalledWith(project(), "agent", "conversation-agent", "queue:1");
   });
 
   it("prepares Agent Retry before SSE and emits a completed replay stream", async () => {

@@ -158,9 +158,13 @@ repair that evidence and never resend the Provider request. Running Steer sends
 only the captured trimmed text and clears it only after success; attachments,
 Skills, file references, and Default/Plan selection remain for the next turn.
 Stop remains a separate control and takes priority over new Steer requests.
-Harness uses the same Provider control owner for active Provider turns and keeps
-its existing pending-feedback/local-run fallback only when no Provider Attempt
-owns the current execution.
+Agent and Harness share one durable Conversation Turn FIFO for complete next-turn
+input. Running text may still Steer an exact active Provider turn, while attachments
+or an unavailable Steer path enqueue the full Composer snapshot. Only the selected
+Conversation automatically dispatches after a reliable terminal state, and dispatch
+continues through the existing Agent or Harness router. Historical pending-feedback
+Timeline rows remain immutable but are not executed; the governed Harness Workflow
+TaskQueue remains a separate runtime queue.
 
 The latest failed top-level ordinary Agent turn can be retried from its terminal
 row. Retry creates a new ProviderAttempt over the original canonical user input;

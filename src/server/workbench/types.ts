@@ -14,6 +14,7 @@ import type { ComposerDraftRecoveryService } from "../../workbench/composer-draf
 import type { ProductModeActivityProjectionOwner } from "../../workbench/product-mode-activity.js";
 import type { ConversationContextLifecycleOwner } from "../../workbench/conversation-context-lifecycle.js";
 import type { ConversationForkLifecycleOwner } from "../../workbench/conversation-fork-lifecycle.js";
+import type { ConversationTurnQueueOwner } from "../../workbench/conversation-turn-queue.js";
 
 export interface WorkbenchServeOptions {
   host?: string;
@@ -30,6 +31,7 @@ export interface WorkbenchServeOptions {
   productModeActivity?: ProductModeActivityProjectionOwner;
   conversationContext?: ConversationContextLifecycleOwner;
   conversationFork?: ConversationForkLifecycleOwner;
+  conversationTurnQueue?: ConversationTurnQueueOwner;
 }
 
 export interface WorkbenchServerHandle {
@@ -53,6 +55,7 @@ export interface WorkbenchServerContext {
   productModeActivity: ProductModeActivityProjectionOwner;
   conversationContext: ConversationContextLifecycleOwner;
   conversationFork: ConversationForkLifecycleOwner;
+  conversationTurnQueue: ConversationTurnQueueOwner;
 }
 
 export interface ConversationTurnRetryBody {
@@ -228,6 +231,28 @@ export interface ConversationContextCompactBody {
   providerId?: unknown;
   contextRevision?: unknown;
   clientRequestId?: unknown;
+}
+
+export interface ConversationTurnQueueBody {
+  productMode?: unknown;
+  clientRequestId?: unknown;
+  expectedRevision?: unknown;
+  expectedExecutionRevision?: unknown;
+  expectedDraftUpdatedAt?: unknown;
+  text?: unknown;
+  contextRefs?: unknown;
+  attachmentIds?: unknown;
+  skillOverrides?: unknown;
+  providerId?: unknown;
+  agentTurnMode?: unknown;
+  modelId?: unknown;
+  reasoningEffort?: unknown;
+}
+
+export interface ConversationTurnQueueActionBody {
+  productMode?: unknown;
+  expectedRevision?: unknown;
+  expectedDraftUpdatedAt?: unknown;
 }
 
 export interface FolderDialogResult {

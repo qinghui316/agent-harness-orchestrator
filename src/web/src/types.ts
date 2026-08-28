@@ -3,6 +3,7 @@ import type { ConversationInteractionQueue, InteractionHistoryRecord } from "../
 import type { AgentSurfacesInvalidated } from "../../workbench/agent-surface-contract.js";
 export type { ProductModeActivityIndicator, ProductModeActivityState, ProjectProductModeActivitySnapshot } from "../../workbench/product-mode-activity.js";
 export type { ConversationContextSnapshot, ProviderContextLifecycleState } from "../../workbench/conversation-context-lifecycle.js";
+export type { ConversationQueuedTurn, ConversationQueuedTurnInput, ConversationTurnQueueSnapshot } from "../../workbench/conversation-turn-queue.js";
 import type { ConversationContextSnapshot } from "../../workbench/conversation-context-lifecycle.js";
 export type { ConversationInteraction, ConversationInteractionQuestion, ConversationInteractionQueue, ConversationInteractionSettlement, InteractionHistoryRecord } from "../../workbench/conversation-interaction-contract.js";
 export type { AgentSurfaceProjection, AgentSurfaceProjectionItem, AgentSurfaceStatus, AgentSurfacesInvalidated, AgentSurfacesInvalidationReason } from "../../workbench/agent-surface-contract.js";
@@ -1670,6 +1671,7 @@ export type WorkbenchLiveEvent =
   | { event: "agent-surfaces.invalidated"; data: AgentSurfacesInvalidated }
   | { event: "conversation.turn-control.invalidated"; data: { conversationId: string; attemptId: string } }
   | { event: "conversation.context.invalidated"; data: { conversationId: string } }
+  | { event: "conversation.turn-queue.invalidated"; data: { conversationId: string } }
   | { event: "conversation.fork.completed"; data: { sourceConversationId: string; targetConversationId: string } }
   | { event: "run.started"; data: WorkbenchLiveIdentity & { runId: string; actionType?: string; runtime?: string; taskIds?: string[] } }
   | { event: "run.status"; data: WorkbenchLiveIdentity & { actionRunId?: string; status: string; label?: string } }

@@ -11,6 +11,7 @@ import { TimelineRepository } from "./repositories/timeline-repository.js";
 import { ComposerDraftRepository } from "./repositories/composer-draft-repository.js";
 import { ConversationContextRepository } from "./repositories/conversation-context-repository.js";
 import { ConversationForkRepository } from "./repositories/conversation-fork-repository.js";
+import { ConversationTurnQueueRepository } from "./repositories/conversation-turn-queue-repository.js";
 import type { WorkbenchResetGuard } from "./reset-guard.js";
 import {
   assertRuntimeDatabaseResetSafe,
@@ -32,6 +33,7 @@ export class WorkbenchDatabase {
   readonly drafts: ComposerDraftRepository;
   readonly conversationContext: ConversationContextRepository;
   readonly conversationForks: ConversationForkRepository;
+  readonly conversationTurnQueues: ConversationTurnQueueRepository;
   readonly unitOfWork: WorkbenchUnitOfWork;
 
   private closed = false;
@@ -49,6 +51,7 @@ export class WorkbenchDatabase {
     this.drafts = new ComposerDraftRepository(connection);
     this.conversationContext = new ConversationContextRepository(this.timeline);
     this.conversationForks = new ConversationForkRepository(connection);
+    this.conversationTurnQueues = new ConversationTurnQueueRepository(connection);
     this.unitOfWork = new WorkbenchUnitOfWork(
       connection,
       this.timeline,
@@ -57,6 +60,7 @@ export class WorkbenchDatabase {
       this.interactions,
       this.skills,
       this.drafts,
+      this.conversationTurnQueues,
     );
   }
 

@@ -26,7 +26,9 @@ import { sendWorkbenchActionLive } from "./live-actions.js";
 import { readCreateTopicBody, sendConversationMessageLive, sendCreateTopicLive } from "./topic-messages.js";
 import { executeWorkbenchAction } from "./actions.js";
 import { sendProjectLiveEvents } from "./project-live-events.js";
-import type { ConversationContextCompactBody, ConversationForkBody, ConversationTurnInterruptBody, ConversationTurnSteerBody, IntakeRequest, UpdateConversationTitleRequest, WorkbenchActionRequest, WorkbenchServerContext } from "./types.js";
+import type { ConversationContextCompactBody, ConversationForkBody, ConversationTurnInterruptBody, ConversationTurnQueueActionBody, ConversationTurnQueueBody, ConversationTurnSteerBody, IntakeRequest, UpdateConversationTitleRequest, WorkbenchActionRequest, WorkbenchServerContext } from "./types.js";
+import type { AgentTurnMode, ProductMode } from "../../provider-runtime/index.js";
+import type { TopicFileReference } from "../../workbench/types.js";
 import { conversationSteerTimelineIds } from "../../workbench/conversation-turn-control.js";
 import { sendConversationRetryLive } from "./conversation-retry.js";
 
@@ -306,6 +308,90 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
     }));
     return;
   }
+  const turnQueueMatch = rest.match(/^conversations\/([^/]+)\/turn-queue$/);
+  if (request.method === "GET" && turnQueueMatch?.[1]) {
+    assertRegisteredProject(input);
+    sendJson(response, 200, await context.conversationTurnQueue.read(
+      input.project,
+      requireProductMode(url.searchParams.get("productMode")),
+      decodeURIComponent(turnQueueMatch[1]),
+    ));
+    return;
+  }
+  if (request.method === "POST" && turnQueueMatch?.[1]) {
+    assertRegisteredProject(input);
+    const body = await readJsonBody<ConversationTurnQueueBody>(request);
+    const productMode = requireProductMode(typeof body.productMode === "string" ? body.productMode : null);
+    sendJson(response, 200, await context.conversationTurnQueue.enqueue(input.project, {
+      projectId: input.project.id,
+      productMode,
+      conversationId: decodeURIComponent(turnQueueMatch[1]),
+      clientRequestId: requireQueueString(body.clientRequestId, "clientRequestId"),
+      expectedRevision: requireQueueString(body.expectedRevision, "expectedRevision"),
+      expectedExecutionRevision: requireQueueString(body.expectedExecutionRevision, "expectedExecutionRevision"),
+      expectedDraftUpdatedAt: requireExpectedUpdatedAt(body.expectedDraftUpdatedAt),
+      text: typeof body.text === "string" ? body.text : "",
+      contextRefs: requireQueueContextRefs(body.contextRefs),
+      attachmentIds: requireQueueStringArray(body.attachmentIds, "attachmentIds"),
+      skillOverrides: requireQueueSkillOverrides(body.skillOverrides),
+      providerId: requireQueueString(body.providerId, "providerId"),
+      agentTurnMode: requireQueuedAgentTurnMode(productMode, body.agentTurnMode),
+      modelId: requireQueueNullableString(body.modelId, "modelId"),
+      reasoningEffort: requireQueueNullableString(body.reasoningEffort, "reasoningEffort"),
+    }));
+    return;
+  }
+  const turnQueueItemMatch = rest.match(/^conversations\/([^/]+)\/turn-queue\/([^/]+)$/);
+  if (request.method === "DELETE" && turnQueueItemMatch?.[1] && turnQueueItemMatch[2]) {
+    assertRegisteredProject(input);
+    sendJson(response, 200, await context.conversationTurnQueue.remove(
+      input.project,
+      requireProductMode(url.searchParams.get("productMode")),
+      decodeURIComponent(turnQueueItemMatch[1]),
+      decodeURIComponent(turnQueueItemMatch[2]),
+      requireQueueString(url.searchParams.get("expectedRevision"), "expectedRevision"),
+    ));
+    return;
+  }
+  const turnQueueReclaimMatch = rest.match(/^conversations\/([^/]+)\/turn-queue\/([^/]+)\/reclaim$/);
+  if (request.method === "POST" && turnQueueReclaimMatch?.[1] && turnQueueReclaimMatch[2]) {
+    assertRegisteredProject(input);
+    const body = await readJsonBody<ConversationTurnQueueActionBody>(request);
+    sendJson(response, 200, await context.conversationTurnQueue.reclaim(
+      input.project,
+      requireProductMode(typeof body.productMode === "string" ? body.productMode : null),
+      decodeURIComponent(turnQueueReclaimMatch[1]),
+      decodeURIComponent(turnQueueReclaimMatch[2]),
+      requireQueueString(body.expectedRevision, "expectedRevision"),
+      requireExpectedUpdatedAt(body.expectedDraftUpdatedAt),
+    ));
+    return;
+  }
+  const turnQueueRetryMatch = rest.match(/^conversations\/([^/]+)\/turn-queue\/([^/]+)\/retry$/);
+  if (request.method === "POST" && turnQueueRetryMatch?.[1] && turnQueueRetryMatch[2]) {
+    assertRegisteredProject(input);
+    const body = await readJsonBody<ConversationTurnQueueActionBody>(request);
+    sendJson(response, 200, await context.conversationTurnQueue.retry(
+      input.project,
+      requireProductMode(typeof body.productMode === "string" ? body.productMode : null),
+      decodeURIComponent(turnQueueRetryMatch[1]),
+      decodeURIComponent(turnQueueRetryMatch[2]),
+      requireQueueString(body.expectedRevision, "expectedRevision"),
+    ));
+    return;
+  }
+  const turnQueueDispatchMatch = rest.match(/^conversations\/([^/]+)\/turn-queue\/dispatch-next$/);
+  if (request.method === "POST" && turnQueueDispatchMatch?.[1]) {
+    assertRegisteredProject(input);
+    const body = await readJsonBody<ConversationTurnQueueActionBody>(request);
+    sendJson(response, 200, await context.conversationTurnQueue.dispatchNext(
+      input.project,
+      requireProductMode(typeof body.productMode === "string" ? body.productMode : null),
+      decodeURIComponent(turnQueueDispatchMatch[1]),
+      requireQueueString(body.expectedRevision, "expectedRevision"),
+    ));
+    return;
+  }
   const turnSteerMatch = rest.match(/^conversations\/([^/]+)\/turn\/steer$/);
   if (request.method === "POST" && turnSteerMatch?.[1]) {
     assertRegisteredProject(input);
@@ -470,4 +556,82 @@ function requireExpectedUpdatedAt(value: unknown): string | null {
   const error = new Error("Composer draft expectedUpdatedAt must be null or a valid timestamp.");
   error.name = "BadRequest";
   throw error;
+}
+
+function requireQueueString(value: unknown, field: string): string {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  if (!normalized || normalized.length > 512) throw badQueueRequest(`${field} must be a non-empty bounded string.`);
+  return normalized;
+}
+
+function requireQueueNullableString(value: unknown, field: string): string | null {
+  if (value === null) return null;
+  return requireQueueString(value, field);
+}
+
+function requireQueueStringArray(value: unknown, field: string): string[] {
+  if (!Array.isArray(value) || value.length > 100) throw badQueueRequest(`${field} must be a bounded string array.`);
+  const result = value.map((item) => requireQueueString(item, field));
+  if (new Set(result).size !== result.length) throw badQueueRequest(`${field} cannot contain duplicates.`);
+  return result;
+}
+
+function requireQueueContextRefs(value: unknown): TopicFileReference[] {
+  if (!Array.isArray(value) || value.length > 100) throw badQueueRequest("contextRefs must be a bounded array.");
+  return value.map((raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw badQueueRequest("Each contextRef must be an object.");
+    const item = raw as Record<string, unknown>;
+    const relativePath = requireQueueString(item.relativePath, "contextRef.relativePath").replaceAll("\\", "/");
+    const segments = relativePath.split("/");
+    if (relativePath.startsWith("/") || /^[A-Za-z]:/.test(relativePath)
+      || segments.some((segment) => !segment || segment === "." || segment === "..")) {
+      throw badQueueRequest("contextRef.relativePath must stay project-relative.");
+    }
+    const kind = item.kind === "file" || item.kind === "directory" ? item.kind : null;
+    if (!kind) throw badQueueRequest("contextRef.kind must be file or directory.");
+    const size = item.size === undefined ? undefined : item.size;
+    if (size !== undefined && (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0)) {
+      throw badQueueRequest("contextRef.size must be a non-negative safe integer.");
+    }
+    return {
+      relativePath,
+      name: requireQueueString(item.name, "contextRef.name"),
+      kind,
+      ...(typeof item.extension === "string" && item.extension.trim() ? { extension: item.extension.trim().slice(0, 32) } : {}),
+      ...(typeof size === "number" ? { size } : {}),
+      source: "composer" as const,
+    };
+  });
+}
+
+function requireQueueSkillOverrides(value: unknown): Record<string, boolean> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw badQueueRequest("skillOverrides must be an object.");
+  const entries = Object.entries(value);
+  if (entries.length > 100) throw badQueueRequest("skillOverrides contains too many entries.");
+  return Object.fromEntries(entries.map(([skillId, enabled]): [string, boolean] => {
+    const normalizedId = requireQueueString(skillId, "skillOverrides skillId");
+    if (typeof enabled !== "boolean") throw badQueueRequest("skillOverrides values must be boolean.");
+    return [normalizedId, enabled];
+  }).sort(([left], [right]) => left.localeCompare(right)));
+}
+
+function requireQueuedAgentTurnMode(productMode: ProductMode, value: unknown): AgentTurnMode | null {
+  if (productMode === "harness") {
+    if (value !== null) throw conflictQueueRequest("Harness queued Turns cannot carry Agent mode.");
+    return null;
+  }
+  if (value !== "default" && value !== "plan") throw badQueueRequest("Agent queued Turns require default or plan mode.");
+  return value;
+}
+
+function badQueueRequest(message: string): Error {
+  const error = new Error(message);
+  error.name = "BadRequest";
+  return error;
+}
+
+function conflictQueueRequest(message: string): Error {
+  const error = new Error(message);
+  error.name = "Conflict";
+  return error;
 }

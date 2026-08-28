@@ -28,6 +28,10 @@ export function publishConversationForkCompleted(projectId: string, data: { sour
   publishProjectLiveEvent(projectId, { event: "conversation.fork.completed", data });
 }
 
+export function publishConversationTurnQueueInvalidated(projectId: string, data: { conversationId: string }): void {
+  publishProjectLiveEvent(projectId, { event: "conversation.turn-queue.invalidated", data });
+}
+
 export function subscribeProjectLiveEvents(projectId: string, subscriber: ProjectLiveSubscriber): () => void {
   const projectSubscribers = subscribers.get(projectId) ?? new Set<ProjectLiveSubscriber>();
   projectSubscribers.add(subscriber);

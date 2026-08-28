@@ -1,0 +1,196 @@
+import type Database from "better-sqlite3";
+import type { ProductMode } from "../../../provider-runtime/index.js";
+import type {
+  StoredConversationQueuedTurn,
+  StoredConversationQueuedTurnStatus,
+  StoredConversationTurnQueue,
+} from "../contracts.js";
+import type { SqliteRow } from "../sql-mappers.js";
+
+const ACTIVE_STATUSES: StoredConversationQueuedTurnStatus[] = ["queued", "dispatching", "blocked"];
+
+export class ConversationTurnQueueRepository {
+  constructor(private readonly db: Database.Database) {}
+
+  readQueue(projectId: string, conversationId: string): StoredConversationTurnQueue | null {
+    const row = this.db.prepare(`
+      SELECT project_id AS projectId, conversation_id AS conversationId,
+        product_mode AS productMode, revision, updated_at AS updatedAt
+      FROM conversation_turn_queues WHERE project_id = ? AND conversation_id = ?
+    `).get(projectId, conversationId) as SqliteRow | undefined;
+    return row ? mapQueue(row) : null;
+  }
+
+  ensureQueue(input: {
+    projectId: string;
+    conversationId: string;
+    productMode: ProductMode;
+    updatedAt: string;
+  }): StoredConversationTurnQueue {
+    this.db.prepare(`
+      INSERT INTO conversation_turn_queues (
+        project_id, conversation_id, product_mode, revision, updated_at
+      ) VALUES (?, ?, ?, 0, ?)
+      ON CONFLICT(project_id, conversation_id) DO NOTHING
+    `).run(input.projectId, input.conversationId, input.productMode, input.updatedAt);
+    const queue = this.readQueue(input.projectId, input.conversationId);
+    if (!queue || queue.productMode !== input.productMode) throw conflict("Conversation Turn queue mode does not match Conversation.");
+    return queue;
+  }
+
+  listItems(projectId: string, conversationId: string, activeOnly = true): StoredConversationQueuedTurn[] {
+    const statusSql = activeOnly ? `AND status IN (${ACTIVE_STATUSES.map(() => "?").join(", ")})` : "";
+    const rows = this.db.prepare(`
+      SELECT project_id AS projectId, conversation_id AS conversationId, product_mode AS productMode,
+        queue_item_id AS queueItemId, client_request_id AS clientRequestId, request_hash AS requestHash,
+        position, status, retry_count AS retryCount,
+        predecessor_execution_revision AS predecessorExecutionRevision,
+        dispatch_request_id AS dispatchRequestId, text, context_refs_json AS contextRefsJson,
+        attachment_ids_json AS attachmentIdsJson, skill_overrides_json AS skillOverridesJson,
+        provider_id AS providerId, agent_turn_mode AS agentTurnMode,
+        agent_model_id AS agentModelId, agent_reasoning_effort AS agentReasoningEffort,
+        diagnostic, created_at AS createdAt, updated_at AS updatedAt, dispatched_at AS dispatchedAt
+      FROM conversation_turn_queue_items
+      WHERE project_id = ? AND conversation_id = ? ${statusSql}
+      ORDER BY position ASC
+    `).all(projectId, conversationId, ...(activeOnly ? ACTIVE_STATUSES : [])) as SqliteRow[];
+    return rows.map(mapItem);
+  }
+
+  listDispatching(projectId: string): StoredConversationQueuedTurn[] {
+    const rows = this.db.prepare(`
+      SELECT project_id AS projectId, conversation_id AS conversationId, product_mode AS productMode,
+        queue_item_id AS queueItemId, client_request_id AS clientRequestId, request_hash AS requestHash,
+        position, status, retry_count AS retryCount,
+        predecessor_execution_revision AS predecessorExecutionRevision,
+        dispatch_request_id AS dispatchRequestId, text, context_refs_json AS contextRefsJson,
+        attachment_ids_json AS attachmentIdsJson, skill_overrides_json AS skillOverridesJson,
+        provider_id AS providerId, agent_turn_mode AS agentTurnMode,
+        agent_model_id AS agentModelId, agent_reasoning_effort AS agentReasoningEffort,
+        diagnostic, created_at AS createdAt, updated_at AS updatedAt, dispatched_at AS dispatchedAt
+      FROM conversation_turn_queue_items
+      WHERE project_id = ? AND status = 'dispatching'
+      ORDER BY conversation_id ASC, position ASC
+    `).all(projectId) as SqliteRow[];
+    return rows.map(mapItem);
+  }
+
+  listActiveProjectItems(projectId: string): StoredConversationQueuedTurn[] {
+    const rows = this.db.prepare(`
+      SELECT project_id AS projectId, conversation_id AS conversationId, product_mode AS productMode,
+        queue_item_id AS queueItemId, client_request_id AS clientRequestId, request_hash AS requestHash,
+        position, status, retry_count AS retryCount,
+        predecessor_execution_revision AS predecessorExecutionRevision,
+        dispatch_request_id AS dispatchRequestId, text, context_refs_json AS contextRefsJson,
+        attachment_ids_json AS attachmentIdsJson, skill_overrides_json AS skillOverridesJson,
+        provider_id AS providerId, agent_turn_mode AS agentTurnMode,
+        agent_model_id AS agentModelId, agent_reasoning_effort AS agentReasoningEffort,
+        diagnostic, created_at AS createdAt, updated_at AS updatedAt, dispatched_at AS dispatchedAt
+      FROM conversation_turn_queue_items
+      WHERE project_id = ? AND status IN (${ACTIVE_STATUSES.map(() => "?").join(", ")})
+      ORDER BY conversation_id ASC, position ASC
+    `).all(projectId, ...ACTIVE_STATUSES) as SqliteRow[];
+    return rows.map(mapItem);
+  }
+
+  readItem(projectId: string, conversationId: string, queueItemId: string): StoredConversationQueuedTurn | null {
+    return this.listItems(projectId, conversationId, false).find((item) => item.queueItemId === queueItemId) ?? null;
+  }
+
+  readByClientRequestId(projectId: string, conversationId: string, clientRequestId: string): StoredConversationQueuedTurn | null {
+    return this.listItems(projectId, conversationId, false).find((item) => item.clientRequestId === clientRequestId) ?? null;
+  }
+
+  nextPosition(projectId: string, conversationId: string): number {
+    const row = this.db.prepare(`
+      SELECT COALESCE(MAX(position), 0) + 1 AS nextPosition
+      FROM conversation_turn_queue_items WHERE project_id = ? AND conversation_id = ?
+    `).get(projectId, conversationId) as SqliteRow;
+    return Number(row.nextPosition);
+  }
+
+  insertItem(item: StoredConversationQueuedTurn): void {
+    this.db.prepare(`
+      INSERT INTO conversation_turn_queue_items (
+        project_id, conversation_id, product_mode, queue_item_id, client_request_id, request_hash,
+        position, status, retry_count, predecessor_execution_revision, dispatch_request_id,
+        text, context_refs_json, attachment_ids_json, skill_overrides_json, provider_id,
+        agent_turn_mode, agent_model_id, agent_reasoning_effort, diagnostic,
+        created_at, updated_at, dispatched_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      item.projectId, item.conversationId, item.productMode, item.queueItemId, item.clientRequestId,
+      item.requestHash, item.position, item.status, item.retryCount, item.predecessorExecutionRevision,
+      item.dispatchRequestId, item.text, item.contextRefsJson, item.attachmentIdsJson,
+      item.skillOverridesJson, item.providerId, item.agentTurnMode, item.agentModelId,
+      item.agentReasoningEffort, item.diagnostic, item.createdAt, item.updatedAt, item.dispatchedAt,
+    );
+  }
+
+  transitionItem(input: {
+    projectId: string;
+    conversationId: string;
+    queueItemId: string;
+    expectedStatus: StoredConversationQueuedTurnStatus;
+    status: StoredConversationQueuedTurnStatus;
+    updatedAt: string;
+    retryCount?: number;
+    diagnostic?: string | null;
+    dispatchedAt?: string | null;
+  }): StoredConversationQueuedTurn {
+    const result = this.db.prepare(`
+      UPDATE conversation_turn_queue_items
+      SET status = ?, retry_count = COALESCE(?, retry_count), diagnostic = ?, updated_at = ?,
+        dispatched_at = COALESCE(?, dispatched_at)
+      WHERE project_id = ? AND conversation_id = ? AND queue_item_id = ? AND status = ?
+    `).run(
+      input.status, input.retryCount ?? null, input.diagnostic ?? null, input.updatedAt,
+      input.dispatchedAt ?? null, input.projectId, input.conversationId, input.queueItemId, input.expectedStatus,
+    );
+    if (result.changes !== 1) throw conflict("Conversation queued Turn changed before settlement.");
+    return this.readItem(input.projectId, input.conversationId, input.queueItemId)!;
+  }
+
+  advanceRevision(projectId: string, conversationId: string, expectedRevision: number, updatedAt: string): StoredConversationTurnQueue {
+    const result = this.db.prepare(`
+      UPDATE conversation_turn_queues SET revision = revision + 1, updated_at = ?
+      WHERE project_id = ? AND conversation_id = ? AND revision = ?
+    `).run(updatedAt, projectId, conversationId, expectedRevision);
+    if (result.changes !== 1) throw conflict("Conversation Turn queue changed in another window.");
+    return this.readQueue(projectId, conversationId)!;
+  }
+}
+
+function mapQueue(row: SqliteRow): StoredConversationTurnQueue {
+  return {
+    projectId: String(row.projectId),
+    conversationId: String(row.conversationId),
+    productMode: String(row.productMode) as ProductMode,
+    revision: Number(row.revision),
+    updatedAt: String(row.updatedAt),
+  };
+}
+
+function mapItem(row: SqliteRow): StoredConversationQueuedTurn {
+  return {
+    projectId: String(row.projectId), conversationId: String(row.conversationId),
+    productMode: String(row.productMode) as ProductMode, queueItemId: String(row.queueItemId),
+    clientRequestId: String(row.clientRequestId), requestHash: String(row.requestHash),
+    position: Number(row.position), status: String(row.status) as StoredConversationQueuedTurnStatus,
+    retryCount: Number(row.retryCount), predecessorExecutionRevision: String(row.predecessorExecutionRevision),
+    dispatchRequestId: String(row.dispatchRequestId), text: String(row.text),
+    contextRefsJson: String(row.contextRefsJson), attachmentIdsJson: String(row.attachmentIdsJson),
+    skillOverridesJson: String(row.skillOverridesJson), providerId: String(row.providerId),
+    agentTurnMode: row.agentTurnMode === null ? null : String(row.agentTurnMode) as StoredConversationQueuedTurn["agentTurnMode"],
+    agentModelId: row.agentModelId === null ? null : String(row.agentModelId),
+    agentReasoningEffort: row.agentReasoningEffort === null ? null : String(row.agentReasoningEffort),
+    diagnostic: row.diagnostic === null ? null : String(row.diagnostic), createdAt: String(row.createdAt),
+    updatedAt: String(row.updatedAt), dispatchedAt: row.dispatchedAt === null ? null : String(row.dispatchedAt),
+  };
+}
+
+function conflict(message: string): Error {
+  const error = new Error(message);
+  error.name = "Conflict";
+  return error;
+}

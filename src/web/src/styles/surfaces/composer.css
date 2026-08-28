@@ -918,6 +918,111 @@
   gap: 8px;
 }
 
+.conversation-turn-queue {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 6px 8px;
+  border-block: 1px solid var(--border-subtle);
+}
+
+.conversation-turn-queue-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.conversation-turn-queue ol {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.conversation-turn-queue li {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  min-height: 38px;
+  align-items: center;
+  gap: 7px;
+}
+
+.conversation-turn-queue li[data-attention="true"] {
+  color: var(--danger);
+}
+
+.conversation-turn-queue-index {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.conversation-turn-queue-copy {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.conversation-turn-queue-copy > span,
+.conversation-turn-queue-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-turn-queue-copy > span {
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.conversation-turn-queue-copy small {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.conversation-turn-queue-actions {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.conversation-turn-queue-actions button,
+.composer-queue-button {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.conversation-turn-queue-actions button:hover,
+.composer-queue-button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.conversation-turn-queue-actions button:disabled,
+.composer-queue-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.composer-queue-button .spin {
+  animation: context-indicator-spin 1s linear infinite;
+}
+
 .mode-switch {
   display: inline-flex;
   gap: 2px;
@@ -1111,6 +1216,17 @@
 
 .composer-stop:hover {
   background: var(--bg-hover);
+}
+
+@media (max-width: 680px) {
+  .conversation-turn-queue li {
+    grid-template-columns: 20px minmax(0, 1fr) auto;
+  }
+
+  .conversation-turn-queue-actions button {
+    width: 28px;
+    height: 28px;
+  }
 }
 
 

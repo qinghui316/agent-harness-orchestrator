@@ -71,7 +71,7 @@ describe("Workbench persistence owners", () => {
     }
   });
 
-  it.each([9, 10, 11, 12])("migrates revision %i to 13 without losing Conversation continuity", async (revision) => {
+  it.each([9, 10, 11, 12, 13, 14, 15])("migrates revision %i to the current schema without losing Conversation continuity", async (revision) => {
     await createLegacyWorkbenchDatabase(revision);
 
     const database = await openProjectRuntimeWorkbenchDatabase(runtimePaths());
@@ -204,6 +204,40 @@ describe("Workbench persistence owners", () => {
       `).get(projectId)).toMatchObject({ text: "draft" });
     } finally {
       inspected.close();
+    }
+  });
+
+  it("commits queued Turn Skill overrides with the canonical message and rolls both back together", async () => {
+    const database = await openProjectRuntimeWorkbenchDatabase(runtimePaths());
+    try {
+      database.conversations.createConversation(conversation("conversation-1"));
+      database.conversations.createConversation(conversation("conversation-2"));
+      database.unitOfWork.commitConversationMessage({
+        projectId,
+        conversationId: "conversation-1",
+        message: message("shared-message", "conversation-1"),
+        skillOverrides: [{ skillId: "queued-skill", enabled: true }],
+        updatedAt: now,
+      });
+
+      expect(database.skills.listSkillEnablement(projectId)).toContainEqual(expect.objectContaining({
+        changeId: "conversation-1",
+        skillId: "queued-skill",
+        enabled: true,
+      }));
+      expect(() => database.unitOfWork.commitConversationMessage({
+        projectId,
+        conversationId: "conversation-2",
+        message: message("shared-message", "conversation-2"),
+        skillOverrides: [{ skillId: "must-not-persist", enabled: true }],
+        updatedAt: now,
+      })).toThrow();
+      expect(database.timeline.listConversationMessages(projectId, "conversation-2")).toEqual([]);
+      expect(database.skills.listSkillEnablement(projectId)).not.toContainEqual(expect.objectContaining({
+        skillId: "must-not-persist",
+      }));
+    } finally {
+      database.close();
     }
   });
 

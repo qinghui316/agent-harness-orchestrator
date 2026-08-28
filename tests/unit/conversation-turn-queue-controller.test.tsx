@@ -1,0 +1,336 @@
+// @vitest-environment jsdom
+
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { useConversationTurnQueueController } from "../../src/web/src/controllers/useConversationTurnQueueController.js";
+import type { ConversationTurnQueueSnapshot } from "../../src/web/src/types.js";
+
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+describe("Conversation Turn queue controller", () => {
+  it("fences stale Conversation loads and sends exact queue CAS identity", async () => {
+    const first = deferred<Response>();
+    const fetchMock = vi.fn((url: string | URL | Request, init?: RequestInit) => {
+      const value = String(url);
+      if (!init && value.includes("conversation-a")) return first.promise;
+      if (!init && value.includes("conversation-b")) return Promise.resolve(jsonResponse(snapshot("conversation-b", "queue:3")));
+      if (init?.method === "POST" && value.includes("conversation-b")) return Promise.resolve(jsonResponse(snapshot("conversation-b", "queue:4")));
+      throw new Error(`Unexpected request: ${value}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const onError = vi.fn();
+    const { result, rerender } = renderHook(
+      ({ conversationId }) => useConversationTurnQueueController({
+        projectId: "project-1",
+        productMode: "agent",
+        conversationId,
+        onError,
+      }),
+      { initialProps: { conversationId: "conversation-a" } },
+    );
+    rerender({ conversationId: "conversation-b" });
+    await waitFor(() => expect(result.current.snapshot?.conversationId).toBe("conversation-b"));
+    first.resolve(jsonResponse(snapshot("conversation-a", "queue:9")));
+    await act(async () => { await Promise.resolve(); });
+    expect(result.current.snapshot?.conversationId).toBe("conversation-b");
+
+    await act(async () => {
+      await result.current.enqueue({
+        text: "next",
+        contextRefs: [],
+        attachmentIds: [],
+        skillOverrides: {},
+        providerId: "codex",
+        agentTurnMode: "default",
+        modelId: null,
+        reasoningEffort: null,
+        expectedDraftUpdatedAt: "2026-08-28T00:00:00.000Z",
+      });
+    });
+    const enqueueCall = fetchMock.mock.calls.find(([, init]) => init?.method === "POST")!;
+    expect(JSON.parse(String(enqueueCall[1]?.body))).toMatchObject({
+      productMode: "agent",
+      expectedRevision: "queue:3",
+      expectedExecutionRevision: "execution:conversation-b",
+      expectedDraftUpdatedAt: "2026-08-28T00:00:00.000Z",
+      text: "next",
+      providerId: "codex",
+    });
+    expect(result.current.snapshot?.revision).toBe("queue:4");
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("automatically dispatches only the selected queue revision", async () => {
+    const initial = {
+      ...snapshot("conversation-a", "queue:1"),
+      canDispatch: true,
+      items: [{
+        queueItemId: "item-1", clientRequestId: "request-1", position: 1, status: "queued" as const,
+        retryCount: 0, text: "queued", contextRefs: [], attachmentIds: [], skillOverrides: {},
+        providerId: "codex", agentTurnMode: "default" as const, modelId: null, reasoningEffort: null,
+        createdAt: "2026-08-28T00:00:00.000Z", updatedAt: "2026-08-28T00:00:00.000Z",
+      }],
+    };
+    const fetchMock = vi.fn((_url: string | URL | Request, init?: RequestInit) => Promise.resolve(jsonResponse(
+      init?.method === "POST"
+        ? { ...initial, revision: "queue:2", canDispatch: false, items: [{ ...initial.items[0]!, status: "dispatching" as const }] }
+        : initial,
+    )));
+    vi.stubGlobal("fetch", fetchMock);
+    renderHook(() => useConversationTurnQueueController({
+      projectId: "project-1",
+      productMode: "agent",
+      conversationId: "conversation-a",
+      onError: vi.fn(),
+    }));
+
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1));
+    const dispatchCall = fetchMock.mock.calls.find(([, init]) => init?.method === "POST")!;
+    expect(String(dispatchCall[0])).toContain("/turn-queue/dispatch-next");
+    expect(JSON.parse(String(dispatchCall[1]?.body))).toEqual({ productMode: "agent", expectedRevision: "queue:1" });
+  });
+
+  it("reloads canonical queue state after the selected Turn terminates and then continues FIFO", async () => {
+    const waiting = queuedSnapshot(false);
+    const ready = queuedSnapshot(true);
+    let reads = 0;
+    const fetchMock = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return Promise.resolve(jsonResponse({
+          ...ready,
+          revision: "queue:2",
+          canDispatch: false,
+          items: [{ ...ready.items[0]!, status: "dispatching" as const }],
+        }));
+      }
+      reads += 1;
+      return Promise.resolve(jsonResponse(reads === 1 ? waiting : ready));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useConversationTurnQueueController({
+      projectId: "project-1",
+      productMode: "agent",
+      conversationId: "conversation-a",
+      onError: vi.fn(),
+    }));
+    await waitFor(() => expect(result.current.snapshot?.canDispatch).toBe(false));
+
+    act(() => result.current.handleEvent("project-1", {
+      event: "done",
+      data: { projectId: "project-1", productMode: "agent", conversationId: "conversation-a", status: "failed" },
+    }));
+
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1));
+    expect(reads).toBeGreaterThanOrEqual(2);
+  });
+
+  it("reloads the exact execution revision when the selected Turn identity changes", async () => {
+    let reads = 0;
+    const runningLoad = deferred<Response>();
+    const fetchMock = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return Promise.resolve(jsonResponse(snapshot("conversation-a", "queue:2")));
+      }
+      reads += 1;
+      if (reads === 2) return runningLoad.promise;
+      return Promise.resolve(jsonResponse({
+        ...snapshot("conversation-a", "queue:1"),
+        executionRevision: "execution:idle",
+      }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { result, rerender } = renderHook(
+      ({ executionKey }) => useConversationTurnQueueController({
+        projectId: "project-1",
+        productMode: "agent",
+        conversationId: "conversation-a",
+        executionKey,
+        onError: vi.fn(),
+      }),
+      { initialProps: { executionKey: "idle" } },
+    );
+    await waitFor(() => expect(result.current.snapshot?.executionRevision).toBe("execution:idle"));
+
+    rerender({ executionKey: "running\0codex\0attempt-1" });
+    expect(result.current.snapshot).toBeNull();
+    expect(result.current.loading).toBe(true);
+    await act(async () => {
+      expect(await result.current.enqueue({
+        text: "must wait for calibration",
+        contextRefs: [],
+        attachmentIds: [],
+        skillOverrides: {},
+        providerId: "codex",
+        agentTurnMode: "default",
+        modelId: null,
+        reasoningEffort: null,
+        expectedDraftUpdatedAt: null,
+      })).toBeNull();
+    });
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
+
+    runningLoad.resolve(jsonResponse({
+      ...snapshot("conversation-a", "queue:1"),
+      executionRevision: "execution:running-attempt",
+    }));
+    await waitFor(() => expect(result.current.snapshot?.executionRevision).toBe("execution:running-attempt"));
+    expect(reads).toBe(2);
+  });
+
+  it("retries the same queue revision after a busy response becomes dispatchable", async () => {
+    const ready = queuedSnapshot(true);
+    const waiting = queuedSnapshot(false);
+    let posts = 0;
+    let reads = 0;
+    let dispatchable = true;
+    const fetchMock = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        posts += 1;
+        if (posts === 1) dispatchable = false;
+        return Promise.resolve(jsonResponse(posts === 1
+          ? waiting
+          : { ...ready, revision: "queue:2", canDispatch: false, items: [{ ...ready.items[0]!, status: "dispatching" as const }] }));
+      }
+      reads += 1;
+      return Promise.resolve(jsonResponse(dispatchable ? ready : waiting));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useConversationTurnQueueController({
+      projectId: "project-1",
+      productMode: "agent",
+      conversationId: "conversation-a",
+      onError: vi.fn(),
+    }));
+    await waitFor(() => expect(posts).toBe(1));
+    await waitFor(() => expect(result.current.snapshot?.canDispatch).toBe(false));
+
+    dispatchable = true;
+    act(() => result.current.handleEvent("project-1", {
+      event: "done",
+      data: { projectId: "project-1", productMode: "agent", conversationId: "conversation-a", status: "completed" },
+    }));
+
+    await waitFor(() => expect(posts).toBe(2));
+    expect(reads).toBeGreaterThanOrEqual(2);
+  });
+
+  it("keeps enqueue available during a long background dispatch and ignores its stale receipt", async () => {
+    const ready = queuedSnapshot(true);
+    const dispatch = deferred<Response>();
+    const afterEnqueue = {
+      ...ready,
+      revision: "queue:2",
+      canDispatch: false,
+      items: [
+        { ...ready.items[0]!, status: "dispatching" as const },
+        { ...ready.items[0]!, queueItemId: "item-2", clientRequestId: "request-2", position: 2, text: "second" },
+      ],
+    };
+    let latest = ready;
+    const fetchMock = vi.fn((url: string | URL | Request, init?: RequestInit) => {
+      const value = String(url);
+      if (init?.method === "POST" && value.endsWith("/dispatch-next")) return dispatch.promise;
+      if (init?.method === "POST") {
+        latest = afterEnqueue;
+        return Promise.resolve(jsonResponse(afterEnqueue));
+      }
+      return Promise.resolve(jsonResponse(latest));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useConversationTurnQueueController({
+      projectId: "project-1",
+      productMode: "agent",
+      conversationId: "conversation-a",
+      onError: vi.fn(),
+    }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/dispatch-next"))).toBe(true));
+    expect(result.current.mutating).toBe(false);
+
+    await act(async () => {
+      await result.current.enqueue({
+        text: "second",
+        contextRefs: [],
+        attachmentIds: [],
+        skillOverrides: {},
+        providerId: "codex",
+        agentTurnMode: "default",
+        modelId: null,
+        reasoningEffort: null,
+        expectedDraftUpdatedAt: null,
+      });
+    });
+    expect(result.current.snapshot?.revision).toBe("queue:2");
+
+    dispatch.resolve(jsonResponse({ ...ready, revision: "queue:99", items: [] }));
+    await waitFor(() => expect(result.current.snapshot?.revision).toBe("queue:2"));
+  });
+
+  it("does not let an older load overwrite a newer queue mutation", async () => {
+    const staleLoad = deferred<Response>();
+    let reads = 0;
+    const fetchMock = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "DELETE") return Promise.resolve(jsonResponse(snapshot("conversation-a", "queue:2")));
+      reads += 1;
+      return reads === 1
+        ? Promise.resolve(jsonResponse({ ...snapshot("conversation-a", "queue:1"), items: queuedSnapshot(false).items }))
+        : staleLoad.promise;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useConversationTurnQueueController({
+      projectId: "project-1",
+      productMode: "agent",
+      conversationId: "conversation-a",
+      onError: vi.fn(),
+    }));
+    await waitFor(() => expect(result.current.snapshot?.revision).toBe("queue:1"));
+
+    let pendingLoad!: Promise<ConversationTurnQueueSnapshot | null>;
+    act(() => { pendingLoad = result.current.load(); });
+    await waitFor(() => expect(reads).toBe(2));
+    await act(async () => { await result.current.remove("item-1"); });
+    staleLoad.resolve(jsonResponse(snapshot("conversation-a", "queue:1")));
+    await act(async () => { await pendingLoad; });
+
+    expect(result.current.snapshot?.revision).toBe("queue:2");
+  });
+});
+
+function queuedSnapshot(canDispatch: boolean): ConversationTurnQueueSnapshot {
+  return {
+    ...snapshot("conversation-a", "queue:1"),
+    canDispatch,
+    items: [{
+      queueItemId: "item-1", clientRequestId: "request-1", position: 1, status: "queued",
+      retryCount: 0, text: "queued", contextRefs: [], attachmentIds: [], skillOverrides: {},
+      providerId: "codex", agentTurnMode: "default", modelId: null, reasoningEffort: null,
+      createdAt: "2026-08-28T00:00:00.000Z", updatedAt: "2026-08-28T00:00:00.000Z",
+    }],
+  };
+}
+
+function snapshot(conversationId: string, revision: string): ConversationTurnQueueSnapshot {
+  return {
+    projectId: "project-1",
+    productMode: "agent",
+    conversationId,
+    revision,
+    executionRevision: `execution:${conversationId}`,
+    items: [],
+    canEnqueue: true,
+    canDispatch: false,
+  };
+}
+
+function jsonResponse(value: unknown): Response {
+  return new Response(JSON.stringify(value), { status: 200, headers: { "Content-Type": "application/json" } });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => { resolve = resolvePromise; });
+  return { promise, resolve };
+}

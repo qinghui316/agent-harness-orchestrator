@@ -402,15 +402,16 @@ export async function tryBuildSkillNativePlanningSnapshot(input: {
       updatedAt: demandWorker?.updatedAt ?? item.updatedAt,
     };
   });
-  const [projectStatus, roles, conversationInteractions] = await Promise.all([
+  const [projectStatus, roles, conversationInteractions, queuedTurnCount] = await Promise.all([
     getProjectStatus(input.project, input.project.path),
     listWorkbenchRoles(),
     selected.currentGraphScopeId
       ? buildConversationInteractionQueue(input.resolution.paths, selected.conversationId, selected.currentGraphScopeId, "harness")
       : Promise.resolve({ productMode: "harness" as const, items: [] }),
+    readConversationTurnQueueCount(input.resolution, selected.conversationId),
   ]);
   const projectedWorkpad = {
-    ...applySkillNativeWorkpadEvidence(workpad, topic, taskGraph, agentTasks, existingWorkflowRun),
+    ...applySkillNativeWorkpadEvidence(workpad, topic, taskGraph, agentTasks, existingWorkflowRun, queuedTurnCount),
     mainAgentExecution: buildRolePipelineSummary(topic, agentTasks),
     background: buildWorkpadBackground(workpads, topic.id),
   };
@@ -570,6 +571,7 @@ async function buildSkillNativeExecutionSnapshot(input: {
   const taskQueue = buildTaskQueueSummary(topic, readiness);
   const taskGraph = buildTaskGraph(topic, readiness, taskQueue);
   const agentTasks = await buildAgentTaskSummaries(runtime, input.selected.boundChangeId);
+  const queuedTurnCount = await readConversationTurnQueueCount(input.resolution, input.selected.conversationId);
   const executionNextAction = buildWorkpadNextAction(
     topic,
     approvals,
@@ -584,7 +586,7 @@ async function buildSkillNativeExecutionSnapshot(input: {
     ? executionNextAction
     : null;
   const workpad: WorkbenchWorkpad = {
-    ...applySkillNativeWorkpadEvidence(base, topic, taskGraph, agentTasks, input.workflowRun),
+    ...applySkillNativeWorkpadEvidence(base, topic, taskGraph, agentTasks, input.workflowRun, queuedTurnCount),
     userStatus: resultTerminal ? "completed" : "waiting-confirmation",
     userStatusLabel: resultTerminal ? "结果处理完成" : "等待确认",
     workflowRun: summarizeWorkflowRun(input.workflowRun),
@@ -712,6 +714,7 @@ function applySkillNativeWorkpadEvidence(
   taskGraph: ReturnType<typeof buildTaskGraph>,
   agentTasks: Awaited<ReturnType<typeof buildAgentTaskSummaries>>,
   workflowRun: WorkflowRun | null,
+  queuedTurnCount: number,
 ): WorkbenchWorkpad {
   const latestRun = [...topic.runs].sort((left, right) =>
     (right.finishedAt ?? right.startedAt).localeCompare(left.finishedAt ?? left.startedAt))[0];
@@ -742,12 +745,24 @@ function applySkillNativeWorkpadEvidence(
       canSteer: active,
       steerState: "idle",
       stopActionType: active ? "conversation.interrupt" : undefined,
-      pendingFeedbackCount: topic.threadItems.filter((item) => item.kind === "user-message" && item.status === "pending-feedback").length,
+      pendingFeedbackCount: queuedTurnCount,
       explanation: active
-        ? "支持实时引导时，补充要求会发送给当前执行；不支持时会记录到下一轮。停止会保留证据并进入下一轮方案或修改。"
+        ? "支持实时引导时，纯文本会发送给当前执行；完整的后续要求进入下一回合队列。停止不会清除输入或队列。"
         : "当前没有正在执行的需求。",
     },
   };
+}
+
+async function readConversationTurnQueueCount(
+  resolution: ProjectRuntimeResolution,
+  conversationId: string,
+): Promise<number> {
+  const database = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
+  try {
+    return database.conversationTurnQueues.listItems(resolution.harness.projectId, conversationId).length;
+  } finally {
+    database.close();
+  }
 }
 
 function latestProjectedStatus(items: readonly unknown[]): string | undefined {

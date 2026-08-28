@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { consumeWorkbenchLiveStream, fetchJson, postJson } from "../api.js";
 import { extractInlineFileMentions } from "../shell/file-mentions.js";
 import { extractInlineSkillMentions } from "../shell/skill-mentions.js";
-import type { AgentTurnMode, ComposerDraftDiagnostic, ComposerDraftSnapshot, ProductMode, ProviderCapabilitySnapshot, ProviderModelSettingsSnapshot, SkillListItem, TopicAttachment, TopicFileReference, WorkbenchLiveEvent } from "../types.js";
+import type { AgentTurnMode, ComposerDraftDiagnostic, ComposerDraftSnapshot, ConversationTurnQueueSnapshot, ProductMode, ProviderCapabilitySnapshot, ProviderModelSettingsSnapshot, SkillListItem, TopicAttachment, TopicFileReference, WorkbenchLiveEvent } from "../types.js";
+import type { ConversationTurnQueueEnqueueInput } from "./useConversationTurnQueueController.js";
 import type { WorkbenchOperationToken } from "./useGlobalOperationGate.js";
 import type { ConversationSteerOutcome } from "./useConversationActionController.js";
 import {
@@ -145,6 +146,12 @@ export interface ConversationComposerPorts {
     remove(projectId: string, attachmentId: string): Promise<void>;
   };
   drafts?: ComposerDraftApi;
+  queue?: {
+    snapshot: ConversationTurnQueueSnapshot | null;
+    loading: boolean;
+    enqueue(input: ConversationTurnQueueEnqueueInput): Promise<ConversationTurnQueueSnapshot | null>;
+    reclaim(queueItemId: string, expectedDraftUpdatedAt: string | null): Promise<ConversationTurnQueueSnapshot | null>;
+  };
   ids?: {
     createClientRequestId(): string;
   };
@@ -624,6 +631,105 @@ export function useConversationComposerController(
     }
   }, []);
 
+  const enqueue = useCallback(async (): Promise<void> => {
+    const currentScope = scopeRef.current;
+    const queue = portsRef.current.queue;
+    const generation = scopeGenerationRef.current;
+    const draft = stateRef.current;
+    const productMode = composerProductMode(currentScope);
+    if (!currentScope.projectId || !currentScope.conversation || !queue) return;
+    if (queue.loading || !queue.snapshot) {
+      portsRef.current.onError("正在读取当前会话队列，请稍后重试。");
+      return;
+    }
+    if (currentScope.conversation.state !== "active") {
+      portsRef.current.onError("已完成或稍后处理的需求对话为只读，不能加入队列。");
+      return;
+    }
+    const attachmentIds = draft.attachments.map((attachment) => attachment.id);
+    const attachmentGeneration = attachmentSelectionGenerationRef.current;
+    if (!draft.composerText.trim() && attachmentIds.length === 0) return;
+    const prepared = prepareComposerInput({
+      body: draft.composerText,
+      selectedRefs: draft.fileRefs,
+      skills: draft.skillItems,
+      conversationId: currentScope.conversation.id,
+      draftSkillOverrides: draft.draftSkillOverrides,
+    });
+    const agentTurnMode = draft.agentTurnMode;
+    const modelId = draft.agentModelId;
+    const reasoningEffort = draft.agentReasoningEffort;
+    const providerId = effectiveComposerProviderId(currentScope);
+    const selectionError = resolveAgentTurnModeDisabledReason(currentScope, agentTurnMode)
+      ?? resolveAgentTurnModelDisabledReason(currentScope, agentTurnMode, modelId, reasoningEffort)
+      ?? resolveDraftProviderDisabledReason(currentScope)
+      ?? resolveAttachmentCapabilityDisabledReason(currentScope, draft.attachments);
+    if (selectionError) {
+      portsRef.current.onError(selectionError);
+      return;
+    }
+    if (!providerId) {
+      portsRef.current.onError("请先选择本次对话使用的 Agent。");
+      return;
+    }
+    let draftToken: string | null;
+    try {
+      draftToken = await draftSyncOwnerRef.current!.flush(currentScope.projectId, productMode);
+      await queue.enqueue({
+        text: prepared.text || defaultAttachmentPrompt(attachmentIds.length),
+        contextRefs: prepared.contextRefs,
+        attachmentIds,
+        skillOverrides: prepared.skillOverrides,
+        providerId,
+        agentTurnMode: productMode === "agent" ? agentTurnMode : null,
+        modelId: productMode === "agent" ? modelId : null,
+        reasoningEffort: productMode === "agent" ? reasoningEffort : null,
+        expectedDraftUpdatedAt: draftToken,
+      });
+      await draftSyncOwnerRef.current!.load(currentScope.projectId, productMode);
+      if (composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) {
+        setComposerText((current) => current === draft.composerText ? "" : current);
+        setFileRefs((current) => composerFileRefsEqual(current, draft.fileRefs) ? [] : current);
+        if (attachmentSelectionGenerationRef.current === attachmentGeneration) {
+          setAttachments((current) => current.map((item) => item.id).join("\0") === attachmentIds.join("\0") ? [] : current);
+        }
+        setDraftSkillOverrides((current) => composerSkillOverridesEqual(current, draft.draftSkillOverrides) ? {} : current);
+        portsRef.current.onError(null);
+      }
+    } catch (cause) {
+      if (composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) {
+        portsRef.current.onError(errorMessage(cause));
+      }
+      throw cause;
+    }
+  }, []);
+
+  const reclaimQueuedTurn = useCallback(async (queueItemId: string): Promise<void> => {
+    const currentScope = scopeRef.current;
+    const generation = scopeGenerationRef.current;
+    const queue = portsRef.current.queue;
+    const draft = stateRef.current;
+    if (!currentScope.projectId || !queue || draft.composerText.trim() || draft.fileRefs.length
+      || draft.attachments.length || Object.keys(draft.draftSkillOverrides).length) {
+      portsRef.current.onError("请先清空当前输入，再把队列项移回输入框。");
+      return;
+    }
+    const productMode = composerProductMode(currentScope);
+    const token = await draftSyncOwnerRef.current!.flush(currentScope.projectId, productMode);
+    await queue.reclaim(queueItemId, token);
+    const restored = await draftSyncOwnerRef.current!.load(currentScope.projectId, productMode);
+    if (!restored || !composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) return;
+    setComposerText(restored.text);
+    setFileRefs(restored.contextRefs);
+    setAttachments(restored.attachments);
+    setDraftSkillOverrides(restored.skillOverrides);
+    if (productMode === "agent") {
+      setAgentTurnMode(restored.agentTurnMode ?? "default");
+      setAgentModelId(restored.agentModelId);
+      setAgentReasoningEffort(restored.agentReasoningEffort);
+    }
+  }, []);
+
   const createConversation = useCallback(async (input: CreateConversationComposerInput = {}): Promise<ComposerCreatedConversation | null> => {
     const currentScope = scopeRef.current;
     const generation = scopeGenerationRef.current;
@@ -801,22 +907,18 @@ export function useConversationComposerController(
       draftSkillOverrides: draft.draftSkillOverrides,
     });
     if (currentScope.running) {
-      if (!prepared.text) {
-        portsRef.current.onError("实时引导只发送文本；附件和其他选择会保留到下一回合。");
+      const steerIdentityReady = capturedProductMode === "harness"
+        || Boolean(currentScope.runControlState?.providerId && currentScope.runControlState.attemptId);
+      const canSteer = Boolean(prepared.text
+        && currentScope.runControlState?.canSteer
+        && steerIdentityReady
+        && currentScope.runControlState.state !== "stopping"
+        && currentScope.runControlState.steerState !== "submitting");
+      if (!canSteer) {
+        await enqueue();
         return;
       }
       const productMode = composerProductMode(currentScope);
-      if (currentScope.runControlState?.state === "stopping") {
-        portsRef.current.onError("当前执行正在停止，暂时不能发送实时引导。");
-        return;
-      }
-      if (productMode === "agent"
-        && (!currentScope.runControlState?.canSteer
-          || !currentScope.runControlState.providerId
-          || !currentScope.runControlState.attemptId)) {
-        portsRef.current.onError("当前 Agent 或 Provider 暂不支持向运行中的回合发送补充。");
-        return;
-      }
       const steerIdentity = composerStopIdentity(currentScope);
       const retryKey = `${steerIdentity}\0${prepared.text}`;
       const clientRequestId = steerRetryRef.current?.key === retryKey
@@ -858,6 +960,14 @@ export function useConversationComposerController(
         portsRef.current.onError("当前执行已结束，这条文本已保留，可作为下一回合发送。");
       }
       if (steerRetryRef.current?.key === retryKey) steerRetryRef.current = null;
+      return;
+    }
+    if (portsRef.current.queue?.snapshot?.items?.length) {
+      await enqueue();
+      return;
+    }
+    if (portsRef.current.queue && !portsRef.current.queue.snapshot) {
+      portsRef.current.onError("当前会话队列状态不可用，校准完成前不能发送新的回合。");
       return;
     }
     if (!prepared.text && attachmentIds.length === 0) {
@@ -1079,6 +1189,8 @@ export function useConversationComposerController(
     appendAttachments,
     removeAttachment,
     createConversation,
+    enqueue,
+    reclaimQueuedTurn,
     send,
     stop,
     cleanupTransition,

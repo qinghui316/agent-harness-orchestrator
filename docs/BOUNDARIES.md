@@ -162,9 +162,14 @@ Provider acceptance precedes canonical `steering-sent` evidence; an uncertain
 submission cannot be replayed, while an accepted request whose evidence write
 failed may only retry the idempotent evidence write. Steer carries trimmed text
 only. Attachments, Skills, file references, and Agent turn mode remain next-turn
-inputs. Agent control does not require Harness readiness or use pending-feedback;
-Harness uses the shared owner for an active Provider Turn and retains its local
-pending-feedback fallback only when no Provider Attempt owns the execution.
+inputs. Agent control does not require Harness readiness or use pending-feedback.
+
+`ConversationTurnQueueOwner` is the sole persistent next-turn FIFO owner for Agent
+and Harness Conversations. It stores provider-neutral Composer input, transfers it
+from the scoped draft with CAS, and dispatches only through the existing Conversation
+service and mode router. The Owner cannot call a Provider or create Harness workflow,
+authorization, Change, AgentTask, Lane, or worktree state. Historical pending-feedback
+Timeline rows are read-only history, and the Harness Workflow TaskQueue is unrelated.
 
 `ConversationContextLifecycleOwner` is the sole provider-neutral owner for
 context usage and compaction in Agent and Harness Conversations. Provider

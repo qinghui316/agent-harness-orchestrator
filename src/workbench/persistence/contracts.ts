@@ -133,6 +133,42 @@ export interface StoredConversationForkOperation {
   updatedAt: string;
 }
 
+export type StoredConversationQueuedTurnStatus = "queued" | "dispatching" | "blocked" | "dispatched" | "cancelled";
+
+export interface StoredConversationTurnQueue {
+  projectId: string;
+  conversationId: string;
+  productMode: ProductMode;
+  revision: number;
+  updatedAt: string;
+}
+
+export interface StoredConversationQueuedTurn {
+  projectId: string;
+  conversationId: string;
+  productMode: ProductMode;
+  queueItemId: string;
+  clientRequestId: string;
+  requestHash: string;
+  position: number;
+  status: StoredConversationQueuedTurnStatus;
+  retryCount: number;
+  predecessorExecutionRevision: string;
+  dispatchRequestId: string;
+  text: string;
+  contextRefsJson: string;
+  attachmentIdsJson: string;
+  skillOverridesJson: string;
+  providerId: ProviderId;
+  agentTurnMode: AgentTurnMode | null;
+  agentModelId: string | null;
+  agentReasoningEffort: string | null;
+  diagnostic: string | null;
+  createdAt: string;
+  updatedAt: string;
+  dispatchedAt: string | null;
+}
+
 export interface StoredComposerDraft {
   projectId: string;
   productMode: ProductMode;

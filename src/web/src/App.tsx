@@ -73,6 +73,7 @@ import { useConversationActionController } from "./controllers/useConversationAc
 import { useAgentSurfaceController } from "./controllers/useAgentSurfaceController.js";
 import { useProductModeActivityController } from "./controllers/useProductModeActivityController.js";
 import { useConversationContextController } from "./controllers/useConversationContextController.js";
+import { useConversationTurnQueueController } from "./controllers/useConversationTurnQueueController.js";
 import { OfficeLoadingScreen } from "./office/OfficeLoadingScreen.js";
 import {
   useConversationComposerController,
@@ -605,6 +606,18 @@ export function App(): ReactElement {
     : activeWorkpad.conversationLifecycle === "running"
       || Boolean(activeWorkpad.runControlState?.canStop)
       || currentWorkpadSummary(snapshot, activeTopic)?.runtimeStatus === "running";
+  const conversationTurnQueue = useConversationTurnQueueController({
+    projectId: selectedProjectId,
+    productMode: appMode.productMode,
+    conversationId: activeTopic?.id ?? null,
+    executionKey: [
+      conversationRunControl?.state ?? "idle",
+      conversationRunControl?.providerId ?? "",
+      conversationRunControl?.attemptId ?? "",
+      conversationRunControl?.runId ?? "",
+    ].join("\0"),
+    onError: setError,
+  });
   const selectedProjectStatus = useMemo(() => projects.find((item) => item.project?.id === selectedProjectId) ?? null, [projects, selectedProjectId]);
   const composer = useConversationComposerController({
     projectId: selectedProjectId,
@@ -646,6 +659,7 @@ export function App(): ReactElement {
     timeline: {
       calibrate: (projectId, conversationId, agentSurfaceId) => timeline.loadLatest({ projectId, productMode: appMode.productMode, conversationId, agentSurfaceId }),
     },
+    queue: conversationTurnQueue,
     onError: setError,
   });
   const conversationContext = useConversationContextController({
@@ -914,6 +928,7 @@ export function App(): ReactElement {
 
   function routeProjectionEventForProject(projectId: string, event: WorkbenchLiveEvent): void {
     projectionEventRouterRef.current(projectId, event);
+    conversationTurnQueue.handleEvent(projectId, event);
   }
 
   function toggleOrchestrationOverlay(): void {
@@ -1234,8 +1249,15 @@ export function App(): ReactElement {
                   onSelectProvider={(providerId) => { void composer.selectProvider(providerId); }}
                   conversationContext={conversationContext.snapshot}
                   contextSubmitting={conversationContext.submitting}
-                  onCompactContext={conversationContext.compact}
-                /> : null}
+                   onCompactContext={conversationContext.compact}
+                   turnQueue={conversationTurnQueue.snapshot}
+                   queueAvailable={Boolean(conversationTurnQueue.snapshot)}
+                   queueBusy={conversationTurnQueue.loading || conversationTurnQueue.mutating}
+                   onEnqueue={composer.enqueue}
+                   onReclaimQueuedTurn={composer.reclaimQueuedTurn}
+                   onRemoveQueuedTurn={(queueItemId) => { void conversationTurnQueue.remove(queueItemId); }}
+                   onRetryQueuedTurn={(queueItemId) => { void conversationTurnQueue.retry(queueItemId); }}
+                 /> : null}
             </section>
           </>
         )}

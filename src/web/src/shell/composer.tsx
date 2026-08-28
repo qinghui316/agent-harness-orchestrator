@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, useState, type ReactElement } from "react";
-import { AlertCircle, CheckCircle2, Gauge, RefreshCw, Send, Square } from "lucide-react";
-import type { AgentTurnMode, ConversationContextSnapshot, ProductMode, ProviderModelSettingsSnapshot, SkillListItem, TopicAttachment, TopicFileReference, WorkpadRuntimeStatus } from "../types.js";
+import { AlertCircle, CheckCircle2, Gauge, ListPlus, RefreshCw, RotateCcw, Send, Square, Trash2, Undo2 } from "lucide-react";
+import type { AgentTurnMode, ConversationContextSnapshot, ConversationTurnQueueSnapshot, ProductMode, ProviderModelSettingsSnapshot, SkillListItem, TopicAttachment, TopicFileReference, WorkpadRuntimeStatus } from "../types.js";
 import { ComposerAttachButton, ComposerAttachmentList, filesFromDrop, hasFileDrag, imageFilesFromPaste } from "./ComposerAttachments.js";
 import { ComposerControls } from "./ComposerControls.js";
 import { buildComposerContextSummary, ComposerContextSourcesPopover, type ComposerContextKind } from "./ComposerContextSources.js";
@@ -45,6 +45,13 @@ export function TopicComposer({
   conversationContext,
   contextSubmitting,
   onCompactContext,
+  turnQueue,
+  queueAvailable,
+  queueBusy,
+  onEnqueue,
+  onReclaimQueuedTurn,
+  onRemoveQueuedTurn,
+  onRetryQueuedTurn,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -80,6 +87,9 @@ export function TopicComposer({
     canStop: boolean;
     canSteer?: boolean;
     steerState?: "idle" | "submitting";
+    providerId?: string;
+    attemptId?: string;
+    runId?: string;
   };
   providerOptions?: Array<{ id: string; label: string }>;
   selectedProviderId?: string;
@@ -87,6 +97,13 @@ export function TopicComposer({
   conversationContext?: ConversationContextSnapshot | null;
   contextSubmitting?: boolean;
   onCompactContext?: () => void | Promise<void>;
+  turnQueue?: ConversationTurnQueueSnapshot | null;
+  queueAvailable?: boolean;
+  queueBusy?: boolean;
+  onEnqueue?: () => void | Promise<void>;
+  onReclaimQueuedTurn?: (queueItemId: string) => void | Promise<void>;
+  onRemoveQueuedTurn?: (queueItemId: string) => void | Promise<void>;
+  onRetryQueuedTurn?: (queueItemId: string) => void | Promise<void>;
 }): ReactElement {
   const [dragOver, setDragOver] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -103,23 +120,28 @@ export function TopicComposer({
     attachments,
   }), [skills, activeSkillIds, selectedFileRefs, attachments]);
   const canSend = Boolean(value.trim()) || hasAttachments;
-  const steeringUnavailable = runningConversation
-    && (!value.trim()
-      || !runControlState?.canSteer
-      || runControlState.steerState === "submitting"
-      || runControlState.state === "stopping");
+  const steerIdentityReady = productMode === "harness"
+    || Boolean(runControlState?.providerId && runControlState.attemptId);
+  const canSteerText = runningConversation
+    && Boolean(value.trim())
+    && Boolean(runControlState?.canSteer)
+    && steerIdentityReady
+    && runControlState?.steerState !== "submitting"
+    && runControlState?.state !== "stopping";
+  const canQueue = canSend && Boolean(turnQueue?.canEnqueue) && !queueBusy;
   const sendDisabled = Boolean(disabledReason)
     || (!runningConversation && Boolean(agentTurnModeDisabledReason))
-    || (runningConversation ? steeringUnavailable : !canSend);
+    || (runningConversation ? (!canSteerText && !canQueue) : !canSend || Boolean(queueBusy) || queueAvailable === false);
   const buttonTitle = runningConversation
     ? runControlState?.state === "stopping"
       ? "当前执行正在停止"
       : runControlState?.steerState === "submitting"
         ? "正在发送给当前执行"
-        : runControlState?.canSteer
+        : canSteerText
           ? "发送给当前执行"
-          : "当前执行不支持实时引导"
-    : "发送";
+          : "加入下一回合队列"
+    : queueAvailable === false ? "正在校准会话队列"
+      : turnQueue?.items?.length ? "加入下一回合队列" : "发送";
   useLayoutEffect(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
@@ -196,6 +218,16 @@ export function TopicComposer({
           submitting={Boolean(contextSubmitting)}
           onCompact={onCompactContext}
         />
+        <button
+          className="composer-queue-button"
+          type="button"
+          disabled={Boolean(disabledReason) || !canQueue}
+          title={turnQueue?.disabledReason ?? "加入下一回合队列"}
+          aria-label="加入下一回合队列"
+          onClick={() => void onEnqueue?.()}
+        >
+          {queueBusy ? <RefreshCw size={15} className="spin" /> : <ListPlus size={15} />}
+        </button>
         <span className="composer-spacer" />
         {canStop ? <button
           className="composer-stop"
@@ -216,6 +248,13 @@ export function TopicComposer({
         </button>
       </>}
     >
+      <ConversationTurnQueue
+        snapshot={turnQueue ?? null}
+        busy={Boolean(queueBusy)}
+        onReclaim={onReclaimQueuedTurn}
+        onRemove={onRemoveQueuedTurn}
+        onRetry={onRetryQueuedTurn}
+      />
       <ComposerContextSourcesPopover
         kind={openContextKind}
         skills={skills}
@@ -260,6 +299,84 @@ export function TopicComposer({
       />
     </ComposerFrame>
   );
+}
+
+export function ConversationTurnQueue({
+  snapshot,
+  busy,
+  onReclaim,
+  onRemove,
+  onRetry,
+}: {
+  snapshot: ConversationTurnQueueSnapshot | null;
+  busy: boolean;
+  onReclaim?: (queueItemId: string) => void | Promise<void>;
+  onRemove?: (queueItemId: string) => void | Promise<void>;
+  onRetry?: (queueItemId: string) => void | Promise<void>;
+}): ReactElement | null {
+  if (!snapshot?.items?.length) return null;
+  return <div className="conversation-turn-queue" aria-label="下一回合队列">
+    <div className="conversation-turn-queue-heading">
+      <span>下一回合</span>
+      <span>{snapshot.items.length}</span>
+    </div>
+    <ol>
+      {snapshot.items.map((item, index) => {
+        const needsAttention = queuedTurnNeedsAttention(item.status);
+        const settlementPending = queuedTurnSettlementPending(item.status);
+        return <li key={item.queueItemId} data-attention={needsAttention ? "true" : undefined}>
+          <span className="conversation-turn-queue-index">{index + 1}</span>
+          <span className="conversation-turn-queue-copy">
+            <span>{queuePreview(item.text)}</span>
+            <small>{queuedTurnStatusLabel(item.status, item.attachmentIds.length)}</small>
+          </span>
+          <span className="conversation-turn-queue-actions">
+            {needsAttention ? <button
+              type="button"
+              title="重新尝试"
+              aria-label="重新尝试队列项"
+              disabled={busy}
+              onClick={() => void onRetry?.(item.queueItemId)}
+            ><RotateCcw size={14} /></button> : null}
+            <button
+              type="button"
+              title="移回输入框"
+              aria-label="移回输入框"
+              disabled={busy || settlementPending}
+              onClick={() => void onReclaim?.(item.queueItemId)}
+            ><Undo2 size={14} /></button>
+            <button
+              type="button"
+              title="删除队列项"
+              aria-label="删除队列项"
+              disabled={busy || settlementPending}
+              onClick={() => void onRemove?.(item.queueItemId)}
+            ><Trash2 size={14} /></button>
+          </span>
+        </li>;
+      })}
+    </ol>
+  </div>;
+}
+
+function queuePreview(text: string): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  return normalized.length > 96 ? `${normalized.slice(0, 95)}...` : normalized;
+}
+
+function queuedTurnStatusLabel(status: string, attachmentCount: number): string {
+  const statusLabel = status === "dispatching" ? "正在提交"
+    : status === "blocked" ? "需要处理"
+      : "等待发送";
+  return attachmentCount > 0 ? `${statusLabel} · ${attachmentCount} 个附件` : statusLabel;
+}
+
+function queuedTurnNeedsAttention(status: string): boolean {
+  return status === "blocked";
+}
+
+function queuedTurnSettlementPending(status: string): boolean {
+  return status === "dispatching";
 }
 
 export function ConversationContextIndicator({

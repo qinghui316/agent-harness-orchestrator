@@ -10,7 +10,7 @@ import {
   type ConversationComposerPorts,
   type ConversationComposerScope,
 } from "../../src/web/src/controllers/useConversationComposerController.js";
-import type { ComposerDraftSnapshot, ProviderCapabilitySnapshot, ProviderModelSettingsSnapshot, SkillListItem, TopicAttachment, TopicFileReference } from "../../src/web/src/types.js";
+import type { ComposerDraftSnapshot, ConversationTurnQueueSnapshot, ProviderCapabilitySnapshot, ProviderModelSettingsSnapshot, SkillListItem, TopicAttachment, TopicFileReference } from "../../src/web/src/types.js";
 
 afterEach(() => {
   cleanup();
@@ -1005,7 +1005,11 @@ describe("Conversation composer controller", () => {
 
   it("steers only running text while retaining attachments and keeping Stop separate", async () => {
     const ports = composerPorts();
-    const runningScope = conversationScope({ running: true, selectedProviderId: "codex" });
+    const runningScope = conversationScope({
+      running: true,
+      selectedProviderId: "codex",
+      runControlState: { state: "running", canStop: true, canSteer: true },
+    });
     const { result } = renderHook(() => useConversationComposerController(runningScope, ports));
     act(() => {
       result.current.setComposerText("follow up");
@@ -1035,6 +1039,69 @@ describe("Conversation composer controller", () => {
     expect(ports.projection.refreshConversation).not.toHaveBeenCalled();
   });
 
+  it("queues the complete next Turn when a running Conversation cannot steer", async () => {
+    const ports = composerPorts();
+    const enqueue = vi.fn(async () => queueSnapshot("queue:1"));
+    ports.queue = {
+      snapshot: queueSnapshot("queue:0"),
+      loading: false,
+      enqueue,
+      reclaim: vi.fn(async () => queueSnapshot("queue:1")),
+    };
+    const scope = conversationScope({
+      productMode: "agent",
+      running: true,
+      selectedProviderId: "codex",
+      runControlState: { state: "running", canStop: true, canSteer: false, providerId: "codex", attemptId: "attempt-1" },
+      conversation: { id: "conversation-1", productMode: "agent", state: "active", selectedProviderId: "codex" },
+    });
+    const { result } = renderHook(() => useConversationComposerController(scope, ports));
+    act(() => {
+      result.current.setComposerText("next full turn");
+      result.current.setFileRefs([fileRef("src/app.ts")]);
+      result.current.setAttachments([attachment("attachment-1")]);
+    });
+
+    await act(async () => result.current.send());
+
+    expect(ports.actions.steer).not.toHaveBeenCalled();
+    expect(ports.actions.sendMessage).not.toHaveBeenCalled();
+    expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({
+      text: "next full turn",
+      contextRefs: [fileRef("src/app.ts")],
+      attachmentIds: ["attachment-1"],
+      providerId: "codex",
+      agentTurnMode: "default",
+      modelId: null,
+      reasoningEffort: null,
+    }));
+    expect(result.current.composerText).toBe("");
+    expect(result.current.fileRefs).toEqual([]);
+    expect(result.current.attachments).toEqual([]);
+  });
+
+  it("does not bypass an unavailable queue snapshot with a direct Turn", async () => {
+    const ports = composerPorts();
+    ports.queue = {
+      snapshot: null,
+      loading: false,
+      enqueue: vi.fn(async () => null),
+      reclaim: vi.fn(async () => null),
+    };
+    const { result } = renderHook(() => useConversationComposerController(conversationScope({
+      productMode: "agent",
+      selectedProviderId: "codex",
+      conversation: { id: "conversation-1", productMode: "agent", state: "active", selectedProviderId: "codex" },
+    }), ports));
+    act(() => result.current.setComposerText("must preserve FIFO"));
+
+    await act(async () => result.current.send());
+
+    expect(ports.actions.sendMessage).not.toHaveBeenCalled();
+    expect(ports.onError).toHaveBeenCalledWith(expect.stringContaining("队列状态不可用"));
+    expect(result.current.composerText).toBe("must preserve FIFO");
+  });
+
   it("reuses the same steering request id when a failed submission is retried unchanged", async () => {
     const ports = composerPorts();
     ports.ids.createClientRequestId
@@ -1044,7 +1111,7 @@ describe("Conversation composer controller", () => {
       .mockRejectedValueOnce(new Error("evidence write failed"))
       .mockResolvedValueOnce({ status: "accepted" });
     const { result } = renderHook(() => useConversationComposerController(
-      conversationScope({ running: true }),
+      conversationScope({ running: true, runControlState: { state: "running", canStop: true, canSteer: true } }),
       ports,
     ));
     act(() => result.current.setComposerText("same steer"));
@@ -1071,7 +1138,7 @@ describe("Conversation composer controller", () => {
           runControlState: { state: "running", canStop: true, canSteer: true, providerId: "codex", attemptId: "attempt-1" },
           conversation: { id: "conversation-1", productMode, state: "active", selectedProviderId: "codex" },
         })
-      : conversationScope({ productMode, running: true });
+      : conversationScope({ productMode, running: true, runControlState: { state: "running", canStop: true, canSteer: true } });
     const { result } = renderHook(() => useConversationComposerController(scope, ports));
     act(() => result.current.setComposerText("send this next"));
 
@@ -1088,7 +1155,7 @@ describe("Conversation composer controller", () => {
     const { result, rerender } = renderHook(
       ({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
       { initialProps: { scope: action === "steer"
-        ? conversationScope({ productMode: "harness", running: true })
+        ? conversationScope({ productMode: "harness", running: true, runControlState: { state: "running", canStop: true, canSteer: true } })
         : conversationScope({
           productMode: "agent",
           running: true,
@@ -1406,6 +1473,19 @@ function draftSnapshot(overrides: Partial<ComposerDraftSnapshot> = {}): Composer
     updatedAt: "2026-08-20T00:00:00.000Z",
     diagnostics: [],
     ...overrides,
+  };
+}
+
+function queueSnapshot(revision: string): ConversationTurnQueueSnapshot {
+  return {
+    projectId: "repo",
+    productMode: "agent",
+    conversationId: "conversation-1",
+    revision,
+    executionRevision: "execution:1",
+    items: [],
+    canEnqueue: true,
+    canDispatch: false,
   };
 }
 

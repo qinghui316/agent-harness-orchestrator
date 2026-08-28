@@ -65,7 +65,14 @@ export interface TopicThreadEntry {
   retryLineage?: ConversationRetryLineageEvidence;
   forkTarget?: ConversationForkTargetEvidence;
   forkBoundary?: ConversationForkBoundaryEvidence;
+  queuedTurnDispatch?: ConversationQueuedTurnDispatchEvidence;
   document?: CanonicalPlanDocument;
+}
+
+export interface ConversationQueuedTurnDispatchEvidence {
+  queueItemId: string;
+  dispatchRequestId: string;
+  requestHash: string;
 }
 
 export interface ConversationRetryTargetEvidence {
@@ -302,6 +309,7 @@ export type WorkbenchLiveEvent =
   | { event: "conversation.turn-control.invalidated"; data: { conversationId: string; attemptId: string } }
   | { event: "conversation.context.invalidated"; data: { conversationId: string } }
   | { event: "conversation.fork.completed"; data: { sourceConversationId: string; targetConversationId: string } }
+  | { event: "conversation.turn-queue.invalidated"; data: { conversationId: string } }
   | { event: "run.started"; data: WorkbenchLiveIdentity & { runId: string; actionType?: string; runtime?: string; taskIds?: string[] } }
   | { event: "run.status"; data: WorkbenchLiveIdentity & { actionRunId?: string; status: string; label?: string } }
   | { event: "assistant.delta"; data: WorkbenchLiveIdentity & { delta: string } }
@@ -381,6 +389,8 @@ export interface TopicMessageInput {
   agentTurnMode?: AgentTurnMode;
   modelId?: string | null;
   reasoningEffort?: string | null;
+  skillOverrides?: NewConversationSkillOverride[];
+  queuedTurnDispatch?: ConversationQueuedTurnDispatchEvidence;
 }
 
 export interface NewConversationSkillOverride {

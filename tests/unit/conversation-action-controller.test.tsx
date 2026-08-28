@@ -341,17 +341,14 @@ describe("Conversation action controller", () => {
     expect(harness.ports.consumeLiveStream).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ["steered", "accepted"],
-    ["pending-feedback", "pending-feedback"],
-  ] as const)("unwraps the Harness %s workflow settlement", async (serverStatus, expectedStatus) => {
+  it("unwraps the Harness steering workflow settlement", async () => {
     const harness = controllerHarness();
     harness.ports.postJson = vi.fn(async () => ({
       result: {
         actionRunId: "action-1",
         actionType: "conversation.steer",
         status: "completed",
-        result: { status: serverStatus },
+        result: { status: "steered" },
       },
       snapshot: snapshot("conversation-1"),
     }));
@@ -360,9 +357,9 @@ describe("Conversation action controller", () => {
     await expect(result.current.steerHarnessTurn({
       projectId: "repo-1",
       conversationId: "conversation-1",
-      clientRequestId: `steer-${serverStatus}`,
+      clientRequestId: "steer-accepted",
       text: "harness text",
-    })).resolves.toEqual({ status: expectedStatus });
+    })).resolves.toEqual({ status: "accepted" });
   });
 
   it("surfaces a failed Harness workflow settlement without treating it as accepted", async () => {

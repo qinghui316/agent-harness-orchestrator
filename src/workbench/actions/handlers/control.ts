@@ -71,15 +71,9 @@ export async function steerConversation(
     ? await deps.steerProviderTurn(project, conversationId, requestId, message)
     : null;
   if (!receipt) {
-    const runningRun = await deps.findRunningRunForChange(project, changeId);
-    await appendCanonicalTimelineEntry(project, changeId, { type: "user.message", text: message, status: "pending-feedback", runId: runningRun?.id }, live);
-    await appendCanonicalTimelineEntry(project, changeId, {
-      type: "assistant.message",
-      status: "pending-feedback",
-      runId: runningRun?.id,
-      text: "当前运行时不支持实时引导，已记录，将在下一轮生效。",
-    }, live);
-    return { status: "pending-feedback", realtime: false };
+    const error = new Error("Current Harness execution cannot accept realtime steering; enqueue a complete next Turn instead.");
+    error.name = "Conflict";
+    throw error;
   }
   if (receipt.status === "already-terminal") return { ...receipt, realtime: false };
 
