@@ -675,7 +675,7 @@ export function useConversationComposerController(
     let draftToken: string | null;
     try {
       draftToken = await draftSyncOwnerRef.current!.flush(currentScope.projectId, productMode);
-      await queue.enqueue({
+      const queued = await queue.enqueue({
         text: prepared.text || defaultAttachmentPrompt(attachmentIds.length),
         contextRefs: prepared.contextRefs,
         attachmentIds,
@@ -686,6 +686,12 @@ export function useConversationComposerController(
         reasoningEffort: productMode === "agent" ? reasoningEffort : null,
         expectedDraftUpdatedAt: draftToken,
       });
+      if (!queued) {
+        if (composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) {
+          portsRef.current.onError("当前会话队列已变化，请等待校准后重试。");
+        }
+        return;
+      }
       await draftSyncOwnerRef.current!.load(currentScope.projectId, productMode);
       if (composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) {
         setComposerText((current) => current === draft.composerText ? "" : current);
@@ -716,7 +722,13 @@ export function useConversationComposerController(
     }
     const productMode = composerProductMode(currentScope);
     const token = await draftSyncOwnerRef.current!.flush(currentScope.projectId, productMode);
-    await queue.reclaim(queueItemId, token);
+    const reclaimed = await queue.reclaim(queueItemId, token);
+    if (!reclaimed) {
+      if (composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) {
+        portsRef.current.onError("当前会话队列已变化，请等待校准后重试。");
+      }
+      return;
+    }
     const restored = await draftSyncOwnerRef.current!.load(currentScope.projectId, productMode);
     if (!restored || !composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) return;
     setComposerText(restored.text);

@@ -111,6 +111,10 @@ export class WorkbenchDatabase {
     return this.connection.transaction(operation)();
   }
 
+  immediateTransaction<T>(operation: () => T): T {
+    return this.connection.transaction(operation).immediate();
+  }
+
   close(): void {
     if (this.closed) return;
     this.closed = true;

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type Database from "better-sqlite3";
 import type { AgentTurnMode, ProviderId } from "../../provider-runtime/index.js";
 import { agentThreadSurfaceId } from "../../provider-runtime/agent-surface-id.js";
@@ -18,6 +19,7 @@ import type { TimelineRepository } from "./repositories/timeline-repository.js";
 import type { SkillRepository } from "./repositories/skill-repository.js";
 import { ComposerDraftConflictError, type ComposerDraftRepository } from "./repositories/composer-draft-repository.js";
 import type { ConversationTurnQueueRepository } from "./repositories/conversation-turn-queue-repository.js";
+import type { ConversationQueuedTurnDispatchEvidence } from "../types.js";
 
 export class WorkbenchUnitOfWork {
   constructor(
@@ -34,6 +36,7 @@ export class WorkbenchUnitOfWork {
   enqueueConversationTurn(input: {
     item: Omit<StoredConversationQueuedTurn, "position">;
     expectedQueueRevision: number;
+    expectedExecutionRevision: string;
     expectedDraftUpdatedAt: string | null;
   }): { queue: StoredConversationTurnQueue; item: StoredConversationQueuedTurn } {
     return this.db.transaction(() => {
@@ -56,6 +59,18 @@ export class WorkbenchUnitOfWork {
         updatedAt: input.item.updatedAt,
       });
       if (queue.revision !== input.expectedQueueRevision) throw conflict("Conversation Turn queue changed in another window.");
+      const conversation = this.conversations.readConversation(input.item.projectId, input.item.conversationId);
+      const activeAttemptIds = this.providerAttempts.listProviderAttempts(input.item.projectId, input.item.conversationId)
+        .filter((attempt) => attempt.graphScopeId === conversation?.currentGraphScopeId
+          && (attempt.status === "queued" || attempt.status === "running"))
+        .map((attempt) => attempt.attemptId);
+      if (!conversation || conversation.deletedAt || conversation.state !== "active"
+        || conversation.productMode !== input.item.productMode
+        || (conversation.productMode === "agent" && conversation.selectedProviderId !== input.item.providerId)
+        || executionRevision(conversation.currentGraphScopeId, conversation.completedTurnSequence, activeAttemptIds)
+          !== input.expectedExecutionRevision) {
+        throw conflict("Conversation execution changed before the queued Turn could be captured.");
+      }
       if (this.conversationTurnQueues.listItems(input.item.projectId, input.item.conversationId).length >= 20) {
         throw conflict("Conversation Turn queue already contains 20 active items.");
       }
@@ -226,10 +241,18 @@ export class WorkbenchUnitOfWork {
     agentModelId: string | null;
     agentReasoningEffort: string | null;
     skillOverrides: Array<{ skillId: string; enabled: boolean }>;
+    queuedTurnDispatch?: ConversationQueuedTurnDispatchEvidence;
+    allowActiveQueue?: boolean;
     updatedAt: string;
     message: StoredTopicMessageWrite;
   }): StoredTopicMessage {
     return this.db.transaction(() => {
+      this.assertConversationQueueCommit(
+        input.projectId,
+        input.conversationId,
+        input.queuedTurnDispatch,
+        input.allowActiveQueue ?? false,
+      );
       this.conversations.updateAgentTurnPreferences(input);
       const message = this.timeline.appendMessage(input.message);
       this.applyConversationSkillOverrides(input.projectId, input.conversationId, input.skillOverrides, input.updatedAt);
@@ -242,13 +265,44 @@ export class WorkbenchUnitOfWork {
     conversationId: string;
     message: StoredTopicMessageWrite;
     skillOverrides: Array<{ skillId: string; enabled: boolean }>;
+    queuedTurnDispatch?: ConversationQueuedTurnDispatchEvidence;
+    allowActiveQueue?: boolean;
     updatedAt: string;
   }): StoredTopicMessage {
     return this.db.transaction(() => {
+      this.assertConversationQueueCommit(
+        input.projectId,
+        input.conversationId,
+        input.queuedTurnDispatch,
+        input.allowActiveQueue ?? false,
+      );
       const message = this.timeline.appendMessage(input.message);
       this.applyConversationSkillOverrides(input.projectId, input.conversationId, input.skillOverrides, input.updatedAt);
       return message;
     }).immediate();
+  }
+
+  private assertConversationQueueCommit(
+    projectId: string,
+    conversationId: string,
+    dispatch: ConversationQueuedTurnDispatchEvidence | undefined,
+    allowActiveQueue: boolean,
+  ): void {
+    const head = this.conversationTurnQueues.listItems(projectId, conversationId)[0];
+    if (allowActiveQueue) {
+      if (dispatch) throw conflict("A governance settlement cannot impersonate a queued Turn dispatch.");
+      return;
+    }
+    if (!head) {
+      if (dispatch) throw conflict("Queued Turn dispatch no longer matches an active FIFO item.");
+      return;
+    }
+    if (!dispatch || head.status !== "dispatching"
+      || head.queueItemId !== dispatch.queueItemId
+      || head.dispatchRequestId !== dispatch.dispatchRequestId
+      || head.requestHash !== dispatch.requestHash) {
+      throw conflict("An active Conversation Turn queue must dispatch its exact FIFO head before another Turn.");
+    }
   }
 
   private applyConversationSkillOverrides(
@@ -829,4 +883,9 @@ function conflict(message: string): Error {
   const error = new Error(message);
   error.name = "Conflict";
   return error;
+}
+
+function executionRevision(graphScopeId: string | null, completedTurnSequence: number, attemptIds: string[]): string {
+  const payload = JSON.stringify({ graphScopeId, completedTurnSequence, attemptIds: [...attemptIds].sort() });
+  return `execution:${createHash("sha256").update(payload).digest("hex")}`;
 }

@@ -138,6 +138,7 @@ export class ConversationTurnQueueOwner {
       const now = new Date().toISOString();
       database.unitOfWork.enqueueConversationTurn({
         expectedQueueRevision: decodeRevision(normalized.expectedRevision),
+        expectedExecutionRevision: normalized.expectedExecutionRevision,
         expectedDraftUpdatedAt: normalized.expectedDraftUpdatedAt,
         item: {
           projectId: paths.projectId,
@@ -218,9 +219,10 @@ export class ConversationTurnQueueOwner {
     let reconciled = 0;
     try {
       for (const item of database.conversationTurnQueues.listDispatching(paths.projectId)) {
-        if (!hasStoredDispatchEvidence(database.timeline.listConversationMessages(paths.projectId, item.conversationId), item)) {
-          continue;
-        }
+        const hasEvidence = hasStoredDispatchEvidence(
+          database.timeline.listConversationMessages(paths.projectId, item.conversationId),
+          item,
+        );
         database.transaction(() => {
           const current = database.conversationTurnQueues.readItem(paths.projectId, item.conversationId, item.queueItemId);
           const queue = database.conversationTurnQueues.readQueue(paths.projectId, item.conversationId);
@@ -231,10 +233,10 @@ export class ConversationTurnQueueOwner {
             conversationId: item.conversationId,
             queueItemId: item.queueItemId,
             expectedStatus: "dispatching",
-            status: "dispatched",
+            status: hasEvidence ? "dispatched" : "queued",
             diagnostic: null,
             updatedAt: now,
-            dispatchedAt: now,
+            dispatchedAt: hasEvidence ? now : null,
           });
           database.conversationTurnQueues.advanceRevision(paths.projectId, item.conversationId, queue.revision, now);
           invalidated.add(item.conversationId);
@@ -304,10 +306,28 @@ export class ConversationTurnQueueOwner {
     const paths = runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
     const database = await openProjectRuntimeWorkbenchDatabase(paths);
     try {
-      return database.transaction(() => {
+      return database.immediateTransaction(() => {
+        const conversation = database.conversations.readConversation(paths.projectId, conversationId);
         const queue = database.conversationTurnQueues.readQueue(paths.projectId, conversationId);
         const head = database.conversationTurnQueues.listItems(paths.projectId, conversationId)[0];
-        if (!queue || queue.revision !== expectedRevision || head?.queueItemId !== queueItemId || head.status !== "queued" || head.productMode !== productMode) {
+        const activeAttempts = database.providerAttempts.listProviderAttempts(paths.projectId, conversationId)
+          .filter((attempt) => attempt.graphScopeId === conversation?.currentGraphScopeId
+            && (attempt.status === "queued" || attempt.status === "running"));
+        const rows = database.timeline.listConversationMessages(paths.projectId, conversationId);
+        const busy = activeAttempts.length > 0
+          || hasPendingInteraction(rows)
+          || database.conversationForks.listIncomplete(paths.projectId)
+            .some((operation) => operation.sourceConversationId === conversationId)
+          || rows.some((row) => row.type === "provider.context-compaction"
+            && (row.status === "submitting" || row.status === "compacting"))
+          || Boolean(conversation?.productMode === "harness" && conversation.boundChangeId
+            && database.decisions.listDecisions(paths.projectId, conversation.boundChangeId)
+              .some((decision) => decision.status === "pending" || decision.status === "requested-changes"));
+        if (!conversation || conversation.deletedAt || conversation.state !== "active"
+          || conversation.productMode !== productMode || busy
+          || !queue || queue.revision !== expectedRevision || head?.queueItemId !== queueItemId
+          || head.status !== "queued" || head.productMode !== productMode
+          || (productMode === "agent" && head.providerId !== conversation.selectedProviderId)) {
           throw conflict("Conversation queued Turn is no longer the dispatchable FIFO head.");
         }
         const claimed = database.conversationTurnQueues.transitionItem({
@@ -559,6 +579,11 @@ function uncertainDispatch(cause: unknown): Error {
   error.name = "ConversationTurnQueueDispatchUncertain";
   return error;
 }
-function boundedDiagnostic(cause: unknown): string { const message = cause instanceof Error ? cause.message : String(cause); return message.replace(/[A-Za-z]:\\[^\s]+/g, "[path]").slice(0, 240); }
+function boundedDiagnostic(cause: unknown): string {
+  if (!(cause instanceof Error)) return "Queued Turn dispatch was rejected before execution.";
+  if (cause.name === "BadRequest") return "Queued Turn content is no longer valid for dispatch.";
+  if (cause.name === "NotFound") return "A queued Turn dependency is no longer available.";
+  return "Conversation state changed before the queued Turn could be dispatched.";
+}
 function conflict(message: string): Error { const error = new Error(message); error.name = "Conflict"; return error; }
 function badRequest(message: string): Error { const error = new Error(message); error.name = "BadRequest"; return error; }

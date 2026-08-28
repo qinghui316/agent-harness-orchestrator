@@ -110,6 +110,28 @@ describe("ConversationTurnQueueOwner", () => {
     }
   });
 
+  it("rechecks execution identity inside the enqueue transaction", async () => {
+    const owner = createOwner();
+    const initial = await owner.read(project, "agent", conversationId);
+    const read = owner.read.bind(owner);
+    vi.spyOn(owner, "read").mockImplementationOnce(async (...args) => {
+      const snapshot = await read(...args);
+      await insertRunningAttempt("attempt-raced-enqueue");
+      return snapshot;
+    });
+
+    await expect(owner.enqueue(project, queueRequest(initial.revision, initial.executionRevision!)))
+      .rejects.toMatchObject({ name: "Conflict" });
+
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      expect(database.conversationTurnQueues.listItems(projectId, conversationId)).toEqual([]);
+      expect(database.drafts.readDraft(projectId, "agent")?.text).toBe("queued follow-up");
+    } finally {
+      database.close();
+    }
+  });
+
   it("reclaims only into an unchanged empty draft and restores the complete queued input", async () => {
     const owner = createOwner();
     const initial = await owner.read(project, "agent", conversationId);
@@ -274,6 +296,37 @@ describe("ConversationTurnQueueOwner", () => {
     });
   });
 
+  it("rechecks pending interactions inside the dispatch claim transaction", async () => {
+    const post = vi.fn();
+    const owner = createOwner(post);
+    const initial = await owner.read(project, "agent", conversationId);
+    const queued = await owner.enqueue(project, queueRequest(initial.revision, initial.executionRevision!));
+    const read = owner.read.bind(owner);
+    vi.spyOn(owner, "read").mockImplementationOnce(async (...args) => {
+      const snapshot = await read(...args);
+      const database = await openProjectRuntimeWorkbenchDatabase(paths);
+      try {
+        database.timeline.appendMessage({
+          ...canonicalQueueMessage("not-a-dispatch", "not-a-dispatch"),
+          id: "approval-raced-dispatch",
+          type: "provider.approval",
+          rawJson: JSON.stringify({ providerApproval: { status: "pending" } }),
+        });
+      } finally {
+        database.close();
+      }
+      return snapshot;
+    });
+
+    await expect(owner.dispatchNext(project, "agent", conversationId, queued.revision))
+      .rejects.toMatchObject({ name: "Conflict" });
+    expect(post).not.toHaveBeenCalled();
+    await expect(read(project, "agent", conversationId)).resolves.toMatchObject({
+      items: [expect.objectContaining({ status: "queued" })],
+      canDispatch: false,
+    });
+  });
+
   it("settles a restart-time dispatch only when exact canonical evidence exists", async () => {
     const owner = createOwner();
     const initial = await owner.read(project, "agent", conversationId);
@@ -302,6 +355,88 @@ describe("ConversationTurnQueueOwner", () => {
         .toMatchObject({ status: "dispatched" });
     } finally {
       verified.close();
+    }
+  });
+
+  it("restores a restart-time dispatch when no canonical dispatch evidence exists", async () => {
+    const owner = createOwner();
+    const initial = await owner.read(project, "agent", conversationId);
+    const queued = await owner.enqueue(project, queueRequest(initial.revision, initial.executionRevision!));
+    const queueItemId = queued.items[0]!.queueItemId;
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      const queue = database.conversationTurnQueues.readQueue(projectId, conversationId)!;
+      database.transaction(() => {
+        database.conversationTurnQueues.transitionItem({
+          projectId, conversationId, queueItemId,
+          expectedStatus: "queued", status: "dispatching", updatedAt: now,
+        });
+        database.conversationTurnQueues.advanceRevision(projectId, conversationId, queue.revision, now);
+      });
+    } finally {
+      database.close();
+    }
+
+    await expect(owner.reconcileProject(paths)).resolves.toBe(1);
+    const verified = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      expect(verified.conversationTurnQueues.readItem(projectId, conversationId, queueItemId))
+        .toMatchObject({ status: "queued", retryCount: 0 });
+    } finally {
+      verified.close();
+    }
+  });
+
+  it("allows only the exact dispatching FIFO head to commit a top-level message", async () => {
+    const owner = createOwner();
+    const initial = await owner.read(project, "agent", conversationId);
+    const queued = await owner.enqueue(project, queueRequest(initial.revision, initial.executionRevision!));
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      const item = database.conversationTurnQueues.readItem(projectId, conversationId, queued.items[0]!.queueItemId)!;
+      const ordinaryMessage = { ...canonicalQueueMessage("ordinary", "ordinary"), id: "ordinary-bypass", rawJson: "{}" };
+      expect(() => database.unitOfWork.commitAgentConversationMessage({
+        projectId,
+        conversationId,
+        expectedAgentTurnMode: "plan",
+        expectedAgentModelId: "gpt-test",
+        expectedAgentReasoningEffort: "high",
+        agentTurnMode: "plan",
+        agentModelId: "gpt-test",
+        agentReasoningEffort: "high",
+        skillOverrides: [],
+        updatedAt: now,
+        message: ordinaryMessage,
+      })).toThrow(/exact FIFO head/);
+
+      const queue = database.conversationTurnQueues.readQueue(projectId, conversationId)!;
+      database.transaction(() => {
+        database.conversationTurnQueues.transitionItem({
+          projectId, conversationId, queueItemId: item.queueItemId,
+          expectedStatus: "queued", status: "dispatching", updatedAt: now,
+        });
+        database.conversationTurnQueues.advanceRevision(projectId, conversationId, queue.revision, now);
+      });
+      expect(() => database.unitOfWork.commitAgentConversationMessage({
+        projectId,
+        conversationId,
+        expectedAgentTurnMode: "plan",
+        expectedAgentModelId: "gpt-test",
+        expectedAgentReasoningEffort: "high",
+        agentTurnMode: "plan",
+        agentModelId: "gpt-test",
+        agentReasoningEffort: "high",
+        skillOverrides: [],
+        queuedTurnDispatch: {
+          queueItemId: item.queueItemId,
+          dispatchRequestId: item.dispatchRequestId,
+          requestHash: item.requestHash,
+        },
+        updatedAt: now,
+        message: { ...ordinaryMessage, id: "exact-queued-dispatch" },
+      })).not.toThrow();
+    } finally {
+      database.close();
     }
   });
 
@@ -490,6 +625,36 @@ function queueRequest(expectedRevision: string, expectedExecutionRevision: strin
     modelId: "gpt-test",
     reasoningEffort: "high",
   };
+}
+
+async function insertRunningAttempt(attemptId: string): Promise<void> {
+  const database = await openProjectRuntimeWorkbenchDatabase(paths);
+  try {
+    database.providerAttempts.createProviderAttempt({
+      projectId,
+      conversationId,
+      attemptId,
+      productMode: "agent",
+      graphScopeId: "graph-current",
+      changeId: null,
+      agentTaskId: null,
+      roleId: "main-agent",
+      operationProfile: "agent",
+      providerId: "codex",
+      nativeSessionId: null,
+      model: null,
+      capabilitySnapshot: { providerId: "codex", effectiveModel: null } as never,
+      effectiveSkillInputs: [],
+      handoffHash: `handoff-${attemptId}`,
+      deliveredThroughCompletedTurn: 0,
+      worktreeId: null,
+      status: "running",
+      createdAt: now,
+      updatedAt: now,
+    });
+  } finally {
+    database.close();
+  }
 }
 
 async function seedConversation(productMode: "agent" | "harness"): Promise<void> {

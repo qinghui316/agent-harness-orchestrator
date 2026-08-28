@@ -1102,6 +1102,36 @@ describe("Conversation composer controller", () => {
     expect(result.current.composerText).toBe("must preserve FIFO");
   });
 
+  it("preserves the complete draft when queue calibration rejects enqueue before any effect", async () => {
+    const ports = composerPorts();
+    ports.queue = {
+      snapshot: queueSnapshot("queue:0"),
+      loading: false,
+      enqueue: vi.fn(async () => null),
+      reclaim: vi.fn(async () => null),
+    };
+    const { result } = renderHook(() => useConversationComposerController(conversationScope({
+      productMode: "agent",
+      running: true,
+      selectedProviderId: "codex",
+      runControlState: { state: "running", canStop: true, canSteer: false, providerId: "codex", attemptId: "attempt-1" },
+      conversation: { id: "conversation-1", productMode: "agent", state: "active", selectedProviderId: "codex" },
+    }), ports));
+    act(() => {
+      result.current.setComposerText("preserve after stale queue");
+      result.current.setFileRefs([fileRef("src/app.ts")]);
+      result.current.setAttachments([attachment("attachment-1")]);
+    });
+
+    await act(async () => result.current.send());
+
+    expect(ports.queue.enqueue).toHaveBeenCalledOnce();
+    expect(result.current.composerText).toBe("preserve after stale queue");
+    expect(result.current.fileRefs).toEqual([fileRef("src/app.ts")]);
+    expect(result.current.attachments).toEqual([attachment("attachment-1")]);
+    expect(ports.onError).toHaveBeenCalledWith("当前会话队列已变化，请等待校准后重试。");
+  });
+
   it("reuses the same steering request id when a failed submission is retried unchanged", async () => {
     const ports = composerPorts();
     ports.ids.createClientRequestId

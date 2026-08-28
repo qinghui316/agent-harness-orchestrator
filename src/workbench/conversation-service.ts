@@ -832,6 +832,7 @@ async function commitTopLevelConversationMessage(
         agentModelId: parsed.modelId ?? null,
         agentReasoningEffort: parsed.reasoningEffort ?? null,
         skillOverrides: parsed.skillOverrides,
+        queuedTurnDispatch: parsed.queuedTurnDispatch,
         updatedAt: now,
         message: userWrite,
       });
@@ -842,6 +843,8 @@ async function commitTopLevelConversationMessage(
         conversationId,
         message: userWrite,
         skillOverrides: parsed.skillOverrides,
+        queuedTurnDispatch: parsed.queuedTurnDispatch,
+        allowActiveQueue: Boolean(planHandoff),
         updatedAt: now,
       }));
     }
