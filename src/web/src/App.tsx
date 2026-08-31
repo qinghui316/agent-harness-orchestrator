@@ -7,7 +7,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactElement,
   type PointerEvent as ReactPointerEvent } from "react";
-import { CircleAlert, LoaderCircle, XCircle } from "lucide-react";
+import { CircleAlert, LoaderCircle, PanelLeftClose, PanelLeftOpen, XCircle } from "lucide-react";
 import { fetchJson } from "./api.js";
 import { MainConversationView,
   AgentOfficePanel,
@@ -115,6 +115,7 @@ export function App(): ReactElement {
   const appMode = useAppModeController();
   const presentation = useMemo(() => modePresentationPolicy(appMode.productMode), [appMode.productMode]);
   const [orchestrationOpen, setOrchestrationOpen] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarSearch, setSidebarSearch] = useState("");
   const [projectMenuMode, setProjectMenuMode] = useState<"closed" | "add" | "new">("closed");
   const [projectDetailsId, setProjectDetailsId] = useState<string | null>(null);
@@ -352,10 +353,12 @@ export function App(): ReactElement {
 
   async function openProject(projectId: string): Promise<void> {
     await session.openProject(projectId);
+    setMobileSidebarOpen(false);
   }
 
   async function beginNewConversation(projectId = selectedProjectId ?? undefined): Promise<void> {
     await session.beginNewConversation(projectId);
+    setMobileSidebarOpen(false);
   }
 
   async function toggleProjectFolder(projectId: string): Promise<void> {
@@ -364,6 +367,7 @@ export function App(): ReactElement {
 
   async function chooseConversation(projectId: string, conversationId: string): Promise<void> {
     await session.chooseConversation(projectId, conversationId);
+    setMobileSidebarOpen(false);
   }
 
   async function removeProject(projectId: string): Promise<void> {
@@ -977,7 +981,7 @@ export function App(): ReactElement {
 
   return (
     <div
-      className={`app-shell ${settingsOpen ? "settings-open" : rightToolRailState.mode === "closed" ? "right-rail-closed" : "right-rail-open"} sidebar-expanded${orchestrationOpen ? " orchestration-open" : ""}`}
+      className={`app-shell ${settingsOpen ? "settings-open" : rightToolRailState.mode === "closed" ? "right-rail-closed" : "right-rail-open"} sidebar-expanded${orchestrationOpen ? " orchestration-open" : ""}${mobileSidebarOpen ? " mobile-sidebar-open" : ""}`}
       style={appShellStyle}
     >
       {!settingsOpen ? <div className="product-mode-shell-control">
@@ -988,7 +992,10 @@ export function App(): ReactElement {
             aria-pressed={appMode.productMode === "agent"}
             aria-label={modeButtonLabel("Agent", appMode.productMode === "agent", modeActivity.snapshot?.agent.state)}
             title={modeButtonTitle("Agent", appMode.productMode === "agent", modeActivity.snapshot?.agent.state)}
-            onClick={() => appMode.selectMode("agent")}
+            onClick={() => {
+              setMobileSidebarOpen(false);
+              appMode.selectMode("agent");
+            }}
           ><span>Agent</span><ProductModeActivityIcon active={appMode.productMode === "agent"} state={modeActivity.snapshot?.agent.state} /></button>
           <button
             type="button"
@@ -996,12 +1003,36 @@ export function App(): ReactElement {
             aria-pressed={appMode.productMode === "harness"}
             aria-label={modeButtonLabel("AHO", appMode.productMode === "harness", modeActivity.snapshot?.harness.state)}
             title={modeButtonTitle("AHO", appMode.productMode === "harness", modeActivity.snapshot?.harness.state)}
-            onClick={() => appMode.selectMode("harness")}
+            onClick={() => {
+              setMobileSidebarOpen(false);
+              appMode.selectMode("harness");
+            }}
           ><span>AHO</span><ProductModeActivityIcon active={appMode.productMode === "harness"} state={modeActivity.snapshot?.harness.state} /></button>
         </div>
       </div> : null}
       {!settingsOpen ? (
-        <aside className="sidebar sidebar-expanded" aria-label="左侧项目栏">
+        <button
+          type="button"
+          className="icon-button mobile-sidebar-toggle"
+          aria-label={mobileSidebarOpen ? "关闭会话栏" : "打开会话栏"}
+          aria-controls="project-conversation-sidebar"
+          aria-expanded={mobileSidebarOpen}
+          title={mobileSidebarOpen ? "关闭会话栏" : "打开会话栏"}
+          onClick={() => setMobileSidebarOpen((open) => !open)}
+        >
+          {mobileSidebarOpen ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
+        </button>
+      ) : null}
+      {!settingsOpen && mobileSidebarOpen ? (
+        <button
+          type="button"
+          className="mobile-sidebar-backdrop"
+          aria-label="关闭会话栏"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      ) : null}
+      {!settingsOpen ? (
+        <aside id="project-conversation-sidebar" className="sidebar sidebar-expanded" aria-label="左侧项目栏">
           <div className="brand compact-brand" aria-hidden="true" />
               <ProjectConversationSidebar
                 projects={projects}

@@ -117,6 +117,22 @@ describe("Workbench App owner composition", () => {
     await waitFor(() => expect(screen.queryByTestId("agent-office-center-view")).toBeNull());
   });
 
+  it("opens the shared conversation sidebar on mobile and closes it after navigation", async () => {
+    installMatchMedia(true);
+    installApiFixture(createSnapshot());
+    const view = render(<App />);
+    await screen.findByText("Canonical Main reply");
+
+    const toggle = screen.getByRole("button", { name: "打开会话栏" });
+    fireEvent.click(toggle);
+    expect(view.container.querySelector(".app-shell")?.classList.contains("mobile-sidebar-open")).toBe(true);
+    expect(view.container.querySelector('[aria-controls="project-conversation-sidebar"]')?.getAttribute("aria-expanded")).toBe("true");
+
+    fireEvent.click(view.container.querySelector(".conversation-row")!);
+    await waitFor(() => expect(view.container.querySelector(".app-shell")?.classList.contains("mobile-sidebar-open")).toBe(false));
+    expect(view.container.querySelector('[aria-controls="project-conversation-sidebar"]')?.getAttribute("aria-expanded")).toBe("false");
+  });
+
   it("uses token-bound destructive project removal while preserving source owners in the warning", async () => {
     installApiFixture(createSnapshot());
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);

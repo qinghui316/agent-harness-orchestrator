@@ -61,6 +61,11 @@
   left: 14px;
 }
 
+.mobile-sidebar-toggle,
+.mobile-sidebar-backdrop {
+  display: none;
+}
+
 .product-mode-segment {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -159,6 +164,29 @@
   .product-mode-shell-control {
     top: 8px;
     left: 10px;
+    z-index: 43;
+  }
+
+  .mobile-sidebar-toggle {
+    position: fixed;
+    z-index: 44;
+    top: 8px;
+    left: 150px;
+    display: inline-flex;
+    width: 32px;
+    height: 32px;
+  }
+
+  .mobile-sidebar-backdrop {
+    position: fixed;
+    z-index: 39;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    background: var(--overlay);
   }
 
   .app-shell:not(.settings-open) {
@@ -168,6 +196,15 @@
 
   .app-shell:not(.settings-open) > .sidebar {
     display: none;
+  }
+
+  .app-shell.mobile-sidebar-open:not(.settings-open) > .sidebar {
+    position: fixed;
+    z-index: 42;
+    inset: 0 auto 0 0;
+    display: flex;
+    width: min(88vw, 340px);
+    box-shadow: var(--shadow-lg);
   }
 
   .app-shell.right-rail-open:not(.settings-open):not(.orchestration-open) {
