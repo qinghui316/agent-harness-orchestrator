@@ -297,7 +297,10 @@ export async function listWorkbenchTopics(input: WorkbenchProjectInput, productM
       selectedProviderId: conversation.selectedProviderId,
       completedTurnSequence: conversation.completedTurnSequence,
       timelineRevision: conversation.timelineRevision,
-      forkBoundary: forkOperation ? forkBoundaryFromOperation(forkOperation) : undefined,
+      forkBoundary: forkOperation ? forkBoundaryFromOperation(
+        forkOperation,
+        Boolean(store.conversations.readConversation(paths.projectId, forkOperation.sourceConversationId, { includeDeleted: true })?.deletedAt),
+      ) : undefined,
       lifecycle,
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
@@ -350,7 +353,10 @@ async function buildAgentModeSnapshot(
       selectedProviderId: conversation.selectedProviderId,
       completedTurnSequence: conversation.completedTurnSequence,
       timelineRevision: conversation.timelineRevision,
-      forkBoundary: forkOperation ? forkBoundaryFromOperation(forkOperation) : undefined,
+      forkBoundary: forkOperation ? forkBoundaryFromOperation(
+        forkOperation,
+        Boolean(database.conversations.readConversation(paths.projectId, forkOperation.sourceConversationId, { includeDeleted: true })?.deletedAt),
+      ) : undefined,
       lifecycle,
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
@@ -477,11 +483,15 @@ async function buildAgentModeSnapshot(
   }
 }
 
-function forkBoundaryFromOperation(operation: import("../../persistence/contracts.js").StoredConversationForkOperation): import("../../types.js").ConversationForkBoundaryEvidence {
+function forkBoundaryFromOperation(
+  operation: import("../../persistence/contracts.js").StoredConversationForkOperation,
+  sourceDeleted: boolean,
+): import("../../types.js").ConversationForkBoundaryEvidence {
   return {
     sourceConversationId: operation.sourceConversationId,
     sourceMessageId: operation.sourceMessageId,
     completedTurnSequence: operation.anchorCompletedTurnSequence,
+    sourceDeleted,
   };
 }
 

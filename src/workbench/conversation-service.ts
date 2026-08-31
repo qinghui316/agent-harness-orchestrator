@@ -741,6 +741,9 @@ async function resolveStoredConversationIdentity(
       error.name = "NotFound";
       throw error;
     }
+    if (conversation.deletedAt || conversation.state !== "active") {
+      throw conflict("Conversation is not active.");
+    }
     return {
       conversationId: conversation.conversationId,
       conversation,
@@ -769,6 +772,7 @@ async function commitTopLevelConversationMessage(
   try {
     const conversation = database.conversations.readConversation(projectId, conversationId);
     if (!conversation) throw new Error(`Conversation not found: ${conversationId}.`);
+    if (conversation.deletedAt || conversation.state !== "active") throw conflict("Conversation is not active.");
     turnRouter.assertRequestedMode(conversation, identity.conversation.productMode);
     const delivery = new CanonicalTimelineDelivery(database, conversation.productMode, live);
     const now = new Date().toISOString();

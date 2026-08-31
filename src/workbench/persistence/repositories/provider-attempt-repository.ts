@@ -183,14 +183,13 @@ createProviderAttempt(
     } else if (productMode !== "harness") {
       throw new Error("Provider attempts without a Conversation must explicitly use harness mode.");
     }
-    this.db.prepare(`
-      INSERT INTO provider_attempts (
-        project_id, conversation_id, attempt_id, product_mode, agent_turn_mode, graph_scope_id, provider_id,
-        change_id, agent_task_id, role_id, parent_agent_surface_id, operation_profile,
-        native_session_id, model_json, reasoning_effort, capability_snapshot_json, effective_skill_inputs_json, handoff_hash,
-        delivered_through_completed_turn, worktree_id, status, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    const columns = `(
+      project_id, conversation_id, attempt_id, product_mode, agent_turn_mode, graph_scope_id, provider_id,
+      change_id, agent_task_id, role_id, parent_agent_surface_id, operation_profile,
+      native_session_id, model_json, reasoning_effort, capability_snapshot_json, effective_skill_inputs_json, handoff_hash,
+      delivered_through_completed_turn, worktree_id, status, created_at, updated_at
+    )`;
+    const values = [
       attempt.projectId,
       attempt.conversationId,
       attempt.attemptId,
@@ -214,7 +213,29 @@ createProviderAttempt(
       attempt.status,
       attempt.createdAt,
       attempt.updatedAt,
-    );
+    ] as const;
+    if (!attempt.conversationId) {
+      this.db.prepare(`INSERT INTO provider_attempts ${columns} VALUES (${values.map(() => "?").join(", ")})`).run(...values);
+      return;
+    }
+    const inserted = this.db.prepare(`
+      INSERT INTO provider_attempts ${columns}
+      SELECT ${values.map(() => "?").join(", ")}
+      FROM conversations conversation
+      WHERE conversation.project_id = ? AND conversation.conversation_id = ?
+        AND conversation.state = 'active' AND conversation.deleted_at IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM conversation_lifecycle_operations lifecycle
+          WHERE lifecycle.project_id = conversation.project_id
+            AND lifecycle.conversation_id = conversation.conversation_id
+            AND lifecycle.status IN ('pending', 'submitting')
+        )
+    `).run(...values, attempt.projectId, attempt.conversationId);
+    if (inserted.changes !== 1) {
+      const error = new Error("Conversation is not active or has a lifecycle operation in progress.");
+      error.name = "Conflict";
+      throw error;
+    }
   }
 
 deleteProviderAttempt(projectId: string, attemptId: string, expectedRoleId: string): boolean {

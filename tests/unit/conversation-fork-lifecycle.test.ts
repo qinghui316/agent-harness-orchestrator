@@ -115,6 +115,7 @@ describe("ConversationForkLifecycleOwner", () => {
           sourceConversationId: conversationId,
           sourceMessageId: "assistant-1",
           completedTurnSequence: 1,
+          sourceDeleted: false,
         },
       }),
     ]));

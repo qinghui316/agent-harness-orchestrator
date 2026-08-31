@@ -1132,8 +1132,10 @@ export function App(): ReactElement {
             </header>
             {activeTopic.forkBoundary ? (
               <div className="conversation-fork-boundary" data-testid="conversation-fork-boundary">
-                <span>此会话从第 {activeTopic.forkBoundary.completedTurnSequence} 个已完成回合分叉，源会话保持不变。</span>
-                <button type="button" className="outline-button" onClick={() => selectedProjectId && void chooseConversation(selectedProjectId, activeTopic.forkBoundary!.sourceConversationId)}>查看源会话</button>
+                <span>此会话从第 {activeTopic.forkBoundary.completedTurnSequence} 个已完成回合分叉，{activeTopic.forkBoundary.sourceDeleted ? "源会话已删除。" : "源会话保持不变。"}</span>
+                {!activeTopic.forkBoundary.sourceDeleted ? (
+                  <button type="button" className="outline-button" onClick={() => selectedProjectId && void chooseConversation(selectedProjectId, activeTopic.forkBoundary!.sourceConversationId)}>查看源会话</button>
+                ) : null}
               </div>
             ) : null}
 

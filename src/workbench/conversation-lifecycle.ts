@@ -248,13 +248,23 @@ export class ConversationLifecycleOwner {
         updatedAt: new Date().toISOString(),
       };
       if (request.action === "archive") {
-        database.transaction(() => {
+        database.immediateTransaction(() => {
+          conversation = requireConversation(database, paths.projectId, request.productMode, request.conversationId);
+          if (conversation.lifecycleRevision !== revision) throw conflict("Conversation lifecycle revision is stale.");
+          assertActionAllowed(conversation, request.action);
+          const transactionalBlocker = lifecycleBlocker(database, conversation, this.options);
+          if (transactionalBlocker) throw conflict(transactionalBlocker);
           database.conversationLifecycle.create(operation);
           conversation = database.conversations.archiveAgentConversation(paths.projectId, conversation.conversationId, revision, operation.createdAt);
         });
       } else if (request.action === "delete") {
         attachmentIds = attachmentIdsForConversation(database, paths.projectId, conversation.conversationId);
-        database.transaction(() => {
+        database.immediateTransaction(() => {
+          conversation = requireConversation(database, paths.projectId, request.productMode, request.conversationId);
+          if (conversation.lifecycleRevision !== revision) throw conflict("Conversation lifecycle revision is stale.");
+          assertActionAllowed(conversation, request.action);
+          const transactionalBlocker = lifecycleBlocker(database, conversation, this.options);
+          if (transactionalBlocker) throw conflict(transactionalBlocker);
           database.conversationLifecycle.create(operation);
           database.unitOfWork.deleteArchivedConversation({
             projectId: paths.projectId,

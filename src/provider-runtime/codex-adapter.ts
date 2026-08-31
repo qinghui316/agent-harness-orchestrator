@@ -300,8 +300,45 @@ export async function setCodexSessionArchived(
   }
   const generation = defaultProjectRemovalFence.capture(request.projectId);
   const host = defaultCodexAppServerHostRegistry.hostForProject(request.projectId, request.cwd);
-  const lease = await host.acquire({ onLine() {}, onStderr() {}, onExit() {} });
+  const expectedMethod = request.archived ? "thread/archived" : "thread/unarchived";
+  let notificationSettled = false;
+  let resolveNotification!: () => void;
+  let rejectNotification!: (error: Error) => void;
+  const notification = new Promise<void>((resolve, reject) => {
+    resolveNotification = resolve;
+    rejectNotification = reject;
+  });
+  void notification.catch(() => undefined);
+  const notificationTimeout = setTimeout(() => {
+    if (notificationSettled) return;
+    notificationSettled = true;
+    rejectNotification(new Error(`Codex session lifecycle notification timed out for ${expectedMethod}.`));
+  }, 10_000);
+  let lease: Awaited<ReturnType<typeof host.acquire>> | null = null;
   try {
+    lease = await host.acquire({
+      onLine(line) {
+        if (notificationSettled || !isProjectGenerationCurrent(request.projectId, generation)) return;
+        let payload: Record<string, unknown>;
+        try { payload = JSON.parse(line) as Record<string, unknown>; } catch { return; }
+        if (payload.method !== expectedMethod || !payload.params || typeof payload.params !== "object") return;
+        const params = payload.params as Record<string, unknown>;
+        const threadId = typeof params.threadId === "string"
+          ? params.threadId
+          : typeof params.thread_id === "string" ? params.thread_id : null;
+        if (threadId !== request.session.sessionId) return;
+        notificationSettled = true;
+        clearTimeout(notificationTimeout);
+        resolveNotification();
+      },
+      onStderr() {},
+      onExit(error) {
+        if (notificationSettled) return;
+        notificationSettled = true;
+        clearTimeout(notificationTimeout);
+        rejectNotification(error);
+      },
+    });
     defaultProjectRemovalFence.assertCurrent(request.projectId, generation);
     if (request.archived) {
       await lease.request("thread/archive", { threadId: request.session.sessionId }, { timeoutMs: 10_000 });
@@ -313,6 +350,7 @@ export async function setCodexSessionArchived(
         throw error;
       }
     }
+    await notification;
     return { status: "completed" };
   } catch (error) {
     if (error instanceof CodexAppServerJsonRpcError
@@ -323,7 +361,11 @@ export async function setCodexSessionArchived(
     }
     throw error;
   } finally {
-    lease.release();
+    if (!notificationSettled) {
+      notificationSettled = true;
+      clearTimeout(notificationTimeout);
+    }
+    lease?.release();
   }
 }
 

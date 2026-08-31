@@ -203,6 +203,55 @@ describe("dual product-mode foundation", () => {
     await expect(getCanonicalTimelinePage(input, harness.conversationId, "main-agent", "agent")).rejects.toMatchObject({ name: "Conflict" });
   });
 
+  it("projects a non-navigable Fork boundary after the source Conversation is deleted", async () => {
+    const source = await createWorkbenchConversation(project(), {
+      body: "Fork source",
+      productMode: "agent",
+      clientRequestId: "fork-source-delete-boundary",
+    }, undefined, { runMainAgent: false });
+    const target = await createWorkbenchConversation(project(), {
+      body: "Fork target",
+      productMode: "agent",
+      clientRequestId: "fork-target-delete-boundary",
+    }, undefined, { runMainAgent: false });
+    const database = await openProjectRuntimeWorkbenchDatabase(fixture.resolution.paths);
+    try {
+      const sourceConversation = database.conversations.readConversation(project().id, source.conversationId)!;
+      const sourceMessage = database.timeline.listConversationMessages(project().id, source.conversationId)[0]!;
+      const now = "2026-08-31T01:10:00.000Z";
+      database.conversationForks.create({
+        projectId: project().id,
+        clientRequestId: "fork-delete-boundary",
+        requestHash: "fork-delete-boundary-hash",
+        sourceConversationId: source.conversationId,
+        targetConversationId: target.conversationId,
+        providerId: "codex",
+        sourceMessageId: sourceMessage.id,
+        anchorCompletedTurnSequence: 1,
+        expectedTimelineRevision: sourceConversation.timelineRevision,
+        contextRevision: "context-delete-boundary",
+        sourceGraphScopeId: sourceConversation.currentGraphScopeId!,
+        status: "completed",
+        diagnostic: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      database.conversations.archiveAgentConversation(project().id, source.conversationId, 0, now);
+      database.conversations.deleteArchivedConversation(project().id, source.conversationId, 1, now);
+    } finally {
+      database.close();
+    }
+
+    await expect(listWorkbenchTopics({ project: project(), path: project().path }, "agent"))
+      .resolves.toContainEqual(expect.objectContaining({
+        id: target.conversationId,
+        forkBoundary: expect.objectContaining({
+          sourceConversationId: source.conversationId,
+          sourceDeleted: true,
+        }),
+      }));
+  });
+
   it("rejects an existing-Conversation mode mismatch before durable or provider side effects", async () => {
     const conversation = await createWorkbenchConversation(project(), {
       body: "Original Harness message",
@@ -217,6 +266,45 @@ describe("dual product-mode foundation", () => {
     }, undefined, { turnRouter: testTurnRouter() })).rejects.toMatchObject({ name: "Conflict" });
 
     expect(await conversationState(conversation.conversationId)).toEqual(before);
+  });
+
+  it("rejects a direct Turn against an archived Conversation before admission or Timeline writes", async () => {
+    const conversation = await createWorkbenchConversation(project(), {
+      body: "Archive before forged follow-up.",
+      productMode: "agent",
+      clientRequestId: "archived-direct-turn",
+    }, undefined, { runMainAgent: false });
+    const database = await openProjectRuntimeWorkbenchDatabase(fixture.resolution.paths);
+    let beforeTimeline: unknown[];
+    try {
+      beforeTimeline = database.timeline.listConversationMessages(project().id, conversation.conversationId);
+      database.conversations.archiveAgentConversation(
+        project().id,
+        conversation.conversationId,
+        0,
+        "2026-08-31T01:00:00.000Z",
+      );
+    } finally {
+      database.close();
+    }
+    const admit = vi.fn();
+    const route = vi.fn();
+
+    await expect(postConversationMessage(project(), conversation.conversationId, {
+      message: "This forged request must not run.",
+      productMode: "agent",
+    }, undefined, { turnRouter: { ...testTurnRouter(), admit, route } }))
+      .rejects.toMatchObject({ name: "Conflict" });
+    expect(admit).not.toHaveBeenCalled();
+    expect(route).not.toHaveBeenCalled();
+
+    const inspected = await openProjectRuntimeWorkbenchDatabase(fixture.resolution.paths);
+    try {
+      expect(inspected.timeline.listConversationMessages(project().id, conversation.conversationId)).toEqual(beforeTimeline);
+      expect(inspected.providerAttempts.listProviderAttempts(project().id, conversation.conversationId)).toEqual([]);
+    } finally {
+      inspected.close();
+    }
   });
 
   it("retains the committed Agent Conversation when routed startup fails", async () => {

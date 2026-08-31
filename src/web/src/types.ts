@@ -377,7 +377,7 @@ export type Snapshot = {
   warnings: string[];
 };
 
-export type Topic = { id: string; productMode: ProductMode; agentTurnMode?: AgentTurnMode | null; agentModelId?: string | null; agentReasoningEffort?: string | null; title: string; state: string; updatedAt?: string; kind?: "conversation" | "change"; boundChangeId?: string | null; graphScopeId?: string; selectedProviderId?: string; completedTurnSequence?: number; timelineRevision?: number; forkBoundary?: { sourceConversationId: string; sourceMessageId: string; completedTurnSequence: number }; lifecycle?: import("../../workbench/conversation-lifecycle.js").ConversationLifecycleSnapshot };
+export type Topic = { id: string; productMode: ProductMode; agentTurnMode?: AgentTurnMode | null; agentModelId?: string | null; agentReasoningEffort?: string | null; title: string; state: string; updatedAt?: string; kind?: "conversation" | "change"; boundChangeId?: string | null; graphScopeId?: string; selectedProviderId?: string; completedTurnSequence?: number; timelineRevision?: number; forkBoundary?: { sourceConversationId: string; sourceMessageId: string; completedTurnSequence: number; sourceDeleted: boolean }; lifecycle?: import("../../workbench/conversation-lifecycle.js").ConversationLifecycleSnapshot };
 export type WorkpadRuntimeStatus = "active" | "running" | "queued" | "blocked" | "waiting-decision" | "archived" | "readonly";
 export type WorkpadUserStatus = "processing" | "waiting-confirmation" | "needs-rework" | "later" | "completed" | "abandoned";
 export type ConversationLifecycle = "active" | "running" | "waiting-user" | "archived-readonly" | "abandoned";

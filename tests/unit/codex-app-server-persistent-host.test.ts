@@ -450,6 +450,22 @@ describe("Codex persistent app-server Host", () => {
       .toEqual(["thread/archive", "thread/unarchive"]);
   });
 
+  it("does not settle session archive from a notification for another Codex thread", async () => {
+    const cwd = await tempDir();
+    const server = new PersistentCollaborationServer(4523);
+    server.misdirectNextArchiveNotification();
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+
+    const outcome = setCodexSessionArchived({
+      providerId: "codex",
+      projectId: "project-host",
+      cwd,
+      session: { providerId: "codex", sessionId: "thread-main" },
+      archived: true,
+    });
+    await expect(outcome).rejects.toThrow("exited");
+  });
+
   it("classifies an explicit pre-Turn thread resume rejection as a stale Provider session", async () => {
     const cwd = await tempDir();
     const server = new PersistentCollaborationServer(4054, false);
@@ -814,6 +830,7 @@ class PersistentCollaborationServer extends EventEmitter {
   private nextCompactError: string | null = null;
   private nextResumeError: string | null = null;
   private holdFork = false;
+  private misdirectArchiveNotification = false;
   private forkTurns = ["turn-history-1", "turn-history-2", "turn-history-3"];
 
   constructor(
@@ -881,6 +898,10 @@ class PersistentCollaborationServer extends EventEmitter {
 
   rejectNextResume(message: string): void {
     this.nextResumeError = message;
+  }
+
+  misdirectNextArchiveNotification(): void {
+    this.misdirectArchiveNotification = true;
   }
 
   holdNextForkResponse(): void {
@@ -1035,6 +1056,7 @@ class PersistentCollaborationServer extends EventEmitter {
       case "thread/unarchive":
         this.unarchiveParams.push({ ...params });
         this.respond(id, { thread: { id: String(params.threadId), status: { type: "idle" }, turns: [] } });
+        this.notify("thread/unarchived", { threadId: String(params.threadId) });
         return;
       case "turn/steer": {
         this.steerParams.push({ ...params });
@@ -1090,8 +1112,15 @@ class PersistentCollaborationServer extends EventEmitter {
       case "thread/archive":
         this.archiveParams.push({ ...params });
         this.closePrompts.push(JSON.stringify(params));
-        this.respond(id, {});
+        if (this.misdirectArchiveNotification) {
+          this.misdirectArchiveNotification = false;
+          this.respond(id, {});
+          this.notify("thread/archived", { threadId: "thread-other" });
+          queueMicrotask(() => this.crash());
+          return;
+        }
         this.notify("thread/archived", { threadId: String(params.threadId) });
+        this.respond(id, {});
         return;
       case "thread/read":
         if (params.threadId === "thread-main" || params.threadId === "thread-fork") {

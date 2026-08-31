@@ -134,13 +134,22 @@ constructor(private readonly db: Database.Database) {}
   }
 
   activateGraphScope(projectId: string, conversationId: string, graphScopeId: string, updatedAt: string): void {
-    this.db.prepare(`
+    const activated = this.db.prepare(`
       UPDATE conversations
       SET current_graph_scope_id = ?,
         bound_change_id = CASE WHEN current_graph_scope_id = ? THEN bound_change_id ELSE NULL END,
         updated_at = ?
-      WHERE project_id = ? AND conversation_id = ? AND deleted_at IS NULL
+      WHERE project_id = ? AND conversation_id = ? AND state = 'active' AND deleted_at IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM conversation_lifecycle_operations lifecycle
+          WHERE lifecycle.project_id = conversations.project_id
+            AND lifecycle.conversation_id = conversations.conversation_id
+            AND lifecycle.status IN ('pending', 'submitting')
+        )
     `).run(graphScopeId, graphScopeId, updatedAt, projectId, conversationId);
+    if (activated.changes !== 1) {
+      throw lifecycleConflict("Conversation is not active or has a lifecycle operation in progress.");
+    }
     this.db.prepare(`
       INSERT INTO conversation_graph_scopes (project_id, conversation_id, graph_scope_id, status, updated_at)
       VALUES (?, ?, ?, 'active', ?)
@@ -586,8 +595,8 @@ function nextMonotonicTimestamp(current: string, candidate: string): string {
   return new Date(Math.max(candidateTime, currentTime + 1)).toISOString();
 }
 
-function lifecycleConflict(): Error {
-  const error = new Error("Conversation lifecycle changed concurrently.");
+function lifecycleConflict(message = "Conversation lifecycle changed concurrently."): Error {
+  const error = new Error(message);
   error.name = "Conflict";
   return error;
 }

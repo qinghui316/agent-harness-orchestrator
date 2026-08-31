@@ -106,6 +106,7 @@ export interface ConversationForkBoundaryEvidence {
   sourceConversationId: string;
   sourceMessageId: string;
   completedTurnSequence: number;
+  sourceDeleted: boolean;
 }
 
 export interface CanonicalPlanDocument {

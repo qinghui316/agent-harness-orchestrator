@@ -180,6 +180,58 @@ describe("ConversationLifecycleOwner", () => {
     }
   });
 
+  it("atomically fences Provider Attempt creation against a pending lifecycle operation", async () => {
+    await seedConversation("lifecycle-race", "agent");
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      const now = "2026-08-31T00:01:30.000Z";
+      database.conversationLifecycle.create({
+        projectId,
+        conversationId: "lifecycle-race",
+        productMode: "agent",
+        clientRequestId: "archive-race",
+        requestHash: "archive-race-hash",
+        action: "archive",
+        expectedLifecycleRevision: 0,
+        status: "pending",
+        providerId: "codex",
+        providerBindingHash: "opaque",
+        providerSyncStatus: "submitting",
+        diagnostic: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      expect(() => database.providerAttempts.createProviderAttempt({
+        projectId,
+        conversationId: "lifecycle-race",
+        attemptId: "attempt-after-lifecycle",
+        productMode: "agent",
+        agentTurnMode: "default",
+        graphScopeId: "graph-lifecycle-race",
+        changeId: null,
+        agentTaskId: null,
+        roleId: "main-agent",
+        parentAgentSurfaceId: null,
+        operationProfile: "agent",
+        providerId: "codex",
+        nativeSessionId: null,
+        model: null,
+        reasoningEffort: null,
+        capabilitySnapshot: capabilitySnapshot(true),
+        effectiveSkillInputs: [],
+        handoffHash: "race-handoff",
+        deliveredThroughCompletedTurn: 0,
+        worktreeId: null,
+        status: "running",
+        createdAt: now,
+        updatedAt: now,
+      })).toThrowError(expect.objectContaining({ name: "Conflict" }));
+      expect(database.providerAttempts.readProviderAttempt(projectId, "attempt-after-lifecycle")).toBeNull();
+    } finally {
+      database.close();
+    }
+  });
+
   it("reconciles a locally committed archive with unproven Provider synchronization as uncertain", async () => {
     await seedConversation("restart-archive", "agent");
     const database = await openProjectRuntimeWorkbenchDatabase(paths);
