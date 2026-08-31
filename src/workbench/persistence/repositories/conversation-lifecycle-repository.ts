@@ -11,19 +11,26 @@ export class ConversationLifecycleRepository {
   constructor(private readonly db: Database.Database) {}
 
   create(operation: StoredConversationLifecycleOperation): void {
-    this.db.prepare(`
+    const inserted = this.db.prepare(`
       INSERT INTO conversation_lifecycle_operations (
         project_id, conversation_id, product_mode, client_request_id, request_hash, action,
         expected_lifecycle_revision, status, provider_id, provider_binding_hash,
         provider_sync_status, diagnostic, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      )
+      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      WHERE ? NOT IN ('pending', 'submitting') OR NOT EXISTS (
+        SELECT 1 FROM conversation_lifecycle_operations
+        WHERE project_id = ? AND conversation_id = ? AND status IN ('pending', 'submitting')
+      )
     `).run(
       operation.projectId, operation.conversationId, operation.productMode,
       operation.clientRequestId, operation.requestHash, operation.action,
       operation.expectedLifecycleRevision, operation.status, operation.providerId,
       operation.providerBindingHash, operation.providerSyncStatus, operation.diagnostic,
       operation.createdAt, operation.updatedAt,
+      operation.status, operation.projectId, operation.conversationId,
     );
+    if (inserted.changes !== 1) throw conflict("Another Conversation lifecycle operation is already in progress.");
   }
 
   read(projectId: string, clientRequestId: string): StoredConversationLifecycleOperation | null {
@@ -43,6 +50,14 @@ export class ConversationLifecycleRepository {
     return (this.db.prepare(`${selectOperation()}
       WHERE project_id = ? AND status IN ('pending', 'submitting') ORDER BY created_at ASC`)
       .all(projectId) as SqliteRow[]).map(mapOperation);
+  }
+
+  hasIncomplete(projectId: string, conversationId: string): boolean {
+    return Boolean(this.db.prepare(`
+      SELECT 1 FROM conversation_lifecycle_operations
+      WHERE project_id = ? AND conversation_id = ? AND status IN ('pending', 'submitting')
+      LIMIT 1
+    `).get(projectId, conversationId));
   }
 
   transition(input: {

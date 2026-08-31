@@ -275,7 +275,14 @@ export class ConversationLifecycleOwner {
           });
         });
       } else {
-        database.conversationLifecycle.create(operation);
+        database.immediateTransaction(() => {
+          conversation = requireConversation(database, paths.projectId, request.productMode, request.conversationId);
+          if (conversation.lifecycleRevision !== revision) throw conflict("Conversation lifecycle revision is stale.");
+          assertActionAllowed(conversation, request.action);
+          const transactionalBlocker = lifecycleBlocker(database, conversation, this.options);
+          if (transactionalBlocker) throw conflict(transactionalBlocker);
+          database.conversationLifecycle.create(operation);
+        });
       }
     } finally {
       database.close();
@@ -511,8 +518,7 @@ function lifecycleBlocker(
     .some((operation) => operation.sourceConversationId === conversation.conversationId)) {
     return "会话分叉仍在处理。";
   }
-  const latestLifecycle = database.conversationLifecycle.readLatest(conversation.projectId, conversation.conversationId);
-  if (latestLifecycle && (latestLifecycle.status === "pending" || latestLifecycle.status === "submitting")) {
+  if (database.conversationLifecycle.hasIncomplete(conversation.projectId, conversation.conversationId)) {
     return "另一个会话生命周期操作仍在处理。";
   }
   for (const row of database.timeline.listConversationMessages(conversation.projectId, conversation.conversationId)) {

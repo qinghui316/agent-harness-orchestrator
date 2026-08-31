@@ -89,6 +89,33 @@ describe("ConversationLifecycleOwner", () => {
     expect(unarchive).toHaveBeenCalledWith(expect.objectContaining({ archived: false }));
   });
 
+  it("reserves restore atomically across Owners before calling Provider unarchive", async () => {
+    await seedConversation("restore-race", "agent");
+    await createOwner(vi.fn(async () => ({ status: "completed" as const })))
+      .settle(project, request("restore-race", "agent", "archive", 0, "archive-before-restore-race"));
+
+    let releaseProvider!: () => void;
+    const providerGate = new Promise<void>((resolve) => { releaseProvider = resolve; });
+    const setSessionArchived = vi.fn(async () => {
+      await providerGate;
+      return { status: "completed" as const };
+    });
+    const first = createOwner(setSessionArchived).settle(
+      project,
+      request("restore-race", "agent", "restore", 1, "restore-race-first"),
+    );
+    await vi.waitFor(() => expect(setSessionArchived).toHaveBeenCalledTimes(1));
+
+    await expect(createOwner(setSessionArchived).settle(
+      project,
+      request("restore-race", "agent", "restore", 1, "restore-race-second"),
+    )).rejects.toMatchObject({ name: "Conflict" });
+    expect(setSessionArchived).toHaveBeenCalledTimes(1);
+
+    releaseProvider();
+    await expect(first).resolves.toMatchObject({ snapshot: { state: "active" } });
+  });
+
   it("rejects a Provider binding change before local or Provider lifecycle side effects", async () => {
     await seedConversation("binding-race", "agent");
     const setSessionArchived = vi.fn(async () => ({ status: "completed" as const }));
