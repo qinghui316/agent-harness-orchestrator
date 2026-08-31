@@ -145,6 +145,15 @@ describe("Workbench App owner composition", () => {
     expect(document.activeElement).toBe(drawer);
     expect(view.container.querySelector("main.workspace")?.hasAttribute("inert")).toBe(true);
 
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "搜索已加载对话" }));
+    const settingsButton = screen.getByRole("button", { name: "设置" });
+    settingsButton.focus();
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "搜索已加载对话" }));
+    fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(settingsButton);
+
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "左侧项目栏" })).toBeNull());
     expect(document.activeElement).toBe(toggle);
@@ -179,6 +188,22 @@ describe("Workbench App owner composition", () => {
 
     await waitFor(() => expect(view.container.querySelector(".app-shell")?.classList.contains("mobile-sidebar-open")).toBe(false));
     expect(requestUrls("/turn/interrupt")).toHaveLength(0);
+  });
+
+  it("closes the mobile modal when the viewport leaves the sidebar breakpoint", async () => {
+    const media = installMatchMedia(true);
+    installApiFixture(createSnapshot());
+    const view = render(<App />);
+    await screen.findByText("Canonical Main reply");
+
+    fireEvent.click(screen.getByRole("button", { name: "打开会话栏" }));
+    expect(screen.getByRole("dialog", { name: "左侧项目栏" })).toBeTruthy();
+    media.setMatches(false);
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "左侧项目栏" })).toBeNull());
+    expect(view.container.querySelector(".app-shell")?.classList.contains("mobile-sidebar-open")).toBe(false);
+    expect(view.container.querySelector("main.workspace")?.hasAttribute("inert")).toBe(false);
+    expect(view.container.querySelector("#project-conversation-sidebar")?.hasAttribute("aria-modal")).toBe(false);
   });
 
   it("uses token-bound destructive project removal while preserving source owners in the warning", async () => {
@@ -611,15 +636,26 @@ function json(value: unknown): Response {
   return new Response(JSON.stringify(value), { status: 200, headers: { "content-type": "application/json" } });
 }
 
-function installMatchMedia(matches: boolean): void {
+function installMatchMedia(matches: boolean): { setMatches: (next: boolean) => void } {
+  let currentMatches = matches;
+  const listeners = new Set<(event: MediaQueryListEvent) => void>();
   vi.stubGlobal("matchMedia", vi.fn((query: string) => ({
-    matches,
+    get matches() { return currentMatches; },
     media: query,
     onchange: null,
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    addListener: vi.fn(),
-    removeListener: vi.fn(),
+    addEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => listeners.add(listener),
+    removeEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => listeners.delete(listener),
+    addListener: (listener: (event: MediaQueryListEvent) => void) => listeners.add(listener),
+    removeListener: (listener: (event: MediaQueryListEvent) => void) => listeners.delete(listener),
     dispatchEvent: vi.fn(() => true),
   })));
+  return {
+    setMatches(next: boolean): void {
+      currentMatches = next;
+      const event = { matches: next, media: MOBILE_SIDEBAR_TEST_MEDIA_QUERY } as MediaQueryListEvent;
+      for (const listener of listeners) listener(event);
+    },
+  };
 }
+
+const MOBILE_SIDEBAR_TEST_MEDIA_QUERY = "(max-width: 720px)";

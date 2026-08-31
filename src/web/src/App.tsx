@@ -90,6 +90,15 @@ const RIGHT_RAIL_DEFAULT_WIDTH = 320;
 const RIGHT_RAIL_MIN_WIDTH = 280;
 const RIGHT_RAIL_MAX_WIDTH = 560;
 const SHELL_COLUMN_KEYBOARD_STEP = 16;
+const MOBILE_SIDEBAR_MEDIA_QUERY = "(max-width: 720px)";
+const MODAL_FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
 type BottomDockKind = "terminal" | null;
 
 function clampNumber(value: number, min: number, max: number): number {
@@ -111,11 +120,25 @@ function isEditableElement(element: Element | null): boolean {
     || element instanceof HTMLSelectElement;
 }
 
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(query);
+    const handleChange = (event: MediaQueryListEvent): void => setMatches(event.matches);
+    setMatches(mediaQuery.matches);
+    mediaQuery.addEventListener("change", handleChange);
+    return () => mediaQuery.removeEventListener("change", handleChange);
+  }, [query]);
+  return matches;
+}
+
 export function App(): ReactElement {
   const appMode = useAppModeController();
   const presentation = useMemo(() => modePresentationPolicy(appMode.productMode), [appMode.productMode]);
   const [orchestrationOpen, setOrchestrationOpen] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const mobileSidebarViewport = useMediaQuery(MOBILE_SIDEBAR_MEDIA_QUERY);
+  const mobileSidebarModalOpen = mobileSidebarViewport && mobileSidebarOpen;
   const mobileSidebarRef = useRef<HTMLElement | null>(null);
   const mobileSidebarToggleRef = useRef<HTMLButtonElement | null>(null);
   const mobileSidebarWasOpenRef = useRef(false);
@@ -876,26 +899,53 @@ export function App(): ReactElement {
   });
   const activeConversationInteraction = snapshot.center.conversationInteractions?.items[0] ?? null;
   useEffect(() => {
-    if (mobileSidebarOpen) {
+    if (mobileSidebarModalOpen) {
       mobileSidebarWasOpenRef.current = true;
       mobileSidebarRef.current?.focus();
       return;
     }
     if (!mobileSidebarWasOpenRef.current) return;
     mobileSidebarWasOpenRef.current = false;
-    if (!settingsOpen) mobileSidebarToggleRef.current?.focus();
-  }, [mobileSidebarOpen, settingsOpen]);
+    if (!settingsOpen && mobileSidebarViewport) mobileSidebarToggleRef.current?.focus();
+  }, [mobileSidebarModalOpen, mobileSidebarViewport, settingsOpen]);
   useEffect(() => {
-    if (!mobileSidebarOpen) return;
+    if (mobileSidebarViewport || !mobileSidebarOpen) return;
+    setMobileSidebarOpen(false);
+  }, [mobileSidebarOpen, mobileSidebarViewport]);
+  useEffect(() => {
+    if (!mobileSidebarModalOpen) return;
     const closeMobileSidebarOnEscape = (event: globalThis.KeyboardEvent): void => {
-      if (event.key !== "Escape" || event.isComposing) return;
-      event.preventDefault();
-      event.stopPropagation();
-      setMobileSidebarOpen(false);
+      if (event.isComposing) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        setMobileSidebarOpen(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const sidebar = mobileSidebarRef.current;
+      if (!sidebar) return;
+      const focusable = [...sidebar.querySelectorAll<HTMLElement>(MODAL_FOCUSABLE_SELECTOR)]
+        .filter((element) => element.tabIndex >= 0 && !element.hidden && element.getAttribute("aria-hidden") !== "true");
+      if (focusable.length === 0) {
+        event.preventDefault();
+        sidebar.focus();
+        return;
+      }
+      const first = focusable[0]!;
+      const last = focusable[focusable.length - 1]!;
+      const activeElement = document.activeElement;
+      if (event.shiftKey && (activeElement === first || !sidebar.contains(activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (activeElement === last || activeElement === sidebar || !sidebar.contains(activeElement))) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     window.addEventListener("keydown", closeMobileSidebarOnEscape, true);
     return () => window.removeEventListener("keydown", closeMobileSidebarOnEscape, true);
-  }, [mobileSidebarOpen]);
+  }, [mobileSidebarModalOpen]);
   useEffect(() => {
     if (appMode.productMode !== "agent"
       || !agentRunControl?.canStop
@@ -1006,7 +1056,7 @@ export function App(): ReactElement {
 
   return (
     <div
-      className={`app-shell ${settingsOpen ? "settings-open" : rightToolRailState.mode === "closed" ? "right-rail-closed" : "right-rail-open"} sidebar-expanded${orchestrationOpen ? " orchestration-open" : ""}${mobileSidebarOpen ? " mobile-sidebar-open" : ""}`}
+      className={`app-shell ${settingsOpen ? "settings-open" : rightToolRailState.mode === "closed" ? "right-rail-closed" : "right-rail-open"} sidebar-expanded${orchestrationOpen ? " orchestration-open" : ""}${mobileSidebarModalOpen ? " mobile-sidebar-open" : ""}`}
       style={appShellStyle}
     >
       {!settingsOpen ? <div className="product-mode-shell-control">
@@ -1040,16 +1090,16 @@ export function App(): ReactElement {
           ref={mobileSidebarToggleRef}
           type="button"
           className="icon-button mobile-sidebar-toggle"
-          aria-label={mobileSidebarOpen ? "关闭会话栏" : "打开会话栏"}
+          aria-label={mobileSidebarModalOpen ? "关闭会话栏" : "打开会话栏"}
           aria-controls="project-conversation-sidebar"
-          aria-expanded={mobileSidebarOpen}
-          title={mobileSidebarOpen ? "关闭会话栏" : "打开会话栏"}
+          aria-expanded={mobileSidebarModalOpen}
+          title={mobileSidebarModalOpen ? "关闭会话栏" : "打开会话栏"}
           onClick={() => setMobileSidebarOpen((open) => !open)}
         >
-          {mobileSidebarOpen ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
+          {mobileSidebarModalOpen ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
         </button>
       ) : null}
-      {!settingsOpen && mobileSidebarOpen ? (
+      {!settingsOpen && mobileSidebarModalOpen ? (
         <button
           type="button"
           className="mobile-sidebar-backdrop"
@@ -1063,9 +1113,9 @@ export function App(): ReactElement {
           id="project-conversation-sidebar"
           className="sidebar sidebar-expanded"
           aria-label="左侧项目栏"
-          role={mobileSidebarOpen ? "dialog" : undefined}
-          aria-modal={mobileSidebarOpen || undefined}
-          tabIndex={mobileSidebarOpen ? -1 : undefined}
+          role={mobileSidebarModalOpen ? "dialog" : undefined}
+          aria-modal={mobileSidebarModalOpen || undefined}
+          tabIndex={mobileSidebarModalOpen ? -1 : undefined}
         >
           <div className="brand compact-brand" aria-hidden="true" />
               <ProjectConversationSidebar
@@ -1105,7 +1155,7 @@ export function App(): ReactElement {
             role="separator"
             aria-orientation="vertical"
             aria-label="调整左侧项目栏宽度"
-            tabIndex={0}
+            tabIndex={mobileSidebarModalOpen ? -1 : 0}
             aria-valuemin={LEFT_SIDEBAR_MIN_WIDTH}
             aria-valuemax={LEFT_SIDEBAR_MAX_WIDTH}
             aria-valuenow={leftSidebarWidth}
@@ -1118,7 +1168,7 @@ export function App(): ReactElement {
 
       <main
         className={`workspace${settingsOpen ? " settings-workspace" : ""}`}
-        inert={mobileSidebarOpen ? true : undefined}
+        inert={mobileSidebarModalOpen ? true : undefined}
       >
         <div className="workspace-main" data-testid="workspace-main">
         {settingsOpen ? (
