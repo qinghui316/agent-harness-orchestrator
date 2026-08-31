@@ -97,12 +97,11 @@ export async function tryBuildSkillNativePlanningSnapshot(input: {
   const selected = input.topicId
     ? conversations.find((item) => item.conversationId === input.topicId || item.boundChangeId === input.topicId)
     : conversations.find((item) => item.state === "active" && item.boundChangeId)
-      ?? conversations.find((item) => item.state === "active")
-      ?? conversations[0];
+      ?? conversations.find((item) => item.state === "active");
   if (!selected) {
     return input.topicId
       ? null
-      : buildEmptySkillNativeSnapshot(input.project, input.resolution, status, gaps);
+      : buildEmptySkillNativeSnapshot(input.project, input.resolution, status, gaps, conversations);
   }
   const existingWorkflowRun = selected.boundChangeId
     ? (await listWorkflowRuns(input.resolution.paths, selected.boundChangeId))[0] ?? null
@@ -1187,6 +1186,7 @@ async function buildSkillNativeAuditApprovals(
 }
 
 interface PlanningConversation {
+  projectId: string;
   conversationId: string;
   title: string;
   state: "active" | "archive";
@@ -1195,12 +1195,15 @@ interface PlanningConversation {
   selectedProviderId: string;
   createdAt: string;
   updatedAt: string;
+  archiveOrigin: "agent-user" | "harness-workflow" | null;
+  lifecycleRevision: number;
 }
 
 async function readPlanningConversations(resolution: ProjectRuntimeResolution): Promise<PlanningConversation[]> {
   const store = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
   try {
     return store.conversations.listConversations(resolution.harness.projectId, "harness").map((conversation) => ({
+      projectId: conversation.projectId,
       conversationId: conversation.conversationId,
       title: conversation.title,
       state: conversation.state,
@@ -1209,6 +1212,8 @@ async function readPlanningConversations(resolution: ProjectRuntimeResolution): 
       selectedProviderId: conversation.selectedProviderId,
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
+      archiveOrigin: conversation.archiveOrigin,
+      lifecycleRevision: conversation.lifecycleRevision,
     }));
   } finally {
     store.close();
@@ -1234,6 +1239,7 @@ async function readPlanningThread(
 }
 
 function conversationTopicSummary(conversation: PlanningConversation): WorkbenchTopicSummary {
+  const active = conversation.state === "active";
   return {
     id: conversation.conversationId,
     productMode: "harness",
@@ -1247,6 +1253,19 @@ function conversationTopicSummary(conversation: PlanningConversation): Workbench
     selectedProviderId: conversation.selectedProviderId,
     createdAt: conversation.createdAt,
     updatedAt: conversation.updatedAt,
+    lifecycle: {
+      projectId: conversation.projectId,
+      productMode: "harness",
+      conversationId: conversation.conversationId,
+      state: active ? "active" : "archived",
+      archiveOrigin: conversation.archiveOrigin,
+      lifecycleRevision: `conversation-lifecycle:${conversation.lifecycleRevision}`,
+      updatedAt: conversation.updatedAt,
+      canArchive: false,
+      canRestore: false,
+      canDelete: !active,
+      ...(active ? { disabledReason: "AHO 会话仅由治理流程归档。" } : {}),
+    },
   };
 }
 
@@ -1351,6 +1370,7 @@ async function buildEmptySkillNativeSnapshot(
   resolution: ProjectRuntimeResolution,
   status: WorkbenchProjectHarnessStatus,
   gaps: HarnessGap[],
+  conversations: PlanningConversation[],
 ): Promise<WorkbenchSnapshot> {
   const base = buildDiagnosticWorkpad(project.name, [], gaps);
   const workpad: WorkbenchWorkpad = {
@@ -1396,7 +1416,7 @@ async function buildEmptySkillNativeSnapshot(
     left: {
       project,
       harness: status,
-      topics: [],
+      topics: conversations.map(conversationTopicSummary),
       workpads: [],
       repo: buildRepoSummary(projectStatus),
     },

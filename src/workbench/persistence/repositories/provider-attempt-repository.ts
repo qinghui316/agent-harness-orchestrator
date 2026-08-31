@@ -232,6 +232,17 @@ deleteProviderAttempt(projectId: string, attemptId: string, expectedRoleId: stri
   })();
 }
 
+deleteConversationRuntimeState(projectId: string, conversationId: string): void {
+  this.db.prepare("DELETE FROM provider_thread_links WHERE project_id = ? AND conversation_id = ?")
+    .run(projectId, conversationId);
+  this.db.prepare("DELETE FROM conversation_provider_bindings WHERE project_id = ? AND conversation_id = ?")
+    .run(projectId, conversationId);
+  this.db.prepare("DELETE FROM provider_attempts WHERE project_id = ? AND conversation_id = ?")
+    .run(projectId, conversationId);
+  this.db.prepare("DELETE FROM provider_resume_points WHERE project_id = ? AND conversation_id = ?")
+    .run(projectId, conversationId);
+}
+
 startQueuedProviderAttempt(
     projectId: string,
     attemptId: string,

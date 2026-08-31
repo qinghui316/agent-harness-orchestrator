@@ -147,6 +147,28 @@ permission-policy write. Uncertain transport remains submitting, terminal and
 restart recovery interrupt unproven requests, and raw permission objects,
 secrets, file bodies, and Provider callback state are never durable evidence.
 
+`ConversationLifecycleOwner` is the sole public archive, restore, and permanent
+delete owner for Agent and Harness Conversations. Schema 17 keeps lifecycle
+revision and archive origin on the Conversation plus neutral idempotent operation
+evidence. Only active Agent Conversations may be user-archived; only
+`agent-user` archives may be restored; permanent deletion requires an archived
+Conversation and a short-lived confirmation bound to its exact revision. The
+existing Harness terminal transaction alone writes `harness-workflow` archive
+metadata, and a user cannot reverse that governance transition.
+
+Provider `session.archive` is optional and remains behind the provider-neutral
+Conversation port. Local archive is authoritative and does not depend on
+Provider or Harness readiness. Uncertain archive transport is never replayed;
+restore must prove the same Session binding and complete unarchive when the
+Provider may still be archived. Permanent deletion removes Workbench transcript,
+interaction, queue, context, and unneeded Provider presentation state while
+retaining a tombstone, safe fork-source boundary, and all Harness Change,
+WorkflowGraph, AgentTask, Lane, worktree, Run, authorization, validation,
+Integration, I2, and E1 evidence. It never deletes Provider rollout files or
+project files, and managed attachments are removed only through the shared
+attachment owner after all draft, queue, and canonical-message references are
+absent.
+
 `ConversationTurnControlOwner` is the single provider-neutral owner for stopping
 and steering current Main turns in either product mode. SQLite Conversation,
 ProviderAttempt, ThreadLink, and Timeline rows remain durable truth; the Owner

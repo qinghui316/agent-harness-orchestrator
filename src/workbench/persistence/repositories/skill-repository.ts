@@ -44,6 +44,11 @@ listSkillEnablement(projectId: string): StoredSkillEnablement[] {
       SELECT project_id AS projectId, change_id AS changeId, skill_id AS skillId, scope, enabled, updated_at AS updatedAt
       FROM skill_enablement WHERE project_id = ?
     `).all(projectId) as SqliteRow[]).map(mapEnablementRow);
-  }
+}
+
+deleteConversationEnablement(projectId: string, conversationId: string): void {
+  this.db.prepare("DELETE FROM skill_enablement WHERE project_id = ? AND change_id = ? AND scope = 'topic'")
+    .run(projectId, conversationId);
+}
 
 }

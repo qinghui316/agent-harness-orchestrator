@@ -10,8 +10,6 @@ import {
   getWorkbenchSnapshot,
   getWorkbenchStream,
   getWorkbenchTopic,
-  deleteWorkbenchConversation,
-  hideWorkbenchTopic,
   listWorkbenchApprovals,
   listWorkbenchTopics,
   type WorkbenchProjectInput,
@@ -19,14 +17,14 @@ import {
 import { getCanonicalTimelinePage } from "../../workbench/canonical-timeline-query.js";
 import { getWorkbenchProjection } from "./projections.js";
 import { readWorkbenchActionEvents, sendActionEventReplay } from "./live.js";
-import { assertConfirmed, assertRegisteredProject, readJsonBody, requireProductMode, sendJson } from "./http.js";
+import { assertRegisteredProject, readJsonBody, requireProductMode, sendJson } from "./http.js";
 import { handleIntakeReanalyze, handleIntakeScan } from "./intake.js";
 import { sendConversationInteractionSettlement } from "./conversation-interactions.js";
 import { sendWorkbenchActionLive } from "./live-actions.js";
 import { readCreateTopicBody, sendConversationMessageLive, sendCreateTopicLive } from "./topic-messages.js";
 import { executeWorkbenchAction } from "./actions.js";
 import { sendProjectLiveEvents } from "./project-live-events.js";
-import type { ConversationContextCompactBody, ConversationForkBody, ConversationTurnInterruptBody, ConversationTurnQueueActionBody, ConversationTurnQueueBody, ConversationTurnSteerBody, IntakeRequest, UpdateConversationTitleRequest, WorkbenchActionRequest, WorkbenchServerContext } from "./types.js";
+import type { ConversationContextCompactBody, ConversationDeleteConfirmationBody, ConversationForkBody, ConversationLifecycleBody, ConversationTurnInterruptBody, ConversationTurnQueueActionBody, ConversationTurnQueueBody, ConversationTurnSteerBody, IntakeRequest, UpdateConversationTitleRequest, WorkbenchActionRequest, WorkbenchServerContext } from "./types.js";
 import type { AgentTurnMode, ProductMode } from "../../provider-runtime/index.js";
 import type { TopicFileReference } from "../../workbench/types.js";
 import { conversationSteerTimelineIds } from "../../workbench/conversation-turn-control.js";
@@ -152,20 +150,6 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
     });
     return;
   }
-  const topicHideMatch = rest.match(/^topics\/([^/]+)\/hide$/);
-  if (request.method === "POST" && topicHideMatch?.[1]) {
-    assertRegisteredProject(input);
-    assertConfirmed((await readJsonBody<{ confirm?: boolean }>(request)).confirm);
-    sendJson(response, 200, await hideWorkbenchTopic(input, decodeURIComponent(topicHideMatch[1])));
-    return;
-  }
-  const topicDeleteMatch = rest.match(/^topics\/([^/]+)\/delete$/);
-  if (request.method === "POST" && topicDeleteMatch?.[1]) {
-    assertRegisteredProject(input);
-    assertConfirmed((await readJsonBody<{ confirm?: boolean }>(request)).confirm);
-    sendJson(response, 200, await deleteWorkbenchConversation(input, decodeURIComponent(topicDeleteMatch[1])));
-    return;
-  }
   if (request.method === "POST" && rest === "intake/scan") {
     assertRegisteredProject(input);
     sendJson(response, 200, await handleIntakeScan(input, await readJsonBody<IntakeRequest>(request)));
@@ -273,6 +257,45 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
       contextRevision: body.contextRevision.trim(),
       clientRequestId: body.clientRequestId.trim(),
     }));
+    return;
+  }
+  const lifecycleMatch = rest.match(/^conversations\/([^/]+)\/lifecycle$/);
+  if (request.method === "GET" && lifecycleMatch?.[1]) {
+    assertRegisteredProject(input);
+    sendJson(response, 200, await context.conversationLifecycle.read(
+      input.project,
+      requireProductMode(url.searchParams.get("productMode")),
+      decodeURIComponent(lifecycleMatch[1]),
+    ));
+    return;
+  }
+  if (request.method === "POST" && lifecycleMatch?.[1]) {
+    assertRegisteredProject(input);
+    const body = await readJsonBody<ConversationLifecycleBody>(request);
+    const action = requireLifecycleAction(body.action);
+    sendJson(response, 200, await context.conversationLifecycle.settle(input.project, {
+      projectId: input.project.id,
+      productMode: requireProductMode(typeof body.productMode === "string" ? body.productMode : null),
+      conversationId: decodeURIComponent(lifecycleMatch[1]),
+      action,
+      expectedLifecycleRevision: requireLifecycleString(body.expectedLifecycleRevision, "expectedLifecycleRevision"),
+      clientRequestId: requireLifecycleString(body.clientRequestId, "clientRequestId"),
+      confirmationToken: action === "delete"
+        ? requireLifecycleString(body.confirmationToken, "confirmationToken")
+        : null,
+    }));
+    return;
+  }
+  const deleteConfirmationMatch = rest.match(/^conversations\/([^/]+)\/lifecycle\/delete-confirmation$/);
+  if (request.method === "POST" && deleteConfirmationMatch?.[1]) {
+    assertRegisteredProject(input);
+    const body = await readJsonBody<ConversationDeleteConfirmationBody>(request);
+    sendJson(response, 200, await context.conversationLifecycle.prepareDelete(
+      input.project,
+      requireProductMode(typeof body.productMode === "string" ? body.productMode : null),
+      decodeURIComponent(deleteConfirmationMatch[1]),
+      requireLifecycleString(body.expectedLifecycleRevision, "expectedLifecycleRevision"),
+    ));
     return;
   }
   const conversationForkMatch = rest.match(/^conversations\/([^/]+)\/fork$/);
@@ -634,4 +657,21 @@ function conflictQueueRequest(message: string): Error {
   const error = new Error(message);
   error.name = "Conflict";
   return error;
+}
+
+function requireLifecycleString(value: unknown, field: string): string {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  if (!normalized || normalized.length > 512) {
+    const error = new Error(`Conversation lifecycle ${field} must be a non-empty bounded string.`);
+    error.name = "BadRequest";
+    throw error;
+  }
+  return normalized;
+}
+
+function requireLifecycleAction(value: unknown): "archive" | "restore" | "delete" {
+  if (value === "archive" || value === "restore" || value === "delete") return value;
+  const error = new Error("Conversation lifecycle action must be archive, restore, or delete.");
+  error.name = "BadRequest";
+  throw error;
 }

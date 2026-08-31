@@ -75,6 +75,48 @@ constructor(private readonly db: Database.Database) {}
     `).run(deletedAt, deletedAt, projectId, conversationId);
   }
 
+  archiveAgentConversation(projectId: string, conversationId: string, expectedRevision: number, archivedAt: string): StoredConversation {
+    const result = this.db.prepare(`
+      UPDATE conversations
+      SET state = 'archive', archive_origin = 'agent-user', archived_at = ?,
+        lifecycle_revision = lifecycle_revision + 1, updated_at = ?
+      WHERE project_id = ? AND conversation_id = ? AND product_mode = 'agent'
+        AND state = 'active' AND lifecycle_revision = ? AND deleted_at IS NULL
+    `).run(archivedAt, archivedAt, projectId, conversationId, expectedRevision);
+    if (result.changes !== 1) throw lifecycleConflict();
+    return this.readConversation(projectId, conversationId)!;
+  }
+
+  restoreAgentConversation(projectId: string, conversationId: string, expectedRevision: number, restoredAt: string): StoredConversation {
+    const result = this.db.prepare(`
+      UPDATE conversations
+      SET state = 'active', archive_origin = NULL, archived_at = NULL,
+        lifecycle_revision = lifecycle_revision + 1, updated_at = ?
+      WHERE project_id = ? AND conversation_id = ? AND product_mode = 'agent'
+        AND state = 'archive' AND archive_origin = 'agent-user'
+        AND lifecycle_revision = ? AND deleted_at IS NULL
+    `).run(restoredAt, projectId, conversationId, expectedRevision);
+    if (result.changes !== 1) throw lifecycleConflict();
+    return this.readConversation(projectId, conversationId)!;
+  }
+
+  deleteArchivedConversation(projectId: string, conversationId: string, expectedRevision: number, deletedAt: string): StoredConversation {
+    const result = this.db.prepare(`
+      UPDATE conversations
+      SET title = 'Deleted conversation', deleted_at = ?,
+        lifecycle_revision = lifecycle_revision + 1, updated_at = ?
+      WHERE project_id = ? AND conversation_id = ? AND state = 'archive'
+        AND lifecycle_revision = ? AND deleted_at IS NULL
+    `).run(deletedAt, deletedAt, projectId, conversationId, expectedRevision);
+    if (result.changes !== 1) throw lifecycleConflict();
+    return this.readConversation(projectId, conversationId, { includeDeleted: true })!;
+  }
+
+  deleteConversationGraphScopes(projectId: string, conversationId: string): void {
+    this.db.prepare("DELETE FROM conversation_graph_scopes WHERE project_id = ? AND conversation_id = ?")
+      .run(projectId, conversationId);
+  }
+
   switchSelectedProvider(
     projectId: string,
     conversationId: string,
@@ -93,9 +135,12 @@ constructor(private readonly db: Database.Database) {}
 
   activateGraphScope(projectId: string, conversationId: string, graphScopeId: string, updatedAt: string): void {
     this.db.prepare(`
-      UPDATE conversations SET current_graph_scope_id = ?, bound_change_id = NULL, updated_at = ?
+      UPDATE conversations
+      SET current_graph_scope_id = ?,
+        bound_change_id = CASE WHEN current_graph_scope_id = ? THEN bound_change_id ELSE NULL END,
+        updated_at = ?
       WHERE project_id = ? AND conversation_id = ? AND deleted_at IS NULL
-    `).run(graphScopeId, updatedAt, projectId, conversationId);
+    `).run(graphScopeId, graphScopeId, updatedAt, projectId, conversationId);
     this.db.prepare(`
       INSERT INTO conversation_graph_scopes (project_id, conversation_id, graph_scope_id, status, updated_at)
       VALUES (?, ?, ?, 'active', ?)
@@ -123,8 +168,8 @@ constructor(private readonly db: Database.Database) {}
   }
 
 createConversation(
-  conversation: Omit<StoredConversation, "timelinePosition" | "timelineRevision" | "clientCreateRequestId" | "clientCreateRequestHash" | "agentModelId" | "agentReasoningEffort">
-    & Partial<Pick<StoredConversation, "timelinePosition" | "timelineRevision" | "clientCreateRequestId" | "clientCreateRequestHash" | "agentModelId" | "agentReasoningEffort">>,
+  conversation: Omit<StoredConversation, "timelinePosition" | "timelineRevision" | "clientCreateRequestId" | "clientCreateRequestHash" | "agentModelId" | "agentReasoningEffort" | "archiveOrigin" | "archivedAt" | "lifecycleRevision">
+    & Partial<Pick<StoredConversation, "timelinePosition" | "timelineRevision" | "clientCreateRequestId" | "clientCreateRequestHash" | "agentModelId" | "agentReasoningEffort" | "archiveOrigin" | "archivedAt" | "lifecycleRevision">>,
 ): void {
     const agentTurnMode = conversation.productMode === "agent"
       ? conversation.agentTurnMode ?? "default"
@@ -132,9 +177,9 @@ createConversation(
     this.db.prepare(`
       INSERT INTO conversations (
         project_id, conversation_id, product_mode, agent_turn_mode, agent_model_id, agent_reasoning_effort, client_create_request_id, client_create_request_hash,
-        title, state, surface_kind, bound_change_id, current_graph_scope_id,
+        title, state, archive_origin, archived_at, lifecycle_revision, surface_kind, bound_change_id, current_graph_scope_id,
         selected_provider_id, completed_turn_sequence, timeline_position, timeline_revision, created_at, updated_at, deleted_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       conversation.projectId,
       conversation.conversationId,
@@ -146,6 +191,9 @@ createConversation(
       conversation.clientCreateRequestHash ?? null,
       conversation.title,
       conversation.state,
+      conversation.archiveOrigin ?? null,
+      conversation.archivedAt ?? null,
+      conversation.lifecycleRevision ?? 0,
       conversation.surfaceKind ?? "user",
       conversation.boundChangeId,
       conversation.currentGraphScopeId,
@@ -165,7 +213,8 @@ listConversations(projectId: string, productMode: ProductMode, options: { includ
         SELECT project_id AS projectId, conversation_id AS conversationId, product_mode AS productMode, agent_turn_mode AS agentTurnMode,
           agent_model_id AS agentModelId, agent_reasoning_effort AS agentReasoningEffort,
           client_create_request_id AS clientCreateRequestId, client_create_request_hash AS clientCreateRequestHash,
-          title, state, surface_kind AS surfaceKind,
+          title, state, archive_origin AS archiveOrigin, archived_at AS archivedAt,
+          lifecycle_revision AS lifecycleRevision, surface_kind AS surfaceKind,
           bound_change_id AS boundChangeId, current_graph_scope_id AS currentGraphScopeId,
           selected_provider_id AS selectedProviderId, completed_turn_sequence AS completedTurnSequence,
           timeline_position AS timelinePosition, timeline_revision AS timelineRevision,
@@ -179,7 +228,8 @@ listConversations(projectId: string, productMode: ProductMode, options: { includ
         SELECT project_id AS projectId, conversation_id AS conversationId, product_mode AS productMode, agent_turn_mode AS agentTurnMode,
           agent_model_id AS agentModelId, agent_reasoning_effort AS agentReasoningEffort,
           client_create_request_id AS clientCreateRequestId, client_create_request_hash AS clientCreateRequestHash,
-          title, state, surface_kind AS surfaceKind,
+          title, state, archive_origin AS archiveOrigin, archived_at AS archivedAt,
+          lifecycle_revision AS lifecycleRevision, surface_kind AS surfaceKind,
           bound_change_id AS boundChangeId, current_graph_scope_id AS currentGraphScopeId,
           selected_provider_id AS selectedProviderId, completed_turn_sequence AS completedTurnSequence,
           timeline_position AS timelinePosition, timeline_revision AS timelineRevision,
@@ -197,7 +247,8 @@ readConversation(projectId: string, conversationId: string, options: { includeDe
       SELECT project_id AS projectId, conversation_id AS conversationId, product_mode AS productMode, agent_turn_mode AS agentTurnMode,
         agent_model_id AS agentModelId, agent_reasoning_effort AS agentReasoningEffort,
         client_create_request_id AS clientCreateRequestId, client_create_request_hash AS clientCreateRequestHash,
-        title, state, surface_kind AS surfaceKind,
+        title, state, archive_origin AS archiveOrigin, archived_at AS archivedAt,
+        lifecycle_revision AS lifecycleRevision, surface_kind AS surfaceKind,
         bound_change_id AS boundChangeId, current_graph_scope_id AS currentGraphScopeId,
         selected_provider_id AS selectedProviderId, completed_turn_sequence AS completedTurnSequence,
         timeline_position AS timelinePosition, timeline_revision AS timelineRevision,
@@ -214,7 +265,8 @@ readConversation(projectId: string, conversationId: string, options: { includeDe
       SELECT project_id AS projectId, conversation_id AS conversationId, product_mode AS productMode, agent_turn_mode AS agentTurnMode,
         agent_model_id AS agentModelId, agent_reasoning_effort AS agentReasoningEffort,
         client_create_request_id AS clientCreateRequestId, client_create_request_hash AS clientCreateRequestHash,
-        title, state, surface_kind AS surfaceKind, bound_change_id AS boundChangeId,
+        title, state, archive_origin AS archiveOrigin, archived_at AS archivedAt,
+        lifecycle_revision AS lifecycleRevision, surface_kind AS surfaceKind, bound_change_id AS boundChangeId,
         current_graph_scope_id AS currentGraphScopeId, selected_provider_id AS selectedProviderId,
         completed_turn_sequence AS completedTurnSequence, timeline_position AS timelinePosition,
         timeline_revision AS timelineRevision, created_at AS createdAt, updated_at AS updatedAt,
@@ -231,7 +283,8 @@ readConversationByChangeId(projectId: string, changeId: string): StoredConversat
       SELECT c.project_id AS projectId, c.conversation_id AS conversationId, c.product_mode AS productMode, c.agent_turn_mode AS agentTurnMode,
         c.agent_model_id AS agentModelId, c.agent_reasoning_effort AS agentReasoningEffort,
         c.client_create_request_id AS clientCreateRequestId, c.client_create_request_hash AS clientCreateRequestHash,
-        c.title, c.state, c.surface_kind AS surfaceKind,
+        c.title, c.state, c.archive_origin AS archiveOrigin, c.archived_at AS archivedAt,
+        c.lifecycle_revision AS lifecycleRevision, c.surface_kind AS surfaceKind,
         c.bound_change_id AS boundChangeId, c.current_graph_scope_id AS currentGraphScopeId,
         c.selected_provider_id AS selectedProviderId, c.completed_turn_sequence AS completedTurnSequence,
         c.timeline_position AS timelinePosition, c.timeline_revision AS timelineRevision,
@@ -254,22 +307,6 @@ bindConversationToChange(projectId: string, conversationId: string, changeId: st
       SET bound_change_id = ?, updated_at = ?
       WHERE project_id = ? AND conversation_id = ? AND deleted_at IS NULL
     `).run(changeId, updatedAt, projectId, conversationId);
-  }
-
-hideConversation(projectId: string, conversationId: string, hiddenAt: string): void {
-    this.db.prepare(`
-      UPDATE conversations
-      SET deleted_at = ?, updated_at = ?
-      WHERE project_id = ? AND conversation_id = ? AND deleted_at IS NULL
-    `).run(hiddenAt, hiddenAt, projectId, conversationId);
-  }
-
-setConversationState(projectId: string, conversationId: string, state: StoredConversation["state"], updatedAt: string): void {
-    this.db.prepare(`
-      UPDATE conversations
-      SET state = ?, updated_at = ?
-      WHERE project_id = ? AND conversation_id = ? AND deleted_at IS NULL
-    `).run(state, updatedAt, projectId, conversationId);
   }
 
   initializeConversationGraphScope(
@@ -300,10 +337,11 @@ archiveBoundConversation(
   ): void {
     const result = this.db.prepare(`
       UPDATE conversations
-      SET state = 'archive', updated_at = ?
+      SET state = 'archive', archive_origin = 'harness-workflow', archived_at = ?,
+        lifecycle_revision = lifecycle_revision + 1, updated_at = ?
       WHERE project_id = ? AND conversation_id = ? AND state = 'active'
         AND bound_change_id = ? AND current_graph_scope_id = ? AND deleted_at IS NULL
-    `).run(updatedAt, projectId, conversationId, changeId, graphScopeId);
+    `).run(updatedAt, updatedAt, projectId, conversationId, changeId, graphScopeId);
     if (result.changes !== 1) {
       throw new Error("Conversation abandon lineage is stale or no longer active.");
     }
@@ -315,7 +353,8 @@ restoreConversationAfterAbandonment(
   ): void {
     const result = this.db.prepare(`
       UPDATE conversations
-      SET title = ?, state = ?, surface_kind = ?, bound_change_id = ?, current_graph_scope_id = ?,
+      SET title = ?, state = ?, archive_origin = ?, archived_at = ?, lifecycle_revision = ?,
+        surface_kind = ?, bound_change_id = ?, current_graph_scope_id = ?,
         selected_provider_id = ?, completed_turn_sequence = ?, timeline_position = ?, timeline_revision = ?,
         created_at = ?, updated_at = ?, deleted_at = ?
       WHERE project_id = ? AND conversation_id = ? AND state = 'archive'
@@ -323,6 +362,9 @@ restoreConversationAfterAbandonment(
     `).run(
       snapshot.title,
       snapshot.state,
+      snapshot.archiveOrigin,
+      snapshot.archivedAt,
+      snapshot.lifecycleRevision,
       snapshot.surfaceKind ?? "user",
       snapshot.boundChangeId,
       snapshot.currentGraphScopeId,
@@ -517,7 +559,8 @@ findConversationForChange(projectId: string, changeId: string): StoredConversati
       SELECT c.project_id AS projectId, c.conversation_id AS conversationId, c.product_mode AS productMode, c.agent_turn_mode AS agentTurnMode,
         c.agent_model_id AS agentModelId, c.agent_reasoning_effort AS agentReasoningEffort,
         c.client_create_request_id AS clientCreateRequestId, c.client_create_request_hash AS clientCreateRequestHash,
-        c.title, c.state, c.surface_kind AS surfaceKind,
+        c.title, c.state, c.archive_origin AS archiveOrigin, c.archived_at AS archivedAt,
+        c.lifecycle_revision AS lifecycleRevision, c.surface_kind AS surfaceKind,
         c.bound_change_id AS boundChangeId, c.current_graph_scope_id AS currentGraphScopeId,
         c.selected_provider_id AS selectedProviderId, c.completed_turn_sequence AS completedTurnSequence,
         c.timeline_position AS timelinePosition, c.timeline_revision AS timelineRevision,
@@ -541,4 +584,10 @@ function nextMonotonicTimestamp(current: string, candidate: string): string {
     throw new Error("Conversation title timestamps must be valid ISO dates.");
   }
   return new Date(Math.max(candidateTime, currentTime + 1)).toISOString();
+}
+
+function lifecycleConflict(): Error {
+  const error = new Error("Conversation lifecycle changed concurrently.");
+  error.name = "Conflict";
+  return error;
 }

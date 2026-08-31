@@ -4,6 +4,8 @@ import { projectDisplayName } from "../formatters.js";
 import type {
   AgentTurnMode,
   AppStatus,
+  ConversationDeleteConfirmation,
+  ConversationLifecycleReceipt,
   ProductMode,
   ProjectStatus,
   Snapshot,
@@ -84,7 +86,16 @@ export interface ProjectConversationSessionApi {
   loadStream(projectId: string, runId: string): Promise<StreamPacket>;
   prepareProjectRemoval(projectId: string): Promise<ProjectRemovalConfirmation>;
   removeProject(projectId: string, confirmationToken: string): Promise<void>;
-  hideConversation(projectId: string, conversationId: string): Promise<void>;
+  prepareConversationDelete(projectId: string, conversationId: string, productMode: ProductMode, expectedLifecycleRevision: string): Promise<ConversationDeleteConfirmation>;
+  settleConversationLifecycle(input: {
+    projectId: string;
+    conversationId: string;
+    productMode: ProductMode;
+    action: "archive" | "restore" | "delete";
+    expectedLifecycleRevision: string;
+    clientRequestId: string;
+    confirmationToken?: string | null;
+  }): Promise<ConversationLifecycleReceipt>;
   updateConversationTitle(projectId: string, conversationId: string, title: string): Promise<{ conversation: Topic }>;
   createDemandConversation(
     input: CreateDemandConversationInput,
@@ -400,27 +411,59 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     await refresh(null, null);
   }, [refresh]);
 
-  const hideConversation = useCallback(async (projectId: string, conversationId: string): Promise<void> => {
-    const generation = ++requestGenerationRef.current;
-    await sessionApi(portsRef.current).hideConversation(projectId, conversationId);
-    if (generation !== requestGenerationRef.current) return;
-    portsRef.current.timeline?.clearConversation(projectId, conversationId);
-    const wasSelected = stateRef.current.selectedProjectId === projectId
-      && stateRef.current.selectedTopic === conversationId;
-    const conversationToRefresh = stateRef.current.selectedProjectId === projectId && !wasSelected
-      ? stateRef.current.selectedTopic
+  const settleConversationLifecycle = useCallback(async (input: {
+    projectId: string;
+    conversationId: string;
+    action: "archive" | "restore" | "delete";
+    expectedLifecycleRevision: string;
+    confirmationToken?: string | null;
+  }): Promise<void> => {
+    const productMode = productModeRef.current;
+    const selectedProjectIdAtStart = stateRef.current.selectedProjectId;
+    const selectedTopicAtStart = stateRef.current.selectedTopic;
+    await sessionApi(portsRef.current).settleConversationLifecycle({
+      ...input,
+      productMode,
+      clientRequestId: `conversation-lifecycle-${crypto.randomUUID()}`,
+    });
+    if (input.action === "delete") portsRef.current.timeline?.clearConversation(input.projectId, input.conversationId);
+    if (productModeRef.current !== productMode
+      || selectedProjectIdAtStart !== input.projectId
+      || stateRef.current.selectedProjectId !== input.projectId) return;
+    const wasSelected = selectedTopicAtStart === input.conversationId;
+    const selectedTopic = stateRef.current.selectedTopic;
+    const selectionUnchanged = selectedTopic === selectedTopicAtStart
+      || (wasSelected && selectedTopic === null);
+    if (!selectionUnchanged) return;
+    const conversationToRefresh = input.action === "restore"
+      ? input.conversationId
+      : !wasSelected
+      ? selectedTopic
       : null;
-    if (wasSelected) {
-      beginTransition("conversation-changed", projectId, null);
+    const generation = wasSelected && input.action !== "restore"
+      ? beginTransition("conversation-changed", input.projectId, null)
+      : ++requestGenerationRef.current;
+    if (wasSelected && input.action !== "restore") {
       setSelectedTopic(null);
       setSelectedRun(null);
       setStream(null);
       setPendingDemandConversation(null);
       pendingDemandRef.current = null;
-      navigation(portsRef.current).syncLocation(projectId, null);
+      navigation(portsRef.current).syncLocation(input.projectId, null);
     }
-    await refresh(projectId, conversationToRefresh);
-  }, [beginTransition, refresh]);
+    await refreshAtGeneration(input.projectId, conversationToRefresh, generation, productMode);
+  }, [beginTransition, refreshAtGeneration]);
+
+  const prepareConversationDelete = useCallback(async (
+    projectId: string,
+    conversationId: string,
+    expectedLifecycleRevision: string,
+  ): Promise<ConversationDeleteConfirmation> => sessionApi(portsRef.current).prepareConversationDelete(
+    projectId,
+    conversationId,
+    productModeRef.current,
+    expectedLifecycleRevision,
+  ), []);
 
   const chooseRun = useCallback(async (runId: string): Promise<void> => {
     const projectId = stateRef.current.selectedProjectId;
@@ -846,7 +889,8 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     chooseConversation,
     chooseRun,
     removeProject,
-    hideConversation,
+    settleConversationLifecycle,
+    prepareConversationDelete,
     beginPendingDemand,
     ensureProjectRegistered,
     createDemandConversation,
@@ -892,9 +936,20 @@ const defaultApi: ProjectConversationSessionApi = {
       confirmationToken,
     });
   },
-  hideConversation: async (projectId, conversationId) => {
-    await postJson(`/api/projects/${encodeURIComponent(projectId)}/workbench/topics/${encodeURIComponent(conversationId)}/delete`, { confirm: true });
-  },
+  prepareConversationDelete: (projectId, conversationId, productMode, expectedLifecycleRevision) => postJson(
+    `/api/projects/${encodeURIComponent(projectId)}/workbench/conversations/${encodeURIComponent(conversationId)}/lifecycle/delete-confirmation`,
+    { productMode, expectedLifecycleRevision },
+  ),
+  settleConversationLifecycle: (input) => postJson(
+    `/api/projects/${encodeURIComponent(input.projectId)}/workbench/conversations/${encodeURIComponent(input.conversationId)}/lifecycle`,
+    {
+      productMode: input.productMode,
+      action: input.action,
+      expectedLifecycleRevision: input.expectedLifecycleRevision,
+      clientRequestId: input.clientRequestId,
+      confirmationToken: input.confirmationToken ?? null,
+    },
+  ),
   updateConversationTitle: (projectId, conversationId, title) => postJson(
     `/api/projects/${encodeURIComponent(projectId)}/workbench/topics/${encodeURIComponent(conversationId)}/title`,
     { title },

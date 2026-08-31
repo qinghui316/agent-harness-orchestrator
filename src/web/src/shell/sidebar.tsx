@@ -1,5 +1,7 @@
 import { useRef, useState, type ReactElement } from "react";
 import {
+  Archive,
+  ArchiveRestore,
   ChevronDown,
   ChevronRight,
   FileText,
@@ -21,6 +23,8 @@ import type {
   Snapshot,
   TopicDetail,
   WorkpadSummary,
+  ConversationDeleteConfirmation,
+  ConversationLifecycleSnapshot,
 } from "../types.js";
 
 export function ProjectConversationSidebar({
@@ -40,7 +44,10 @@ export function ProjectConversationSidebar({
   onOpenProject,
   onToggleProject,
   onChooseConversation,
-  onHideConversation,
+  onArchiveConversation,
+  onRestoreConversation,
+  onPrepareConversationDelete,
+  onDeleteConversation,
   onRenameConversation,
   onRemoveProject,
   onRefresh,
@@ -63,7 +70,10 @@ export function ProjectConversationSidebar({
   onOpenProject: (projectId: string) => Promise<void>;
   onToggleProject: (projectId: string) => Promise<void>;
   onChooseConversation: (projectId: string, conversationId: string) => Promise<void>;
-  onHideConversation: (projectId: string, conversationId: string) => Promise<void>;
+  onArchiveConversation: (projectId: string, conversationId: string, lifecycleRevision: string) => Promise<void>;
+  onRestoreConversation: (projectId: string, conversationId: string, lifecycleRevision: string) => Promise<void>;
+  onPrepareConversationDelete: (projectId: string, conversationId: string, lifecycleRevision: string) => Promise<ConversationDeleteConfirmation>;
+  onDeleteConversation: (projectId: string, conversationId: string, lifecycleRevision: string, confirmationToken: string) => Promise<void>;
   onRenameConversation: (projectId: string, conversationId: string, title: string) => Promise<void>;
   onRemoveProject: (projectId: string) => Promise<void>;
   onRefresh: () => Promise<void>;
@@ -71,6 +81,17 @@ export function ProjectConversationSidebar({
   onOpenProjectSettings: (projectId: string) => void;
 }): ReactElement {
   const [conversationMenuId, setConversationMenuId] = useState<string | null>(null);
+  const [lifecycleError, setLifecycleError] = useState<string | null>(null);
+  const [archivedProjects, setArchivedProjects] = useState<Set<string>>(new Set());
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{
+    projectId: string;
+    conversationId: string;
+    title: string;
+    lifecycleRevision: string;
+    confirmation: ConversationDeleteConfirmation;
+    busy: boolean;
+    error: string | null;
+  } | null>(null);
   const renameInFlightRef = useRef(false);
   const cancelRenameRef = useRef(false);
   const [editingConversation, setEditingConversation] = useState<{
@@ -118,6 +139,14 @@ export function ProjectConversationSidebar({
       renameInFlightRef.current = false;
     }
   }
+  async function runLifecycleAction(action: Promise<void>): Promise<void> {
+    setLifecycleError(null);
+    try {
+      await action;
+    } catch (cause) {
+      setLifecycleError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
   return (
     <div className="project-conversation-sidebar">
       <nav className="global-nav" aria-label="全局入口">
@@ -160,6 +189,9 @@ export function ProjectConversationSidebar({
             const filteredConversations = normalizedSearch
               ? conversations.filter((conversation) => conversation.title.toLowerCase().includes(normalizedSearch) || conversation.status.toLowerCase().includes(normalizedSearch))
               : conversations;
+            const activeConversations = filteredConversations.filter((conversation) => conversation.state !== "archive");
+            const archivedConversations = filteredConversations.filter((conversation) => conversation.state === "archive");
+            const archivedOpen = normalizedSearch.length > 0 || archivedProjects.has(projectId);
             const showProject = !normalizedSearch || projectName.toLowerCase().includes(normalizedSearch) || filteredConversations.length > 0;
             if (!showProject) return null;
             return (
@@ -217,9 +249,10 @@ export function ProjectConversationSidebar({
                 ) : null}
                 {expanded ? (
                   <div className="conversation-list">
+                    {lifecycleError && selected ? <div className="conversation-lifecycle-error" role="alert">{lifecycleError}</div> : null}
                     {harnessReady && !projectSnapshot ? <div className="conversation-placeholder">正在加载对话。</div> : null}
                     {!harnessReady && !hasConversationSnapshot ? <div className="conversation-placeholder">首次需求时会根据项目情况建立必要工作说明。</div> : null}
-                    {filteredConversations.map((conversation) => {
+                    {activeConversations.map((conversation) => {
                       const menuId = `${projectId}:${conversation.id}`;
                       const editing = editingConversation?.menuId === menuId ? editingConversation : null;
                       return (
@@ -286,16 +319,80 @@ export function ProjectConversationSidebar({
                                   error: null,
                                 });
                               }}><Pencil size={14} />重命名</button>
-                              <button className="project-menu-item danger" role="menuitem" onClick={() => {
+                              <button
+                                className="project-menu-item"
+                                role="menuitem"
+                                disabled={!conversation.lifecycle?.canArchive}
+                                title={conversation.lifecycle?.disabledReason}
+                                onClick={() => {
                                 setConversationMenuId(null);
-                                if (item.project) void onHideConversation(item.project.id, conversation.id);
-                              }}><Trash2 size={14} />删除对话</button>
+                                if (item.project && conversation.lifecycle) void runLifecycleAction(onArchiveConversation(
+                                  item.project.id,
+                                  conversation.id,
+                                  conversation.lifecycle.lifecycleRevision,
+                                ));
+                              }}><Archive size={14} />归档</button>
                             </div>
                           ) : null}
                         </div>
                       );
                     })}
-                    {harnessReady && projectSnapshot && filteredConversations.length === 0 ? <div className="conversation-placeholder">暂无对话。</div> : null}
+                    {archivedConversations.length > 0 ? (
+                      <button
+                        className="conversation-archive-toggle"
+                        aria-expanded={archivedOpen}
+                        onClick={() => setArchivedProjects((current) => {
+                          const next = new Set(current);
+                          if (next.has(projectId)) next.delete(projectId); else next.add(projectId);
+                          return next;
+                        })}
+                      >{archivedOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}已归档</button>
+                    ) : null}
+                    {archivedOpen ? archivedConversations.map((conversation) => {
+                      const menuId = `${projectId}:${conversation.id}`;
+                      return (
+                        <div className="conversation-row-wrap archived" key={conversation.id}>
+                          <button className="conversation-row" onClick={() => item.project ? void onChooseConversation(item.project.id, conversation.id) : undefined}>
+                            <span>{conversation.title}</span>
+                            <small>已归档</small>
+                          </button>
+                          <button className="conversation-more" aria-label={`${conversation.title} 会话菜单`} onClick={(event) => {
+                            event.stopPropagation();
+                            setConversationMenuId(conversationMenuId === menuId ? null : menuId);
+                          }}><MoreHorizontal size={14} /></button>
+                          {conversationMenuId === menuId ? (
+                            <div className="conversation-row-menu" role="menu">
+                              {conversation.lifecycle?.canRestore ? (
+                                <button className="project-menu-item" role="menuitem" onClick={() => {
+                                  setConversationMenuId(null);
+                                  if (item.project && conversation.lifecycle) void runLifecycleAction(onRestoreConversation(
+                                    item.project.id,
+                                    conversation.id,
+                                    conversation.lifecycle.lifecycleRevision,
+                                  ));
+                                }}><ArchiveRestore size={14} />恢复</button>
+                              ) : null}
+                              <button className="project-menu-item danger" role="menuitem" disabled={!conversation.lifecycle?.canDelete} title={conversation.lifecycle?.disabledReason} onClick={() => {
+                                setConversationMenuId(null);
+                                if (!item.project || !conversation.lifecycle) return;
+                                void onPrepareConversationDelete(item.project.id, conversation.id, conversation.lifecycle.lifecycleRevision)
+                                  .then((confirmation) => setDeleteConfirmation({
+                                    projectId: item.project!.id,
+                                    conversationId: conversation.id,
+                                    title: conversation.title,
+                                    lifecycleRevision: conversation.lifecycle!.lifecycleRevision,
+                                    confirmation,
+                                    busy: false,
+                                    error: null,
+                                  }))
+                                  .catch((cause) => setLifecycleError(cause instanceof Error ? cause.message : String(cause)));
+                              }}><Trash2 size={14} />{conversation.lifecycle?.archiveOrigin === "harness-workflow" ? "永久删除本地会话记录" : "永久删除"}</button>
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    }) : null}
+                    {harnessReady && projectSnapshot && activeConversations.length === 0 && archivedConversations.length === 0 ? <div className="conversation-placeholder">暂无对话。</div> : null}
                   </div>
                 ) : null}
               </div>
@@ -307,6 +404,28 @@ export function ProjectConversationSidebar({
       <div className="sidebar-settings">
         <button className="global-nav-item settings-entry" onClick={onOpenSettings}><Settings size={16} />设置</button>
       </div>
+      {deleteConfirmation ? (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.currentTarget === event.target && !deleteConfirmation.busy) setDeleteConfirmation(null);
+        }}>
+          <section className="conversation-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="conversation-delete-title">
+            <h2 id="conversation-delete-title">永久删除“{deleteConfirmation.title}”？</h2>
+            <p>{deleteConfirmation.confirmation.effect}</p>
+            <p>此操作不会修改项目文件，且无法从 Workbench 恢复。</p>
+            {deleteConfirmation.error ? <p className="form-error" role="alert">{deleteConfirmation.error}</p> : null}
+            <div className="dialog-actions">
+              <button disabled={deleteConfirmation.busy} onClick={() => setDeleteConfirmation(null)}>取消</button>
+              <button className="danger-button" disabled={deleteConfirmation.busy} onClick={() => {
+                const current = deleteConfirmation;
+                setDeleteConfirmation({ ...current, busy: true, error: null });
+                void onDeleteConversation(current.projectId, current.conversationId, current.lifecycleRevision, current.confirmation.token)
+                  .then(() => setDeleteConfirmation(null))
+                  .catch((cause) => setDeleteConfirmation({ ...current, busy: false, error: cause instanceof Error ? cause.message : String(cause) }));
+              }}>{deleteConfirmation.busy ? "正在删除" : "永久删除"}</button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -376,6 +495,7 @@ type SidebarConversation = {
   waitingDecisionCount: number;
   blocker?: string;
   state: string;
+  lifecycle?: ConversationLifecycleSnapshot;
 };
 
 function harnessStatusIssue(project: ProjectStatus, snapshot?: Snapshot): { kind: "uninitialized"; short: string; detail: string } | null {
@@ -411,6 +531,7 @@ function conversationsForSidebar(snapshot: Snapshot | undefined, selectedTopicId
     waitingDecisionCount: workpad.waitingDecisionCount,
     blocker: workpad.blocker,
     state: workpad.state,
+    lifecycle: snapshot.left.topics.find((topic) => topic.id === workpad.id)?.lifecycle,
   }));
 }
 

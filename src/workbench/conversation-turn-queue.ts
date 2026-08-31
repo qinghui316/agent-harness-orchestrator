@@ -10,7 +10,7 @@ import type { StoredConversationQueuedTurn } from "./persistence/contracts.js";
 import { ComposerDraftConflictError } from "./persistence/repositories/composer-draft-repository.js";
 import { publishConversationTurnQueueInvalidated } from "./project-live-events.js";
 import type { TopicFileReference, TopicMessageInput } from "./types.js";
-import { deleteTopicAttachment } from "./attachments.js";
+import { deleteUnreferencedTopicAttachments } from "./attachments.js";
 
 export interface ConversationQueuedTurnInput {
   text: string;
@@ -394,33 +394,7 @@ export class ConversationTurnQueueOwner {
     if (attachmentIds.length === 0) return;
     const runtime = await this.options.projectRuntimeCoordinator.resolve(project);
     const paths = runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
-    const database = await openProjectRuntimeWorkbenchDatabase(paths);
-    let unreferenced: string[];
-    try {
-      const referenced = new Set<string>();
-      for (const mode of ["agent", "harness"] as const) {
-        const draft = database.drafts.readDraft(paths.projectId, mode);
-        for (const id of parseArray<string>(draft?.attachmentIdsJson ?? "[]")) referenced.add(id);
-      }
-      for (const item of database.conversationTurnQueues.listActiveProjectItems(paths.projectId)) {
-        for (const id of parseArray<string>(item.attachmentIdsJson)) referenced.add(id);
-      }
-      for (const row of database.timeline.listAllMessages(paths.projectId)) {
-        try {
-          const raw = JSON.parse(row.rawJson) as { attachments?: Array<{ id?: string }> };
-          for (const attachment of raw.attachments ?? []) if (typeof attachment.id === "string") referenced.add(attachment.id);
-        } catch {
-          // Malformed historical evidence cannot authorize deletion.
-          return;
-        }
-      }
-      unreferenced = [...new Set(attachmentIds)].filter((id) => !referenced.has(id));
-    } finally {
-      database.close();
-    }
-    for (const attachmentId of unreferenced) {
-      await deleteTopicAttachment(project, attachmentId, { workbenchRoot: paths.workbenchRoot });
-    }
+    await deleteUnreferencedTopicAttachments(project, attachmentIds, paths);
   }
 
   private async hasDispatchEvidence(project: ManagedProject, item: StoredConversationQueuedTurn): Promise<boolean> {

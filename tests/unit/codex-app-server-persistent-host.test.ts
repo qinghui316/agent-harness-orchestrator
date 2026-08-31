@@ -13,7 +13,7 @@ import { getActiveCodexAppServerTurn, runCodexAppServerChildClose, runCodexAppSe
 import { CodexAppServerHost, CodexAppServerHostRegistry, defaultCodexAppServerHostRegistry } from "../../src/codex/app-server-host.js";
 import { listCodexRuntimeModels } from "../../src/codex/model-settings.js";
 import { defaultProjectRemovalFence } from "../../src/project-runtime/removal.js";
-import { compactCodexContext, forkCodexSession, runCodexTurn } from "../../src/provider-runtime/codex-adapter.js";
+import { compactCodexContext, forkCodexSession, runCodexTurn, setCodexSessionArchived } from "../../src/provider-runtime/codex-adapter.js";
 
 const tempDirs: string[] = [];
 
@@ -431,6 +431,25 @@ describe("Codex persistent app-server Host", () => {
     expect(events).toEqual(["compact-item-1:started", "compact-item-1:completed"]);
   });
 
+  it("maps provider-neutral session archive and restore to exact Codex thread methods", async () => {
+    const cwd = await tempDir();
+    const server = new PersistentCollaborationServer(4522);
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+    const base = {
+      providerId: "codex" as const,
+      projectId: "project-host",
+      cwd,
+      session: { providerId: "codex" as const, sessionId: "thread-main" },
+    };
+
+    await expect(setCodexSessionArchived({ ...base, archived: true })).resolves.toEqual({ status: "completed" });
+    await expect(setCodexSessionArchived({ ...base, archived: false })).resolves.toEqual({ status: "completed" });
+    expect(server.archiveParams).toEqual([{ threadId: "thread-main" }]);
+    expect(server.unarchiveParams).toEqual([{ threadId: "thread-main" }]);
+    expect(server.methods.filter((method) => method === "thread/archive" || method === "thread/unarchive"))
+      .toEqual(["thread/archive", "thread/unarchive"]);
+  });
+
   it("classifies an explicit pre-Turn thread resume rejection as a stale Provider session", async () => {
     const cwd = await tempDir();
     const server = new PersistentCollaborationServer(4054, false);
@@ -774,9 +793,10 @@ class PersistentCollaborationServer extends EventEmitter {
   readonly threadParams: Array<Record<string, unknown>> = [];
   readonly steerParams: Array<Record<string, unknown>> = [];
   readonly compactParams: Array<Record<string, unknown>> = [];
+  readonly archiveParams: Array<Record<string, unknown>> = [];
+  readonly unarchiveParams: Array<Record<string, unknown>> = [];
   readonly forkParams: Array<Record<string, unknown>> = [];
   readonly rollbackParams: Array<Record<string, unknown>> = [];
-  readonly archiveParams: Array<Record<string, unknown>> = [];
   readonly interruptParams: Array<{ threadId: string; turnId: string }> = [];
   readonly serverResponses: Array<{ id: number; result: Record<string, unknown> }> = [];
   readonly pid: number;
@@ -1011,6 +1031,10 @@ class PersistentCollaborationServer extends EventEmitter {
         } else {
           this.sendCompaction("compact-item-1");
         }
+        return;
+      case "thread/unarchive":
+        this.unarchiveParams.push({ ...params });
+        this.respond(id, { thread: { id: String(params.threadId), status: { type: "idle" }, turns: [] } });
         return;
       case "turn/steer": {
         this.steerParams.push({ ...params });

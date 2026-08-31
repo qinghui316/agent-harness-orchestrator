@@ -442,16 +442,18 @@ describe("ConversationTurnQueueOwner", () => {
     }
   });
 
-  it("cancels queued and blocked items when the Conversation is archived", async () => {
+  it("blocks archive while queued input remains and preserves the queue", async () => {
     const owner = createOwner();
     const initial = await owner.read(project, "agent", conversationId);
     const queued = await owner.enqueue(project, queueRequest(initial.revision, initial.executionRevision!));
     const database = await openProjectRuntimeWorkbenchDatabase(paths);
     try {
-      database.conversations.setConversationState(projectId, conversationId, "archive", now);
+      expect(() => database.conversations.archiveAgentConversation(projectId, conversationId, 0, now)).toThrow(
+        "Conversation with pending Turn queue items cannot be archived or deleted",
+      );
       expect(database.conversationTurnQueues.readItem(projectId, conversationId, queued.items[0]!.queueItemId))
-        .toMatchObject({ status: "cancelled" });
-      expect(database.conversationTurnQueues.readQueue(projectId, conversationId)?.revision).toBe(2);
+        .toMatchObject({ status: "queued" });
+      expect(database.conversationTurnQueues.readQueue(projectId, conversationId)?.revision).toBe(1);
     } finally {
       database.close();
     }

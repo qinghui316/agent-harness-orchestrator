@@ -41,6 +41,7 @@ export const WORKBENCH_PROJECT_IDENTITY_COLUMNS: readonly SqliteProjectIdentityC
   { table: "approval_cache", column: "project_id" },
   { table: "decision_records", column: "project_id" },
   { table: "conversation_fork_operations", column: "project_id" },
+  { table: "conversation_lifecycle_operations", column: "project_id" },
 ] as const;
 
 interface SqliteColumnInfo {

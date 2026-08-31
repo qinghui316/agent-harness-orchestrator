@@ -59,6 +59,14 @@ export interface ProviderSessionForkResult {
   inheritedThroughTurn: ProviderTurnRef;
 }
 
+export interface ProviderSessionArchiveRequest {
+  providerId: ProviderId;
+  projectId: string;
+  cwd: string;
+  session: ProviderSessionRef;
+  archived: boolean;
+}
+
 export type ProviderSessionForkTransportStage =
   | "source-resume"
   | "source-read"
@@ -477,6 +485,7 @@ export interface ConversationProviderPort {
   listActiveTurns(): ActiveProviderTurn[];
   compactContext(request: ProviderContextCompactRequest): Promise<{ status: "accepted" }>;
   forkSession(request: ProviderSessionForkRequest): Promise<ProviderSessionForkResult>;
+  setSessionArchived(request: ProviderSessionArchiveRequest): Promise<{ status: "completed" | "already-matched" }>;
 }
 
 export interface LeafExecutionProviderPort {

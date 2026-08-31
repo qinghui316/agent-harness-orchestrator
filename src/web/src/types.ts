@@ -4,6 +4,7 @@ import type { AgentSurfacesInvalidated } from "../../workbench/agent-surface-con
 export type { ProductModeActivityIndicator, ProductModeActivityState, ProjectProductModeActivitySnapshot } from "../../workbench/product-mode-activity.js";
 export type { ConversationContextSnapshot, ProviderContextLifecycleState } from "../../workbench/conversation-context-lifecycle.js";
 export type { ConversationQueuedTurn, ConversationQueuedTurnInput, ConversationTurnQueueSnapshot } from "../../workbench/conversation-turn-queue.js";
+export type { ConversationDeleteConfirmation, ConversationLifecycleReceipt, ConversationLifecycleSnapshot } from "../../workbench/conversation-lifecycle.js";
 import type { ConversationContextSnapshot } from "../../workbench/conversation-context-lifecycle.js";
 export type { ConversationInteraction, ConversationInteractionQuestion, ConversationInteractionQueue, ConversationInteractionSettlement, InteractionHistoryRecord } from "../../workbench/conversation-interaction-contract.js";
 export type { AgentSurfaceProjection, AgentSurfaceProjectionItem, AgentSurfaceStatus, AgentSurfacesInvalidated, AgentSurfacesInvalidationReason } from "../../workbench/agent-surface-contract.js";
@@ -57,6 +58,7 @@ export type ProviderCapabilityKey =
   | "skills"
   | "context.usage"
   | "context.compact"
+  | "session.archive"
   | "turn.plan";
 export type ProviderCapabilityItem = {
   key: ProviderCapabilityKey;
@@ -375,7 +377,7 @@ export type Snapshot = {
   warnings: string[];
 };
 
-export type Topic = { id: string; productMode: ProductMode; agentTurnMode?: AgentTurnMode | null; agentModelId?: string | null; agentReasoningEffort?: string | null; title: string; state: string; updatedAt?: string; kind?: "conversation" | "change"; boundChangeId?: string | null; graphScopeId?: string; selectedProviderId?: string; completedTurnSequence?: number; timelineRevision?: number; forkBoundary?: { sourceConversationId: string; sourceMessageId: string; completedTurnSequence: number } };
+export type Topic = { id: string; productMode: ProductMode; agentTurnMode?: AgentTurnMode | null; agentModelId?: string | null; agentReasoningEffort?: string | null; title: string; state: string; updatedAt?: string; kind?: "conversation" | "change"; boundChangeId?: string | null; graphScopeId?: string; selectedProviderId?: string; completedTurnSequence?: number; timelineRevision?: number; forkBoundary?: { sourceConversationId: string; sourceMessageId: string; completedTurnSequence: number }; lifecycle?: import("../../workbench/conversation-lifecycle.js").ConversationLifecycleSnapshot };
 export type WorkpadRuntimeStatus = "active" | "running" | "queued" | "blocked" | "waiting-decision" | "archived" | "readonly";
 export type WorkpadUserStatus = "processing" | "waiting-confirmation" | "needs-rework" | "later" | "completed" | "abandoned";
 export type ConversationLifecycle = "active" | "running" | "waiting-user" | "archived-readonly" | "abandoned";
@@ -1672,6 +1674,7 @@ export type WorkbenchLiveEvent =
   | { event: "conversation.turn-control.invalidated"; data: { conversationId: string; attemptId: string } }
   | { event: "conversation.context.invalidated"; data: { conversationId: string } }
   | { event: "conversation.turn-queue.invalidated"; data: { conversationId: string } }
+  | { event: "conversation.lifecycle.invalidated"; data: { conversationId: string } }
   | { event: "conversation.fork.completed"; data: { sourceConversationId: string; targetConversationId: string } }
   | { event: "run.started"; data: WorkbenchLiveIdentity & { runId: string; actionType?: string; runtime?: string; taskIds?: string[] } }
   | { event: "run.status"; data: WorkbenchLiveIdentity & { actionRunId?: string; status: string; label?: string } }

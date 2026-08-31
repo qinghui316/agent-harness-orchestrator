@@ -4,7 +4,6 @@ import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../../provider-runt
 import { resolveProjectRuntimeState } from "../../../project-runtime/coordinator.js";
 import type { ProjectRuntimeResolution } from "../../../project-runtime/context.js";
 import { readRun } from "../../../run/manager.js";
-import { deleteConversation, hideConversation } from "../../conversation-lifecycle.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../persistence/open-workbench-database.js";
 import { summarizeRunArtifacts } from "../artifact-preview.js";
 import { readRunEvents } from "./thread-stream.js";
@@ -277,8 +276,11 @@ export async function listWorkbenchTopics(input: WorkbenchProjectInput, productM
   const paths = runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
   const store = await openProjectRuntimeWorkbenchDatabase(paths);
   try {
-    return store.conversations.listConversations(paths.projectId, productMode).map((conversation) => {
+    return Promise.all(store.conversations.listConversations(paths.projectId, productMode).map(async (conversation) => {
       const forkOperation = store.conversationForks.readByTargetConversation(paths.projectId, conversation.conversationId);
+      const lifecycle = input.conversationLifecycleSnapshotResolver
+        ? await input.conversationLifecycleSnapshotResolver(input.project!, productMode, conversation.conversationId)
+        : basicLifecycleSnapshot(conversation);
       return {
       id: conversation.conversationId,
       productMode: conversation.productMode,
@@ -296,10 +298,11 @@ export async function listWorkbenchTopics(input: WorkbenchProjectInput, productM
       completedTurnSequence: conversation.completedTurnSequence,
       timelineRevision: conversation.timelineRevision,
       forkBoundary: forkOperation ? forkBoundaryFromOperation(forkOperation) : undefined,
+      lifecycle,
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
       };
-    });
+    }));
   } finally {
     store.close();
   }
@@ -317,7 +320,7 @@ async function buildAgentModeSnapshot(
     const conversations = database.conversations.listConversations(paths.projectId, "agent");
     const selected = topicId
       ? conversations.find((conversation) => conversation.conversationId === topicId)
-      : conversations.find((conversation) => conversation.state === "active") ?? conversations[0];
+      : conversations.find((conversation) => conversation.state === "active");
     if (topicId && !selected) {
       const other = database.conversations.readConversation(paths.projectId, topicId);
       const error = new Error(other
@@ -326,8 +329,11 @@ async function buildAgentModeSnapshot(
       error.name = other ? "Conflict" : "NotFound";
       throw error;
     }
-    const topics: WorkbenchTopicSummary[] = conversations.map((conversation) => {
+    const topics: WorkbenchTopicSummary[] = await Promise.all(conversations.map(async (conversation) => {
       const forkOperation = database.conversationForks.readByTargetConversation(paths.projectId, conversation.conversationId);
+      const lifecycle = input.conversationLifecycleSnapshotResolver
+        ? await input.conversationLifecycleSnapshotResolver(project, "agent", conversation.conversationId)
+        : basicLifecycleSnapshot(conversation);
       return {
       id: conversation.conversationId,
       productMode: "agent",
@@ -345,10 +351,11 @@ async function buildAgentModeSnapshot(
       completedTurnSequence: conversation.completedTurnSequence,
       timelineRevision: conversation.timelineRevision,
       forkBoundary: forkOperation ? forkBoundaryFromOperation(forkOperation) : undefined,
+      lifecycle,
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
       };
-    });
+    }));
     let selectedTopic: WorkbenchTopicDetail | null = null;
     if (selected) {
       const topic = topics.find((candidate) => candidate.id === selected.conversationId)!;
@@ -389,13 +396,16 @@ async function buildAgentModeSnapshot(
       ...buildDiagnosticWorkpad(project.name, [], []),
       title: selectedTopic?.title ?? "Agent",
       subtitle: project.name,
-      state: selectedTopic ? "active" as const : "empty" as const,
+      state: selected?.state === "archive" ? "readonly" as const : selectedTopic ? "active" as const : "empty" as const,
+      userStatus: selected?.state === "archive" ? "completed" as const : "later" as const,
+      userStatusLabel: selected?.state === "archive" ? "已归档" : "稍后处理",
+      conversationLifecycle: selected?.state === "archive" ? "archived-readonly" as const : "active" as const,
       conversationId: selectedTopic?.id,
       demandId: selectedTopic?.id,
       blockers: [],
       warnings: [],
     };
-    const runningMainAttempt = selected?.currentGraphScopeId
+    const runningMainAttempt = selected?.state === "active" && selected.currentGraphScopeId
       ? [...database.providerAttempts.listProviderAttempts(paths.projectId, selected.conversationId)]
         .reverse()
         .find((attempt) => attempt.productMode === "agent"
@@ -427,7 +437,7 @@ async function buildAgentModeSnapshot(
             : "当前 Agent 回合正在启动，等待精确控制身份。",
       };
     }
-    const conversationInteractions = selected?.currentGraphScopeId
+    const conversationInteractions = selected?.state === "active" && selected.currentGraphScopeId
       ? await buildConversationInteractionQueue(
           paths,
           selected.conversationId,
@@ -435,7 +445,7 @@ async function buildAgentModeSnapshot(
           "agent",
         )
       : { productMode: "agent" as const, items: [] };
-    const conversationContext = selected && input.conversationContextSnapshotResolver
+    const conversationContext = selected?.state === "active" && input.conversationContextSnapshotResolver
       ? await input.conversationContextSnapshotResolver(project, "agent", selected.conversationId)
       : null;
     return {
@@ -475,6 +485,22 @@ function forkBoundaryFromOperation(operation: import("../../persistence/contract
   };
 }
 
+function basicLifecycleSnapshot(conversation: import("../../persistence/contracts.js").StoredConversation): import("../../conversation-lifecycle.js").ConversationLifecycleSnapshot {
+  const active = conversation.state === "active";
+  return {
+    projectId: conversation.projectId,
+    productMode: conversation.productMode,
+    conversationId: conversation.conversationId,
+    state: active ? "active" : "archived",
+    archiveOrigin: conversation.archiveOrigin,
+    lifecycleRevision: `conversation-lifecycle:${conversation.lifecycleRevision}`,
+    updatedAt: conversation.updatedAt,
+    canArchive: active && conversation.productMode === "agent",
+    canRestore: !active && conversation.productMode === "agent" && conversation.archiveOrigin === "agent-user",
+    canDelete: !active,
+  };
+}
+
 async function assertRequestedConversationMode(
   paths: ProjectRuntimeResolution["paths"],
   projectId: string,
@@ -493,28 +519,6 @@ async function assertRequestedConversationMode(
   } finally {
     database.close();
   }
-}
-
-export async function hideWorkbenchTopic(input: WorkbenchProjectInput, topicId: string): Promise<{ hidden: true; topicId: string }> {
-  if (!input.project) {
-    const error = new Error("Project Harness runtime is unavailable; cannot hide this conversation.");
-    error.name = "Conflict";
-    throw error;
-  }
-  const runtime = await requireReadyProjectRuntime(input);
-  await hideConversation(runtime.paths, topicId);
-  return { hidden: true, topicId };
-}
-
-export async function deleteWorkbenchConversation(input: WorkbenchProjectInput, topicId: string): Promise<{ deleted: true; topicId: string }> {
-  if (!input.project) {
-    const error = new Error("Project Harness runtime is unavailable; cannot delete this conversation.");
-    error.name = "Conflict";
-    throw error;
-  }
-  const runtime = await requireReadyProjectRuntime(input);
-  await deleteConversation(runtime.paths, topicId);
-  return { deleted: true, topicId };
 }
 
 export async function getWorkbenchTopic(input: WorkbenchProjectInput, topicId: string, productMode: ProductMode): Promise<WorkbenchTopicDetail> {

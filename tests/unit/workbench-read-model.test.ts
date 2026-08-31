@@ -6,7 +6,7 @@ import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { appendCanonicalTimelineEntry } from "../../src/workbench/canonical-timeline-command.js";
 import { createWorkbenchConversation } from "../../src/workbench/conversation-service.js";
 import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/workbench/intake.js";
-import { deleteWorkbenchConversation, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/projections/read-model/implementation.js";
+import { getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/projections/read-model/implementation.js";
 import { getCanonicalTimelinePage } from "../../src/workbench/canonical-timeline-query.js";
 import { createAgentTask } from "../../src/agent-task/manager.js";
 import { projectExecutionRuntimePort } from "../../src/project-runtime/execution-ports.js";
@@ -176,6 +176,45 @@ async function writeCreatedPrDraftPackage(landingPackageId: string, id: string):
 }
 
 describe("workbench read-model projections", () => {
+  it("keeps archived Agent Conversations listed without selecting one as the empty Composer fallback", async () => {
+    const created = await createWorkbenchConversation(project(), {
+      body: "Archive this Agent Conversation.",
+      productMode: "agent",
+      providerId: "codex",
+      clientRequestId: "read-model-agent-archive",
+    }, undefined, { runMainAgent: false });
+    const database = await openProjectRuntimeWorkbenchDatabase(skillNativeFixture.runtime);
+    try {
+      const conversation = database.conversations.readConversation(project().id, created.conversationId)!;
+      database.conversations.archiveAgentConversation(
+        project().id,
+        created.conversationId,
+        conversation.lifecycleRevision,
+        "2026-08-31T00:00:00.000Z",
+      );
+    } finally {
+      database.close();
+    }
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { productMode: "agent" });
+    const archived = await getWorkbenchSnapshot({
+      project: project(),
+      path: getTempDir(),
+      conversationContextSnapshotResolver: async () => {
+        throw new Error("Archived Conversation must not request active Context state.");
+      },
+    }, { productMode: "agent", topicId: created.conversationId });
+
+    expect(snapshot.center.selectedTopic).toBeNull();
+    expect(snapshot.left.topics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: created.conversationId, state: "archive" }),
+    ]));
+    expect(archived.center.selectedTopic).toMatchObject({ id: created.conversationId, state: "archive" });
+    expect(archived.center.workpad).toMatchObject({ state: "readonly", conversationLifecycle: "archived-readonly" });
+    expect(archived.center.conversationContext).toBeNull();
+    expect(archived.center.conversationInteractions.items).toEqual([]);
+  });
+
   it("projects exact Agent Turn control only while the durable main Attempt is running", async () => {
     const created = await createWorkbenchConversation(project(), {
       body: "Run until stopped.",
@@ -355,7 +394,27 @@ describe("workbench read-model projections", () => {
     ]));
   });
 
-  it("deletes conversation transcript records without deleting the active Harness change", async () => {
+  it("keeps an archived Harness Conversation listed without selecting it as the empty Composer fallback", async () => {
+    const archived = await createConversationChangeFixture(project(), { title: "Archived Harness Only" });
+    await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
+      abandon: {
+        changeId: archived.changeId,
+        conversationId: archived.conversationId,
+        graphScopeId: `graph:${archived.conversationId}`,
+        reason: "Archive the only Harness Conversation.",
+      },
+      confirm: true,
+    });
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { productMode: "harness" });
+
+    expect(snapshot.center.selectedTopic).toBeNull();
+    expect(snapshot.left.topics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: archived.conversationId, state: "archive" }),
+    ]));
+  });
+
+  it("deletes archived conversation presentation records without deleting Harness governance evidence", async () => {
     const conversation = await createConversationChangeFixture(project(), {
       title: "Keep Harness Change",
       body: "This transcript should be deleted.",
@@ -363,10 +422,34 @@ describe("workbench read-model projections", () => {
     const changeDir = skillNativeChangeRoot(skillNativeFixture, conversation.changeId);
     expect(existsSync(changeDir)).toBe(true);
 
-    await deleteWorkbenchConversation({ project: project(), path: getTempDir() }, conversation.conversationId);
+    await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
+      abandon: {
+        changeId: conversation.changeId,
+        conversationId: conversation.conversationId,
+        graphScopeId: `graph:${conversation.conversationId}`,
+        reason: "Archive before local presentation deletion.",
+      },
+      confirm: true,
+    });
+    const archivedChangeDir = join(skillNativeFixture.skillRoot, "state", "changes", "archive", conversation.changeId);
+    const database = await openProjectRuntimeWorkbenchDatabase(skillNativeFixture.runtime);
+    try {
+      const archived = database.conversations.readConversation(project().id, conversation.conversationId)!;
+      expect(archived).toMatchObject({ state: "archive", archiveOrigin: "harness-workflow" });
+      database.unitOfWork.deleteArchivedConversation({
+        projectId: project().id,
+        conversationId: conversation.conversationId,
+        productMode: "harness",
+        expectedLifecycleRevision: archived.lifecycleRevision,
+        deletedAt: new Date().toISOString(),
+      });
+    } finally {
+      database.close();
+    }
 
-    expect(existsSync(changeDir)).toBe(true);
-    expect(existsSync(join(changeDir, "summary.md"))).toBe(true);
+    expect(existsSync(changeDir)).toBe(false);
+    expect(existsSync(archivedChangeDir)).toBe(true);
+    expect(existsSync(join(archivedChangeDir, "summary.md"))).toBe(true);
     await expect(listWorkbenchTopics({ project: project(), path: getTempDir() }, "harness")).resolves.not.toEqual(expect.arrayContaining([
       expect.objectContaining({ id: conversation.conversationId }),
     ]));

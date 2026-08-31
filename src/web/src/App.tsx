@@ -370,8 +370,16 @@ export function App(): ReactElement {
     await session.removeProject(projectId);
   }
 
-  async function hideConversation(projectId: string, conversationId: string): Promise<void> {
-    await session.hideConversation(projectId, conversationId);
+  async function archiveConversation(projectId: string, conversationId: string, lifecycleRevision: string): Promise<void> {
+    await session.settleConversationLifecycle({ projectId, conversationId, action: "archive", expectedLifecycleRevision: lifecycleRevision });
+  }
+
+  async function restoreConversation(projectId: string, conversationId: string, lifecycleRevision: string): Promise<void> {
+    await session.settleConversationLifecycle({ projectId, conversationId, action: "restore", expectedLifecycleRevision: lifecycleRevision });
+  }
+
+  async function deleteConversation(projectId: string, conversationId: string, lifecycleRevision: string, confirmationToken: string): Promise<void> {
+    await session.settleConversationLifecycle({ projectId, conversationId, action: "delete", expectedLifecycleRevision: lifecycleRevision, confirmationToken });
   }
 
   async function chooseRun(runId: string): Promise<void> {
@@ -929,6 +937,13 @@ export function App(): ReactElement {
   function routeProjectionEventForProject(projectId: string, event: WorkbenchLiveEvent): void {
     projectionEventRouterRef.current(projectId, event);
     conversationTurnQueue.handleEvent(projectId, event);
+    if (event.event === "conversation.lifecycle.invalidated" && selectedProjectIdRef.current === projectId) {
+      const selectedConversationId = selectedConversationIdRef.current;
+      void session.refresh(
+        projectId,
+        selectedConversationId === event.data.conversationId ? null : selectedConversationId,
+      );
+    }
   }
 
   function toggleOrchestrationOverlay(): void {
@@ -1005,7 +1020,10 @@ export function App(): ReactElement {
           onOpenProject={openProject}
           onToggleProject={toggleProjectFolder}
           onChooseConversation={chooseConversation}
-          onHideConversation={hideConversation}
+          onArchiveConversation={archiveConversation}
+          onRestoreConversation={restoreConversation}
+          onPrepareConversationDelete={session.prepareConversationDelete}
+          onDeleteConversation={deleteConversation}
           onRenameConversation={session.updateConversationTitle}
           onRemoveProject={removeProject}
           onRefresh={loadApp}

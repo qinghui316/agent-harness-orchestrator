@@ -95,6 +95,7 @@ const MODE_ACTIVITY_INVALIDATION_EVENTS = new Set<WorkbenchLiveEvent["event"]>([
   "agent-surfaces.invalidated",
   "conversation.turn-control.invalidated",
   "conversation.context.invalidated",
+  "conversation.lifecycle.invalidated",
   "run.started",
   "run.status",
   "snapshot",

@@ -6,7 +6,7 @@ import { codexModelSettings, selectCodexModel } from "./codex-models.js";
 import { listCodexNativeSkills, setCodexNativeSkillEnabled } from "../codex/native-skills.js";
 import { CodexAppServerJsonRpcError, CodexAppServerRequestTimeoutError, defaultCodexAppServerHostRegistry } from "../codex/app-server-host.js";
 import { defaultProjectRemovalFence } from "../project-runtime/removal.js";
-import type { ActiveProviderTurn, ProviderApprovalRequest, ProviderChildCloseRequest, ProviderChildLifecycleEvent, ProviderChildSessionRequest, ProviderChildThreadResult, ProviderChildTurnRequest, ProviderContextCompactRequest, ProviderContextEvent, ProviderDescriptor, ProviderObjectiveState, ProviderRealtimeEvent, ProviderSessionForkRequest, ProviderSessionForkResult, ProviderSessionForkTransportStage, ProviderTurnRequest, ProviderTurnResult, ProviderUserInputRequest } from "./contracts.js";
+import type { ActiveProviderTurn, ProviderApprovalRequest, ProviderChildCloseRequest, ProviderChildLifecycleEvent, ProviderChildSessionRequest, ProviderChildThreadResult, ProviderChildTurnRequest, ProviderContextCompactRequest, ProviderContextEvent, ProviderDescriptor, ProviderObjectiveState, ProviderRealtimeEvent, ProviderSessionArchiveRequest, ProviderSessionForkRequest, ProviderSessionForkResult, ProviderSessionForkTransportStage, ProviderTurnRequest, ProviderTurnResult, ProviderUserInputRequest } from "./contracts.js";
 import { agentThreadSurfaceId } from "./agent-surface-id.js";
 
 export const CODEX_PROVIDER_ID = "codex" as const;
@@ -28,7 +28,7 @@ export const codexProviderDescriptor: ProviderDescriptor = {
     list: listCodexNativeSkills,
     setEnabled: setCodexNativeSkillEnabled,
   },
-  conversation: { runTurn: runCodexTurn, inspectChild: inspectCodexChild, continueChild: runCodexChildTurn, closeChild: closeCodexChild, getActiveTurn: activeCodexTurn, listActiveTurns: activeCodexTurns, compactContext: compactCodexContext, forkSession: forkCodexSession },
+  conversation: { runTurn: runCodexTurn, inspectChild: inspectCodexChild, continueChild: runCodexChildTurn, closeChild: closeCodexChild, getActiveTurn: activeCodexTurn, listActiveTurns: activeCodexTurns, compactContext: compactCodexContext, forkSession: forkCodexSession, setSessionArchived: setCodexSessionArchived },
   leafExecution: { runTurn: runCodexTurn },
 };
 
@@ -285,6 +285,43 @@ export async function forkCodexSession(request: ProviderSessionForkRequest): Pro
       throw providerForkRejected(error instanceof Error ? error.message : "Provider rejected session fork.", error);
     }
     throw providerForkTransportUncertain(stage, error);
+  } finally {
+    lease.release();
+  }
+}
+
+export async function setCodexSessionArchived(
+  request: ProviderSessionArchiveRequest,
+): Promise<{ status: "completed" | "already-matched" }> {
+  if (request.providerId !== CODEX_PROVIDER_ID || request.session.providerId !== CODEX_PROVIDER_ID) {
+    const error = new Error("Codex session archive requires one exact Codex Provider session.");
+    error.name = "ProviderSessionArchiveRejected";
+    throw error;
+  }
+  const generation = defaultProjectRemovalFence.capture(request.projectId);
+  const host = defaultCodexAppServerHostRegistry.hostForProject(request.projectId, request.cwd);
+  const lease = await host.acquire({ onLine() {}, onStderr() {}, onExit() {} });
+  try {
+    defaultProjectRemovalFence.assertCurrent(request.projectId, generation);
+    if (request.archived) {
+      await lease.request("thread/archive", { threadId: request.session.sessionId }, { timeoutMs: 10_000 });
+    } else {
+      const response = await lease.request("thread/unarchive", { threadId: request.session.sessionId }, { timeoutMs: 10_000 });
+      if (codexThreadId(response) !== request.session.sessionId) {
+        const error = new Error("Codex did not return the exact restored Provider session.");
+        error.name = "StaleProviderSession";
+        throw error;
+      }
+    }
+    return { status: "completed" };
+  } catch (error) {
+    if (error instanceof CodexAppServerJsonRpcError
+      || (error instanceof Error && ["Conflict", "StaleProviderSession"].includes(error.name))) {
+      const rejection = new Error("Provider rejected session lifecycle synchronization.", { cause: error });
+      rejection.name = "ProviderSessionArchiveRejected";
+      throw rejection;
+    }
+    throw error;
   } finally {
     lease.release();
   }

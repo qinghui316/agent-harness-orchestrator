@@ -1,10 +1,10 @@
 import type Database from "better-sqlite3";
 import type { SqliteRow } from "./sql-mappers.js";
 
-export const WORKBENCH_SCHEMA_VERSION = 16;
+export const WORKBENCH_SCHEMA_VERSION = 17;
 
 export function requiresRuntimeSchemaRebuild(currentVersion: number): boolean {
-  return ![9, 10, 11, 12, 13, 14, 15, WORKBENCH_SCHEMA_VERSION].includes(currentVersion);
+  return ![9, 10, 11, 12, 13, 14, 15, 16, WORKBENCH_SCHEMA_VERSION].includes(currentVersion);
 }
 
 export function migrate(db: Database.Database): void {
@@ -55,6 +55,9 @@ export function migrate(db: Database.Database): void {
       client_create_request_hash TEXT,
       title TEXT NOT NULL,
       state TEXT NOT NULL DEFAULT 'active',
+      archive_origin TEXT CHECK(archive_origin IN ('agent-user', 'harness-workflow') OR archive_origin IS NULL),
+      archived_at TEXT,
+      lifecycle_revision INTEGER NOT NULL DEFAULT 0,
       surface_kind TEXT NOT NULL DEFAULT 'user',
       bound_change_id TEXT,
       current_graph_scope_id TEXT,
@@ -68,6 +71,26 @@ export function migrate(db: Database.Database): void {
       PRIMARY KEY(project_id, conversation_id)
     );
     CREATE INDEX IF NOT EXISTS idx_conversations_project_updated ON conversations(project_id, deleted_at, updated_at);
+
+    CREATE TABLE IF NOT EXISTS conversation_lifecycle_operations (
+      project_id TEXT NOT NULL,
+      conversation_id TEXT NOT NULL,
+      product_mode TEXT NOT NULL CHECK(product_mode IN ('agent', 'harness')),
+      client_request_id TEXT NOT NULL,
+      request_hash TEXT NOT NULL,
+      action TEXT NOT NULL CHECK(action IN ('archive', 'restore', 'delete')),
+      expected_lifecycle_revision INTEGER NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('pending', 'submitting', 'completed', 'failed', 'interrupted')),
+      provider_id TEXT,
+      provider_binding_hash TEXT,
+      provider_sync_status TEXT NOT NULL CHECK(provider_sync_status IN ('not-required', 'unsupported', 'submitting', 'completed', 'failed', 'uncertain')),
+      diagnostic TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, client_request_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_conversation_lifecycle_operations_conversation
+      ON conversation_lifecycle_operations(project_id, conversation_id, updated_at);
 
     CREATE TABLE IF NOT EXISTS action_runs (
       id TEXT PRIMARY KEY,
@@ -327,6 +350,9 @@ export function migrate(db: Database.Database): void {
   ensureColumn(db, "conversations", "product_mode", "TEXT NOT NULL DEFAULT 'harness' CHECK(product_mode IN ('agent', 'harness'))");
   ensureColumn(db, "conversations", "client_create_request_id", "TEXT");
   ensureColumn(db, "conversations", "client_create_request_hash", "TEXT");
+  ensureColumn(db, "conversations", "archive_origin", "TEXT CHECK(archive_origin IN ('agent-user', 'harness-workflow') OR archive_origin IS NULL)");
+  ensureColumn(db, "conversations", "archived_at", "TEXT");
+  ensureColumn(db, "conversations", "lifecycle_revision", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "provider_attempts", "product_mode", "TEXT NOT NULL DEFAULT 'harness' CHECK(product_mode IN ('agent', 'harness'))");
   ensureColumn(db, "provider_attempts", "effective_skill_inputs_json", "TEXT NOT NULL DEFAULT '[]'");
   db.exec(`
@@ -341,6 +367,11 @@ export function migrate(db: Database.Database): void {
     UPDATE composer_drafts SET agent_turn_mode = NULL WHERE product_mode = 'harness';
     UPDATE conversations SET agent_model_id = NULL, agent_reasoning_effort = NULL WHERE product_mode = 'harness';
     UPDATE composer_drafts SET agent_model_id = NULL, agent_reasoning_effort = NULL WHERE product_mode = 'harness';
+    UPDATE conversations SET archive_origin = CASE product_mode
+      WHEN 'agent' THEN 'agent-user' ELSE 'harness-workflow' END,
+      archived_at = COALESCE(archived_at, updated_at)
+    WHERE state = 'archive' AND archive_origin IS NULL;
+    UPDATE conversations SET archive_origin = NULL, archived_at = NULL WHERE state = 'active';
   `);
   db.exec("DELETE FROM skill_roots WHERE source_kind <> 'custom';");
   db.exec(`
@@ -374,6 +405,41 @@ export function migrate(db: Database.Database): void {
     WHEN NEW.product_mode <> OLD.product_mode
     BEGIN
       SELECT RAISE(ABORT, 'Conversation product_mode is immutable');
+    END;
+    DROP TRIGGER IF EXISTS trg_conversations_archive_origin_insert;
+    CREATE TRIGGER trg_conversations_archive_origin_insert
+    BEFORE INSERT ON conversations
+    WHEN (NEW.state = 'active' AND (NEW.archive_origin IS NOT NULL OR NEW.archived_at IS NOT NULL))
+      OR (NEW.state = 'archive' AND (
+        NEW.archived_at IS NULL
+        OR (NEW.product_mode = 'agent' AND NEW.archive_origin <> 'agent-user')
+        OR (NEW.product_mode = 'harness' AND NEW.archive_origin <> 'harness-workflow')
+      ))
+    BEGIN
+      SELECT RAISE(ABORT, 'Conversation archive metadata must match lifecycle state and product_mode');
+    END;
+    DROP TRIGGER IF EXISTS trg_conversations_archive_origin_update;
+    CREATE TRIGGER trg_conversations_archive_origin_update
+    BEFORE UPDATE OF state, archive_origin, archived_at, product_mode ON conversations
+    WHEN (NEW.state = 'active' AND (NEW.archive_origin IS NOT NULL OR NEW.archived_at IS NOT NULL))
+      OR (NEW.state = 'archive' AND (
+        NEW.archived_at IS NULL
+        OR (NEW.product_mode = 'agent' AND NEW.archive_origin <> 'agent-user')
+        OR (NEW.product_mode = 'harness' AND NEW.archive_origin <> 'harness-workflow')
+      ))
+    BEGIN
+      SELECT RAISE(ABORT, 'Conversation archive metadata must match lifecycle state and product_mode');
+    END;
+    DROP TRIGGER IF EXISTS trg_conversation_lifecycle_operation_identity_insert;
+    CREATE TRIGGER trg_conversation_lifecycle_operation_identity_insert
+    BEFORE INSERT ON conversation_lifecycle_operations
+    WHEN NOT EXISTS (
+      SELECT 1 FROM conversations
+      WHERE project_id = NEW.project_id AND conversation_id = NEW.conversation_id
+        AND product_mode = NEW.product_mode
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'Conversation lifecycle operation identity must match Conversation');
     END;
     DROP TRIGGER IF EXISTS trg_provider_attempt_mode_insert;
     CREATE TRIGGER trg_provider_attempt_mode_insert
@@ -527,22 +593,17 @@ export function migrate(db: Database.Database): void {
       SELECT RAISE(ABORT, 'Conversation queued Turn fields must match product_mode');
     END;
     DROP TRIGGER IF EXISTS trg_conversation_turn_queue_cancel_inactive;
-    CREATE TRIGGER trg_conversation_turn_queue_cancel_inactive
-    AFTER UPDATE OF state, deleted_at ON conversations
-    WHEN NEW.state <> 'active' OR NEW.deleted_at IS NOT NULL
+    DROP TRIGGER IF EXISTS trg_conversation_turn_queue_block_archive;
+    CREATE TRIGGER trg_conversation_turn_queue_block_archive
+    BEFORE UPDATE OF state, deleted_at ON conversations
+    WHEN (NEW.state <> 'active' OR NEW.deleted_at IS NOT NULL)
+      AND EXISTS (
+        SELECT 1 FROM conversation_turn_queue_items
+        WHERE project_id = NEW.project_id AND conversation_id = NEW.conversation_id
+          AND status IN ('queued', 'dispatching', 'blocked')
+      )
     BEGIN
-      UPDATE conversation_turn_queues
-      SET revision = revision + 1, updated_at = NEW.updated_at
-      WHERE project_id = NEW.project_id AND conversation_id = NEW.conversation_id
-        AND EXISTS (
-          SELECT 1 FROM conversation_turn_queue_items
-          WHERE project_id = NEW.project_id AND conversation_id = NEW.conversation_id
-            AND status IN ('queued', 'blocked')
-        );
-      UPDATE conversation_turn_queue_items
-      SET status = 'cancelled', diagnostic = NULL, updated_at = NEW.updated_at
-      WHERE project_id = NEW.project_id AND conversation_id = NEW.conversation_id
-        AND status IN ('queued', 'blocked');
+      SELECT RAISE(ABORT, 'Conversation with pending Turn queue items cannot be archived or deleted');
     END;
   `);
   db.pragma(`user_version = ${WORKBENCH_SCHEMA_VERSION}`);

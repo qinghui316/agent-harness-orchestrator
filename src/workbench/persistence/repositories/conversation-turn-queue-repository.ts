@@ -159,6 +159,13 @@ export class ConversationTurnQueueRepository {
     if (result.changes !== 1) throw conflict("Conversation Turn queue changed in another window.");
     return this.readQueue(projectId, conversationId)!;
   }
+
+  deleteConversationQueue(projectId: string, conversationId: string): void {
+    this.db.prepare("DELETE FROM conversation_turn_queue_items WHERE project_id = ? AND conversation_id = ?")
+      .run(projectId, conversationId);
+    this.db.prepare("DELETE FROM conversation_turn_queues WHERE project_id = ? AND conversation_id = ?")
+      .run(projectId, conversationId);
+  }
 }
 
 function mapQueue(row: SqliteRow): StoredConversationTurnQueue {

@@ -23,6 +23,7 @@ import type { ConversationTurnRetryOwner } from "../../src/workbench/conversatio
 import type { ConversationContextLifecycleOwner } from "../../src/workbench/conversation-context-lifecycle.js";
 import type { ConversationForkLifecycleOwner } from "../../src/workbench/conversation-fork-lifecycle.js";
 import type { ConversationTurnQueueOwner } from "../../src/workbench/conversation-turn-queue.js";
+import type { ConversationLifecycleOwner } from "../../src/workbench/conversation-lifecycle.js";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
 import { createFakeCodexRuntime } from "../helpers/fake-codex-runtime.js";
 import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
@@ -432,6 +433,80 @@ describe("workbench server", () => {
       body: JSON.stringify({ productMode: "agent", expectedRevision: "queue:1" }),
     })).status).toBe(200);
     expect(dispatchNext).toHaveBeenCalledWith(project(), "agent", "conversation-agent", "queue:1");
+  });
+
+  it("serves the shared Conversation lifecycle and revision-bound delete confirmation contracts", async () => {
+    await new Promise<void>((resolve) => handle!.server.close(() => resolve()));
+    const snapshot = {
+      projectId: "repo",
+      productMode: "agent" as const,
+      conversationId: "conversation-agent",
+      state: "archived" as const,
+      archiveOrigin: "agent-user" as const,
+      lifecycleRevision: "conversation-lifecycle:2",
+      updatedAt: "2026-08-31T00:00:00.000Z",
+      canArchive: false,
+      canRestore: true,
+      canDelete: true,
+    };
+    const read = vi.fn(async () => snapshot);
+    const prepareDelete = vi.fn(async () => ({
+      token: "delete-token",
+      expiresAt: "2026-08-31T00:05:00.000Z",
+      conversationId: "conversation-agent",
+      lifecycleRevision: "conversation-lifecycle:2",
+      effect: "Delete local history.",
+    }));
+    const settle = vi.fn(async () => ({
+      status: "completed" as const,
+      action: "delete" as const,
+      conversationId: "conversation-agent",
+      snapshot: null,
+      providerSyncStatus: "completed" as const,
+    }));
+    const conversationLifecycle = { read, prepareDelete, settle, reconcileProject: async () => 0 } as unknown as ConversationLifecycleOwner;
+    handle = await startWorkbenchServer({ project: project(), path: tempDir }, {
+      port: 0,
+      staticRoot,
+      conversationLifecycle,
+    });
+    const endpoint = `${handle.url}/api/projects/repo/workbench/conversations/conversation-agent/lifecycle`;
+
+    expect(await getJson(`${endpoint}?productMode=agent`)).toEqual(snapshot);
+    expect(read).toHaveBeenCalledWith(project(), "agent", "conversation-agent");
+
+    const invalid = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ productMode: "agent", action: "hide", expectedLifecycleRevision: "conversation-lifecycle:2", clientRequestId: "lifecycle-1" }),
+    });
+    expect(invalid.status).toBe(400);
+    expect(settle).not.toHaveBeenCalled();
+
+    const confirmation = await postJson(`${endpoint}/delete-confirmation`, {
+      productMode: "agent",
+      expectedLifecycleRevision: "conversation-lifecycle:2",
+    });
+    expect(confirmation).toMatchObject({ token: "delete-token" });
+    expect(prepareDelete).toHaveBeenCalledWith(project(), "agent", "conversation-agent", "conversation-lifecycle:2");
+
+    const result = await postJson(endpoint, {
+      productMode: "agent",
+      action: "delete",
+      expectedLifecycleRevision: "conversation-lifecycle:2",
+      clientRequestId: " lifecycle-1 ",
+      confirmationToken: " delete-token ",
+    });
+    expect(result).toMatchObject({ status: "completed", action: "delete" });
+    expect(settle).toHaveBeenCalledWith(project(), {
+      projectId: "repo",
+      productMode: "agent",
+      conversationId: "conversation-agent",
+      action: "delete",
+      expectedLifecycleRevision: "conversation-lifecycle:2",
+      clientRequestId: "lifecycle-1",
+      confirmationToken: "delete-token",
+    });
   });
 
   it("prepares Agent Retry before SSE and emits a completed replay stream", async () => {
@@ -1936,6 +2011,16 @@ function workflowTestRouter(): ConversationTurnRoutingPort {
 async function getJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`GET ${url} failed (${response.status}): ${await response.text()}`);
+  return response.json() as Promise<T>;
+}
+
+async function postJson<T = Record<string, unknown>>(url: string, body: Record<string, unknown>): Promise<T> {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error(`POST ${url} failed (${response.status}): ${await response.text()}`);
   return response.json() as Promise<T>;
 }
 async function writeRuntimeSidecarRun(changeId: string): Promise<string> {

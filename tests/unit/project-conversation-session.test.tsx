@@ -764,14 +764,27 @@ describe("Project conversation session owner", () => {
     expect(result.current.stream?.run.id).toBe("run-new");
   });
 
-  it("clears retired Timeline scopes for hide and remove without exposing compatibility state", async () => {
+  it("clears Timeline only for permanent Conversation deletion and preserves project removal behavior", async () => {
     const fixture = ownerFixture();
     const { result } = renderHook(() => useProjectConversationSession({ ...fixture.ports, autoLoad: false }));
     await act(async () => { await result.current.loadApp(); });
     await act(async () => { await result.current.chooseConversation("repo-1", "conv-1"); });
 
-    await act(async () => { await result.current.hideConversation("repo-1", "conv-1"); });
-    expect(fixture.api.hideConversation).toHaveBeenCalledWith("repo-1", "conv-1");
+    await act(async () => { await result.current.settleConversationLifecycle({
+      projectId: "repo-1",
+      conversationId: "conv-1",
+      action: "delete",
+      expectedLifecycleRevision: "conversation-lifecycle:1",
+      confirmationToken: "delete-token",
+    }); });
+    expect(fixture.api.settleConversationLifecycle).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: "repo-1",
+      conversationId: "conv-1",
+      productMode: "harness",
+      action: "delete",
+      expectedLifecycleRevision: "conversation-lifecycle:1",
+      confirmationToken: "delete-token",
+    }));
     expect(fixture.timeline.clearConversation).toHaveBeenCalledWith("repo-1", "conv-1");
     expect(result.current.selectedTopic).toBeNull();
 
@@ -781,6 +794,48 @@ describe("Project conversation session owner", () => {
     expect(fixture.timeline.clearProject).toHaveBeenCalledWith("repo-1");
     expect(result.current.selectedProjectId).toBeNull();
     expect(result.current.snapshot).toEqual(emptyWorkbenchSnapshot);
+  });
+
+  it("settles a selected lifecycle action after its SSE invalidation refresh wins the request generation", async () => {
+    let resolveSettlement!: (value: {
+      status: "completed";
+      action: "archive";
+      conversationId: string;
+      snapshot: null;
+      providerSyncStatus: "not-required";
+    }) => void;
+    const fixture = ownerFixture();
+    fixture.api.settleConversationLifecycle.mockImplementation(() => new Promise((resolve) => {
+      resolveSettlement = resolve;
+    }));
+    const { result } = renderHook(() => useProjectConversationSession({ ...fixture.ports, autoLoad: false }));
+    await act(async () => { await result.current.loadApp(); });
+    await act(async () => { await result.current.chooseConversation("repo-1", "conv-1"); });
+
+    let settlement!: Promise<void>;
+    act(() => {
+      settlement = result.current.settleConversationLifecycle({
+        projectId: "repo-1",
+        conversationId: "conv-1",
+        action: "archive",
+        expectedLifecycleRevision: "conversation-lifecycle:0",
+      });
+    });
+    await waitFor(() => expect(fixture.api.settleConversationLifecycle).toHaveBeenCalledOnce());
+    await act(async () => { await result.current.refresh("repo-1", null); });
+    await act(async () => {
+      resolveSettlement({
+        status: "completed",
+        action: "archive",
+        conversationId: "conv-1",
+        snapshot: null,
+        providerSyncStatus: "not-required",
+      });
+      await settlement;
+    });
+
+    expect(result.current.selectedTopic).toBeNull();
+    expect(fixture.navigation.syncLocation).toHaveBeenLastCalledWith("repo-1", null);
   });
 
   it("does not consume a prepared removal when the user declines the destructive warning", async () => {
@@ -813,7 +868,20 @@ function ownerFixture(options: { restore?: WorkbenchRestoreParams } = {}) {
       expiresAt: "2026-08-03T12:00:00.000Z",
     })),
     removeProject: vi.fn(async () => undefined),
-    hideConversation: vi.fn(async () => undefined),
+    prepareConversationDelete: vi.fn(async (_projectId: string, conversationId: string, _productMode: ProductMode, expectedLifecycleRevision: string) => ({
+      token: "delete-token",
+      expiresAt: "2026-08-31T12:00:00.000Z",
+      conversationId,
+      lifecycleRevision: expectedLifecycleRevision,
+      effect: "Deletes local presentation data.",
+    })),
+    settleConversationLifecycle: vi.fn(async (input) => ({
+      status: "completed" as const,
+      action: input.action,
+      conversationId: input.conversationId,
+      snapshot: null,
+      providerSyncStatus: "not-required" as const,
+    })),
     updateConversationTitle: vi.fn(async (_projectId: string, conversationId: string, title: string) => ({
       conversation: { id: conversationId, productMode: "harness" as const, title, state: "active" },
     })),

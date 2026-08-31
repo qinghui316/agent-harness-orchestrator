@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type Database from "better-sqlite3";
-import type { AgentTurnMode, ProviderId } from "../../provider-runtime/index.js";
+import type { AgentTurnMode, ProductMode, ProviderId } from "../../provider-runtime/index.js";
 import { agentThreadSurfaceId } from "../../provider-runtime/agent-surface-id.js";
 import type {
   StoredConversation,
@@ -159,7 +159,8 @@ export class WorkbenchUnitOfWork {
   }
 
   createConversationWithInitialMessage(
-    conversation: Omit<StoredConversation, "timelinePosition" | "timelineRevision"> & Partial<Pick<StoredConversation, "timelinePosition" | "timelineRevision">>,
+    conversation: Omit<StoredConversation, "timelinePosition" | "timelineRevision" | "archiveOrigin" | "archivedAt" | "lifecycleRevision">
+      & Partial<Pick<StoredConversation, "timelinePosition" | "timelineRevision" | "archiveOrigin" | "archivedAt" | "lifecycleRevision">>,
     message: StoredTopicMessageWrite,
   ): StoredTopicMessage {
     return this.db.transaction(() => {
@@ -177,7 +178,8 @@ export class WorkbenchUnitOfWork {
   }
 
   createConversationFromFirstSend(input: {
-    conversation: Omit<StoredConversation, "timelinePosition" | "timelineRevision"> & Partial<Pick<StoredConversation, "timelinePosition" | "timelineRevision">>;
+    conversation: Omit<StoredConversation, "timelinePosition" | "timelineRevision" | "archiveOrigin" | "archivedAt" | "lifecycleRevision">
+      & Partial<Pick<StoredConversation, "timelinePosition" | "timelineRevision" | "archiveOrigin" | "archivedAt" | "lifecycleRevision">>;
     message: StoredTopicMessageWrite;
     skillOverrides: Array<{ skillId: string; enabled: boolean }>;
   }): { conversation: StoredConversation; message: StoredTopicMessage | null; replayed: boolean } {
@@ -411,10 +413,27 @@ export class WorkbenchUnitOfWork {
     })();
   }
 
-  deleteConversation(projectId: string, conversationId: string, deletedAt: string): void {
+  deleteArchivedConversation(input: {
+    projectId: string;
+    conversationId: string;
+    productMode: ProductMode;
+    expectedLifecycleRevision: number;
+    deletedAt: string;
+  }): void {
     this.db.transaction(() => {
-      this.timeline.deleteMessages(projectId, conversationId);
-      this.conversations.markConversationDeleted(projectId, conversationId, deletedAt);
+      this.timeline.deleteMessages(input.projectId, input.conversationId);
+      this.conversationTurnQueues.deleteConversationQueue(input.projectId, input.conversationId);
+      this.providerAttempts.deleteConversationRuntimeState(input.projectId, input.conversationId);
+      this.skills.deleteConversationEnablement(input.projectId, input.conversationId);
+      if (input.productMode === "agent") {
+        this.conversations.deleteConversationGraphScopes(input.projectId, input.conversationId);
+      }
+      this.conversations.deleteArchivedConversation(
+        input.projectId,
+        input.conversationId,
+        input.expectedLifecycleRevision,
+        input.deletedAt,
+      );
     })();
   }
 

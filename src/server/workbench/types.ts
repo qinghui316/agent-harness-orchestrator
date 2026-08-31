@@ -15,6 +15,7 @@ import type { ProductModeActivityProjectionOwner } from "../../workbench/product
 import type { ConversationContextLifecycleOwner } from "../../workbench/conversation-context-lifecycle.js";
 import type { ConversationForkLifecycleOwner } from "../../workbench/conversation-fork-lifecycle.js";
 import type { ConversationTurnQueueOwner } from "../../workbench/conversation-turn-queue.js";
+import type { ConversationLifecycleAction, ConversationLifecycleOwner } from "../../workbench/conversation-lifecycle.js";
 
 export interface WorkbenchServeOptions {
   host?: string;
@@ -32,6 +33,7 @@ export interface WorkbenchServeOptions {
   conversationContext?: ConversationContextLifecycleOwner;
   conversationFork?: ConversationForkLifecycleOwner;
   conversationTurnQueue?: ConversationTurnQueueOwner;
+  conversationLifecycle?: ConversationLifecycleOwner;
 }
 
 export interface WorkbenchServerHandle {
@@ -56,6 +58,20 @@ export interface WorkbenchServerContext {
   conversationContext: ConversationContextLifecycleOwner;
   conversationFork: ConversationForkLifecycleOwner;
   conversationTurnQueue: ConversationTurnQueueOwner;
+  conversationLifecycle: ConversationLifecycleOwner;
+}
+
+export interface ConversationLifecycleBody {
+  productMode?: unknown;
+  action?: ConversationLifecycleAction | unknown;
+  expectedLifecycleRevision?: unknown;
+  clientRequestId?: unknown;
+  confirmationToken?: unknown;
+}
+
+export interface ConversationDeleteConfirmationBody {
+  productMode?: unknown;
+  expectedLifecycleRevision?: unknown;
 }
 
 export interface ConversationTurnRetryBody {

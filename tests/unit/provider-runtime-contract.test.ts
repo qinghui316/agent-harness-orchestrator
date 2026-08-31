@@ -48,6 +48,7 @@ describe("provider-neutral runtime contract", () => {
     expect(PROVIDER_OPERATION_CAPABILITIES.agent).not.toContain("file.reference");
     expect(PROVIDER_OPERATION_CAPABILITIES.agent).not.toContain("context.usage");
     expect(PROVIDER_OPERATION_CAPABILITIES.agent).not.toContain("context.compact");
+    expect(PROVIDER_OPERATION_CAPABILITIES.agent).not.toContain("session.archive");
     expect(PROVIDER_OPERATION_CAPABILITIES.agent).not.toContain("workspace.multiroot");
     expect(PROVIDER_OPERATION_CAPABILITIES.main).toContain("turn.user-input");
     expect(PROVIDER_OPERATION_CAPABILITIES.planning).toContain("turn.user-input");
@@ -594,7 +595,7 @@ describe("provider-neutral runtime contract", () => {
     migrated.close();
     const inspected = new Database(memory.workbenchDbPath, { readonly: true });
     expect(inspected.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'bridge_sync'").get()).toBeUndefined();
-    expect(Number(inspected.pragma("user_version", { simple: true }))).toBe(16);
+    expect(Number(inspected.pragma("user_version", { simple: true }))).toBe(17);
     inspected.close();
   });
 

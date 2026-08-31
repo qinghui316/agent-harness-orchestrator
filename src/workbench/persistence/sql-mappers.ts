@@ -45,6 +45,11 @@ export function mapConversationRow(row: SqliteRow): StoredConversation {
     clientCreateRequestHash: nullableString(row.clientCreateRequestHash),
     title: String(row.title),
     state: row.state === "archive" ? "archive" : "active",
+    archiveOrigin: row.archiveOrigin === "agent-user" || row.archiveOrigin === "harness-workflow"
+      ? row.archiveOrigin
+      : null,
+    archivedAt: nullableString(row.archivedAt),
+    lifecycleRevision: Number(row.lifecycleRevision ?? 0),
     surfaceKind: row.surfaceKind === "runtime" ? "runtime" : "user",
     boundChangeId: nullableString(row.boundChangeId),
     currentGraphScopeId: nullableString(row.currentGraphScopeId),

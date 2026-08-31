@@ -7,6 +7,8 @@ import { readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
 import type { ManagedProject } from "../types/index.js";
+import type { ProjectRuntimePaths } from "../project-runtime/paths.js";
+import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 
 export type TopicAttachmentKind = "image" | "text" | "unsupported";
 export type TopicAttachmentRuntimeMode = "provider-image-input" | "provider-file-reference" | "bounded-text-preview" | "metadata-only";
@@ -146,6 +148,44 @@ export async function deleteTopicAttachment(project: ManagedProject, attachmentI
   return { deleted: true };
 }
 
+export async function deleteUnreferencedTopicAttachments(
+  project: ManagedProject,
+  attachmentIds: readonly string[],
+  paths: ProjectRuntimePaths,
+): Promise<string[]> {
+  if (attachmentIds.length === 0) return [];
+  const database = await openProjectRuntimeWorkbenchDatabase(paths);
+  let unreferenced: string[] = [];
+  try {
+    const referenced = new Set<string>();
+    for (const mode of ["agent", "harness"] as const) {
+      const draft = database.drafts.readDraft(paths.projectId, mode);
+      for (const id of parseAttachmentIdArray(draft?.attachmentIdsJson ?? "[]")) referenced.add(id);
+    }
+    for (const item of database.conversationTurnQueues.listActiveProjectItems(paths.projectId)) {
+      for (const id of parseAttachmentIdArray(item.attachmentIdsJson)) referenced.add(id);
+    }
+    for (const row of database.timeline.listAllMessages(paths.projectId)) {
+      let raw: { attachments?: Array<{ id?: string }> };
+      try {
+        raw = JSON.parse(row.rawJson) as typeof raw;
+      } catch {
+        return [];
+      }
+      for (const attachment of raw.attachments ?? []) {
+        if (typeof attachment.id === "string") referenced.add(attachment.id);
+      }
+    }
+    unreferenced = normalizeTopicAttachmentIds(attachmentIds).filter((id) => !referenced.has(id));
+  } finally {
+    database.close();
+  }
+  for (const attachmentId of unreferenced) {
+    await deleteTopicAttachment(project, attachmentId, { workbenchRoot: paths.workbenchRoot });
+  }
+  return unreferenced;
+}
+
 export async function resolveTopicAttachments(project: ManagedProject, attachmentIds: readonly string[] = [], options: TopicAttachmentStorageOptions = {}): Promise<TopicAttachment[]> {
   if (attachmentIds.length === 0) return [];
   const workbenchRoot = options.workbenchRoot ?? await resolveAttachmentWorkbenchRoot(project, "Project app data is not writable.");
@@ -215,6 +255,15 @@ function parseAttachmentInput(input: CreateTopicAttachmentInput): { fileName: st
   const parsed = parseDataUrl(data);
   const mediaType = normalizeMediaType(input.mediaType ?? parsed.mediaType ?? mediaTypeFromName(fileName));
   return { fileName, mediaType, buffer: parsed.buffer };
+}
+
+function parseAttachmentIdArray(value: string): string[] {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
 function parseDataUrl(value: string): { mediaType?: string; buffer: Buffer } {

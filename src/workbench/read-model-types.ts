@@ -64,6 +64,7 @@ export interface WorkbenchProjectInput {
   runtimeStateResolver?: (project: ManagedProject) => Promise<import("../project-runtime/coordinator.js").ProjectRuntimeState>;
   turnControlStateResolver?: (projectId: string, conversationId: string, attemptId?: string) => import("./conversation-turn-control.js").ConversationTurnControlState;
   conversationContextSnapshotResolver?: (project: ManagedProject, productMode: ProductMode, conversationId: string) => Promise<import("./conversation-context-lifecycle.js").ConversationContextSnapshot>;
+  conversationLifecycleSnapshotResolver?: (project: ManagedProject, productMode: ProductMode, conversationId: string) => Promise<import("./conversation-lifecycle.js").ConversationLifecycleSnapshot>;
 }
 
 export interface WorkbenchProjectHarnessStatus {
@@ -108,6 +109,7 @@ export interface WorkbenchTopicSummary {
   completedTurnSequence?: number;
   timelineRevision?: number;
   forkBoundary?: import("./types.js").ConversationForkBoundaryEvidence;
+  lifecycle?: import("./conversation-lifecycle.js").ConversationLifecycleSnapshot;
   createdAt?: string;
   updatedAt?: string;
   closedAt?: string | null;

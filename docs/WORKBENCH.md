@@ -215,14 +215,28 @@ Project
 
 Internally, a Workbench conversation is only the chat window and transcript. A Harness Change is created or selected only by real planning/gate/action paths, and ECL artifacts, TaskGraph, runs, validation, audit, worktrees, and decisions remain workflow truth. Those internal objects support the product; they should not be the primary user vocabulary.
 
-Users may delete a Workbench conversation record from the sidebar during the
-testing-stage product flow. That operation removes the visible conversation /
-transcript record only. It must not close, abandon, move, archive, or clean up
-any Harness Change, ECL artifacts, run evidence, validation/audit, ResumePoint,
-current gate, or source state. The project home stays a normal chat entry point:
-a later conversation lets the main Agent read `AGENTS.md`, docs, and Harness
-evidence to understand current project state rather than restoring a deleted
-transcript or showing a separate "continue active work" entry.
+Agent and AHO use one shared Conversation lifecycle surface. Active Agent
+Conversations may be archived after all Turns, interactions, queue items, and
+other lifecycle operations settle; a user-archived Agent Conversation may then
+be restored or permanently deleted. Permanent deletion is never available from
+the active list and requires a short-lived confirmation bound to the exact
+lifecycle revision. Harness Conversations are archived only by the existing
+Harness workflow transaction. They remain read-only in the archived group and
+cannot be restored by a user, but their local conversation presentation may be
+permanently deleted without deleting Change, WorkflowGraph, Run, authorization,
+validation, Integration, or other governance evidence.
+
+`ConversationLifecycleOwner` is the only user lifecycle entry point. Schema 17
+records active/archive state, `agent-user` or `harness-workflow` origin, a
+revision, and idempotent operation evidence. Provider Session archive/unarchive
+is an optional synchronization capability: missing capability or archive
+transport failure cannot undo a completed local archive, while restore fails
+closed when Provider unarchive cannot be proven. Workbench never scans or
+deletes Provider-private rollout files. Permanent deletion removes canonical
+conversation text and unneeded session presentation records, preserves a
+minimal tombstone and fork boundary, cleans only unreferenced managed
+attachments, and never modifies project files or the project/mode Composer
+draft.
 
 Future Workbench direction is project conversation first: one project conversation may eventually link several related Changes when the main agent splits a broad user request. That is not the current runtime model. Current Workbench demand conversations already may create multiple active internal Changes under one project, so every selected-demand write-capable action, close/abandon action, result apply, and auto-finalize path must carry an explicit `changeId` target and avoid global active-state fallback.
 

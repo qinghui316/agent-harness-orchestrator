@@ -310,6 +310,7 @@ export type WorkbenchLiveEvent =
   | { event: "conversation.context.invalidated"; data: { conversationId: string } }
   | { event: "conversation.fork.completed"; data: { sourceConversationId: string; targetConversationId: string } }
   | { event: "conversation.turn-queue.invalidated"; data: { conversationId: string } }
+  | { event: "conversation.lifecycle.invalidated"; data: { conversationId: string } }
   | { event: "run.started"; data: WorkbenchLiveIdentity & { runId: string; actionType?: string; runtime?: string; taskIds?: string[] } }
   | { event: "run.status"; data: WorkbenchLiveIdentity & { actionRunId?: string; status: string; label?: string } }
   | { event: "assistant.delta"; data: WorkbenchLiveIdentity & { delta: string } }

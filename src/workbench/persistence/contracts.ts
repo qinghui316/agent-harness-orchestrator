@@ -41,6 +41,9 @@ export interface StoredConversation {
   clientCreateRequestHash: string | null;
   title: string;
   state: "active" | "archive";
+  archiveOrigin: "agent-user" | "harness-workflow" | null;
+  archivedAt: string | null;
+  lifecycleRevision: number;
   surfaceKind?: "user" | "runtime";
   boundChangeId: string | null;
   currentGraphScopeId: string | null;
@@ -51,6 +54,27 @@ export interface StoredConversation {
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
+}
+
+export type StoredConversationLifecycleAction = "archive" | "restore" | "delete";
+export type StoredConversationLifecycleOperationStatus = "pending" | "submitting" | "completed" | "failed" | "interrupted";
+export type StoredConversationProviderSyncStatus = "not-required" | "unsupported" | "submitting" | "completed" | "failed" | "uncertain";
+
+export interface StoredConversationLifecycleOperation {
+  projectId: string;
+  conversationId: string;
+  productMode: ProductMode;
+  clientRequestId: string;
+  requestHash: string;
+  action: StoredConversationLifecycleAction;
+  expectedLifecycleRevision: number;
+  status: StoredConversationLifecycleOperationStatus;
+  providerId: ProviderId | null;
+  providerBindingHash: string | null;
+  providerSyncStatus: StoredConversationProviderSyncStatus;
+  diagnostic: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface StoredConversationGraphScope {
