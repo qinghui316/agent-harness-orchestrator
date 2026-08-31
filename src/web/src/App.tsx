@@ -116,6 +116,9 @@ export function App(): ReactElement {
   const presentation = useMemo(() => modePresentationPolicy(appMode.productMode), [appMode.productMode]);
   const [orchestrationOpen, setOrchestrationOpen] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const mobileSidebarRef = useRef<HTMLElement | null>(null);
+  const mobileSidebarToggleRef = useRef<HTMLButtonElement | null>(null);
+  const mobileSidebarWasOpenRef = useRef(false);
   const [sidebarSearch, setSidebarSearch] = useState("");
   const [projectMenuMode, setProjectMenuMode] = useState<"closed" | "add" | "new">("closed");
   const [projectDetailsId, setProjectDetailsId] = useState<string | null>(null);
@@ -395,6 +398,7 @@ export function App(): ReactElement {
   }
 
   function openSettings(section: SettingsSection = "basic"): void {
+    setMobileSidebarOpen(false);
     setSettingsSection(section);
     setSettingsOpen(true);
     if (section === "skills") {
@@ -872,6 +876,27 @@ export function App(): ReactElement {
   });
   const activeConversationInteraction = snapshot.center.conversationInteractions?.items[0] ?? null;
   useEffect(() => {
+    if (mobileSidebarOpen) {
+      mobileSidebarWasOpenRef.current = true;
+      mobileSidebarRef.current?.focus();
+      return;
+    }
+    if (!mobileSidebarWasOpenRef.current) return;
+    mobileSidebarWasOpenRef.current = false;
+    if (!settingsOpen) mobileSidebarToggleRef.current?.focus();
+  }, [mobileSidebarOpen, settingsOpen]);
+  useEffect(() => {
+    if (!mobileSidebarOpen) return;
+    const closeMobileSidebarOnEscape = (event: globalThis.KeyboardEvent): void => {
+      if (event.key !== "Escape" || event.isComposing) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setMobileSidebarOpen(false);
+    };
+    window.addEventListener("keydown", closeMobileSidebarOnEscape, true);
+    return () => window.removeEventListener("keydown", closeMobileSidebarOnEscape, true);
+  }, [mobileSidebarOpen]);
+  useEffect(() => {
     if (appMode.productMode !== "agent"
       || !agentRunControl?.canStop
       || agentRunControl.state === "stopping"
@@ -1012,6 +1037,7 @@ export function App(): ReactElement {
       </div> : null}
       {!settingsOpen ? (
         <button
+          ref={mobileSidebarToggleRef}
           type="button"
           className="icon-button mobile-sidebar-toggle"
           aria-label={mobileSidebarOpen ? "关闭会话栏" : "打开会话栏"}
@@ -1032,7 +1058,15 @@ export function App(): ReactElement {
         />
       ) : null}
       {!settingsOpen ? (
-        <aside id="project-conversation-sidebar" className="sidebar sidebar-expanded" aria-label="左侧项目栏">
+        <aside
+          ref={mobileSidebarRef}
+          id="project-conversation-sidebar"
+          className="sidebar sidebar-expanded"
+          aria-label="左侧项目栏"
+          role={mobileSidebarOpen ? "dialog" : undefined}
+          aria-modal={mobileSidebarOpen || undefined}
+          tabIndex={mobileSidebarOpen ? -1 : undefined}
+        >
           <div className="brand compact-brand" aria-hidden="true" />
               <ProjectConversationSidebar
                 projects={projects}
@@ -1082,7 +1116,10 @@ export function App(): ReactElement {
         </aside>
       ) : null}
 
-      <main className={`workspace${settingsOpen ? " settings-workspace" : ""}`}>
+      <main
+        className={`workspace${settingsOpen ? " settings-workspace" : ""}`}
+        inert={mobileSidebarOpen ? true : undefined}
+      >
         <div className="workspace-main" data-testid="workspace-main">
         {settingsOpen ? (
           <SettingsSurface

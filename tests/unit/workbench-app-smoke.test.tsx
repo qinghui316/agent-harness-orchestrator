@@ -133,6 +133,54 @@ describe("Workbench App owner composition", () => {
     expect(view.container.querySelector('[aria-controls="project-conversation-sidebar"]')?.getAttribute("aria-expanded")).toBe("false");
   });
 
+  it("keeps mobile sidebar focus and workspace isolation inside the modal drawer", async () => {
+    installMatchMedia(true);
+    installApiFixture(createSnapshot());
+    const view = render(<App />);
+    await screen.findByText("Canonical Main reply");
+
+    const toggle = screen.getByRole("button", { name: "打开会话栏" });
+    fireEvent.click(toggle);
+    const drawer = screen.getByRole("dialog", { name: "左侧项目栏" });
+    expect(document.activeElement).toBe(drawer);
+    expect(view.container.querySelector("main.workspace")?.hasAttribute("inert")).toBe(true);
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "左侧项目栏" })).toBeNull());
+    expect(document.activeElement).toBe(toggle);
+    expect(view.container.querySelector("main.workspace")?.hasAttribute("inert")).toBe(false);
+  });
+
+  it("closes the mobile drawer before entering Settings and does not restore stale drawer state", async () => {
+    installMatchMedia(true);
+    installApiFixture(createSnapshot());
+    const view = render(<App />);
+    await screen.findByText("Canonical Main reply");
+
+    fireEvent.click(screen.getByRole("button", { name: "打开会话栏" }));
+    fireEvent.click(screen.getByRole("button", { name: "设置" }));
+    expect(await screen.findByRole("button", { name: "返回工作区" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "返回工作区" }));
+
+    expect(await screen.findByRole("button", { name: "打开会话栏" })).toBeTruthy();
+    expect(view.container.querySelector(".app-shell")?.classList.contains("mobile-sidebar-open")).toBe(false);
+    expect(screen.queryByRole("dialog", { name: "左侧项目栏" })).toBeNull();
+  });
+
+  it("consumes mobile drawer Escape before an active Agent Turn can stop", async () => {
+    window.localStorage.setItem("aho.workbench.productMode.v1", "agent");
+    installMatchMedia(true);
+    installApiFixture(createRunningAgentSnapshot());
+    const view = render(<App />);
+    await screen.findByText("Canonical Main reply");
+
+    fireEvent.click(screen.getByRole("button", { name: "打开会话栏" }));
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    await waitFor(() => expect(view.container.querySelector(".app-shell")?.classList.contains("mobile-sidebar-open")).toBe(false));
+    expect(requestUrls("/turn/interrupt")).toHaveLength(0);
+  });
+
   it("uses token-bound destructive project removal while preserving source owners in the warning", async () => {
     installApiFixture(createSnapshot());
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -307,6 +355,28 @@ function createEmptySnapshot(productMode: "agent" | "harness"): Snapshot {
     center: {
       ...emptyWorkbenchSnapshot.center,
       conversationInteractions: { productMode, conversationId: null, items: [] },
+    },
+  };
+}
+
+function createRunningAgentSnapshot(): Snapshot {
+  const snapshot = createSnapshot(undefined, "agent");
+  return {
+    ...snapshot,
+    center: {
+      ...snapshot.center,
+      workpad: {
+        ...snapshot.center.workpad,
+        runControlState: {
+          state: "running",
+          canStop: true,
+          canSteer: true,
+          providerId: "codex",
+          attemptId: "attempt-running-1",
+          pendingFeedbackCount: 0,
+          explanation: "Provider Turn is running.",
+        },
+      },
     },
   };
 }
