@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
-import { ArrowUpRight, Bot, Brain, CheckCircle2, FilePenLine, FileText, GitFork, LoaderCircle, RotateCcw, Search, Terminal, Wrench } from "lucide-react";
+import { ArrowUpRight, Bot, Brain, CheckCircle2, FilePenLine, FileSearch2, FileText, GitFork, LoaderCircle, RotateCcw, Search, Terminal, Wrench } from "lucide-react";
 import { artifactName } from "./RunReplayPanel.js";
 import { formatTime, humanStatus } from "../../formatters.js";
 import { cleanTranscriptText, cleanTranscriptTitle } from "./transcriptDisplay.js";
@@ -33,13 +33,14 @@ export function AgentTranscriptPane({ cells, emptyMessage = "暂无 Agent 消息
   );
 }
 
-export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded, onOpenAgent, canOpenAgent, onOpenDocument, documentResources, onEnsureDocument, onRetry, onFork }: {
+export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded, onOpenAgent, canOpenAgent, onOpenDocument, onOpenProjectFile, documentResources, onEnsureDocument, onRetry, onFork }: {
   cell: ParentAgentTranscriptCell;
   expanded: boolean;
   onToggleExpanded: () => void;
   onOpenAgent?: (agentSurfaceId: string) => void;
   canOpenAgent?: (agentSurfaceId: string) => boolean;
   onOpenDocument?: (document: CanonicalDocumentReference) => void;
+  onOpenProjectFile?: (relativePath: string) => void;
   documentResources?: Record<string, TextDocumentResource>;
   onEnsureDocument?: (document: CanonicalDocumentReference) => void;
   onRetry?: (target: NonNullable<ParentAgentTranscriptCell["retryTarget"]>) => Promise<void>;
@@ -62,6 +63,8 @@ export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded
           <TranscriptUserMessage cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} />
         ) : cell.kind === "assistant-message" ? (
           <TranscriptAssistantMessage cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} />
+        ) : cell.kind === "review-card" ? (
+          <TranscriptReviewCard cell={cell} onFork={onFork} onOpenProjectFile={onOpenProjectFile} />
         ) : cell.kind === "user-input" && cell.interactionHistory ? (
           <InteractionHistoryView history={cell.interactionHistory} />
         ) : cell.kind === "document-preview" && cell.documentRef ? (
@@ -78,6 +81,35 @@ export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded
       {cell.timestamp && (cell.kind === "user-message" || cell.kind === "assistant-message") ? <time>{formatTime(cell.timestamp)}</time> : null}
     </div>
   );
+}
+
+export function TranscriptReviewCard({ cell, onFork, onOpenProjectFile }: {
+  cell: ParentAgentTranscriptCell;
+  onFork?: (target: NonNullable<ParentAgentTranscriptCell["forkTarget"]>) => void;
+  onOpenProjectFile?: (relativePath: string) => void;
+}): ReactElement {
+  const running = cell.status === "submitting" || cell.status === "reviewing";
+  const status = running ? "正在审查代码" : cell.status === "completed" ? "审查完成"
+    : cell.status === "interrupted" ? "审查已中断" : "审查失败";
+  return <section className={`transcript-review-card ${cell.isError ? "danger" : ""}`} aria-label={cell.title ?? "代码审查"}>
+    <header>
+      <FileSearch2 size={16} aria-hidden="true" />
+      <div>
+        <strong>{cell.title ?? "代码审查"}</strong>
+        <span>{status}</span>
+      </div>
+      {running ? <LoaderCircle size={15} className="spin" aria-hidden="true" />
+        : cell.status === "completed" ? <CheckCircle2 size={15} aria-hidden="true" /> : null}
+      {cell.forkTarget?.recovery && onFork ? <button
+        type="button"
+        className="transcript-fork-button"
+        title="创建恢复分支"
+        aria-label="创建恢复分支"
+        onClick={() => onFork(cell.forkTarget!)}
+      ><GitFork size={15} aria-hidden="true" /></button> : null}
+    </header>
+    {cell.text ? <div className="transcript-review-body"><TranscriptMarkdownLite text={cell.text} idPrefix={cell.id} onOpenProjectFile={onOpenProjectFile} /></div> : null}
+  </section>;
 }
 
 export function TranscriptUserMessage({ cell, expanded, onToggleExpanded }: {
@@ -357,16 +389,21 @@ function normalizeProviderTranscriptText(value: string): string {
   return value.trim();
 }
 
-export function TranscriptMarkdownLite({ text, idPrefix, compact = false }: { text: string; idPrefix: string; compact?: boolean }): ReactElement {
+export function TranscriptMarkdownLite({ text, idPrefix, compact = false, onOpenProjectFile }: {
+  text: string;
+  idPrefix: string;
+  compact?: boolean;
+  onOpenProjectFile?: (relativePath: string) => void;
+}): ReactElement {
   const blocks = splitMarkdownBlocks(text);
   return (
     <>
-      {blocks.map((block, index) => renderMarkdownBlock(block, `${idPrefix}:block:${index}`, compact))}
+      {blocks.map((block, index) => renderMarkdownBlock(block, `${idPrefix}:block:${index}`, compact, onOpenProjectFile))}
     </>
   );
 }
 
-function renderMarkdownBlock(block: string, keyPrefix: string, compact: boolean): ReactElement {
+function renderMarkdownBlock(block: string, keyPrefix: string, compact: boolean, onOpenProjectFile?: (relativePath: string) => void): ReactElement {
   const lines = block.split(/\n/).map((line) => line.trimEnd()).filter(Boolean);
   const firstLine = lines[0] ?? "";
   const heading = /^(#{1,3})\s+(.+)$/.exec(firstLine);
@@ -377,21 +414,21 @@ function renderMarkdownBlock(block: string, keyPrefix: string, compact: boolean)
   if (lines.length > 0 && lines.every((line) => /^[-*]\s+/.test(line))) {
     return (
       <ul key={keyPrefix} className={compact ? "markdown-lite-list compact" : "markdown-lite-list"}>
-        {lines.map((line, lineIndex) => <li key={`${keyPrefix}:li:${lineIndex}`}>{renderInlineMarkdown(line.replace(/^[-*]\s+/, ""), `${keyPrefix}:li:${lineIndex}`)}</li>)}
+        {lines.map((line, lineIndex) => <li key={`${keyPrefix}:li:${lineIndex}`}>{renderInlineMarkdown(line.replace(/^[-*]\s+/, ""), `${keyPrefix}:li:${lineIndex}`, onOpenProjectFile)}</li>)}
       </ul>
     );
   }
   if (lines.length > 0 && lines.every((line) => /^\d+[.)]\s+/.test(line))) {
     return (
       <ol key={keyPrefix} className={compact ? "markdown-lite-list markdown-lite-ordered compact" : "markdown-lite-list markdown-lite-ordered"}>
-        {lines.map((line, lineIndex) => <li key={`${keyPrefix}:oli:${lineIndex}`}>{renderInlineMarkdown(line.replace(/^\d+[.)]\s+/, ""), `${keyPrefix}:oli:${lineIndex}`)}</li>)}
+        {lines.map((line, lineIndex) => <li key={`${keyPrefix}:oli:${lineIndex}`}>{renderInlineMarkdown(line.replace(/^\d+[.)]\s+/, ""), `${keyPrefix}:oli:${lineIndex}`, onOpenProjectFile)}</li>)}
       </ol>
     );
   }
   if (lines.length > 0 && lines.every((line) => /^>\s?/.test(line))) {
     return (
       <blockquote key={keyPrefix} className="markdown-lite-quote">
-        {lines.map((line, lineIndex) => <p key={`${keyPrefix}:quote:${lineIndex}`}>{renderInlineMarkdown(line.replace(/^>\s?/, ""), `${keyPrefix}:quote:${lineIndex}`)}</p>)}
+        {lines.map((line, lineIndex) => <p key={`${keyPrefix}:quote:${lineIndex}`}>{renderInlineMarkdown(line.replace(/^>\s?/, ""), `${keyPrefix}:quote:${lineIndex}`, onOpenProjectFile)}</p>)}
       </blockquote>
     );
   }
@@ -400,7 +437,7 @@ function renderMarkdownBlock(block: string, keyPrefix: string, compact: boolean)
       <div key={keyPrefix} className="markdown-lite-section-list">
         <strong className="markdown-lite-heading">{(lines[0] ?? "").replace(/:$/, "")}</strong>
         <ul className={compact ? "markdown-lite-list compact" : "markdown-lite-list"}>
-          {lines.slice(1).map((line, lineIndex) => <li key={`${keyPrefix}:section-li:${lineIndex}`}>{renderInlineMarkdown(line.replace(/^[-*]\s+/, ""), `${keyPrefix}:section-li:${lineIndex}`)}</li>)}
+          {lines.slice(1).map((line, lineIndex) => <li key={`${keyPrefix}:section-li:${lineIndex}`}>{renderInlineMarkdown(line.replace(/^[-*]\s+/, ""), `${keyPrefix}:section-li:${lineIndex}`, onOpenProjectFile)}</li>)}
         </ul>
       </div>
     );
@@ -418,7 +455,7 @@ function renderMarkdownBlock(block: string, keyPrefix: string, compact: boolean)
   if (!compact && lines.length === 1 && /^[^。.!?]{2,32}:$/.test(lines[0] ?? "")) {
     return <strong key={keyPrefix} className="markdown-lite-heading">{(lines[0] ?? "").replace(/:$/, "")}</strong>;
   }
-  return <p key={keyPrefix}>{renderInlineMarkdown(block, keyPrefix)}</p>;
+  return <p key={keyPrefix}>{renderInlineMarkdown(block, keyPrefix, onOpenProjectFile)}</p>;
 }
 
 function splitMarkdownBlocks(text: string): string[] {
@@ -457,9 +494,9 @@ function parseFencedCodeBlock(block: string): { language: string; code: string }
   };
 }
 
-function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
+function renderInlineMarkdown(text: string, keyPrefix: string, onOpenProjectFile?: (relativePath: string) => void): ReactNode[] {
   const nodes: ReactNode[] = [];
-  const pattern = /`([^`]+)`|\[([^\]]+)\]\(([^)]+)\)/g;
+  const pattern = /`([^`]+)`|\[([^\]]+)\]\(([^)]+)\)|(?<![A-Za-z0-9_./\\])((?:[A-Za-z0-9_.-]+[\\/])*[A-Za-z0-9_.-]+\.[A-Za-z0-9_-]+(?::\d+(?:-\d+)?)?)(?![A-Za-z0-9_/\\])/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(text)) !== null) {
@@ -467,10 +504,28 @@ function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
     if (match[1]) {
       nodes.push(<code key={`${keyPrefix}:code:${match.index}`}>{match[1]}</code>);
     } else if (match[2]) {
-      nodes.push(<span key={`${keyPrefix}:link:${match.index}`} className="markdown-lite-link">{match[2]}</span>);
+      const relativePath = projectFilePathFromMarkdownHref(match[3] ?? "");
+      nodes.push(relativePath && onOpenProjectFile
+        ? <button key={`${keyPrefix}:link:${match.index}`} type="button" className="markdown-lite-link" onClick={() => onOpenProjectFile(relativePath)}>{match[2]}</button>
+        : <span key={`${keyPrefix}:link:${match.index}`} className="markdown-lite-link">{match[2]}</span>);
+    } else if (match[4]) {
+      const relativePath = projectFilePathFromMarkdownHref(match[4]);
+      nodes.push(relativePath && onOpenProjectFile
+        ? <button key={`${keyPrefix}:path:${match.index}`} type="button" className="markdown-lite-link" onClick={() => onOpenProjectFile(relativePath)}>{match[4]}</button>
+        : match[4]);
     }
     lastIndex = match.index + match[0].length;
   }
   if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
   return nodes;
+}
+
+function projectFilePathFromMarkdownHref(value: string): string | null {
+  const href = value.trim();
+  const withoutFragment = href.replace(/#L\d+(?::?L?\d+)?$/i, "").replace(/:\d+(?:-\d+)?(?::\d+(?:-\d+)?)?$/, "");
+  if (!withoutFragment || href.includes("?") || /^[A-Za-z][A-Za-z0-9+.-]*:/.test(withoutFragment)
+    || withoutFragment.startsWith("/") || withoutFragment.startsWith("\\")) return null;
+  const normalized = withoutFragment.replace(/^\.\//, "").replaceAll("\\", "/");
+  if (!normalized || normalized.split("/").some((part) => !part || part === "." || part === "..")) return null;
+  return normalized;
 }

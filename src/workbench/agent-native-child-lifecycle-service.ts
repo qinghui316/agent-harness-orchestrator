@@ -333,6 +333,7 @@ export class AgentNativeChildLifecycleService {
         roleId: NATIVE_CHILD_AGENT_ROLE_ID,
         parentAgentSurfaceId: lineage.parentAgentSurfaceId,
         operationProfile: NATIVE_CHILD_OPERATION_PROFILE,
+        operationKind: "conversation-turn",
         providerId: this.input.providerId,
         nativeSessionId: input.childThreadId,
         model: input.model ?? this.input.model,

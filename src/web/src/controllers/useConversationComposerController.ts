@@ -742,6 +742,57 @@ export function useConversationComposerController(
     }
   }, []);
 
+  const flushDraft = useCallback(async (): Promise<string | null> => {
+    const currentScope = scopeRef.current;
+    if (!currentScope.projectId) return null;
+    return draftSyncOwnerRef.current!.flush(currentScope.projectId, composerProductMode(currentScope));
+  }, []);
+
+  const clearAcceptedReviewCommand = useCallback(async (
+    capturedText: string,
+    expectedDraftUpdatedAt: string | null,
+  ): Promise<void> => {
+    const currentScope = scopeRef.current;
+    const draft = stateRef.current;
+    if (!currentScope.projectId) return;
+    const productMode = composerProductMode(currentScope);
+    setComposerText((current) => current === capturedText ? "" : current);
+    let content = composerDraftContent({
+      projectId: currentScope.projectId,
+      productMode,
+      agentTurnMode: draft.agentTurnMode,
+      agentModelId: draft.agentModelId,
+      agentReasoningEffort: draft.agentReasoningEffort,
+      text: capturedText,
+      contextRefs: draft.fileRefs,
+      attachments: draft.attachments,
+      skillOverrides: draft.draftSkillOverrides,
+      selectedProviderId: effectiveComposerProviderId(currentScope),
+    });
+    try {
+      await draftSyncOwnerRef.current!.replaceIfUnchanged({ ...content, text: "" }, expectedDraftUpdatedAt);
+    } catch (cause) {
+      if (!(cause instanceof ComposerDraftApiConflict)
+        || !cause.current
+        || cause.current.projectId !== currentScope.projectId
+        || cause.current.productMode !== productMode
+        || cause.current.text !== capturedText) {
+        if (cause instanceof ComposerDraftApiConflict) return;
+        throw cause;
+      }
+      content = contentFromSnapshot(cause.current);
+      try {
+        await draftSyncOwnerRef.current!.replaceIfUnchanged(
+          { ...content, text: "" },
+          cause.current.updatedAt,
+        );
+      } catch (retryCause) {
+        if (retryCause instanceof ComposerDraftApiConflict) return;
+        throw retryCause;
+      }
+    }
+  }, []);
+
   const createConversation = useCallback(async (input: CreateConversationComposerInput = {}): Promise<ComposerCreatedConversation | null> => {
     const currentScope = scopeRef.current;
     const generation = scopeGenerationRef.current;
@@ -1203,6 +1254,8 @@ export function useConversationComposerController(
     createConversation,
     enqueue,
     reclaimQueuedTurn,
+    flushDraft,
+    clearAcceptedReviewCommand,
     send,
     stop,
     cleanupTransition,

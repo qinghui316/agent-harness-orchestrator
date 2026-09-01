@@ -291,7 +291,15 @@
 }
 
 .markdown-lite-link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--selected);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
 }
 
 .parent-agent-tool-result {
@@ -308,6 +316,75 @@
 
 .transcript-activity-row {
   max-width: min(760px, 100%);
+}
+
+.transcript-review-card {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  color: var(--text);
+}
+
+.transcript-review-card.danger {
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--border));
+}
+
+.transcript-review-card > header {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  color: var(--text-muted);
+}
+
+.transcript-review-card > header .transcript-fork-button {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+}
+
+.transcript-review-card > header > div {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.transcript-review-card > header strong,
+.transcript-review-card > header span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transcript-review-card > header strong {
+  color: var(--text-strong);
+  font-size: 13px;
+}
+
+.transcript-review-card > header span {
+  font-size: 11px;
+}
+
+.transcript-review-body {
+  min-width: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+  line-height: 1.58;
+}
+
+.transcript-review-body > :first-child {
+  margin-top: 0;
+}
+
+.transcript-review-body > :last-child {
+  margin-bottom: 0;
 }
 
 .transcript-activity-row.tone-active,

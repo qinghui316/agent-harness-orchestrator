@@ -103,6 +103,15 @@ rl.on("line", (line) => {
       console.log(JSON.stringify({ method: "item/completed", params: { threadId, turnId, item: { id: "message-server-test", type: "agentMessage", text: "主 Agent 已读取需求。" } } }));
       console.log(JSON.stringify({ method: "turn/completed", params: { threadId, turn: { id: turnId, status: "completed" } } }));
     });
+  } else if (request.method === "review/start") {
+    turnId = "turn-server-test-" + (++turnSequence);
+    reply(request.id, { turn: { id: turnId } });
+    setImmediate(() => {
+      console.log(JSON.stringify({ method: "turn/started", params: { threadId, turn: { id: turnId, status: "inProgress" } } }));
+      console.log(JSON.stringify({ method: "item/started", params: { threadId, turnId, item: { id: "review-entered-server-test", type: "enteredReviewMode" } } }));
+      console.log(JSON.stringify({ method: "item/completed", params: { threadId, turnId, item: { id: "review-exited-server-test", type: "exitedReviewMode", text: "No findings." } } }));
+      console.log(JSON.stringify({ method: "turn/completed", params: { threadId, turn: { id: turnId, status: "completed" } } }));
+    });
   }
 });
 `, "utf8");

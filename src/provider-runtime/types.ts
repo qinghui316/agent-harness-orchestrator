@@ -11,6 +11,7 @@ export type ProviderCapabilityKey =
   | "turn.user-input"
   | "turn.approval"
   | "turn.plan"
+  | "turn.review"
   | "stream.text"
   | "stream.reasoning-summary"
   | "stream.tool-output"

@@ -74,6 +74,7 @@ import { useAgentSurfaceController } from "./controllers/useAgentSurfaceControll
 import { useProductModeActivityController } from "./controllers/useProductModeActivityController.js";
 import { useConversationContextController } from "./controllers/useConversationContextController.js";
 import { useConversationTurnQueueController } from "./controllers/useConversationTurnQueueController.js";
+import { useConversationReviewController } from "./controllers/useConversationReviewController.js";
 import { OfficeLoadingScreen } from "./office/OfficeLoadingScreen.js";
 import {
   useConversationComposerController,
@@ -709,6 +710,19 @@ export function App(): ReactElement {
     refreshConversation: async (projectId, conversationId) => { await refresh(projectId, conversationId); },
     onError: setError,
   });
+  const conversationReview = useConversationReviewController({
+    projectId: selectedProjectId,
+    productMode: appMode.productMode,
+    conversationId: activeTopic?.id ?? null,
+    providerId: composerProviderId,
+    expectedTimelineRevision: activeTopic?.timelineRevision ?? null,
+    running: composerRunning,
+    queue: conversationTurnQueue,
+    flushDraft: composer.flushDraft,
+    clearAcceptedCommand: composer.clearAcceptedReviewCommand,
+    navigateConversation: chooseConversation,
+    onError: setError,
+  });
   const composerText = composer.composerText;
   const setComposerText = composer.setComposerText;
   const skillItems = composer.skillItems;
@@ -842,6 +856,18 @@ export function App(): ReactElement {
       invalidate: (projectId, data) => {
         if (selectedProjectIdRef.current !== projectId || selectedConversationIdRef.current !== data.conversationId) return;
         void refresh(projectId, data.conversationId);
+      },
+    },
+    conversationReview: {
+      invalidate: (projectId, data) => {
+        if (selectedProjectIdRef.current !== projectId || selectedConversationIdRef.current !== data.conversationId) return;
+        void refresh(projectId, data.conversationId);
+        void timeline.loadLatest({
+          projectId,
+          productMode: appMode.productMode,
+          conversationId: data.conversationId,
+          agentSurfaceId: "main-agent",
+        });
       },
     },
     modeActivity: {
@@ -1235,6 +1261,15 @@ export function App(): ReactElement {
             onOpenProject={openProject}
             onRefresh={loadApp}
             resetToken={homeComposerResetToken}
+            reviewOpen={conversationReview.open}
+            reviewOptions={conversationReview.options}
+            reviewLoading={conversationReview.loading}
+            reviewSubmitting={conversationReview.submitting}
+            onOpenReview={conversationReview.openSelector}
+            onCloseReview={conversationReview.closeSelector}
+            onStartReview={conversationReview.startSelected}
+            onStartReviewCommand={conversationReview.start}
+            onReviewCommandError={setError}
           />
         ) : (
           <>
@@ -1294,6 +1329,7 @@ export function App(): ReactElement {
                       if (!activeTopic?.id) return;
                       openWorkspaceResource({ kind: "document", conversationId: activeTopic.id, documentId: document.documentId });
                     }}
+                    onOpenProjectFile={(relativePath) => openWorkspaceResource({ kind: "project-file", relativePath })}
                     documentResources={workspaceDocuments}
                     onEnsureDocument={(document: CanonicalDocumentReference) => {
                       if (!activeTopic?.id) return;
@@ -1395,6 +1431,14 @@ export function App(): ReactElement {
                    onReclaimQueuedTurn={composer.reclaimQueuedTurn}
                    onRemoveQueuedTurn={(queueItemId) => { void conversationTurnQueue.remove(queueItemId); }}
                    onRetryQueuedTurn={(queueItemId) => { void conversationTurnQueue.retry(queueItemId); }}
+                   reviewOpen={conversationReview.open}
+                   reviewOptions={conversationReview.options}
+                   reviewLoading={conversationReview.loading}
+                   reviewSubmitting={conversationReview.submitting}
+                   onOpenReview={conversationReview.openSelector}
+                   onCloseReview={conversationReview.closeSelector}
+                   onStartReview={conversationReview.startSelected}
+                   onReviewCommandError={setError}
                  /> : null}
             </section>
           </>

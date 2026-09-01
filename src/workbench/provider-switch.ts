@@ -193,6 +193,7 @@ export async function switchConversationProviderAtSafePoint(input: {
       agentTaskId: null,
       roleId: "main-agent",
       operationProfile: "main",
+      operationKind: "conversation-turn",
       providerId: input.targetProviderId,
       nativeSessionId: existingBinding?.nativeSessionId ?? null,
       model: capabilitySnapshot.effectiveModel ? { providerId: input.targetProviderId, modelId: capabilitySnapshot.effectiveModel } : null,

@@ -125,6 +125,7 @@ export interface StoredProviderAttempt {
   roleId: string;
   parentAgentSurfaceId?: string | null;
   operationProfile: string;
+  operationKind: "conversation-turn" | "review";
   providerId: ProviderId;
   nativeSessionId: string | null;
   model: ProviderModelRef | null;
@@ -179,6 +180,8 @@ export interface StoredConversationQueuedTurn {
   retryCount: number;
   predecessorExecutionRevision: string;
   dispatchRequestId: string;
+  itemKind: "conversation-turn" | "review";
+  reviewTargetJson: string | null;
   text: string;
   contextRefsJson: string;
   attachmentIdsJson: string;
@@ -191,6 +194,25 @@ export interface StoredConversationQueuedTurn {
   createdAt: string;
   updatedAt: string;
   dispatchedAt: string | null;
+}
+
+export interface StoredConversationReviewOperation {
+  projectId: string;
+  conversationId: string;
+  graphScopeId: string;
+  clientRequestId: string;
+  requestHash: string;
+  providerId: ProviderId;
+  reviewTargetJson: string;
+  gitAdmissionJson: string;
+  attemptId: string;
+  status: "pending" | "submitting" | "reviewing" | "completed" | "failed" | "interrupted";
+  sessionBindingHash: string | null;
+  turnIdentityHash: string | null;
+  source: "direct" | "queue";
+  diagnostic: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface StoredComposerDraft {

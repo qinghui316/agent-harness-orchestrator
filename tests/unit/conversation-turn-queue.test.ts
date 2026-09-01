@@ -91,6 +91,164 @@ describe("ConversationTurnQueueOwner", () => {
       .rejects.toMatchObject({ name: "Conflict" });
   });
 
+  it("queues Review without clearing the draft and reclaims only its canonical slash command", async () => {
+    const owner = createOwner();
+    const initial = await owner.read(project, "agent", conversationId);
+    const queued = await owner.enqueue(project, {
+      projectId,
+      productMode: "agent",
+      conversationId,
+      clientRequestId: "queue-review-1",
+      expectedRevision: initial.revision,
+      expectedExecutionRevision: initial.executionRevision!,
+      expectedDraftUpdatedAt: now,
+      itemKind: "review",
+      reviewTarget: { type: "base-branch", branch: "main" },
+      text: "",
+      contextRefs: [],
+      attachmentIds: [],
+      skillOverrides: {},
+      providerId: "codex",
+      agentTurnMode: null,
+      modelId: null,
+      reasoningEffort: null,
+    });
+    expect(queued.items).toEqual([expect.objectContaining({
+      itemKind: "review",
+      reviewTarget: { type: "base-branch", branch: "main" },
+      text: "",
+    })]);
+
+    let database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      expect(database.drafts.readDraft(projectId, "agent")).toMatchObject({
+        text: "queued follow-up",
+        contextRefsJson: expect.stringContaining("src/app.ts"),
+        attachmentIdsJson: JSON.stringify(["attachment-1"]),
+        skillOverridesJson: JSON.stringify({ reviewer: true }),
+      });
+    } finally {
+      database.close();
+    }
+    await expect(owner.reclaim(project, "agent", conversationId, queued.items[0]!.queueItemId, queued.revision, now))
+      .rejects.toMatchObject({ name: "Conflict" });
+
+    database = await openProjectRuntimeWorkbenchDatabase(paths);
+    let emptyDraftRevision: string;
+    try {
+      const draft = database.drafts.readDraft(projectId, "agent")!;
+      emptyDraftRevision = "2026-08-28T00:00:01.000Z";
+      database.drafts.upsertDraft({
+        ...draft,
+        text: "",
+        contextRefsJson: "[]",
+        attachmentIdsJson: "[]",
+        skillOverridesJson: "{}",
+        agentTurnMode: "plan",
+        agentModelId: "gpt-test",
+        agentReasoningEffort: "high",
+        selectedProviderId: "codex",
+        updatedAt: emptyDraftRevision,
+      }, draft.updatedAt);
+    } finally {
+      database.close();
+    }
+    const reclaimed = await owner.reclaim(
+      project, "agent", conversationId, queued.items[0]!.queueItemId, queued.revision, emptyDraftRevision!,
+    );
+    expect(reclaimed.items).toEqual([]);
+    database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      expect(database.drafts.readDraft(projectId, "agent")).toMatchObject({
+        text: "/review base main",
+        contextRefsJson: "[]",
+        attachmentIdsJson: "[]",
+        skillOverridesJson: "{}",
+        agentTurnMode: "plan",
+        agentModelId: "gpt-test",
+        agentReasoningEffort: "high",
+        selectedProviderId: "codex",
+      });
+    } finally {
+      database.close();
+    }
+  });
+
+  it("dispatches mixed Review and conversation Turn items in strict FIFO order", async () => {
+    const order: string[] = [];
+    const reviewStart = vi.fn(async () => {
+      order.push("review");
+      return { status: "completed" };
+    });
+    const post = vi.fn(async () => { order.push("turn"); });
+    const owner = createOwner(post, { start: reviewStart } as never);
+    const initial = await owner.read(project, "agent", conversationId);
+    const withReview = await owner.enqueue(project, {
+      projectId,
+      productMode: "agent",
+      conversationId,
+      clientRequestId: "mixed-review",
+      expectedRevision: initial.revision,
+      expectedExecutionRevision: initial.executionRevision!,
+      expectedDraftUpdatedAt: now,
+      itemKind: "review",
+      reviewTarget: { type: "uncommitted-changes" },
+      text: "",
+      contextRefs: [],
+      attachmentIds: [],
+      skillOverrides: {},
+      providerId: "codex",
+      agentTurnMode: null,
+      modelId: null,
+      reasoningEffort: null,
+    });
+    const withTurn = await owner.enqueue(project, {
+      ...queueRequest(withReview.revision, withReview.executionRevision!),
+      clientRequestId: "mixed-turn",
+    });
+
+    const afterReview = await owner.dispatchNext(project, "agent", conversationId, withTurn.revision);
+    expect(order).toEqual(["review"]);
+    expect(reviewStart).toHaveBeenCalledWith(project, expect.objectContaining({
+      source: "queue",
+      productMode: "agent",
+      conversationId,
+      target: { type: "uncommitted-changes" },
+      clientRequestId: expect.stringMatching(/^queue-dispatch-/),
+    }));
+    expect(afterReview.items).toEqual([expect.objectContaining({ itemKind: "conversation-turn", status: "queued" })]);
+
+    const afterTurn = await owner.dispatchNext(project, "agent", conversationId, afterReview.revision);
+    expect(order).toEqual(["review", "turn"]);
+    expect(afterTurn.items).toEqual([]);
+  });
+
+  it("retries a queued Review once only when admission proves zero side effects", async () => {
+    const reviewStart = vi.fn()
+      .mockRejectedValueOnce(namedError("Conflict", "first Review admission rejection"))
+      .mockRejectedValueOnce(namedError("BadRequest", "second Review admission rejection"));
+    const owner = createOwner(undefined, { start: reviewStart } as never);
+    const initial = await owner.read(project, "agent", conversationId);
+    const queued = await owner.enqueue(project, {
+      ...queueRequest(initial.revision, initial.executionRevision!),
+      clientRequestId: "queued-review-safe-retry",
+      itemKind: "review",
+      reviewTarget: { type: "uncommitted-changes" },
+      text: "",
+      contextRefs: [],
+      attachmentIds: [],
+      skillOverrides: {},
+      agentTurnMode: null,
+      modelId: null,
+      reasoningEffort: null,
+    });
+
+    const settled = await owner.dispatchNext(project, "agent", conversationId, queued.revision);
+
+    expect(reviewStart).toHaveBeenCalledTimes(2);
+    expect(settled.items[0]).toMatchObject({ itemKind: "review", status: "blocked", retryCount: 1 });
+  });
+
   it("enforces queue mode isolation on persisted updates as well as inserts", async () => {
     const owner = createOwner();
     const initial = await owner.read(project, "agent", conversationId);
@@ -572,12 +730,16 @@ describe("ConversationTurnQueueOwner", () => {
 
 type QueueOwnerOptions = ConstructorParameters<typeof ConversationTurnQueueOwner>[0];
 
-function createOwner(postConversationMessage?: QueueOwnerOptions["postConversationMessage"]): ConversationTurnQueueOwner {
+function createOwner(
+  postConversationMessage?: QueueOwnerOptions["postConversationMessage"],
+  reviewOwner?: QueueOwnerOptions["reviewOwner"],
+): ConversationTurnQueueOwner {
   return new ConversationTurnQueueOwner({
     projectRuntimeCoordinator: { resolve: async () => ({ state: "onboarding", paths }) } as never,
     turnRouter: {} as never,
     prepareConversationMessage: async () => ({}) as never,
     ...(postConversationMessage ? { postConversationMessage } : {}),
+    ...(reviewOwner ? { reviewOwner } : {}),
   });
 }
 

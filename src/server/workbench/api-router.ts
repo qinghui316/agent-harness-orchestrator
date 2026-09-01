@@ -10,7 +10,7 @@ import type { ProviderRegistry } from "../../provider-runtime/registry.js";
 import { listProjectFileChildren, readProjectFilePreview, searchProjectFiles } from "../../workbench/file-references.js";
 import { resolveWorkspaceResource, type WorkspaceResourceTarget } from "../../workbench/workspace-resources.js";
 import { createTopicAttachment, deleteTopicAttachment, toTopicAttachmentEvidence } from "../../workbench/attachments.js";
-import { getProjectGitCommitDetail, getProjectGitCommitDiff, getProjectGitDiff, getProjectGitHistory, getProjectGitStatus } from "../../workbench/git-panel.js";
+import { getProjectGitCommitDetail, getProjectGitCommitDiff, getProjectGitDiff, getProjectGitHistory, getProjectGitReviewOptions, getProjectGitStatus } from "../../workbench/git-panel.js";
 import { addSkillRoot, listSkillRoots, listSkills, setSkillEnabled, type SkillCatalogResult } from "../../skill/catalog.js";
 import { hashNativeSkillPackageContent } from "../../skill/content-hash.js";
 import { getSystemSkillsRoot } from "../../template-source/paths.js";
@@ -292,6 +292,16 @@ async function handleApiRequest(context: WorkbenchServerContext, request: Incomi
       return;
     }
     sendJson(response, 200, await getProjectGitStatus(input.project));
+    return;
+  }
+  const gitReviewOptionsMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/git\/review-options$/);
+  if (request.method === "GET" && gitReviewOptionsMatch?.[1]) {
+    const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(gitReviewOptionsMatch[1]));
+    if (!input.project) {
+      sendJson(response, 400, { error: "Project Code Review options require a selected project." });
+      return;
+    }
+    sendJson(response, 200, await getProjectGitReviewOptions(input.project));
     return;
   }
   const gitDiffMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/git\/diff$/);

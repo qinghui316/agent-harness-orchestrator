@@ -994,7 +994,8 @@
 }
 
 .conversation-turn-queue-actions button,
-.composer-queue-button {
+.composer-queue-button,
+.composer-review-button {
   display: inline-grid;
   place-items: center;
   width: 30px;
@@ -1008,19 +1009,171 @@
 }
 
 .conversation-turn-queue-actions button:hover,
-.composer-queue-button:hover {
+.composer-queue-button:hover,
+.composer-review-button:hover {
   background: var(--bg-hover);
   color: var(--text);
 }
 
 .conversation-turn-queue-actions button:disabled,
-.composer-queue-button:disabled {
+.composer-queue-button:disabled,
+.composer-review-button:disabled {
   cursor: not-allowed;
   opacity: 0.48;
 }
 
-.composer-queue-button .spin {
+.composer-queue-button .spin,
+.composer-review-button .spin {
   animation: context-indicator-spin 1s linear infinite;
+}
+
+.review-inline-selector {
+  display: grid;
+  min-width: 0;
+  max-height: min(360px, 48vh);
+  overflow: hidden;
+  margin: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-soft);
+}
+
+.review-inline-selector > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 7px 9px 7px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.review-inline-selector > header > div:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.review-inline-selector > header strong,
+.review-inline-selector > header span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-inline-selector > header strong {
+  color: var(--text-strong);
+  font-size: 13px;
+}
+
+.review-inline-selector > header span,
+.review-inline-options small {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.review-inline-selector > header > div:last-child {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 2px;
+}
+
+.review-inline-selector > header button,
+.review-inline-options button {
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.review-inline-selector > header button {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+}
+
+.review-inline-selector button {
+  cursor: pointer;
+}
+
+.review-inline-selector button:hover,
+.review-inline-options button.is-active {
+  background: var(--bg-hover);
+  color: var(--text-strong);
+}
+
+.review-inline-options {
+  display: grid;
+  min-height: 0;
+  overflow: auto;
+  padding: 5px;
+}
+
+.review-inline-options button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 42px;
+  padding: 7px 9px;
+  text-align: left;
+}
+
+.review-inline-options button > span {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.review-inline-options strong,
+.review-inline-options small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-inline-custom {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.review-inline-custom textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 92px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+  color: var(--text);
+  font: inherit;
+  resize: vertical;
+}
+
+.review-inline-custom button {
+  justify-self: end;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--text-strong);
+  color: var(--on-accent);
+}
+
+.review-inline-empty {
+  display: flex;
+  min-height: 72px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
 }
 
 .mode-switch {
@@ -1219,6 +1372,11 @@
 }
 
 @media (max-width: 680px) {
+  .review-inline-selector {
+    max-height: 42vh;
+    margin-inline: 4px;
+  }
+
   .conversation-turn-queue li {
     grid-template-columns: 20px minmax(0, 1fr) auto;
   }

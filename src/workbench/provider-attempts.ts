@@ -18,6 +18,7 @@ export interface StartProviderAttemptInput {
   agentTaskId?: string | null;
   worktreeId?: string | null;
   model?: ProviderModelRef | null;
+  operationKind?: StoredProviderAttempt["operationKind"];
 }
 
 export interface BindProviderAttemptThreadInput {
@@ -75,6 +76,7 @@ export async function startProviderAttempt(memory: ProviderAttemptStorePort, inp
       roleId: input.roleId,
       parentAgentSurfaceId: input.parentAgentSurfaceId ?? null,
       operationProfile: input.operationProfile,
+      operationKind: input.operationKind ?? "conversation-turn",
       providerId: input.providerId,
       nativeSessionId: null,
       model: input.model ?? null,

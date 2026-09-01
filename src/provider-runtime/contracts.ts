@@ -357,6 +357,52 @@ export interface ProviderTurnStartedIdentity {
   turnId: string;
 }
 
+export type ProviderReviewTarget =
+  | { type: "uncommitted-changes" }
+  | { type: "base-branch"; branch: string }
+  | { type: "commit"; sha: string; title?: string }
+  | { type: "custom"; instructions: string };
+
+export type ProviderTurnKind = "conversation-turn" | "review";
+
+export type ProviderReviewLifecycleEvent =
+  | { phase: "started"; occurredAt: string }
+  | { phase: "completed"; reviewText: string; occurredAt: string }
+  | { phase: "failed"; error: string; occurredAt: string };
+
+export interface ProviderReviewRequest {
+  providerId: ProviderId;
+  projectId: string;
+  conversationId: string;
+  graphScopeId: string;
+  runtimeScopeId: string;
+  runId: string;
+  attemptId: string;
+  cwd: string;
+  target: ProviderReviewTarget;
+  existingSession: ProviderSessionRef | null;
+  bootstrapModel: ProviderModelRef | null;
+  bootstrapReasoningEffort: string | null;
+  sandboxPolicy: "read-only";
+  paths: ProviderArtifactPaths;
+  timeoutMs?: number;
+  onTurnStarted?: (identity: ProviderTurnStartedIdentity) => void;
+  onReviewEvent?: (event: ProviderReviewLifecycleEvent) => void;
+  onContextEvent?: (event: ProviderContextEvent) => void;
+  onApprovalRequest?: (request: ProviderApprovalRequest) => void;
+  onApprovalResolved?: (resolution: ProviderApprovalResolution) => void;
+}
+
+export interface ProviderReviewResult {
+  providerId: ProviderId;
+  status: "completed" | "interrupted" | "failed";
+  session: ProviderSessionRef | null;
+  turnId: string | null;
+  reviewText: string;
+  failureKind?: "stale-session";
+  error?: string;
+}
+
 export interface ProviderTurnRequest {
   providerId: ProviderId;
   operationProfile: ProviderOperationProfile;
@@ -462,6 +508,7 @@ export interface ProviderTurnResult {
 
 export interface ActiveProviderTurn {
   providerId: ProviderId;
+  turnKind: ProviderTurnKind;
   attemptId: string;
   changeId?: string;
   runtimeScopeId: string;
@@ -478,6 +525,7 @@ export interface ActiveProviderTurn {
 
 export interface ConversationProviderPort {
   runTurn(request: ProviderTurnRequest): Promise<ProviderTurnResult>;
+  runReview(request: ProviderReviewRequest): Promise<ProviderReviewResult>;
   inspectChild(request: ProviderChildSessionRequest): Promise<"available" | "stale">;
   continueChild(request: ProviderChildTurnRequest): Promise<ProviderTurnResult>;
   closeChild(request: ProviderChildCloseRequest): Promise<ProviderTurnResult>;

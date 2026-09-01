@@ -36,7 +36,7 @@ export interface TopicAttachment {
 export type ParentAgentTranscriptActor = "user" | "parent-agent";
 export type ParentAgentTranscriptBlockKind = "prose" | "process" | "tool-result" | "evidence";
 export type ParentAgentTranscriptBlockSource = "user" | "provider-runtime" | "aho-orchestration" | "workflow-evidence" | "maintenance";
-export type ParentAgentTranscriptCellKind = "user-message" | "assistant-message" | "process-row" | "evidence-row" | "user-input" | "document-preview" | "detail-only";
+export type ParentAgentTranscriptCellKind = "user-message" | "assistant-message" | "review-card" | "process-row" | "evidence-row" | "user-input" | "document-preview" | "detail-only";
 
 export interface ParentAgentEvidenceRef {
   label: string;
@@ -93,6 +93,7 @@ export interface ParentAgentTranscriptCell {
   attachments?: TopicAttachment[];
   interactionHistory?: InteractionHistoryRecord;
   documentRef?: CanonicalDocumentReference;
+  providerReview?: import("./types.js").ConversationReviewEvidence;
   retryTarget?: {
     failedAttemptId: string;
     sourceMessageId: string;

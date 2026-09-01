@@ -36,6 +36,10 @@ export function publishConversationLifecycleInvalidated(projectId: string, data:
   publishProjectLiveEvent(projectId, { event: "conversation.lifecycle.invalidated", data });
 }
 
+export function publishConversationReviewInvalidated(projectId: string, data: { conversationId: string }): void {
+  publishProjectLiveEvent(projectId, { event: "conversation.review.invalidated", data });
+}
+
 export function subscribeProjectLiveEvents(projectId: string, subscriber: ProjectLiveSubscriber): () => void {
   const projectSubscribers = subscribers.get(projectId) ?? new Set<ProjectLiveSubscriber>();
   projectSubscribers.add(subscriber);

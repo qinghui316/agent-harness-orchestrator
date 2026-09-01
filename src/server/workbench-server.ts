@@ -30,6 +30,7 @@ import { ConversationContextLifecycleOwner } from "../workbench/conversation-con
 import { ConversationForkLifecycleOwner } from "../workbench/conversation-fork-lifecycle.js";
 import { ConversationTurnQueueOwner } from "../workbench/conversation-turn-queue.js";
 import { ConversationLifecycleOwner } from "../workbench/conversation-lifecycle.js";
+import { ConversationReviewLifecycleOwner } from "../workbench/conversation-review-lifecycle.js";
 
 export type { WorkbenchServeOptions, WorkbenchServerHandle } from "./workbench/types.js";
 export { executeWorkbenchAction } from "./workbench/actions.js";
@@ -78,9 +79,16 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
     attachmentResolver,
   });
   const turnRetry = options.turnRetry ?? new ConversationTurnRetryOwner(turnRouter);
+  const conversationReview = options.conversationReview ?? new ConversationReviewLifecycleOwner({
+    providerRegistry,
+    projectRuntimeCoordinator,
+    turnControl,
+    contextLifecycle: conversationContext,
+  });
   const conversationTurnQueue = options.conversationTurnQueue ?? new ConversationTurnQueueOwner({
     projectRuntimeCoordinator,
     turnRouter,
+    reviewOwner: conversationReview,
   });
   const conversationLifecycle = options.conversationLifecycle ?? new ConversationLifecycleOwner({
     providerRegistry,
@@ -103,7 +111,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
       conversationLifecycleSnapshotResolver: (project: ManagedProject, productMode: import("../provider-runtime/index.js").ProductMode, conversationId: string) => conversationLifecycle.read(project, productMode, conversationId),
     }
     : restoredInput;
-  await recoverWorkbenchProjects(store, composedInput, projectRuntimeCoordinator, providerRegistry, conversationContext, conversationFork, conversationTurnQueue, conversationLifecycle);
+  await recoverWorkbenchProjects(store, composedInput, projectRuntimeCoordinator, providerRegistry, conversationContext, conversationFork, conversationTurnQueue, conversationLifecycle, conversationReview);
   const context: WorkbenchServerContext = {
     input: composedInput,
     staticRoot,
@@ -121,6 +129,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
     conversationFork,
     conversationTurnQueue,
     conversationLifecycle,
+    conversationReview,
   };
   const server = createServer((request, response) => {
     handleRequest(context, request, response).catch((error: unknown) => {
@@ -160,6 +169,7 @@ export async function recoverWorkbenchProjects(
   conversationFork?: ConversationForkLifecycleOwner,
   conversationTurnQueue?: ConversationTurnQueueOwner,
   conversationLifecycle?: ConversationLifecycleOwner,
+  conversationReview?: ConversationReviewLifecycleOwner,
 ): Promise<void> {
   const projects = await store.listProjects();
   if (directInput?.project && !projects.some((project) => project.id === directInput.project?.id || project.path === directInput.project?.path)) {
@@ -175,6 +185,7 @@ export async function recoverWorkbenchProjects(
     await conversationFork?.reconcileProject(runtimePaths);
     await conversationTurnQueue?.reconcileProject(runtimePaths);
     await conversationLifecycle?.reconcileProject(runtimePaths);
+    await conversationReview?.reconcileProject(runtimePaths);
     if (runtime.state !== "ready") continue;
     const reconcileReceipt = (receipt: Parameters<typeof reconcileRecoveredApprovalDecisions>[1][number]) => (
       reconcileRecoveredApprovalDecisions(project, [receipt])

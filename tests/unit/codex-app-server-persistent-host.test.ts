@@ -13,7 +13,7 @@ import { getActiveCodexAppServerTurn, runCodexAppServerChildClose, runCodexAppSe
 import { CodexAppServerHost, CodexAppServerHostRegistry, defaultCodexAppServerHostRegistry } from "../../src/codex/app-server-host.js";
 import { listCodexRuntimeModels } from "../../src/codex/model-settings.js";
 import { defaultProjectRemovalFence } from "../../src/project-runtime/removal.js";
-import { compactCodexContext, forkCodexSession, runCodexTurn, setCodexSessionArchived } from "../../src/provider-runtime/codex-adapter.js";
+import { compactCodexContext, forkCodexSession, runCodexReview, runCodexTurn, setCodexSessionArchived } from "../../src/provider-runtime/codex-adapter.js";
 
 const tempDirs: string[] = [];
 
@@ -149,6 +149,127 @@ describe("Codex persistent app-server Host", () => {
 
     expect(server.turnParams[0]).toMatchObject({ model: "gpt-test", effort: "high" });
     expect(server.turnParams[0]).not.toHaveProperty("collaborationMode");
+  });
+
+  it("maps every native Review target to inline delivery on an existing read-only Session", async () => {
+    const cwd = await tempDir();
+    const server = new PersistentCollaborationServer(4054, false);
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+    const lifecycle: string[] = [];
+    const targets = [
+      { type: "uncommitted-changes" as const },
+      { type: "base-branch" as const, branch: "origin/main" },
+      { type: "commit" as const, sha: "a".repeat(40), title: "Review target" },
+      { type: "custom" as const, instructions: "Focus on correctness." },
+    ];
+
+    for (const [index, target] of targets.entries()) {
+      const runId = `review-existing-${index}`;
+      const options = await turnOptions(cwd, runId, "thread-main");
+      await expect(runCodexReview({
+        providerId: "codex",
+        projectId: options.projectId,
+        conversationId: options.conversationId,
+        graphScopeId: "review-graph",
+        runtimeScopeId: options.runtimeScopeId,
+        runId,
+        attemptId: `review-attempt-${index}`,
+        cwd,
+        target,
+        existingSession: { providerId: "codex", sessionId: "thread-main" },
+        bootstrapModel: { providerId: "codex", modelId: "must-not-override" },
+        bootstrapReasoningEffort: "xhigh",
+        sandboxPolicy: "read-only",
+        paths: options.paths,
+        timeoutMs: options.timeoutMs,
+        onReviewEvent: (event) => lifecycle.push(event.phase),
+      })).resolves.toMatchObject({ status: "completed", reviewText: "Review result." });
+    }
+
+    expect(server.reviewParams).toEqual([
+      { threadId: "thread-main", target: { type: "uncommittedChanges" }, delivery: "inline" },
+      { threadId: "thread-main", target: { type: "baseBranch", branch: "origin/main" }, delivery: "inline" },
+      { threadId: "thread-main", target: { type: "commit", sha: "a".repeat(40), title: "Review target" }, delivery: "inline" },
+      { threadId: "thread-main", target: { type: "custom", instructions: "Focus on correctness." }, delivery: "inline" },
+    ]);
+    expect(server.threadParams).toHaveLength(4);
+    for (const params of server.threadParams) {
+      expect(params).toMatchObject({ threadId: "thread-main", sandbox: "read-only", approvalPolicy: "on-request" });
+      expect(params).not.toHaveProperty("model");
+      expect(params.config).not.toHaveProperty("model_reasoning_effort");
+    }
+    expect(lifecycle).toEqual(["started", "completed", "started", "completed", "started", "completed", "started", "completed"]);
+  });
+
+  it("bootstraps a new Review Session with admitted model and reasoning effort", async () => {
+    const cwd = await tempDir();
+    const server = new PersistentCollaborationServer(4055, false);
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+    const options = await turnOptions(cwd, "review-bootstrap", null);
+
+    await expect(runCodexReview({
+      providerId: "codex",
+      projectId: options.projectId,
+      conversationId: options.conversationId,
+      graphScopeId: "review-graph",
+      runtimeScopeId: options.runtimeScopeId,
+      runId: options.runId,
+      attemptId: "review-bootstrap-attempt",
+      cwd,
+      target: { type: "uncommitted-changes" },
+      existingSession: null,
+      bootstrapModel: { providerId: "codex", modelId: "gpt-review" },
+      bootstrapReasoningEffort: "high",
+      sandboxPolicy: "read-only",
+      paths: options.paths,
+      timeoutMs: options.timeoutMs,
+    })).resolves.toMatchObject({ status: "completed" });
+
+    expect(server.threadParams).toEqual([expect.objectContaining({
+      model: "gpt-review",
+      cwd,
+      sandbox: "read-only",
+      approvalPolicy: "on-request",
+      config: {
+        "features.request_permissions_tool": true,
+        model_reasoning_effort: "high",
+      },
+    })]);
+    expect(server.reviewParams).toEqual([
+      { threadId: "thread-main", target: { type: "uncommittedChanges" }, delivery: "inline" },
+    ]);
+  });
+
+  it("registers Review as stoppable but never steerable", async () => {
+    const cwd = await tempDir();
+    const server = new PersistentCollaborationServer(4056, false);
+    server.holdNextReview();
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+    const options = await turnOptions(cwd, "review-control", "thread-main");
+    const review = runCodexReview({
+      providerId: "codex",
+      projectId: options.projectId,
+      conversationId: options.conversationId,
+      graphScopeId: "review-graph",
+      runtimeScopeId: options.runtimeScopeId,
+      runId: options.runId,
+      attemptId: "review-control-attempt",
+      cwd,
+      target: { type: "uncommitted-changes" },
+      existingSession: { providerId: "codex", sessionId: "thread-main" },
+      bootstrapModel: null,
+      bootstrapReasoningEffort: null,
+      sandboxPolicy: "read-only",
+      paths: options.paths,
+      timeoutMs: options.timeoutMs,
+    });
+    await vi.waitFor(() => expect(getActiveCodexAppServerTurn(options.runtimeScopeId)).not.toBeNull());
+    const active = getActiveCodexAppServerTurn(options.runtimeScopeId)!;
+    expect(active.turnKind).toBe("review");
+    await expect(active.steer("change scope")).rejects.toMatchObject({ name: "ProviderSteerRejected" });
+    await expect(active.interrupt("user stop")).resolves.toEqual({ status: "interrupt-requested" });
+    await expect(review).resolves.toMatchObject({ status: "interrupted" });
+    expect(server.interruptParams).toEqual([{ threadId: "thread-main", turnId: "turn-main-1" }]);
   });
 
   it("maps turn/completed with a failed nested Turn status to a failed result", async () => {
@@ -806,6 +927,7 @@ class PersistentCollaborationServer extends EventEmitter {
   readonly closePrompts: string[] = [];
   readonly turnInputs: unknown[][] = [];
   readonly turnParams: Array<Record<string, unknown>> = [];
+  readonly reviewParams: Array<Record<string, unknown>> = [];
   readonly threadParams: Array<Record<string, unknown>> = [];
   readonly steerParams: Array<Record<string, unknown>> = [];
   readonly compactParams: Array<Record<string, unknown>> = [];
@@ -830,6 +952,7 @@ class PersistentCollaborationServer extends EventEmitter {
   private nextCompactError: string | null = null;
   private nextResumeError: string | null = null;
   private holdFork = false;
+  private holdReview = false;
   private misdirectArchiveNotification = false;
   private forkTurns = ["turn-history-1", "turn-history-2", "turn-history-3"];
 
@@ -906,6 +1029,10 @@ class PersistentCollaborationServer extends EventEmitter {
 
   holdNextForkResponse(): void {
     this.holdFork = true;
+  }
+
+  holdNextReview(): void {
+    this.holdReview = true;
   }
 
   rejectNextInterrupt(message: string): void {
@@ -1034,6 +1161,29 @@ class PersistentCollaborationServer extends EventEmitter {
         if (!this.holdFirstParent || this.turnCount > 1) {
           this.notify("turn/completed", { threadId: "thread-main", turn: { id: turnId, status: "completed" } });
         }
+        return;
+      }
+      case "review/start": {
+        this.turnCount += 1;
+        const turnId = `turn-main-${this.turnCount}`;
+        this.reviewParams.push({ ...params });
+        this.respond(id, { turn: { id: turnId } });
+        this.notify("turn/started", { threadId: "thread-main", turn: { id: turnId } });
+        this.notify("item/started", {
+          threadId: "thread-main",
+          turnId,
+          item: { id: `review-entered-${this.turnCount}`, type: "enteredReviewMode" },
+        });
+        if (this.holdReview) {
+          this.holdReview = false;
+          return;
+        }
+        this.notify("item/completed", {
+          threadId: "thread-main",
+          turnId,
+          item: { id: `review-exited-${this.turnCount}`, type: "exitedReviewMode", text: "Review result." },
+        });
+        this.notify("turn/completed", { threadId: "thread-main", turn: { id: turnId, status: "completed" } });
         return;
       }
       case "thread/compact/start":

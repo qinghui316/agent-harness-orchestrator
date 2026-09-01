@@ -164,6 +164,7 @@ export async function getCodexProviderCapabilitySnapshot(project: ManagedProject
     { key: "turn.steer", label: "实时引导", spec: "supported", runtime: appServerReady ? "ready" : "unavailable", summary: "Codex app-server 支持向当前回合发送文本补充。" },
     { key: "turn.user-input", label: "用户问答", spec: "supported", runtime: appServerReady ? "ready" : "unavailable", summary: "Codex app-server 可路由用户回答。" },
     { key: "turn.approval", label: "Provider 审批", spec: "supported", runtime: appServerReady ? "ready" : "unavailable", summary: "Codex app-server 可路由命令、文件修改和权限审批。" },
+    { key: "turn.review", label: "代码审查", spec: "supported", runtime: appServerReady ? "ready" : "unavailable", summary: "Codex app-server 可在当前会话内执行原生只读代码审查。" },
     { key: "context.usage", label: "上下文用量", spec: "supported", runtime: appServerReady ? "ready" : "unavailable", summary: "Codex app-server 可发布当前会话上下文用量。" },
     { key: "context.compact", label: "上下文压缩", spec: "supported", runtime: appServerReady ? "ready" : "unavailable", summary: "Codex app-server 可压缩空闲会话上下文。" },
     { key: "session.fork", label: "会话分叉", spec: "supported", runtime: appServerReady ? "ready" : "unavailable", summary: "Codex app-server 可从已完成回合创建独立会话分支。" },

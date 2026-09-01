@@ -1,4 +1,4 @@
-import { getActiveCodexAppServerTurn, isCodexAppServerChildAvailable, listActiveCodexAppServerTurns, runCodexAppServerChildClose, runCodexAppServerChildTurn, runCodexAppServerTurn, type ActiveCodexAppServerTurn, type CodexAppServerThreadGoalStatus } from "../codex/app-server.js";
+import { getActiveCodexAppServerTurn, isCodexAppServerChildAvailable, listActiveCodexAppServerTurns, runCodexAppServerChildClose, runCodexAppServerChildTurn, runCodexAppServerReview, runCodexAppServerTurn, type ActiveCodexAppServerTurn, type CodexAppServerReviewTarget, type CodexAppServerThreadGoalStatus } from "../codex/app-server.js";
 import { normalizeCodexContextEvent, type CodexAppServerRealtimeEvent, type CodexContextEvent } from "../codex/app-server-realtime.js";
 import { getCodexProviderCapabilitySnapshot, getCodexProviderRuntimeSummary } from "./codex.js";
 import { executeCodexProjectAction, getCodexDiagnostics, listCodexProjectActions } from "./codex-diagnostics.js";
@@ -6,7 +6,7 @@ import { codexModelSettings, selectCodexModel } from "./codex-models.js";
 import { listCodexNativeSkills, setCodexNativeSkillEnabled } from "../codex/native-skills.js";
 import { CodexAppServerJsonRpcError, CodexAppServerRequestTimeoutError, defaultCodexAppServerHostRegistry } from "../codex/app-server-host.js";
 import { defaultProjectRemovalFence } from "../project-runtime/removal.js";
-import type { ActiveProviderTurn, ProviderApprovalRequest, ProviderChildCloseRequest, ProviderChildLifecycleEvent, ProviderChildSessionRequest, ProviderChildThreadResult, ProviderChildTurnRequest, ProviderContextCompactRequest, ProviderContextEvent, ProviderDescriptor, ProviderObjectiveState, ProviderRealtimeEvent, ProviderSessionArchiveRequest, ProviderSessionForkRequest, ProviderSessionForkResult, ProviderSessionForkTransportStage, ProviderTurnRequest, ProviderTurnResult, ProviderUserInputRequest } from "./contracts.js";
+import type { ActiveProviderTurn, ProviderApprovalRequest, ProviderChildCloseRequest, ProviderChildLifecycleEvent, ProviderChildSessionRequest, ProviderChildThreadResult, ProviderChildTurnRequest, ProviderContextCompactRequest, ProviderContextEvent, ProviderDescriptor, ProviderObjectiveState, ProviderRealtimeEvent, ProviderReviewRequest, ProviderReviewResult, ProviderReviewTarget, ProviderSessionArchiveRequest, ProviderSessionForkRequest, ProviderSessionForkResult, ProviderSessionForkTransportStage, ProviderTurnRequest, ProviderTurnResult, ProviderUserInputRequest } from "./contracts.js";
 import { agentThreadSurfaceId } from "./agent-surface-id.js";
 
 export const CODEX_PROVIDER_ID = "codex" as const;
@@ -28,9 +28,67 @@ export const codexProviderDescriptor: ProviderDescriptor = {
     list: listCodexNativeSkills,
     setEnabled: setCodexNativeSkillEnabled,
   },
-  conversation: { runTurn: runCodexTurn, inspectChild: inspectCodexChild, continueChild: runCodexChildTurn, closeChild: closeCodexChild, getActiveTurn: activeCodexTurn, listActiveTurns: activeCodexTurns, compactContext: compactCodexContext, forkSession: forkCodexSession, setSessionArchived: setCodexSessionArchived },
+  conversation: { runTurn: runCodexTurn, runReview: runCodexReview, inspectChild: inspectCodexChild, continueChild: runCodexChildTurn, closeChild: closeCodexChild, getActiveTurn: activeCodexTurn, listActiveTurns: activeCodexTurns, compactContext: compactCodexContext, forkSession: forkCodexSession, setSessionArchived: setCodexSessionArchived },
   leafExecution: { runTurn: runCodexTurn },
 };
+
+export async function runCodexReview(request: ProviderReviewRequest): Promise<ProviderReviewResult> {
+  if (request.providerId !== CODEX_PROVIDER_ID) throw new Error(`Codex adapter cannot run provider ${request.providerId}`);
+  const projectGeneration = defaultProjectRemovalFence.capture(request.projectId);
+  activeAttemptByScope.set(request.runtimeScopeId, request.attemptId);
+  try {
+    const result = await runCodexAppServerReview({
+      projectId: request.projectId,
+      conversationId: request.conversationId,
+      runtimeScopeId: request.runtimeScopeId,
+      roleId: "main-agent",
+      runId: request.runId,
+      cwd: request.cwd,
+      prompt: "",
+      sandboxPolicy: "read-only",
+      paths: request.paths,
+      existingThreadId: request.existingSession?.sessionId,
+      model: request.existingSession ? null : request.bootstrapModel?.modelId ?? null,
+      reasoningEffort: request.existingSession ? null : request.bootstrapReasoningEffort,
+      approvalMode: "on-request",
+      reviewTarget: toCodexReviewTarget(request.target),
+      timeoutMs: request.timeoutMs,
+      onTurnStarted: request.onTurnStarted ? ({ threadId, turnId }) => request.onTurnStarted?.({
+        projectId: request.projectId, conversationId: request.conversationId,
+        runtimeScopeId: request.runtimeScopeId, providerId: CODEX_PROVIDER_ID,
+        attemptId: request.attemptId, runId: request.runId, roleId: "main-agent",
+        sessionId: threadId, turnId,
+      }) : undefined,
+      onReviewEvent: guardedProjectNotification(request.projectId, projectGeneration, request.onReviewEvent),
+      onContextEvent: guardedProjectNotification(request.projectId, projectGeneration, request.onContextEvent
+        ? (event) => request.onContextEvent?.(mapContextEvent(event)) : undefined),
+      onApprovalRequest: guardedProjectNotification(request.projectId, projectGeneration, request.onApprovalRequest
+        ? (approval) => request.onApprovalRequest?.(mapApproval(request, approval)) : undefined),
+      onApprovalResolved: guardedProjectNotification(request.projectId, projectGeneration, request.onApprovalResolved
+        ? (approval) => request.onApprovalResolved?.({ providerId: CODEX_PROVIDER_ID, requestId: approval.requestId,
+          attemptId: request.attemptId, runId: request.runId, runtimeScopeId: request.runtimeScopeId,
+          threadId: approval.threadId, turnId: approval.turnId }) : undefined),
+    });
+    if (result.failureKind === "review-transport-uncertain") {
+      const error = new Error("Provider Review transport outcome is uncertain.");
+      error.name = "ProviderReviewTransportUncertain";
+      throw error;
+    }
+    return { providerId: CODEX_PROVIDER_ID, status: result.status,
+      session: result.threadId ? { providerId: CODEX_PROVIDER_ID, sessionId: result.threadId } : null,
+      turnId: result.turnId, reviewText: result.lastMessage,
+      ...(result.failureKind === "stale-session" ? { failureKind: result.failureKind } : {}), ...(result.error ? { error: result.error } : {}) };
+  } finally {
+    if (activeAttemptByScope.get(request.runtimeScopeId) === request.attemptId) activeAttemptByScope.delete(request.runtimeScopeId);
+  }
+}
+
+function toCodexReviewTarget(target: ProviderReviewTarget): CodexAppServerReviewTarget {
+  if (target.type === "uncommitted-changes") return { type: "uncommittedChanges" };
+  if (target.type === "base-branch") return { type: "baseBranch", branch: target.branch };
+  if (target.type === "commit") return { type: "commit", sha: target.sha, ...(target.title ? { title: target.title } : {}) };
+  return { type: "custom", instructions: target.instructions };
+}
 
 export async function runCodexTurn(request: ProviderTurnRequest): Promise<ProviderTurnResult> {
   if (request.providerId !== CODEX_PROVIDER_ID) throw new Error(`Codex adapter cannot run provider ${request.providerId}`);
@@ -157,7 +215,7 @@ export async function runCodexTurn(request: ProviderTurnRequest): Promise<Provid
     childThreads: result.childThreads.map(mapChild),
     changedFiles: result.changedFiles,
     ...(result.host ? { runtimeHost: result.host } : {}),
-    ...(result.failureKind ? { failureKind: result.failureKind } : {}),
+    ...(result.failureKind === "stale-session" ? { failureKind: result.failureKind } : {}),
     error: result.error,
   };
 }
@@ -616,6 +674,7 @@ function activeCodexTurns(): ActiveProviderTurn[] {
 function mapActiveCodexTurn(active: ActiveCodexAppServerTurn): ActiveProviderTurn {
   return {
     providerId: CODEX_PROVIDER_ID,
+    turnKind: active.turnKind,
     attemptId: activeAttemptByScope.get(active.runtimeScopeId) ?? active.runId,
     changeId: active.changeId,
     runtimeScopeId: active.runtimeScopeId,

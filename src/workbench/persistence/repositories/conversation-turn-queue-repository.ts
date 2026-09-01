@@ -45,7 +45,8 @@ export class ConversationTurnQueueRepository {
         queue_item_id AS queueItemId, client_request_id AS clientRequestId, request_hash AS requestHash,
         position, status, retry_count AS retryCount,
         predecessor_execution_revision AS predecessorExecutionRevision,
-        dispatch_request_id AS dispatchRequestId, text, context_refs_json AS contextRefsJson,
+        dispatch_request_id AS dispatchRequestId, item_kind AS itemKind, review_target_json AS reviewTargetJson,
+        text, context_refs_json AS contextRefsJson,
         attachment_ids_json AS attachmentIdsJson, skill_overrides_json AS skillOverridesJson,
         provider_id AS providerId, agent_turn_mode AS agentTurnMode,
         agent_model_id AS agentModelId, agent_reasoning_effort AS agentReasoningEffort,
@@ -63,7 +64,8 @@ export class ConversationTurnQueueRepository {
         queue_item_id AS queueItemId, client_request_id AS clientRequestId, request_hash AS requestHash,
         position, status, retry_count AS retryCount,
         predecessor_execution_revision AS predecessorExecutionRevision,
-        dispatch_request_id AS dispatchRequestId, text, context_refs_json AS contextRefsJson,
+        dispatch_request_id AS dispatchRequestId, item_kind AS itemKind, review_target_json AS reviewTargetJson,
+        text, context_refs_json AS contextRefsJson,
         attachment_ids_json AS attachmentIdsJson, skill_overrides_json AS skillOverridesJson,
         provider_id AS providerId, agent_turn_mode AS agentTurnMode,
         agent_model_id AS agentModelId, agent_reasoning_effort AS agentReasoningEffort,
@@ -81,7 +83,8 @@ export class ConversationTurnQueueRepository {
         queue_item_id AS queueItemId, client_request_id AS clientRequestId, request_hash AS requestHash,
         position, status, retry_count AS retryCount,
         predecessor_execution_revision AS predecessorExecutionRevision,
-        dispatch_request_id AS dispatchRequestId, text, context_refs_json AS contextRefsJson,
+        dispatch_request_id AS dispatchRequestId, item_kind AS itemKind, review_target_json AS reviewTargetJson,
+        text, context_refs_json AS contextRefsJson,
         attachment_ids_json AS attachmentIdsJson, skill_overrides_json AS skillOverridesJson,
         provider_id AS providerId, agent_turn_mode AS agentTurnMode,
         agent_model_id AS agentModelId, agent_reasoning_effort AS agentReasoningEffort,
@@ -114,17 +117,36 @@ export class ConversationTurnQueueRepository {
       INSERT INTO conversation_turn_queue_items (
         project_id, conversation_id, product_mode, queue_item_id, client_request_id, request_hash,
         position, status, retry_count, predecessor_execution_revision, dispatch_request_id,
+        item_kind, review_target_json,
         text, context_refs_json, attachment_ids_json, skill_overrides_json, provider_id,
         agent_turn_mode, agent_model_id, agent_reasoning_effort, diagnostic,
         created_at, updated_at, dispatched_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       item.projectId, item.conversationId, item.productMode, item.queueItemId, item.clientRequestId,
       item.requestHash, item.position, item.status, item.retryCount, item.predecessorExecutionRevision,
-      item.dispatchRequestId, item.text, item.contextRefsJson, item.attachmentIdsJson,
+      item.dispatchRequestId, item.itemKind ?? "conversation-turn", item.reviewTargetJson ?? null, item.text, item.contextRefsJson, item.attachmentIdsJson,
       item.skillOverridesJson, item.providerId, item.agentTurnMode, item.agentModelId,
       item.agentReasoningEffort, item.diagnostic, item.createdAt, item.updatedAt, item.dispatchedAt,
     );
+  }
+
+  reclaimText(item: StoredConversationQueuedTurn): string {
+    if (item.itemKind !== "review") return item.text;
+    if (!item.reviewTargetJson) throw conflict("Queued Review target is missing.");
+    const target = JSON.parse(item.reviewTargetJson) as {
+      type: string;
+      branch?: string;
+      sha?: string;
+      title?: string;
+      instructions?: string;
+    };
+    if (target.type === "uncommitted-changes") return "/review";
+    if (target.type === "base-branch") return `/review base ${target.branch ?? ""}`.trim();
+    if (target.type === "commit") {
+      return `/review commit ${target.sha ?? ""}${target.title ? ` ${target.title}` : ""}`.trim();
+    }
+    return `/review custom ${target.instructions ?? ""}`.trim();
   }
 
   transitionItem(input: {
@@ -185,7 +207,9 @@ function mapItem(row: SqliteRow): StoredConversationQueuedTurn {
     clientRequestId: String(row.clientRequestId), requestHash: String(row.requestHash),
     position: Number(row.position), status: String(row.status) as StoredConversationQueuedTurnStatus,
     retryCount: Number(row.retryCount), predecessorExecutionRevision: String(row.predecessorExecutionRevision),
-    dispatchRequestId: String(row.dispatchRequestId), text: String(row.text),
+    dispatchRequestId: String(row.dispatchRequestId),
+    itemKind: row.itemKind === "review" ? "review" : "conversation-turn",
+    reviewTargetJson: row.reviewTargetJson === null ? null : String(row.reviewTargetJson), text: String(row.text),
     contextRefsJson: String(row.contextRefsJson), attachmentIdsJson: String(row.attachmentIdsJson),
     skillOverridesJson: String(row.skillOverridesJson), providerId: String(row.providerId),
     agentTurnMode: row.agentTurnMode === null ? null : String(row.agentTurnMode) as StoredConversationQueuedTurn["agentTurnMode"],

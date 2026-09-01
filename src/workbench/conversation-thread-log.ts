@@ -103,15 +103,24 @@ export function fromStoredThreadMessage(row: StoredTopicMessage): TopicThreadEnt
     retryLineage: isConversationRetryLineageEvidence(raw.retryLineage) ? raw.retryLineage : undefined,
     forkTarget: conversationForkTarget(row, raw),
     forkBoundary: isConversationForkBoundary(raw.conversationForkBoundary) ? raw.conversationForkBoundary : undefined,
+    providerReview: isConversationReviewEvidence(raw.providerReview) ? raw.providerReview : undefined,
     document: isCanonicalPlanDocument(raw.document) ? raw.document : undefined,
     position: row.position,
     completedTurnSequence: typeof raw.completedTurnSequence === "number" ? raw.completedTurnSequence : undefined,
   };
 }
 
+function isConversationReviewEvidence(value: unknown): value is import("./types.js").ConversationReviewEvidence {
+  if (!value || typeof value !== "object") return false;
+  const review = value as { target?: { type?: unknown }; git?: { headSha?: unknown; worktreeStatusDigest?: unknown }; source?: unknown };
+  return ["uncommitted-changes", "base-branch", "commit", "custom"].includes(String(review.target?.type))
+    && typeof review.git?.headSha === "string" && typeof review.git.worktreeStatusDigest === "string"
+    && (review.source === "direct" || review.source === "queue");
+}
+
 function conversationForkTarget(row: StoredTopicMessage, raw: Record<string, unknown>): import("./types.js").ConversationForkTargetEvidence | undefined {
-  if (row.type !== "assistant.message" || row.agentSurfaceId !== "main-agent") return undefined;
-  if (row.status === "completed" && typeof raw.completedTurnSequence === "number" && typeof row.providerId === "string") {
+  if ((row.type !== "assistant.message" && row.type !== "provider.review") || row.agentSurfaceId !== "main-agent") return undefined;
+  if (row.type === "assistant.message" && row.status === "completed" && typeof raw.completedTurnSequence === "number" && typeof row.providerId === "string") {
     return {
       sourceMessageId: row.id,
       providerId: row.providerId,

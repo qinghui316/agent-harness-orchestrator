@@ -36,6 +36,7 @@ export function projectCanonicalTimelineEnvelope(row: StoredTopicMessage, produc
       body: entry.text,
       retryTarget: entry.retryTarget,
       forkTarget: entry.forkTarget,
+      providerReview: entry.providerReview,
     }, child ? { forceAgentRoleId: entry.agentRoleId } : { parentVisible: true }),
   };
 }

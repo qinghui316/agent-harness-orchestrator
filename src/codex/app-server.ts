@@ -244,7 +244,20 @@ export interface CodexAppServerTurnOptions {
       developer_instructions: null;
     };
   };
+  reviewTarget?: CodexAppServerReviewTarget;
+  onReviewEvent?: (event: CodexAppServerReviewLifecycleEvent) => void;
 }
+
+export type CodexAppServerReviewTarget =
+  | { type: "uncommittedChanges" }
+  | { type: "baseBranch"; branch: string }
+  | { type: "commit"; sha: string; title?: string }
+  | { type: "custom"; instructions: string };
+
+export type CodexAppServerReviewLifecycleEvent =
+  | { phase: "started"; occurredAt: string }
+  | { phase: "completed"; reviewText: string; occurredAt: string }
+  | { phase: "failed"; error: string; occurredAt: string };
 
 export interface CodexAppServerTurnResult {
   status: "completed" | "interrupted" | "failed";
@@ -257,7 +270,7 @@ export interface CodexAppServerTurnResult {
   childThreads: CodexAppServerChildThreadResult[];
   changedFiles: string[];
   host?: CodexAppServerHostIdentity;
-  failureKind?: "stale-session";
+  failureKind?: "stale-session" | "review-transport-uncertain";
   error?: string;
 }
 
@@ -274,6 +287,7 @@ export interface CodexAppServerChildCloseOptions extends Omit<CodexAppServerTurn
 }
 
 export interface ActiveCodexAppServerTurn {
+  turnKind: "conversation-turn" | "review";
   changeId?: string;
   runtimeScopeId: string;
   roleId: string;
@@ -358,6 +372,10 @@ export async function respondToCodexAppServerUserInput(
 }
 
 export function runCodexAppServerTurn(options: CodexAppServerTurnOptions): Promise<CodexAppServerTurnResult> {
+  return runCodexAppServerOperation(options, null);
+}
+
+export function runCodexAppServerReview(options: CodexAppServerTurnOptions & { reviewTarget: CodexAppServerReviewTarget }): Promise<CodexAppServerTurnResult> {
   return runCodexAppServerOperation(options, null);
 }
 
@@ -673,6 +691,7 @@ async function runCodexAppServerOperation(
   let waitingGoalAttachPending = false;
   let activeTurnRunning = false;
   let acceptingTurnEvents = false;
+  let reviewRequestSubmitted = false;
   const childThreads: CodexAppServerChildThreadResult[] = [];
   const childThreadDisplayNames = new Map<string, string>();
   const changedFiles = new Set<string>();
@@ -760,6 +779,7 @@ async function runCodexAppServerOperation(
           ...(options.runtimeWorkspaceRoots?.length ? { runtimeWorkspaceRoots: options.runtimeWorkspaceRoots } : {}),
         })
         : await sendRequest("thread/start", {
+          ...(options.reviewTarget && options.model?.trim() ? { model: options.model.trim() } : {}),
           cwd: options.cwd,
           sandbox: options.sandboxPolicy,
           approvalPolicy: options.approvalMode ?? "never",
@@ -783,6 +803,7 @@ async function runCodexAppServerOperation(
       const activeTurnId = turnId;
       hostLease?.setActiveTurn(activeThreadId, activeTurnId);
       activeTurns.set(activeScopeId, {
+        turnKind: options.reviewTarget ? "review" : "conversation-turn",
         ...(options.changeId ? { changeId: options.changeId } : {}),
         runtimeScopeId: activeScopeId,
         roleId: options.roleId,
@@ -791,6 +812,11 @@ async function runCodexAppServerOperation(
         turnId: activeTurnId,
         startedAt,
         steer: async (input: string) => {
+          if (options.reviewTarget) {
+            const rejection = new Error("Native code review cannot be steered.");
+            rejection.name = "ProviderSteerRejected";
+            throw rejection;
+          }
           try {
             await sendRequest("turn/steer", { threadId: activeThreadId, expectedTurnId: activeTurnId, input: [userTextInput(input)] });
           } catch (error) {
@@ -872,19 +898,22 @@ async function runCodexAppServerOperation(
       const turnModel = options.model?.trim() || null;
       const turnReasoningEffort = options.reasoningEffort?.trim() || null;
       acceptingTurnEvents = true;
-      const turnResponse = await sendRequest("turn/start", {
-        threadId,
-        input: [userTextInput(options.prompt), ...skillInputs(options.skillInputs), ...fileInputs(options.fileInputs), ...imageInputs(options.imageInputs)],
-        cwd: options.cwd,
-        sandboxPolicy: sandboxPolicyFor(options.sandboxPolicy, options.cwd, options.writableRoots),
-        approvalPolicy: options.approvalMode ?? "never",
-        ...(options.runtimeWorkspaceRoots?.length ? { runtimeWorkspaceRoots: options.runtimeWorkspaceRoots } : {}),
-        ...(options.additionalContext ? { additionalContext: options.additionalContext } : {}),
-        ...(turnModel ? { model: turnModel } : {}),
-        ...(turnReasoningEffort ? { effort: turnReasoningEffort } : {}),
-        ...(options.collaborationMode ? { collaborationMode: options.collaborationMode } : {}),
-        ...(options.outputSchema ? { outputSchema: options.outputSchema } : {}),
-      });
+      if (options.reviewTarget) reviewRequestSubmitted = true;
+      const turnResponse = options.reviewTarget
+        ? await sendRequest("review/start", { threadId, target: options.reviewTarget, delivery: "inline" })
+        : await sendRequest("turn/start", {
+          threadId,
+          input: [userTextInput(options.prompt), ...skillInputs(options.skillInputs), ...fileInputs(options.fileInputs), ...imageInputs(options.imageInputs)],
+          cwd: options.cwd,
+          sandboxPolicy: sandboxPolicyFor(options.sandboxPolicy, options.cwd, options.writableRoots),
+          approvalPolicy: options.approvalMode ?? "never",
+          ...(options.runtimeWorkspaceRoots?.length ? { runtimeWorkspaceRoots: options.runtimeWorkspaceRoots } : {}),
+          ...(options.additionalContext ? { additionalContext: options.additionalContext } : {}),
+          ...(turnModel ? { model: turnModel } : {}),
+          ...(turnReasoningEffort ? { effort: turnReasoningEffort } : {}),
+          ...(options.collaborationMode ? { collaborationMode: options.collaborationMode } : {}),
+          ...(options.outputSchema ? { outputSchema: options.outputSchema } : {}),
+        });
       turnId = extractTurnId(turnResponse);
       if (!turnId) throw new Error("Codex app-server did not return a turn id.");
       waitingGoalAttachPending = false;
@@ -914,7 +943,9 @@ async function runCodexAppServerOperation(
     terminalError = error instanceof Error ? error.message : String(error);
     const failureKind = options.existingThreadId && !turnId && isExplicitStaleSessionError(error)
       ? "stale-session" as const
-      : undefined;
+      : options.reviewTarget && reviewRequestSubmitted && !terminalStatus && !isExplicitReviewRejection(error)
+        ? "review-transport-uncertain" as const
+        : undefined;
     options.onError?.(error);
     await writeFile(options.paths.lastMessage, lastMessage || terminalError, "utf8");
     await writeSession("failed", terminalError).catch(() => undefined);
@@ -1188,6 +1219,7 @@ async function runCodexAppServerOperation(
       activeTurnTerminal.resolve(CODEX_TURN_ALREADY_TERMINAL);
       terminalStatus = "failed";
       terminalError = JSON.stringify(params);
+      if (options.reviewTarget) options.onReviewEvent?.({ phase: "failed", error: terminalError, occurredAt: new Date().toISOString() });
     } else if (isParentNotification && method === "item/completed") {
       if (pendingYieldCallId && dynamicToolItemMatches(params, pendingYieldCallId) && !goalPauseRequested) {
         const activeTurnId = turnId;
@@ -1199,6 +1231,11 @@ async function runCodexAppServerOperation(
         }
       }
       const finalText = extractCompletedText(params);
+      const completedItem = isRecord(params.item) ? params.item : params;
+      if (options.reviewTarget && completedItem.type === "exitedReviewMode" && finalText) {
+        lastMessage = finalText;
+        options.onReviewEvent?.({ phase: "completed", reviewText: finalText, occurredAt: new Date().toISOString() });
+      }
       if (isAssistantMessageItem(params) && finalText) {
         lastMessageItemId = stringValue(isRecord(params.item) ? params.item.id : params.itemId ?? params.item_id) ?? lastMessageItemId;
         if (!lastMessage.includes(finalText)) lastMessage += finalText;
@@ -1206,6 +1243,11 @@ async function runCodexAppServerOperation(
       if (isPlanItem(params) && finalText) {
         planText = finalText;
         options.onPlanUpdate?.(finalText, params);
+      }
+    } else if (isParentNotification && method === "item/started" && options.reviewTarget) {
+      const startedItem = isRecord(params.item) ? params.item : params;
+      if (startedItem.type === "enteredReviewMode") {
+        options.onReviewEvent?.({ phase: "started", occurredAt: new Date().toISOString() });
       }
     }
   }
@@ -1435,6 +1477,10 @@ function isExplicitStaleSessionError(error: unknown): boolean {
   return error instanceof CodexAppServerJsonRpcError
     ? error.method === "thread/resume"
     : error instanceof Error && error.name === "StaleProviderSession";
+}
+
+function isExplicitReviewRejection(error: unknown): boolean {
+  return error instanceof CodexAppServerJsonRpcError && error.method === "review/start";
 }
 
 function childFollowupPrompt(targetThreadId: string, targetDisplayName: string | undefined, message: string): string {
@@ -1780,6 +1826,7 @@ function extractTextDelta(method: string, params: Record<string, unknown>): stri
 
 function extractCompletedText(params: Record<string, unknown>): string {
   const item = isRecord(params.item) ? params.item : params;
+  if (typeof item.review === "string") return item.review;
   if (typeof item.text === "string") return item.text;
   if (typeof item.markdown === "string") return item.markdown;
   if (typeof item.output === "string") return item.output;
@@ -1940,10 +1987,13 @@ function supportedCodexApprovalDecisions(kind: CodexAppServerApprovalKind, raw: 
     .filter((value): value is CodexAppServerApprovalDecision => Boolean(value));
 }
 
-function codexThreadFeatureConfig(options: CodexAppServerTurnOptions): Record<string, boolean> | undefined {
-  const config: Record<string, boolean> = {};
+function codexThreadFeatureConfig(options: CodexAppServerTurnOptions): Record<string, unknown> | undefined {
+  const config: Record<string, unknown> = {};
   if (options.enableDefaultModeUserInput) config["features.default_mode_request_user_input"] = true;
   if (options.approvalMode === "on-request") config["features.request_permissions_tool"] = true;
+  if (options.reviewTarget && options.reasoningEffort?.trim()) {
+    config.model_reasoning_effort = options.reasoningEffort.trim();
+  }
   return Object.keys(config).length > 0 ? config : undefined;
 }
 

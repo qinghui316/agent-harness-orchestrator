@@ -80,7 +80,7 @@ export class WorkbenchUnitOfWork {
       if ((draft?.updatedAt ?? null) !== input.expectedDraftUpdatedAt) {
         throw new ComposerDraftConflictError(draft);
       }
-      if (draft) {
+      if (draft && item.itemKind === "conversation-turn") {
         this.drafts.upsertDraft({
           projectId: draft.projectId,
           productMode: draft.productMode,
@@ -128,17 +128,18 @@ export class WorkbenchUnitOfWork {
       if (draft && this.drafts.hasSendableContent(draft)) {
         throw conflict("Current Composer draft must be empty before reclaiming a queued Turn.");
       }
+      const reviewText = this.conversationTurnQueues.reclaimText(item);
       this.drafts.upsertDraft({
         projectId: item.projectId,
         productMode: item.productMode,
-        agentTurnMode: item.agentTurnMode,
-        agentModelId: item.agentModelId,
-        agentReasoningEffort: item.agentReasoningEffort,
-        text: item.text,
-        contextRefsJson: item.contextRefsJson,
-        attachmentIdsJson: item.attachmentIdsJson,
-        skillOverridesJson: item.skillOverridesJson,
-        selectedProviderId: item.providerId,
+        agentTurnMode: item.itemKind === "review" ? draft?.agentTurnMode ?? "default" : item.agentTurnMode,
+        agentModelId: item.itemKind === "review" ? draft?.agentModelId ?? null : item.agentModelId,
+        agentReasoningEffort: item.itemKind === "review" ? draft?.agentReasoningEffort ?? null : item.agentReasoningEffort,
+        text: reviewText,
+        contextRefsJson: item.itemKind === "review" ? draft?.contextRefsJson ?? "[]" : item.contextRefsJson,
+        attachmentIdsJson: item.itemKind === "review" ? draft?.attachmentIdsJson ?? "[]" : item.attachmentIdsJson,
+        skillOverridesJson: item.itemKind === "review" ? draft?.skillOverridesJson ?? "{}" : item.skillOverridesJson,
+        selectedProviderId: item.itemKind === "review" ? draft?.selectedProviderId ?? item.providerId : item.providerId,
         updatedAt: input.updatedAt,
       }, draft?.updatedAt ?? null);
       this.conversationTurnQueues.transitionItem({

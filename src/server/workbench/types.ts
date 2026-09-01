@@ -16,6 +16,7 @@ import type { ConversationContextLifecycleOwner } from "../../workbench/conversa
 import type { ConversationForkLifecycleOwner } from "../../workbench/conversation-fork-lifecycle.js";
 import type { ConversationTurnQueueOwner } from "../../workbench/conversation-turn-queue.js";
 import type { ConversationLifecycleAction, ConversationLifecycleOwner } from "../../workbench/conversation-lifecycle.js";
+import type { ConversationReviewLifecycleOwner } from "../../workbench/conversation-review-lifecycle.js";
 
 export interface WorkbenchServeOptions {
   host?: string;
@@ -34,6 +35,7 @@ export interface WorkbenchServeOptions {
   conversationFork?: ConversationForkLifecycleOwner;
   conversationTurnQueue?: ConversationTurnQueueOwner;
   conversationLifecycle?: ConversationLifecycleOwner;
+  conversationReview?: ConversationReviewLifecycleOwner;
 }
 
 export interface WorkbenchServerHandle {
@@ -59,6 +61,7 @@ export interface WorkbenchServerContext {
   conversationFork: ConversationForkLifecycleOwner;
   conversationTurnQueue: ConversationTurnQueueOwner;
   conversationLifecycle: ConversationLifecycleOwner;
+  conversationReview: ConversationReviewLifecycleOwner;
 }
 
 export interface ConversationLifecycleBody {
@@ -250,6 +253,8 @@ export interface ConversationContextCompactBody {
 }
 
 export interface ConversationTurnQueueBody {
+  itemKind?: unknown;
+  reviewTarget?: unknown;
   productMode?: unknown;
   clientRequestId?: unknown;
   expectedRevision?: unknown;

@@ -10,6 +10,7 @@ import {
   type ConversationComposerPorts,
   type ConversationComposerScope,
 } from "../../src/web/src/controllers/useConversationComposerController.js";
+import { ComposerDraftApiConflict } from "../../src/web/src/controllers/ComposerDraftSyncOwner.js";
 import type { ComposerDraftSnapshot, ConversationTurnQueueSnapshot, ProviderCapabilitySnapshot, ProviderModelSettingsSnapshot, SkillListItem, TopicAttachment, TopicFileReference } from "../../src/web/src/types.js";
 
 afterEach(() => {
@@ -155,6 +156,74 @@ describe("Conversation composer controller", () => {
     expect(result.current.composerText).toBe("next request");
     expect(result.current.fileRefs).toEqual([fileRef("src/next.ts")]);
     expect(result.current.draftSkillOverrides).toEqual({ reviewer: true });
+  });
+
+  it("settles an accepted Review command after Conversation navigation advances the draft revision", async () => {
+    const command = "/review custom inspect the boundary";
+    const ports = composerPorts();
+    ports.drafts.load.mockResolvedValue(draftSnapshot({ text: command }));
+    const { result, rerender } = renderHook(
+      ({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
+      { initialProps: { scope: homeScope({ productMode: "agent" }) } },
+    );
+    await waitFor(() => expect(result.current.composerText).toBe(command));
+
+    rerender({ scope: conversationScope({
+      productMode: "agent",
+      selectedProviderId: "codex",
+      conversation: {
+        id: "review-conversation",
+        productMode: "agent",
+        state: "active",
+        selectedProviderId: "codex",
+      },
+    }) });
+    ports.drafts.save
+      .mockRejectedValueOnce(new ComposerDraftApiConflict(draftSnapshot({
+        text: command,
+        updatedAt: "2026-09-01T01:00:00.000Z",
+      })))
+      .mockResolvedValueOnce(draftSnapshot({
+        text: "",
+        updatedAt: "2026-09-01T01:00:01.000Z",
+      }));
+
+    await act(async () => {
+      await result.current.clearAcceptedReviewCommand(command, "2026-08-20T00:00:00.000Z");
+    });
+
+    expect(ports.drafts.save).toHaveBeenCalledTimes(2);
+    expect(ports.drafts.save).toHaveBeenLastCalledWith(expect.objectContaining({
+      projectId: "repo",
+      productMode: "agent",
+      text: "",
+      expectedUpdatedAt: "2026-09-01T01:00:00.000Z",
+    }));
+    expect(result.current.composerText).toBe("");
+  });
+
+  it("does not let late Review draft settlement erase input entered after command acceptance", async () => {
+    const command = "/review custom inspect the boundary";
+    const ports = composerPorts();
+    const settlement = deferred<ComposerDraftSnapshot>();
+    ports.drafts.load.mockResolvedValue(draftSnapshot({ text: command }));
+    ports.drafts.save.mockImplementationOnce(() => settlement.promise);
+    const { result } = renderHook(() => useConversationComposerController(
+      homeScope({ productMode: "agent" }),
+      ports,
+    ));
+    await waitFor(() => expect(result.current.composerText).toBe(command));
+
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.clearAcceptedReviewCommand(command, "2026-08-20T00:00:00.000Z"); });
+    await waitFor(() => expect(result.current.composerText).toBe(""));
+    act(() => result.current.setComposerText("next user request"));
+    await act(async () => {
+      settlement.resolve(draftSnapshot({ text: "", updatedAt: "2026-09-01T01:00:00.000Z" }));
+      await pending;
+    });
+
+    expect(result.current.composerText).toBe("next user request");
   });
 
   it("calibrates a committed single-Provider Conversation when capability discovery was still loading", async () => {

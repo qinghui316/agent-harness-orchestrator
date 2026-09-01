@@ -5,12 +5,23 @@ export type { ProductModeActivityIndicator, ProductModeActivityState, ProjectPro
 export type { ConversationContextSnapshot, ProviderContextLifecycleState } from "../../workbench/conversation-context-lifecycle.js";
 export type { ConversationQueuedTurn, ConversationQueuedTurnInput, ConversationTurnQueueSnapshot } from "../../workbench/conversation-turn-queue.js";
 export type { ConversationDeleteConfirmation, ConversationLifecycleReceipt, ConversationLifecycleSnapshot } from "../../workbench/conversation-lifecycle.js";
+export type { ProviderReviewTarget } from "../../provider-runtime/index.js";
 import type { ConversationContextSnapshot } from "../../workbench/conversation-context-lifecycle.js";
 export type { ConversationInteraction, ConversationInteractionQuestion, ConversationInteractionQueue, ConversationInteractionSettlement, InteractionHistoryRecord } from "../../workbench/conversation-interaction-contract.js";
 export type { AgentSurfaceProjection, AgentSurfaceProjectionItem, AgentSurfaceStatus, AgentSurfacesInvalidated, AgentSurfacesInvalidationReason } from "../../workbench/agent-surface-contract.js";
 export type { AgentCatalogDisplayProjection, AgentCatalogDisplayRole } from "../../workbench/agent-catalog-display-contract.js";
 
 export type AppStatus = { mode: "app" | "project"; directProjectId: string | null };
+export type ProjectGitReviewOptions = {
+  isGitRepository: boolean;
+  branch: string | null;
+  head: string | null;
+  dirty: boolean;
+  branches: Array<{ name: string; sha: string }>;
+  commits: Array<{ sha: string; shortSha: string; summary: string; timestamp: string }>;
+  generation: string;
+  message?: string;
+};
 export type ProviderDiagnostics = {
   providerId: string;
   displayName: string;
@@ -412,7 +423,7 @@ export type ParentAgentTranscriptBlock = {
 };
 export type ParentAgentTranscriptCell = {
   id: string;
-  kind: "user-message" | "assistant-message" | "process-row" | "evidence-row" | "user-input" | "document-preview" | "detail-only";
+  kind: "user-message" | "assistant-message" | "review-card" | "process-row" | "evidence-row" | "user-input" | "document-preview" | "detail-only";
   source: "user" | "provider-runtime" | "aho-orchestration" | "workflow-evidence" | "maintenance";
   agentRoleId?: string;
   agentTaskId?: string;
@@ -441,6 +452,7 @@ export type ParentAgentTranscriptCell = {
   attachments?: TopicAttachment[];
   interactionHistory?: InteractionHistoryRecord;
   documentRef?: CanonicalDocumentReference;
+  providerReview?: import("../../workbench/types.js").ConversationReviewEvidence;
   retryTarget?: {
     failedAttemptId: string;
     sourceMessageId: string;
@@ -1675,6 +1687,7 @@ export type WorkbenchLiveEvent =
   | { event: "conversation.context.invalidated"; data: { conversationId: string } }
   | { event: "conversation.turn-queue.invalidated"; data: { conversationId: string } }
   | { event: "conversation.lifecycle.invalidated"; data: { conversationId: string } }
+  | { event: "conversation.review.invalidated"; data: { conversationId: string } }
   | { event: "conversation.fork.completed"; data: { sourceConversationId: string; targetConversationId: string } }
   | { event: "run.started"; data: WorkbenchLiveIdentity & { runId: string; actionType?: string; runtime?: string; taskIds?: string[] } }
   | { event: "run.status"; data: WorkbenchLiveIdentity & { actionRunId?: string; status: string; label?: string } }

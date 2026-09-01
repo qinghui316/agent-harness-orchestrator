@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { AgentTurnMode, ProductMode, ProviderId } from "../provider-runtime/index.js";
+import type { AgentTurnMode, ProductMode, ProviderId, ProviderReviewTarget } from "../provider-runtime/index.js";
 import type { ProjectRuntimeCoordinatorPort } from "../project-runtime/coordinator.js";
 import type { ProjectRuntimePaths } from "../project-runtime/paths.js";
 import type { ManagedProject } from "../types/index.js";
@@ -11,8 +11,11 @@ import { ComposerDraftConflictError } from "./persistence/repositories/composer-
 import { publishConversationTurnQueueInvalidated } from "./project-live-events.js";
 import type { TopicFileReference, TopicMessageInput } from "./types.js";
 import { deleteUnreferencedTopicAttachments } from "./attachments.js";
+import type { ConversationReviewLifecycleOwner } from "./conversation-review-lifecycle.js";
 
 export interface ConversationQueuedTurnInput {
+  itemKind?: "conversation-turn" | "review";
+  reviewTarget?: ProviderReviewTarget | null;
   text: string;
   contextRefs: TopicFileReference[];
   attachmentIds: string[];
@@ -24,6 +27,8 @@ export interface ConversationQueuedTurnInput {
 }
 
 export interface ConversationQueuedTurn extends ConversationQueuedTurnInput {
+  itemKind: "conversation-turn" | "review";
+  reviewTarget: ProviderReviewTarget | null;
   queueItemId: string;
   clientRequestId: string;
   position: number;
@@ -62,6 +67,7 @@ export class ConversationTurnQueueOwner {
     turnRouter: ConversationTurnRoutingPort;
     prepareConversationMessage?: typeof prepareConversationMessage;
     postConversationMessage?: typeof postConversationMessage;
+    reviewOwner?: ConversationReviewLifecycleOwner;
   }) {}
 
   async read(project: ManagedProject, productMode: ProductMode, conversationId: string): Promise<ConversationTurnQueueSnapshot> {
@@ -86,7 +92,7 @@ export class ConversationTurnQueueOwner {
       const pendingGovernanceDecision = conversation.productMode === "harness" && Boolean(conversation.boundChangeId)
         && database.decisions.listDecisions(paths.projectId, conversation.boundChangeId ?? undefined)
           .some((decision) => decision.status === "pending" || decision.status === "requested-changes");
-      const executionRevision = createExecutionRevision(conversation.currentGraphScopeId, conversation.completedTurnSequence, activeAttempts.map((item) => item.attemptId));
+      const executionRevision = createConversationExecutionRevision(conversation.currentGraphScopeId, conversation.completedTurnSequence, activeAttempts.map((item) => item.attemptId));
       const head = storedItems[0];
       const busy = activeAttempts.length > 0 || pendingInteraction || pendingFork || pendingCompaction || pendingGovernanceDecision;
       const disabledReason = conversation.state !== "active"
@@ -151,6 +157,8 @@ export class ConversationTurnQueueOwner {
           retryCount: 0,
           predecessorExecutionRevision: normalized.expectedExecutionRevision,
           dispatchRequestId: `queue-dispatch-${digest(`${conversation.conversationId}\0${normalized.clientRequestId}\0${requestHash}`)}`,
+          itemKind: normalized.itemKind ?? "conversation-turn",
+          reviewTargetJson: normalized.reviewTarget ? JSON.stringify(normalized.reviewTarget) : null,
           text: normalized.text,
           contextRefsJson: JSON.stringify(normalized.contextRefs),
           attachmentIdsJson: JSON.stringify(normalized.attachmentIds),
@@ -219,10 +227,12 @@ export class ConversationTurnQueueOwner {
     let reconciled = 0;
     try {
       for (const item of database.conversationTurnQueues.listDispatching(paths.projectId)) {
-        const hasEvidence = hasStoredDispatchEvidence(
-          database.timeline.listConversationMessages(paths.projectId, item.conversationId),
-          item,
-        );
+        const hasEvidence = item.itemKind === "review"
+          ? Boolean(database.conversationReviews.read(paths.projectId, item.dispatchRequestId))
+          : hasStoredDispatchEvidence(
+            database.timeline.listConversationMessages(paths.projectId, item.conversationId),
+            item,
+          );
         database.transaction(() => {
           const current = database.conversationTurnQueues.readItem(paths.projectId, item.conversationId, item.queueItemId);
           const queue = database.conversationTurnQueues.readQueue(paths.projectId, item.conversationId);
@@ -256,6 +266,27 @@ export class ConversationTurnQueueOwner {
     const item = await this.claim(project, productMode, conversationId, queueItemId, expectedRevision);
     publishConversationTurnQueueInvalidated(project.id, { conversationId });
     try {
+      if (item.itemKind === "review") {
+        if (!this.options.reviewOwner) throw conflict("Conversation Review queue dispatch is not composed.");
+        const current = await this.read(project, productMode, conversationId);
+        const database = await openProjectRuntimeWorkbenchDatabase(await this.resolvePaths(project));
+        let timelineRevision: number;
+        try {
+          timelineRevision = database.conversations.readConversation(project.id, conversationId)?.timelineRevision ?? -1;
+        } finally { database.close(); }
+        await this.options.reviewOwner.start(project, {
+          productMode: "agent",
+          conversationId,
+          providerId: item.providerId,
+          target: parseReviewTarget(item.reviewTargetJson),
+          expectedTimelineRevision: timelineRevision,
+          expectedExecutionRevision: current.executionRevision,
+          clientRequestId: item.dispatchRequestId,
+          source: "queue",
+        });
+        await this.settleDispatch(project, item, "dispatched");
+        return;
+      }
       const message: TopicMessageInput = {
         message: item.text,
         contextRefs: parseArray<TopicFileReference>(item.contextRefsJson),
@@ -402,11 +433,19 @@ export class ConversationTurnQueueOwner {
     const paths = runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
     const database = await openProjectRuntimeWorkbenchDatabase(paths);
     try {
+      if (item.itemKind === "review") {
+        return Boolean(database.conversationReviews.read(paths.projectId, item.dispatchRequestId));
+      }
       return hasStoredDispatchEvidence(
         database.timeline.listConversationMessages(paths.projectId, item.conversationId),
         item,
       );
     } finally { database.close(); }
+  }
+
+  private async resolvePaths(project: ManagedProject): Promise<ProjectRuntimePaths> {
+    const runtime = await this.options.projectRuntimeCoordinator.resolve(project);
+    return runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
   }
 
   private async readEnqueueReplay(
@@ -440,6 +479,7 @@ function normalizeRequest(request: ConversationTurnEnqueueRequest): Conversation
   const conversationId = boundedId(request.conversationId, "conversationId");
   const clientRequestId = boundedId(request.clientRequestId, "clientRequestId");
   const providerId = boundedId(request.providerId, "providerId");
+  const itemKind = request.itemKind === "review" ? "review" : "conversation-turn";
   const text = typeof request.text === "string" ? request.text.trim() : "";
   if (text.length > 100_000) throw badRequest("Queued Turn text is too large.");
   if (!Array.isArray(request.attachmentIds) || request.attachmentIds.length > 100) throw badRequest("Queued Turn attachmentIds are invalid.");
@@ -452,14 +492,21 @@ function normalizeRequest(request: ConversationTurnEnqueueRequest): Conversation
     throw badRequest("Queued Turn Skill overrides are invalid.");
   }
   const expectedExecutionRevision = typeof request.expectedExecutionRevision === "string" ? request.expectedExecutionRevision.trim() : "";
-  if ((!text && attachmentIds.length === 0) || !expectedExecutionRevision) throw badRequest("Queued Turn requires content and exact request/execution identity.");
+  const reviewTarget = itemKind === "review" ? normalizeReviewTarget(request.reviewTarget) : null;
+  if ((itemKind === "conversation-turn" && !text && attachmentIds.length === 0) || !expectedExecutionRevision) throw badRequest("Queued Turn requires content and exact request/execution identity.");
+  if (itemKind === "review" && (request.productMode !== "agent" || text || attachmentIds.length > 0 || contextRefs.length > 0 || skillEntries.length > 0)) {
+    throw conflict("Queued Review is Agent-only and cannot carry Turn draft content.");
+  }
   decodeRevision(request.expectedRevision);
-  if (request.productMode === "agent" && request.agentTurnMode !== "default" && request.agentTurnMode !== "plan") throw conflict("Agent queued Turn requires Default or Plan mode.");
+  if (itemKind === "conversation-turn" && request.productMode === "agent" && request.agentTurnMode !== "default" && request.agentTurnMode !== "plan") throw conflict("Agent queued Turn requires Default or Plan mode.");
+  if (itemKind === "review" && (request.agentTurnMode !== null || request.modelId !== null || request.reasoningEffort !== null)) throw conflict("Queued Review cannot carry Agent Turn settings.");
   if (request.productMode === "harness" && (request.agentTurnMode !== null || request.modelId !== null || request.reasoningEffort !== null)) throw conflict("Harness queued Turn cannot carry Agent settings.");
   const modelId = normalizeNullableValue(request.modelId, "modelId");
   const reasoningEffort = normalizeNullableValue(request.reasoningEffort, "reasoningEffort");
   return {
     ...request,
+    itemKind,
+    reviewTarget,
     projectId,
     conversationId,
     clientRequestId,
@@ -510,6 +557,7 @@ function normalizeNullableValue(value: unknown, field: string): string | null {
 
 function toPublicItem(item: StoredConversationQueuedTurn): ConversationQueuedTurn {
   return {
+    itemKind: item.itemKind, reviewTarget: item.reviewTargetJson ? parseReviewTarget(item.reviewTargetJson) : null,
     queueItemId: item.queueItemId, clientRequestId: item.clientRequestId, position: item.position,
     status: item.status, retryCount: item.retryCount, text: item.text,
     contextRefs: parseArray<TopicFileReference>(item.contextRefsJson),
@@ -520,7 +568,7 @@ function toPublicItem(item: StoredConversationQueuedTurn): ConversationQueuedTur
   };
 }
 
-function createExecutionRevision(graphScopeId: string | null, completedTurnSequence: number, attemptIds: string[]): string {
+export function createConversationExecutionRevision(graphScopeId: string | null, completedTurnSequence: number, attemptIds: string[]): string {
   return `execution:${digest(JSON.stringify({ graphScopeId, completedTurnSequence, attemptIds: [...attemptIds].sort() }))}`;
 }
 function encodeRevision(value: number): string { return `queue:${value}`; }
@@ -529,10 +577,22 @@ function decodeRevision(value: string): number {
   if (!match) throw badRequest("Queue revision is invalid.");
   return Number(match[1]);
 }
-function hashQueuedInput(input: ConversationTurnEnqueueRequest): string { return digest(JSON.stringify({ version: 1, projectId: input.projectId, productMode: input.productMode, conversationId: input.conversationId, expectedRevision: input.expectedRevision, expectedExecutionRevision: input.expectedExecutionRevision, expectedDraftUpdatedAt: input.expectedDraftUpdatedAt, text: input.text, contextRefs: input.contextRefs, attachmentIds: input.attachmentIds, skillOverrides: input.skillOverrides, providerId: input.providerId, agentTurnMode: input.agentTurnMode, modelId: input.modelId, reasoningEffort: input.reasoningEffort })); }
+function hashQueuedInput(input: ConversationTurnEnqueueRequest): string { return digest(JSON.stringify({ version: 2, projectId: input.projectId, productMode: input.productMode, conversationId: input.conversationId, expectedRevision: input.expectedRevision, expectedExecutionRevision: input.expectedExecutionRevision, expectedDraftUpdatedAt: input.expectedDraftUpdatedAt, itemKind: input.itemKind, reviewTarget: input.reviewTarget, text: input.text, contextRefs: input.contextRefs, attachmentIds: input.attachmentIds, skillOverrides: input.skillOverrides, providerId: input.providerId, agentTurnMode: input.agentTurnMode, modelId: input.modelId, reasoningEffort: input.reasoningEffort })); }
 function digest(value: string): string { return createHash("sha256").update(value).digest("hex"); }
 function parseArray<T>(value: string): T[] { try { const parsed = JSON.parse(value) as unknown; return Array.isArray(parsed) ? parsed as T[] : []; } catch { return []; } }
 function parseRecord(value: string): Record<string, boolean> { try { const parsed = JSON.parse(value) as unknown; return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? Object.fromEntries(Object.entries(parsed).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean")) : {}; } catch { return {}; } }
+function normalizeReviewTarget(value: unknown): ProviderReviewTarget {
+  if (!value || typeof value !== "object") throw badRequest("Queued Review target is invalid.");
+  const target = value as Partial<ProviderReviewTarget>;
+  if (target.type === "uncommitted-changes") return { type: target.type };
+  if (target.type === "base-branch" && "branch" in target && typeof target.branch === "string" && target.branch.trim()) return { type: target.type, branch: target.branch.trim() };
+  if (target.type === "commit" && "sha" in target && typeof target.sha === "string" && target.sha.trim()) return { type: target.type, sha: target.sha.trim(), ...("title" in target && typeof target.title === "string" && target.title.trim() ? { title: target.title.trim() } : {}) };
+  if (target.type === "custom" && "instructions" in target && typeof target.instructions === "string" && target.instructions.trim()) return { type: target.type, instructions: target.instructions.trim() };
+  throw badRequest("Queued Review target is invalid.");
+}
+function parseReviewTarget(value: string | null): ProviderReviewTarget {
+  try { return normalizeReviewTarget(value ? JSON.parse(value) : null); } catch (cause) { if (cause instanceof Error && cause.name === "BadRequest") throw cause; throw badRequest("Queued Review target is invalid."); }
+}
 function hasPendingInteraction(rows: Array<{ rawJson: string }>): boolean { return rows.some((row) => { try { const raw = JSON.parse(row.rawJson) as { providerUserInput?: { status?: string }; providerApproval?: { status?: string }; clarification?: { status?: string } }; return [raw.providerUserInput?.status, raw.providerApproval?.status, raw.clarification?.status].some((status) => status === "pending" || status === "submitting"); } catch { return false; } }); }
 function hasStoredDispatchEvidence(rows: Array<{ rawJson: string }>, item: StoredConversationQueuedTurn): boolean {
   return rows.some((row) => {

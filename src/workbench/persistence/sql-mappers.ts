@@ -132,6 +132,7 @@ export function mapProviderAttemptRow(row: SqliteRow): StoredProviderAttempt {
     roleId: String(row.roleId),
     parentAgentSurfaceId: nullableString(row.parentAgentSurfaceId),
     operationProfile: String(row.operationProfile),
+    operationKind: row.operationKind === "review" ? "review" : "conversation-turn",
     providerId: String(row.providerId),
     nativeSessionId: nullableString(row.nativeSessionId),
     model: parseJsonObject<ProviderModelRef>(row.modelJson),

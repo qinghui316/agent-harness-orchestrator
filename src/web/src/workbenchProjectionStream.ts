@@ -34,6 +34,9 @@ export type WorkbenchProjectionRoutePorts = {
   conversationContext?: {
     invalidate: (projectId: string, data: Extract<WorkbenchLiveEvent, { event: "conversation.context.invalidated" }>["data"]) => void;
   };
+  conversationReview?: {
+    invalidate: (projectId: string, data: Extract<WorkbenchLiveEvent, { event: "conversation.review.invalidated" }>["data"]) => void;
+  };
   modeActivity?: {
     invalidate: (projectId: string) => void;
   };
@@ -76,6 +79,9 @@ export function routeWorkbenchProjectionEvent(
     case "conversation.context.invalidated":
       ports.conversationContext?.invalidate(projectId, event.data);
       return { handled: Boolean(ports.conversationContext), event: event.event };
+    case "conversation.review.invalidated":
+      ports.conversationReview?.invalidate(projectId, event.data);
+      return { handled: Boolean(ports.conversationReview), event: event.event };
     case "snapshot":
       ports.snapshot.received(projectId, event.data);
       return { handled: true, event: event.event };
@@ -95,6 +101,7 @@ const MODE_ACTIVITY_INVALIDATION_EVENTS = new Set<WorkbenchLiveEvent["event"]>([
   "agent-surfaces.invalidated",
   "conversation.turn-control.invalidated",
   "conversation.context.invalidated",
+  "conversation.review.invalidated",
   "conversation.lifecycle.invalidated",
   "run.started",
   "run.status",

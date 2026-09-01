@@ -25,6 +25,7 @@ export function MainConversationView({
   onOpenAgent,
   canOpenAgent,
   onOpenDocument,
+  onOpenProjectFile,
   documentResources,
   onEnsureDocument,
   onRetry,
@@ -36,6 +37,7 @@ export function MainConversationView({
   onOpenAgent: (agentSurfaceId: string) => void;
   canOpenAgent: (agentSurfaceId: string) => boolean;
   onOpenDocument: (document: import("../../types.js").CanonicalDocumentReference) => void;
+  onOpenProjectFile: (relativePath: string) => void;
   documentResources: Record<string, import("../../types.js").TextDocumentResource>;
   onEnsureDocument: (document: import("../../types.js").CanonicalDocumentReference) => void;
   onRetry?: (target: NonNullable<import("../../types.js").ParentAgentTranscriptCell["retryTarget"]>) => Promise<void>;
@@ -50,6 +52,7 @@ export function MainConversationView({
         onOpenAgent={onOpenAgent}
         canOpenAgent={canOpenAgent}
         onOpenDocument={onOpenDocument}
+        onOpenProjectFile={onOpenProjectFile}
         documentResources={documentResources}
         onEnsureDocument={onEnsureDocument}
         onRetry={onRetry}
@@ -66,6 +69,7 @@ function ParentAgentTranscriptView({
   onOpenAgent,
   canOpenAgent,
   onOpenDocument,
+  onOpenProjectFile,
   documentResources,
   onEnsureDocument,
   onRetry,
@@ -77,6 +81,7 @@ function ParentAgentTranscriptView({
   onOpenAgent: (agentSurfaceId: string) => void;
   canOpenAgent: (agentSurfaceId: string) => boolean;
   onOpenDocument: (document: import("../../types.js").CanonicalDocumentReference) => void;
+  onOpenProjectFile: (relativePath: string) => void;
   documentResources: Record<string, import("../../types.js").TextDocumentResource>;
   onEnsureDocument: (document: import("../../types.js").CanonicalDocumentReference) => void;
   onRetry?: (target: NonNullable<import("../../types.js").ParentAgentTranscriptCell["retryTarget"]>) => Promise<void>;
@@ -112,6 +117,7 @@ function ParentAgentTranscriptView({
             onOpenAgent={onOpenAgent}
             canOpenAgent={canOpenAgent}
             onOpenDocument={onOpenDocument}
+            onOpenProjectFile={onOpenProjectFile}
             documentResources={documentResources}
             onEnsureDocument={onEnsureDocument}
             onRetry={cell.id === retryCellId ? onRetry : undefined}

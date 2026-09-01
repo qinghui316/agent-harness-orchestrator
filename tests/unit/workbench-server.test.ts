@@ -24,6 +24,7 @@ import type { ConversationContextLifecycleOwner } from "../../src/workbench/conv
 import type { ConversationForkLifecycleOwner } from "../../src/workbench/conversation-fork-lifecycle.js";
 import type { ConversationTurnQueueOwner } from "../../src/workbench/conversation-turn-queue.js";
 import type { ConversationLifecycleOwner } from "../../src/workbench/conversation-lifecycle.js";
+import type { ConversationReviewLifecycleOwner } from "../../src/workbench/conversation-review-lifecycle.js";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
 import { createFakeCodexRuntime } from "../helpers/fake-codex-runtime.js";
 import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
@@ -433,6 +434,62 @@ describe("workbench server", () => {
       body: JSON.stringify({ productMode: "agent", expectedRevision: "queue:1" }),
     })).status).toBe(200);
     expect(dispatchNext).toHaveBeenCalledWith(project(), "agent", "conversation-agent", "queue:1");
+  });
+
+  it("exposes native Review only to Agent requests and rejects Harness before Owner I/O", async () => {
+    await new Promise<void>((resolve) => handle!.server.close(() => resolve()));
+    const receipt = {
+      projectId: "repo",
+      conversationId: "conversation-agent",
+      clientRequestId: "review-1",
+      status: "submitting" as const,
+      source: "direct" as const,
+      target: { type: "uncommitted-changes" as const },
+      updatedAt: "2026-09-01T00:00:00.000Z",
+    };
+    const start = vi.fn(async () => receipt);
+    const conversationReview = { start, reconcileProject: async () => 0 } as unknown as ConversationReviewLifecycleOwner;
+    handle = await startWorkbenchServer({ project: project(), path: tempDir }, {
+      port: 0,
+      staticRoot,
+      conversationReview,
+    });
+    const endpoint = `${handle.url}/api/projects/repo/workbench/reviews`;
+
+    const harness = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        productMode: "harness",
+        conversationId: serverConversationId,
+        providerId: "codex",
+        target: { type: "uncommitted-changes" },
+        expectedTimelineRevision: 0,
+        expectedExecutionRevision: "execution:forged",
+        clientRequestId: "review-harness-forged",
+      }),
+    });
+    expect(harness.status).toBe(409);
+    expect(start).not.toHaveBeenCalled();
+
+    await expect(postJson(endpoint, {
+      productMode: "agent",
+      conversationId: "conversation-agent",
+      providerId: "codex",
+      target: { type: "commit", sha: "a".repeat(40) },
+      expectedTimelineRevision: 3,
+      expectedExecutionRevision: "execution:3",
+      clientRequestId: "review-1",
+    })).resolves.toEqual(receipt);
+    expect(start).toHaveBeenCalledWith(project(), {
+      productMode: "agent",
+      conversationId: "conversation-agent",
+      providerId: "codex",
+      target: { type: "commit", sha: "a".repeat(40) },
+      expectedTimelineRevision: 3,
+      expectedExecutionRevision: "execution:3",
+      clientRequestId: "review-1",
+    });
   });
 
   it("serves the shared Conversation lifecycle and revision-bound delete confirmation contracts", async () => {

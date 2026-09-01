@@ -8,6 +8,7 @@ import type { AgentSurfacesInvalidated } from "./agent-surface-contract.js";
 export type TopicThreadEventType =
   | "user.message"
   | "assistant.message"
+  | "provider.review"
   | "orchestrator.plan"
   | "workflow.started"
   | "workflow.completed"
@@ -66,7 +67,14 @@ export interface TopicThreadEntry {
   forkTarget?: ConversationForkTargetEvidence;
   forkBoundary?: ConversationForkBoundaryEvidence;
   queuedTurnDispatch?: ConversationQueuedTurnDispatchEvidence;
+  providerReview?: ConversationReviewEvidence;
   document?: CanonicalPlanDocument;
+}
+
+export interface ConversationReviewEvidence {
+  target: import("../provider-runtime/index.js").ProviderReviewTarget;
+  git: { headSha: string; baseSha: string | null; commitSha: string | null; worktreeStatusDigest: string };
+  source: "direct" | "queue";
 }
 
 export interface ConversationQueuedTurnDispatchEvidence {
@@ -312,6 +320,7 @@ export type WorkbenchLiveEvent =
   | { event: "conversation.fork.completed"; data: { sourceConversationId: string; targetConversationId: string } }
   | { event: "conversation.turn-queue.invalidated"; data: { conversationId: string } }
   | { event: "conversation.lifecycle.invalidated"; data: { conversationId: string } }
+  | { event: "conversation.review.invalidated"; data: { conversationId: string } }
   | { event: "run.started"; data: WorkbenchLiveIdentity & { runId: string; actionType?: string; runtime?: string; taskIds?: string[] } }
   | { event: "run.status"; data: WorkbenchLiveIdentity & { actionRunId?: string; status: string; label?: string } }
   | { event: "assistant.delta"; data: WorkbenchLiveIdentity & { delta: string } }

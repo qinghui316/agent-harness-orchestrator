@@ -46,6 +46,26 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
     sendJson(response, 200, await context.productModeActivity.read(input));
     return;
   }
+  if (request.method === "POST" && rest === "reviews") {
+    assertRegisteredProject(input);
+    const body = await readJsonBody<Record<string, unknown>>(request);
+    const productMode = requireProductMode(typeof body.productMode === "string" ? body.productMode : null);
+    if (productMode !== "agent") {
+      const error = new Error("Native Code Review is available only in Agent mode.");
+      error.name = "Conflict";
+      throw error;
+    }
+    sendJson(response, 200, await context.conversationReview.start(input.project!, {
+      productMode,
+      conversationId: typeof body.conversationId === "string" ? body.conversationId : null,
+      providerId: requireReviewString(body.providerId, "providerId"),
+      target: body.target as import("../../provider-runtime/index.js").ProviderReviewTarget,
+      expectedTimelineRevision: typeof body.expectedTimelineRevision === "number" ? body.expectedTimelineRevision : null,
+      expectedExecutionRevision: typeof body.expectedExecutionRevision === "string" ? body.expectedExecutionRevision : null,
+      clientRequestId: requireReviewString(body.clientRequestId, "clientRequestId"),
+    }));
+    return;
+  }
   if (request.method === "GET" && rest.startsWith("projections/")) {
     sendJson(response, 200, await getWorkbenchProjection(input, rest.slice("projections/".length), url.searchParams));
     return;
@@ -345,6 +365,7 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
     assertRegisteredProject(input);
     const body = await readJsonBody<ConversationTurnQueueBody>(request);
     const productMode = requireProductMode(typeof body.productMode === "string" ? body.productMode : null);
+    const itemKind = body.itemKind === "review" ? "review" : "conversation-turn";
     sendJson(response, 200, await context.conversationTurnQueue.enqueue(input.project, {
       projectId: input.project.id,
       productMode,
@@ -353,14 +374,16 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
       expectedRevision: requireQueueString(body.expectedRevision, "expectedRevision"),
       expectedExecutionRevision: requireQueueString(body.expectedExecutionRevision, "expectedExecutionRevision"),
       expectedDraftUpdatedAt: requireExpectedUpdatedAt(body.expectedDraftUpdatedAt),
+      itemKind,
+      reviewTarget: itemKind === "review" ? body.reviewTarget as import("../../provider-runtime/index.js").ProviderReviewTarget : null,
       text: typeof body.text === "string" ? body.text : "",
-      contextRefs: requireQueueContextRefs(body.contextRefs),
-      attachmentIds: requireQueueStringArray(body.attachmentIds, "attachmentIds"),
-      skillOverrides: requireQueueSkillOverrides(body.skillOverrides),
+      contextRefs: requireQueueContextRefs(body.contextRefs ?? []),
+      attachmentIds: requireQueueStringArray(body.attachmentIds ?? [], "attachmentIds"),
+      skillOverrides: requireQueueSkillOverrides(body.skillOverrides ?? {}),
       providerId: requireQueueString(body.providerId, "providerId"),
-      agentTurnMode: requireQueuedAgentTurnMode(productMode, body.agentTurnMode),
-      modelId: requireQueueNullableString(body.modelId, "modelId"),
-      reasoningEffort: requireQueueNullableString(body.reasoningEffort, "reasoningEffort"),
+      agentTurnMode: itemKind === "review" ? null : requireQueuedAgentTurnMode(productMode, body.agentTurnMode),
+      modelId: itemKind === "review" ? null : requireQueueNullableString(body.modelId, "modelId"),
+      reasoningEffort: itemKind === "review" ? null : requireQueueNullableString(body.reasoningEffort, "reasoningEffort"),
     }));
     return;
   }
@@ -674,4 +697,14 @@ function requireLifecycleAction(value: unknown): "archive" | "restore" | "delete
   const error = new Error("Conversation lifecycle action must be archive, restore, or delete.");
   error.name = "BadRequest";
   throw error;
+}
+
+function requireReviewString(value: unknown, field: string): string {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  if (!normalized || normalized.length > 512) {
+    const error = new Error(`Code Review ${field} must be a non-empty bounded string.`);
+    error.name = "BadRequest";
+    throw error;
+  }
+  return normalized;
 }

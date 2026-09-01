@@ -2,18 +2,20 @@ import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import {
   Bot,
   RefreshCw,
+  Search,
   Send,
   X,
 } from "lucide-react";
 import { ComposerControls } from "../shell/ComposerControls.js";
-import { AgentTurnModeControl, AgentTurnModelControls } from "../shell/composer.js";
+import { AgentTurnModeControl, AgentTurnModelControls, ReviewInlineSelector } from "../shell/composer.js";
 import { ComposerAttachButton, ComposerAttachmentList, filesFromDrop, hasFileDrag, imageFilesFromPaste } from "../shell/ComposerAttachments.js";
 import { buildComposerContextSummary, ComposerContextSourcesPopover, type ComposerContextKind } from "../shell/ComposerContextSources.js";
 import { FileMentionPicker } from "../shell/FileMentionPicker.js";
 import { SkillMentionPicker } from "../shell/SkillMentionPicker.js";
 import { WorkspacePicker } from "./WorkspacePicker.js";
 import { InfoRow } from "./ProjectPanels.js";
-import type { AgentTurnMode, ProductMode, ProviderModelCandidate, ProviderModelSettingsSnapshot, ProjectStatus, SkillListItem, TopicAttachment, TopicFileReference } from "../types.js";
+import { parseReviewCommand } from "../reviewCommand.js";
+import type { AgentTurnMode, ProductMode, ProjectGitReviewOptions, ProviderModelCandidate, ProviderModelSettingsSnapshot, ProviderReviewTarget, ProjectStatus, SkillListItem, TopicAttachment, TopicFileReference } from "../types.js";
 
 export function ProjectHomeView({
   projects,
@@ -76,6 +78,15 @@ export function ProjectReadinessHome({
   providerModelSettings,
   onSelectAgentModel,
   onSelectAgentReasoningEffort,
+  reviewOpen,
+  reviewOptions,
+  reviewLoading,
+  reviewSubmitting,
+  onOpenReview,
+  onCloseReview,
+  onStartReview,
+  onStartReviewCommand,
+  onReviewCommandError,
 }: {
   project: ProjectStatus;
   providerDisplayName?: string;
@@ -110,6 +121,15 @@ export function ProjectReadinessHome({
   providerModelSettings: ProviderModelSettingsSnapshot | null;
   onSelectAgentModel: (modelId: string | null) => void | Promise<void>;
   onSelectAgentReasoningEffort: (effort: string | null) => void | Promise<void>;
+  reviewOpen?: boolean;
+  reviewOptions?: ProjectGitReviewOptions | null;
+  reviewLoading?: boolean;
+  reviewSubmitting?: boolean;
+  onOpenReview?: (capturedCommand?: string) => void | Promise<void>;
+  onCloseReview?: () => void;
+  onStartReview?: (target: ProviderReviewTarget) => void | Promise<void>;
+  onStartReviewCommand?: (target: ProviderReviewTarget, capturedCommand: string) => void | Promise<void>;
+  onReviewCommandError?: (message: string) => void;
 }): ReactElement {
   const [dragOver, setDragOver] = useState(false);
   const [openContextKind, setOpenContextKind] = useState<ComposerContextKind | null>(null);
@@ -133,6 +153,21 @@ export function ProjectReadinessHome({
   }, [resetToken]);
 
   async function submitDemand(): Promise<void> {
+    if (productMode === "agent") {
+      const command = parseReviewCommand(draft);
+      if (command.kind === "open-selector") {
+        await onOpenReview?.(draft);
+        return;
+      }
+      if (command.kind === "target") {
+        await onStartReviewCommand?.(command.target, draft);
+        return;
+      }
+      if (command.kind === "invalid") {
+        onReviewCommandError?.(command.message);
+        return;
+      }
+    }
     const body = draft.trim();
     if ((!body && draftAttachments.length === 0) || !canStartDemand) return;
     setSubmitting(true);
@@ -240,6 +275,13 @@ export function ProjectReadinessHome({
             onSelectedRefsChange={onDraftFileRefsChange}
           />
           <ComposerAttachmentList attachments={draftAttachments} onRemove={removeAttachment} />
+          {productMode === "agent" && reviewOpen ? <ReviewInlineSelector
+            options={reviewOptions ?? null}
+            loading={Boolean(reviewLoading)}
+            submitting={Boolean(reviewSubmitting)}
+            onClose={() => onCloseReview?.()}
+            onStart={(target) => onStartReview?.(target)}
+          /> : null}
           <textarea
             ref={textareaRef}
             value={draft}
@@ -263,6 +305,16 @@ export function ProjectReadinessHome({
           />
           <div className="home-demand-composer-footer">
             <ComposerAttachButton disabled={!canAttach || submitting} onAttachFiles={attachFiles} />
+            {productMode === "agent" ? <button
+              className="composer-review-button"
+              type="button"
+              disabled={!canStartDemand || submitting || Boolean(reviewSubmitting)}
+              title="代码审查"
+              aria-label="代码审查"
+              onClick={() => void onOpenReview?.()}
+            >
+              {reviewLoading || reviewSubmitting ? <RefreshCw size={15} className="spin" /> : <Search size={15} />}
+            </button> : null}
             <span className="composer-footer-spacer" />
             <button
               className="composer-send"

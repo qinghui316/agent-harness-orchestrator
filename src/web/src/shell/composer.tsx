@@ -1,6 +1,7 @@
-import { useLayoutEffect, useMemo, useRef, useState, type ReactElement } from "react";
-import { AlertCircle, CheckCircle2, Gauge, ListPlus, RefreshCw, RotateCcw, Send, Square, Trash2, Undo2 } from "lucide-react";
-import type { AgentTurnMode, ConversationContextSnapshot, ConversationTurnQueueSnapshot, ProductMode, ProviderModelSettingsSnapshot, SkillListItem, TopicAttachment, TopicFileReference, WorkpadRuntimeStatus } from "../types.js";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement } from "react";
+import { AlertCircle, ArrowLeft, Check, CheckCircle2, Gauge, ListPlus, LoaderCircle, RefreshCw, RotateCcw, Search, Send, Square, Trash2, Undo2, X } from "lucide-react";
+import type { AgentTurnMode, ConversationContextSnapshot, ConversationTurnQueueSnapshot, ProductMode, ProjectGitReviewOptions, ProviderModelSettingsSnapshot, ProviderReviewTarget, SkillListItem, TopicAttachment, TopicFileReference, WorkpadRuntimeStatus } from "../types.js";
+import { parseReviewCommand } from "../reviewCommand.js";
 import { ComposerAttachButton, ComposerAttachmentList, filesFromDrop, hasFileDrag, imageFilesFromPaste } from "./ComposerAttachments.js";
 import { ComposerControls } from "./ComposerControls.js";
 import { buildComposerContextSummary, ComposerContextSourcesPopover, type ComposerContextKind } from "./ComposerContextSources.js";
@@ -52,6 +53,14 @@ export function TopicComposer({
   onReclaimQueuedTurn,
   onRemoveQueuedTurn,
   onRetryQueuedTurn,
+  reviewOpen,
+  reviewOptions,
+  reviewLoading,
+  reviewSubmitting,
+  onOpenReview,
+  onCloseReview,
+  onStartReview,
+  onReviewCommandError,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -104,6 +113,14 @@ export function TopicComposer({
   onReclaimQueuedTurn?: (queueItemId: string) => void | Promise<void>;
   onRemoveQueuedTurn?: (queueItemId: string) => void | Promise<void>;
   onRetryQueuedTurn?: (queueItemId: string) => void | Promise<void>;
+  reviewOpen?: boolean;
+  reviewOptions?: ProjectGitReviewOptions | null;
+  reviewLoading?: boolean;
+  reviewSubmitting?: boolean;
+  onOpenReview?: (capturedCommand?: string) => void | Promise<void>;
+  onCloseReview?: () => void;
+  onStartReview?: (target: ProviderReviewTarget, capturedCommand?: string) => void | Promise<void>;
+  onReviewCommandError?: (message: string) => void;
 }): ReactElement {
   const [dragOver, setDragOver] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -161,6 +178,21 @@ export function TopicComposer({
     return () => observer.disconnect();
   }, []);
   function submit(): void {
+    if (productMode === "agent") {
+      const command = parseReviewCommand(value);
+      if (command.kind === "open-selector") {
+        void onOpenReview?.(value);
+        return;
+      }
+      if (command.kind === "target") {
+        void onStartReview?.(command.target, value);
+        return;
+      }
+      if (command.kind === "invalid") {
+        onReviewCommandError?.(command.message);
+        return;
+      }
+    }
     void onSend();
   }
   return (
@@ -218,6 +250,16 @@ export function TopicComposer({
           submitting={Boolean(contextSubmitting)}
           onCompact={onCompactContext}
         />
+        {productMode === "agent" ? <button
+          className="composer-review-button"
+          type="button"
+          disabled={Boolean(disabledReason) || Boolean(reviewSubmitting)}
+          title="代码审查"
+          aria-label="代码审查"
+          onClick={() => void onOpenReview?.()}
+        >
+          {reviewLoading || reviewSubmitting ? <LoaderCircle size={15} className="spin" /> : <Search size={15} />}
+        </button> : null}
         <button
           className="composer-queue-button"
           type="button"
@@ -255,6 +297,13 @@ export function TopicComposer({
         onRemove={onRemoveQueuedTurn}
         onRetry={onRetryQueuedTurn}
       />
+      {productMode === "agent" && reviewOpen ? <ReviewInlineSelector
+        options={reviewOptions ?? null}
+        loading={Boolean(reviewLoading)}
+        submitting={Boolean(reviewSubmitting)}
+        onClose={() => onCloseReview?.()}
+        onStart={(target) => onStartReview?.(target)}
+      /> : null}
       <ComposerContextSourcesPopover
         kind={openContextKind}
         skills={skills}
@@ -327,7 +376,7 @@ export function ConversationTurnQueue({
         return <li key={item.queueItemId} data-attention={needsAttention ? "true" : undefined}>
           <span className="conversation-turn-queue-index">{index + 1}</span>
           <span className="conversation-turn-queue-copy">
-            <span>{queuePreview(item.text)}</span>
+            <span>{item.itemKind === "review" ? reviewTargetPreview(item.reviewTarget) : queuePreview(item.text)}</span>
             <small>{queuedTurnStatusLabel(item.status, item.attachmentIds.length)}</small>
           </span>
           <span className="conversation-turn-queue-actions">
@@ -356,6 +405,103 @@ export function ConversationTurnQueue({
         </li>;
       })}
     </ol>
+  </div>;
+}
+
+function reviewTargetPreview(target: ProviderReviewTarget | null): string {
+  if (!target) return "代码审查";
+  if (target.type === "uncommitted-changes") return "审查未提交改动";
+  if (target.type === "base-branch") return `代码审查 · ${target.branch}`;
+  if (target.type === "commit") return `代码审查 · ${target.sha.slice(0, 7)}`;
+  const text = target.instructions.replace(/\s+/g, " ").trim();
+  return `代码审查 · ${text.length > 72 ? `${text.slice(0, 71)}...` : text}`;
+}
+
+type ReviewSelectorStep = "preset" | "base" | "commit" | "custom";
+
+export function ReviewInlineSelector({ options, loading, submitting, onClose, onStart }: {
+  options: ProjectGitReviewOptions | null;
+  loading: boolean;
+  submitting: boolean;
+  onClose(): void;
+  onStart(target: ProviderReviewTarget): void | Promise<void>;
+}): ReactElement {
+  const [step, setStep] = useState<ReviewSelectorStep>("preset");
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [custom, setCustom] = useState("");
+  const selectorRef = useRef<HTMLDivElement | null>(null);
+  const presets: Array<{ label: string; detail?: string; step?: ReviewSelectorStep; target?: ProviderReviewTarget }> = [
+    { label: "对比基准分支", detail: "PR 风格", step: "base" },
+    { label: "审查未提交改动", target: { type: "uncommitted-changes" } },
+    { label: "审查指定 commit", step: "commit" },
+    { label: "自定义审查要求", step: "custom" },
+  ];
+  const entries: Array<{ label: string; detail?: string; step?: ReviewSelectorStep; target?: ProviderReviewTarget }> = step === "preset" ? presets
+    : step === "base" ? (options?.branches ?? []).map((branch) => ({ label: branch.name, target: { type: "base-branch", branch: branch.name } as ProviderReviewTarget }))
+      : step === "commit" ? (options?.commits ?? []).map((commit) => ({ label: commit.summary || commit.shortSha, detail: commit.shortSha, target: { type: "commit", sha: commit.sha, title: commit.summary } as ProviderReviewTarget }))
+        : [];
+  useEffect(() => setActiveIndex(0), [step]);
+  useEffect(() => selectorRef.current?.focus(), []);
+
+  function choose(index: number): void {
+    const entry = entries[index];
+    if (!entry || submitting) return;
+    if ("step" in entry && entry.step) setStep(entry.step);
+    else if (entry.target) void onStart(entry.target);
+  }
+  function onKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      if (step === "preset") onClose(); else setStep("preset");
+      return;
+    }
+    if (step === "custom") {
+      if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && custom.trim()) {
+        event.preventDefault();
+        void onStart({ type: "custom", instructions: custom.trim() });
+      }
+      return;
+    }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const direction = event.key === "ArrowDown" ? 1 : -1;
+      setActiveIndex((current) => entries.length ? (current + direction + entries.length) % entries.length : 0);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      choose(activeIndex);
+    }
+  }
+
+  return <div ref={selectorRef} className="review-inline-selector" role="dialog" aria-label="选择代码审查方式" tabIndex={-1} onKeyDown={onKeyDown}>
+    <header>
+      <div>
+        <strong>{step === "preset" ? "代码审查" : step === "base" ? "选择基准分支" : step === "commit" ? "选择 commit" : "自定义审查要求"}</strong>
+        <span>{options?.branch ? `当前分支 ${options.branch}` : "当前项目"}</span>
+      </div>
+      <div>
+        {step !== "preset" ? <button type="button" title="返回" aria-label="返回" onClick={() => setStep("preset")}><ArrowLeft size={15} /></button> : null}
+        <button type="button" title="关闭" aria-label="关闭代码审查选择器" onClick={onClose}><X size={15} /></button>
+      </div>
+    </header>
+    {loading ? <div className="review-inline-empty"><LoaderCircle size={15} className="spin" /> 正在读取 Git 状态</div>
+      : !options?.isGitRepository ? <div className="review-inline-empty">{options?.message ?? "当前项目不是 Git 仓库。"}</div>
+        : step === "custom" ? <div className="review-inline-custom">
+          <textarea autoFocus rows={4} value={custom} onChange={(event) => setCustom(event.target.value)} placeholder="说明重点、范围或风险..." />
+          <button type="button" disabled={submitting || !custom.trim()} onClick={() => void onStart({ type: "custom", instructions: custom.trim() })}>开始审查</button>
+        </div>
+          : <div className="review-inline-options" role="listbox">
+            {entries.length ? entries.map((entry, index) => <button
+              key={`${step}:${entry.label}:${index}`}
+              type="button"
+              role="option"
+              aria-selected={index === activeIndex}
+              className={index === activeIndex ? "is-active" : ""}
+              disabled={submitting}
+              onMouseEnter={() => setActiveIndex(index)}
+              onClick={() => choose(index)}
+            ><span><strong>{entry.label}</strong>{entry.detail ? <small>{entry.detail}</small> : null}</span>{index === activeIndex ? <Check size={15} /> : null}</button>)
+              : <div className="review-inline-empty">没有可用选项。</div>}
+          </div>}
   </div>;
 }
 

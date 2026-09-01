@@ -2,6 +2,8 @@ import { lstat, realpath } from "node:fs/promises";
 import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 import { git, gitText } from "../project/git.js";
 import type { ManagedProject } from "../types/index.js";
+import type { ProviderReviewTarget } from "../provider-runtime/index.js";
+import { createHash } from "node:crypto";
 
 export type ProjectGitFileGroup = "staged" | "unstaged" | "untracked";
 export type ProjectGitDiffStatus = "text" | "binary" | "too-large" | "not-found" | "not-git-repository" | "no-diff";
@@ -112,6 +114,125 @@ export interface ProjectGitCommitDiffResult {
   deletions?: number;
   message?: string;
 }
+
+export interface ProjectGitReviewOptions {
+  isGitRepository: boolean;
+  branch: string | null;
+  head: string | null;
+  dirty: boolean;
+  branches: Array<{ name: string; sha: string }>;
+  commits: Array<Pick<ProjectGitHistoryCommit, "sha" | "shortSha" | "summary" | "timestamp">>;
+  generation: string;
+  message?: string;
+}
+
+export interface ProjectGitReviewAdmission {
+  target: ProviderReviewTarget;
+  headSha: string;
+  baseSha: string | null;
+  commitSha: string | null;
+  worktreeStatusDigest: string;
+}
+
+export async function getProjectGitReviewOptions(project: ManagedProject): Promise<ProjectGitReviewOptions> {
+  const root = await safeProjectRoot(project);
+  const repoRoot = await getGitRoot(root);
+  if (!repoRoot || (await realpath(repoRoot)) !== root) {
+    return { isGitRepository: false, branch: null, head: null, dirty: false, branches: [], commits: [],
+      generation: reviewDigest({ repo: false }), message: "当前项目不是可读取的 Git 根目录。" };
+  }
+  const status = await getProjectGitStatus(project);
+  const branch = await git(root, ["branch", "--show-current"]).catch(() => "");
+  const head = await git(root, ["rev-parse", "HEAD"]);
+  const branchOutput = await gitText(root, ["for-each-ref", "--format=%(refname:short)%00%(objectname)", "refs/heads", "refs/remotes"]);
+  const branches = branchOutput.split(/\r?\n/).filter(Boolean).flatMap((line) => {
+    const [name = "", sha = ""] = line.split("\0");
+    return safeRefName(name) && /^[0-9a-f]{40}$/i.test(sha) ? [{ name, sha }] : [];
+  }).sort((a, b) => a.name.localeCompare(b.name));
+  const history = await getProjectGitHistory(project, { limit: 30 });
+  const commits = history.commits.map(({ sha, shortSha, summary, timestamp }) => ({ sha, shortSha, summary, timestamp }));
+  const payload = { branch: branch || null, head, dirty: status.dirty, branches, commits };
+  return { isGitRepository: true, ...payload, generation: reviewDigest(payload) };
+}
+
+export async function admitProjectGitReview(project: ManagedProject, requested: ProviderReviewTarget): Promise<ProjectGitReviewAdmission> {
+  const root = await safeProjectRoot(project);
+  const repoRoot = await getGitRoot(root);
+  if (!repoRoot || (await realpath(repoRoot)) !== root) throw conflict("Code Review requires the selected project to be a Git repository root.");
+  const headSha = await git(root, ["rev-parse", "HEAD"]);
+  const status = await gitText(root, ["status", "--porcelain=v1", "--untracked-files=all"]);
+  const worktreeStatusDigest = reviewDigest(status.replace(/\r\n/g, "\n"));
+  if (requested.type === "uncommitted-changes") return { target: requested, headSha, baseSha: null, commitSha: null, worktreeStatusDigest };
+  if (requested.type === "custom") {
+    const instructions = requested.instructions.trim();
+    if (!instructions || instructions.length > 100_000) throw conflict("Custom Review instructions are empty or too large.");
+    return { target: { type: "custom", instructions }, headSha, baseSha: null, commitSha: null, worktreeStatusDigest };
+  }
+  if (requested.type === "base-branch") {
+    const branch = requested.branch.trim();
+    if (!safeRefName(branch)) throw conflict("Review base branch is invalid.");
+    const baseSha = await git(root, ["rev-parse", "--verify", `${branch}^{commit}`]).catch(() => "");
+    if (!/^[0-9a-f]{40}$/i.test(baseSha)) throw conflict("Review base branch no longer exists.");
+    return { target: { type: "base-branch", branch }, headSha, baseSha, commitSha: null, worktreeStatusDigest };
+  }
+  const sha = requested.sha.trim();
+  const commitSha = await git(root, ["rev-parse", "--verify", `${sha}^{commit}`]).catch(() => "");
+  if (!/^[0-9a-f]{40}$/i.test(commitSha)) throw conflict("Review commit no longer exists.");
+  const title = requested.title?.trim().slice(0, 500);
+  return { target: { type: "commit", sha: commitSha, ...(title ? { title } : {}) }, headSha, baseSha: null, commitSha, worktreeStatusDigest };
+}
+
+export async function sanitizeProjectReviewMarkdown(project: ManagedProject, markdown: string): Promise<string> {
+  const root = await safeProjectRoot(project);
+  const windowsPath = /(?<![A-Za-z0-9])[A-Za-z]:[\\/][^\s`"'<>\])},;]+/g;
+  const unixPath = /(?<![A-Za-z0-9_.:/-])\/(?:[^\s`"'<>\])}]+\/)*[^\s`"'<>\])}:,;]+/g;
+  const rootReal = await realpath(root);
+  const replace = async (value: string): Promise<string> => {
+    const { path, suffix } = splitReviewPathSuffix(value);
+    const absolute = resolve(path);
+    const lexicalRelative = relative(root, absolute);
+    if (isUnsafePath(lexicalRelative) || isAbsolute(lexicalRelative)) return "[path redacted]";
+    const resolved = await realpath(absolute).catch(() => null);
+    if (!resolved) return "[path redacted]";
+    const resolvedRelative = relative(rootReal, resolved);
+    if (isUnsafePath(resolvedRelative) || isAbsolute(resolvedRelative)) return "[path redacted]";
+    return `${lexicalRelative.split(sep).join("/")}${suffix}`;
+  };
+  return replacePatternAsync(await replacePatternAsync(markdown, windowsPath, replace), unixPath, replace);
+}
+
+async function replacePatternAsync(
+  value: string,
+  pattern: RegExp,
+  replacement: (match: string) => Promise<string>,
+): Promise<string> {
+  let output = "";
+  let cursor = 0;
+  pattern.lastIndex = 0;
+  for (let match = pattern.exec(value); match; match = pattern.exec(value)) {
+    output += value.slice(cursor, match.index);
+    output += await replacement(match[0]);
+    cursor = match.index + match[0].length;
+  }
+  return output + value.slice(cursor);
+}
+
+function splitReviewPathSuffix(value: string): { path: string; suffix: string } {
+  const match = /(:\d+(?:-\d+)?(?::\d+(?:-\d+)?)?)$/.exec(value);
+  if (!match) return { path: value, suffix: "" };
+  return { path: value.slice(0, -match[1].length), suffix: match[1] };
+}
+
+function safeRefName(value: string): boolean {
+  return Boolean(value && value.length <= 512 && !value.startsWith("-") && !/[\s~^:?*[\\]/.test(value)
+    && !value.includes("..") && !value.includes("@{") && !value.endsWith(".") && !value.endsWith("/"));
+}
+
+function reviewDigest(value: unknown): string {
+  return createHash("sha256").update(typeof value === "string" ? value : JSON.stringify(value)).digest("hex");
+}
+
+function conflict(message: string): Error { const error = new Error(message); error.name = "Conflict"; return error; }
 
 const MAX_DIFF_BYTES = 240 * 1024;
 const MAX_DIFF_LINES = 2400;

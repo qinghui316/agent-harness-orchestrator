@@ -13,6 +13,7 @@ import { ConversationContextRepository } from "./repositories/conversation-conte
 import { ConversationForkRepository } from "./repositories/conversation-fork-repository.js";
 import { ConversationTurnQueueRepository } from "./repositories/conversation-turn-queue-repository.js";
 import { ConversationLifecycleRepository } from "./repositories/conversation-lifecycle-repository.js";
+import { ConversationReviewRepository } from "./repositories/conversation-review-repository.js";
 import type { WorkbenchResetGuard } from "./reset-guard.js";
 import {
   assertRuntimeDatabaseResetSafe,
@@ -36,6 +37,7 @@ export class WorkbenchDatabase {
   readonly conversationForks: ConversationForkRepository;
   readonly conversationTurnQueues: ConversationTurnQueueRepository;
   readonly conversationLifecycle: ConversationLifecycleRepository;
+  readonly conversationReviews: ConversationReviewRepository;
   readonly unitOfWork: WorkbenchUnitOfWork;
 
   private closed = false;
@@ -55,6 +57,7 @@ export class WorkbenchDatabase {
     this.conversationForks = new ConversationForkRepository(connection);
     this.conversationTurnQueues = new ConversationTurnQueueRepository(connection);
     this.conversationLifecycle = new ConversationLifecycleRepository(connection);
+    this.conversationReviews = new ConversationReviewRepository(connection);
     this.unitOfWork = new WorkbenchUnitOfWork(
       connection,
       this.timeline,

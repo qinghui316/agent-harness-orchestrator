@@ -1,10 +1,10 @@
 import type Database from "better-sqlite3";
 import type { SqliteRow } from "./sql-mappers.js";
 
-export const WORKBENCH_SCHEMA_VERSION = 17;
+export const WORKBENCH_SCHEMA_VERSION = 18;
 
 export function requiresRuntimeSchemaRebuild(currentVersion: number): boolean {
-  return ![9, 10, 11, 12, 13, 14, 15, 16, WORKBENCH_SCHEMA_VERSION].includes(currentVersion);
+  return ![9, 10, 11, 12, 13, 14, 15, 16, 17, WORKBENCH_SCHEMA_VERSION].includes(currentVersion);
 }
 
 export function migrate(db: Database.Database): void {
@@ -319,6 +319,8 @@ export function migrate(db: Database.Database): void {
       retry_count INTEGER NOT NULL DEFAULT 0 CHECK(retry_count BETWEEN 0 AND 1),
       predecessor_execution_revision TEXT NOT NULL,
       dispatch_request_id TEXT NOT NULL,
+      item_kind TEXT NOT NULL DEFAULT 'conversation-turn' CHECK(item_kind IN ('conversation-turn', 'review')),
+      review_target_json TEXT,
       text TEXT NOT NULL,
       context_refs_json TEXT NOT NULL DEFAULT '[]',
       attachment_ids_json TEXT NOT NULL DEFAULT '[]',
@@ -337,6 +339,29 @@ export function migrate(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_conversation_turn_queue_active
       ON conversation_turn_queue_items(project_id, conversation_id, status, position);
+
+    CREATE TABLE IF NOT EXISTS conversation_review_operations (
+      project_id TEXT NOT NULL,
+      conversation_id TEXT NOT NULL,
+      graph_scope_id TEXT NOT NULL,
+      client_request_id TEXT NOT NULL,
+      request_hash TEXT NOT NULL,
+      provider_id TEXT NOT NULL,
+      review_target_json TEXT NOT NULL,
+      git_admission_json TEXT NOT NULL,
+      attempt_id TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('pending', 'submitting', 'reviewing', 'completed', 'failed', 'interrupted')),
+      session_binding_hash TEXT,
+      turn_identity_hash TEXT,
+      source TEXT NOT NULL CHECK(source IN ('direct', 'queue')),
+      diagnostic TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, client_request_id),
+      UNIQUE(project_id, attempt_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_conversation_review_active
+      ON conversation_review_operations(project_id, conversation_id, status, updated_at);
   `);
   ensureColumn(db, "provider_attempts", "parent_agent_surface_id", "TEXT");
   ensureColumn(db, "conversations", "agent_turn_mode", "TEXT");
@@ -345,6 +370,9 @@ export function migrate(db: Database.Database): void {
   ensureColumn(db, "conversations", "agent_model_id", "TEXT");
   ensureColumn(db, "conversations", "agent_reasoning_effort", "TEXT");
   ensureColumn(db, "provider_attempts", "reasoning_effort", "TEXT");
+  ensureColumn(db, "provider_attempts", "operation_kind", "TEXT NOT NULL DEFAULT 'conversation-turn' CHECK(operation_kind IN ('conversation-turn', 'review'))");
+  ensureColumn(db, "conversation_turn_queue_items", "item_kind", "TEXT NOT NULL DEFAULT 'conversation-turn' CHECK(item_kind IN ('conversation-turn', 'review'))");
+  ensureColumn(db, "conversation_turn_queue_items", "review_target_json", "TEXT");
   ensureColumn(db, "composer_drafts", "agent_model_id", "TEXT");
   ensureColumn(db, "composer_drafts", "agent_reasoning_effort", "TEXT");
   ensureColumn(db, "conversations", "product_mode", "TEXT NOT NULL DEFAULT 'harness' CHECK(product_mode IN ('agent', 'harness'))");
@@ -359,11 +387,15 @@ export function migrate(db: Database.Database): void {
     UPDATE conversations SET agent_turn_mode = 'default'
     WHERE product_mode = 'agent' AND agent_turn_mode IS NULL;
     UPDATE provider_attempts SET agent_turn_mode = 'default'
-    WHERE product_mode = 'agent' AND agent_turn_mode IS NULL;
+    WHERE product_mode = 'agent' AND operation_kind = 'conversation-turn' AND agent_turn_mode IS NULL;
+    UPDATE provider_attempts SET agent_turn_mode = NULL
+    WHERE operation_kind = 'review';
     UPDATE composer_drafts SET agent_turn_mode = 'default'
     WHERE product_mode = 'agent' AND agent_turn_mode IS NULL;
     UPDATE conversations SET agent_turn_mode = NULL WHERE product_mode = 'harness';
     UPDATE provider_attempts SET agent_turn_mode = NULL WHERE product_mode = 'harness';
+    UPDATE provider_attempts SET operation_kind = 'conversation-turn' WHERE operation_kind IS NULL;
+    UPDATE conversation_turn_queue_items SET item_kind = 'conversation-turn' WHERE item_kind IS NULL;
     UPDATE composer_drafts SET agent_turn_mode = NULL WHERE product_mode = 'harness';
     UPDATE conversations SET agent_model_id = NULL, agent_reasoning_effort = NULL WHERE product_mode = 'harness';
     UPDATE composer_drafts SET agent_model_id = NULL, agent_reasoning_effort = NULL WHERE product_mode = 'harness';
@@ -498,8 +530,10 @@ export function migrate(db: Database.Database): void {
     END;
     CREATE TRIGGER trg_provider_attempt_agent_turn_mode_insert
     BEFORE INSERT ON provider_attempts
-    WHEN (NEW.product_mode = 'agent' AND (NEW.agent_turn_mode IS NULL OR NEW.agent_turn_mode NOT IN ('default', 'plan')))
-      OR (NEW.product_mode = 'harness' AND NEW.agent_turn_mode IS NOT NULL)
+    WHEN (NEW.product_mode = 'agent' AND NEW.operation_kind = 'conversation-turn'
+          AND (NEW.agent_turn_mode IS NULL OR NEW.agent_turn_mode NOT IN ('default', 'plan')))
+      OR (NEW.product_mode = 'agent' AND NEW.operation_kind = 'review' AND NEW.agent_turn_mode IS NOT NULL)
+      OR (NEW.product_mode = 'harness' AND (NEW.agent_turn_mode IS NOT NULL OR NEW.operation_kind = 'review'))
     BEGIN
       SELECT RAISE(ABORT, 'ProviderAttempt agent_turn_mode must match product_mode');
     END;
@@ -513,9 +547,11 @@ export function migrate(db: Database.Database): void {
     END;
     DROP TRIGGER IF EXISTS trg_provider_attempt_agent_turn_mode_update;
     CREATE TRIGGER trg_provider_attempt_agent_turn_mode_update
-    BEFORE UPDATE OF agent_turn_mode ON provider_attempts
-    WHEN (NEW.product_mode = 'agent' AND (NEW.agent_turn_mode IS NULL OR NEW.agent_turn_mode NOT IN ('default', 'plan')))
-      OR (NEW.product_mode = 'harness' AND NEW.agent_turn_mode IS NOT NULL)
+    BEFORE UPDATE OF agent_turn_mode, operation_kind, product_mode ON provider_attempts
+    WHEN (NEW.product_mode = 'agent' AND NEW.operation_kind = 'conversation-turn'
+          AND (NEW.agent_turn_mode IS NULL OR NEW.agent_turn_mode NOT IN ('default', 'plan')))
+      OR (NEW.product_mode = 'agent' AND NEW.operation_kind = 'review' AND NEW.agent_turn_mode IS NOT NULL)
+      OR (NEW.product_mode = 'harness' AND (NEW.agent_turn_mode IS NOT NULL OR NEW.operation_kind = 'review'))
     BEGIN
       SELECT RAISE(ABORT, 'ProviderAttempt agent_turn_mode must match product_mode');
     END;
@@ -570,7 +606,12 @@ export function migrate(db: Database.Database): void {
       SELECT 1 FROM conversation_turn_queues
       WHERE project_id = NEW.project_id AND conversation_id = NEW.conversation_id
         AND product_mode = NEW.product_mode
-    ) OR (NEW.product_mode = 'agent' AND NEW.agent_turn_mode IS NULL)
+    ) OR (NEW.item_kind = 'conversation-turn' AND NEW.product_mode = 'agent' AND NEW.agent_turn_mode IS NULL)
+      OR (NEW.item_kind = 'conversation-turn' AND NEW.review_target_json IS NOT NULL)
+      OR (NEW.item_kind = 'review' AND (NEW.product_mode <> 'agent' OR NEW.review_target_json IS NULL
+        OR NEW.text <> '' OR NEW.context_refs_json <> '[]' OR NEW.attachment_ids_json <> '[]'
+        OR NEW.skill_overrides_json <> '{}' OR NEW.agent_turn_mode IS NOT NULL
+        OR NEW.agent_model_id IS NOT NULL OR NEW.agent_reasoning_effort IS NOT NULL))
       OR (NEW.product_mode = 'harness' AND (
         NEW.agent_turn_mode IS NOT NULL OR NEW.agent_model_id IS NOT NULL OR NEW.agent_reasoning_effort IS NOT NULL
       ))
@@ -579,18 +620,41 @@ export function migrate(db: Database.Database): void {
     END;
     DROP TRIGGER IF EXISTS trg_conversation_turn_queue_item_mode_update;
     CREATE TRIGGER trg_conversation_turn_queue_item_mode_update
-    BEFORE UPDATE OF project_id, conversation_id, product_mode, agent_turn_mode, agent_model_id, agent_reasoning_effort
+    BEFORE UPDATE OF project_id, conversation_id, product_mode, item_kind, review_target_json, text,
+      context_refs_json, attachment_ids_json, skill_overrides_json, agent_turn_mode, agent_model_id, agent_reasoning_effort
       ON conversation_turn_queue_items
     WHEN NOT EXISTS (
       SELECT 1 FROM conversation_turn_queues
       WHERE project_id = NEW.project_id AND conversation_id = NEW.conversation_id
         AND product_mode = NEW.product_mode
-    ) OR (NEW.product_mode = 'agent' AND NEW.agent_turn_mode IS NULL)
+    ) OR (NEW.item_kind = 'conversation-turn' AND NEW.product_mode = 'agent' AND NEW.agent_turn_mode IS NULL)
+      OR (NEW.item_kind = 'conversation-turn' AND NEW.review_target_json IS NOT NULL)
+      OR (NEW.item_kind = 'review' AND (NEW.product_mode <> 'agent' OR NEW.review_target_json IS NULL
+        OR NEW.text <> '' OR NEW.context_refs_json <> '[]' OR NEW.attachment_ids_json <> '[]'
+        OR NEW.skill_overrides_json <> '{}' OR NEW.agent_turn_mode IS NOT NULL
+        OR NEW.agent_model_id IS NOT NULL OR NEW.agent_reasoning_effort IS NOT NULL))
       OR (NEW.product_mode = 'harness' AND (
         NEW.agent_turn_mode IS NOT NULL OR NEW.agent_model_id IS NOT NULL OR NEW.agent_reasoning_effort IS NOT NULL
       ))
     BEGIN
       SELECT RAISE(ABORT, 'Conversation queued Turn fields must match product_mode');
+    END;
+    DROP TRIGGER IF EXISTS trg_conversation_review_identity_insert;
+    CREATE TRIGGER trg_conversation_review_identity_insert
+    BEFORE INSERT ON conversation_review_operations
+    WHEN NOT EXISTS (
+      SELECT 1 FROM conversations
+      WHERE project_id = NEW.project_id AND conversation_id = NEW.conversation_id
+        AND product_mode = 'agent' AND current_graph_scope_id = NEW.graph_scope_id
+        AND state = 'active' AND deleted_at IS NULL
+    ) OR NOT EXISTS (
+      SELECT 1 FROM provider_attempts
+      WHERE project_id = NEW.project_id AND attempt_id = NEW.attempt_id
+        AND conversation_id = NEW.conversation_id AND graph_scope_id = NEW.graph_scope_id
+        AND product_mode = 'agent' AND operation_kind = 'review'
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'Conversation Review identity must match Agent Conversation and Review Attempt');
     END;
     DROP TRIGGER IF EXISTS trg_conversation_turn_queue_cancel_inactive;
     DROP TRIGGER IF EXISTS trg_conversation_turn_queue_block_archive;

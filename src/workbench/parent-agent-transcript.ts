@@ -60,6 +60,8 @@ interface TranscriptThreadItemInput {
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
   providerUserInput?: WorkbenchProviderUserInputRequest;
+  providerReview?: import("./types.js").ConversationReviewEvidence;
+  error?: string;
   retryTarget?: import("./types.js").ConversationRetryTargetEvidence;
   forkTarget?: import("./types.js").ConversationForkTargetEvidence;
 }
@@ -92,6 +94,31 @@ export function canonicalTranscriptCellsFromThreadItem(
           attachments: item.attachments?.length ? item.attachments : undefined,
         }]
       : [];
+  }
+
+  if (item.providerReview) {
+    const status = item.status ?? "submitting";
+    const failed = status === "failed" || status === "interrupted";
+    return [{
+      id: `cell:review:${item.id}`,
+      kind: "review-card",
+      source: "provider-runtime",
+      timestamp: item.timestamp,
+      agentRoleId,
+      runId: item.runId,
+      providerId: item.providerId,
+      attemptId: item.attemptId,
+      threadId: item.threadId,
+      turnId: item.turnId,
+      title: reviewTargetTitle(item.providerReview.target),
+      text: item.body?.trim() || item.error?.trim() || "",
+      status,
+      isError: failed,
+      realtime: status === "submitting" || status === "reviewing",
+      activityKind: "status",
+      providerReview: item.providerReview,
+      forkTarget: item.forkTarget?.recovery ? item.forkTarget : undefined,
+    }];
   }
 
   if (item.providerUserInput) {
@@ -165,6 +192,13 @@ export function canonicalTranscriptCellsFromThreadItem(
     });
   }
   return normalizeCellEvidenceRefs(cells.filter((cell) => Boolean(cell.text.trim() || cell.detailText?.trim())));
+}
+
+function reviewTargetTitle(target: import("../provider-runtime/index.js").ProviderReviewTarget): string {
+  if (target.type === "uncommitted-changes") return "审查未提交改动";
+  if (target.type === "base-branch") return `对比 ${target.branch}`;
+  if (target.type === "commit") return `审查提交 ${target.sha.slice(0, 7)}`;
+  return "自定义代码审查";
 }
 
 export function providerInteractionHistory(request: WorkbenchProviderUserInputRequest): InteractionHistoryRecord {

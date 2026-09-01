@@ -193,6 +193,42 @@ service and mode router. The Owner cannot call a Provider or create Harness work
 authorization, Change, AgentTask, Lane, or worktree state. Historical pending-feedback
 Timeline rows are read-only history, and the Harness Workflow TaskQueue is unrelated.
 
+`ConversationReviewLifecycleOwner` is the sole native Code Review mutation owner.
+The optional `turn.review` capability is Agent-only and does not change minimum
+Provider readiness. Public contracts carry a neutral Git target, opaque Session
+reference, admitted bootstrap model, read-only sandbox policy, and Review
+lifecycle callbacks. Only the Provider adapter may construct native Session,
+Turn, `review/start`, or inline delivery payloads. Existing Conversations retain
+their native Session model configuration; only an empty-Conversation bootstrap
+uses the current side-effect-free model admission.
+
+Schema 18 stores neutral Review operations and marks Provider Attempts and
+Conversation FIFO items as `conversation-turn | review`. Review rows cannot
+carry ordinary Turn mode, draft text, attachment, file-reference, Skill, model,
+or effort fields, and database constraints reject Harness Review Attempts and
+queue items. Git admission is repeated at dispatch and binds the actual HEAD,
+base/commit SHA, and worktree-status digest. Review ACK is not completion: exact
+entered/exited Review events and terminal Turn proof drive settlement. Unknown
+transport is never replayed, Provider-completed settlement repair cannot invoke
+the Provider again, and restart interrupts unfinished operations without proof.
+
+Review uses Plan-equivalent approval restrictions: command/read/network
+requests may enter the existing Agent interaction owner, while file changes and
+filesystem-write permissions fail closed. Review can be stopped through the
+shared Turn Control owner but never steered, retried as an ordinary Turn, used as
+a normal fork anchor, or counted in completed Turn sequence. Its canonical
+Timeline card contains only a safe target summary, actual Git admission,
+Attempt identity, bounded diagnostics, and sanitized Markdown. Native Thread,
+Turn, request and Review objects, absolute paths, raw payloads, and project-external
+locations never cross the adapter boundary. Safe relative links may open the
+existing read-only project-file panel.
+
+No Review route, queue item, Attempt, Timeline projection, or UI control is
+available to Harness mode. Review cannot create or modify Change, WorkflowGraph,
+AgentTask, Lane, worktree, Run, ExecutionAuthorization, ToolPolicyGate,
+confirmation, Validation, Audit, Apply, Close, Integration, I2, or E1 evidence,
+and Harness governance/read-model projections must not consume Review cards.
+
 `ConversationContextLifecycleOwner` is the sole provider-neutral owner for
 context usage and compaction in Agent and Harness Conversations. Provider
 adapters normalize native usage and compaction events and privately translate

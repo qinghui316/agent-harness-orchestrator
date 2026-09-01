@@ -101,6 +101,29 @@ compacted summary, path, or raw Provider payload enters the browser or durable
 context evidence. AHO compression does not create or advance any Harness
 governance, authorization, workflow, Apply, Integration, I2, or E1 fact.
 
+Direct Agent also exposes Codex-native inline Code Review through one
+`ConversationReviewLifecycleOwner`. The Composer button and strict `/review`
+command share the same Git selector for uncommitted changes, a base branch, a
+commit, or custom instructions. An idle existing Conversation reuses its
+Provider Session and native model configuration. Starting from an empty
+Composer creates a recoverable Agent Conversation and a read-only Session using
+the currently admitted Provider, model, and reasoning effort. Review never
+captures attachments, file references, Skills, or the next ordinary Turn's
+mode/model settings.
+
+Schema 18 records an Agent-only Review operation and discriminates Review
+Attempts and shared FIFO items from ordinary Conversation Turns. A queued Review
+revalidates the actual Git HEAD, target ref, commit, and worktree digest when it
+reaches the queue head. Exact Provider events drive `submitting -> reviewing ->
+completed`; uncertain transport is not replayed, restart interrupts unproven
+work, and stale Sessions use the existing explicit recovery-fork path. The
+Timeline renders one persistent Markdown Review card. Provider output paths are
+contained and normalized before storage; safe relative Markdown links open the
+existing project-file resource panel, while external or unresolved paths are
+redacted. Review is stoppable but cannot be steered, cannot write project files,
+and is absent from AHO mode and all Harness validation, audit, authorization,
+confirmation, and governance projections.
+
 Ordinary Agent turns accept Composer-managed images and safe text/code files in
 both Default and Plan mode. One server-owned `TurnAttachmentResolver` validates
 project ownership, the exact managed attachment directory, type, size, and
