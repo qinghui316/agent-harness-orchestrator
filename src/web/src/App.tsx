@@ -1438,6 +1438,7 @@ export function App(): ReactElement {
                    onOpenReview={conversationReview.openSelector}
                    onCloseReview={conversationReview.closeSelector}
                    onStartReview={conversationReview.startSelected}
+                   onStartReviewCommand={conversationReview.start}
                    onReviewCommandError={setError}
                  /> : null}
             </section>

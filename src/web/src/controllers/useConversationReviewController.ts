@@ -139,7 +139,7 @@ export function useConversationReviewController(input: {
     } catch (cause) {
       if (requestIdentity === identityRef.current && generation === generationRef.current) current.onError(errorMessage(cause));
     } finally {
-      if (requestIdentity === identityRef.current && generation === generationRef.current) {
+      if (requestIdentity === identityRef.current) {
         submittingRef.current = false;
         setSubmitting(false);
       }

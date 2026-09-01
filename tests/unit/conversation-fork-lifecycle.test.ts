@@ -283,6 +283,65 @@ describe("ConversationForkLifecycleOwner", () => {
     expect(forkSession).toHaveBeenCalledOnce();
   });
 
+  it("recovers a stale native Review through the existing fork owner", async () => {
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      const now = "2026-09-01T00:01:00.000Z";
+      database.providerAttempts.createProviderAttempt({
+        projectId,
+        conversationId,
+        attemptId: "attempt-review-stale",
+        productMode: "agent",
+        agentTurnMode: null,
+        operationKind: "review",
+        graphScopeId,
+        changeId: null,
+        agentTaskId: null,
+        roleId: "main-agent",
+        operationProfile: "agent",
+        providerId: "codex",
+        nativeSessionId: sourceSessionId,
+        model: null,
+        reasoningEffort: null,
+        capabilitySnapshot: capabilitySnapshot(),
+        effectiveSkillInputs: [],
+        handoffHash: "handoff-review-stale",
+        deliveredThroughCompletedTurn: 2,
+        worktreeId: null,
+        status: "failed",
+        createdAt: now,
+        updatedAt: now,
+      });
+      database.timeline.appendMessage({
+        ...message("review-stale", "provider.review", "session stale", sourceSessionId, null, {
+          graphScopeId,
+          attemptId: "attempt-review-stale",
+          sessionRecovery: { sourceMessageId: "assistant-2", providerId: "codex", completedTurnSequence: 2 },
+        }),
+        status: "failed",
+        providerId: "codex",
+      });
+      database.providerAttempts.writeConversationProviderBinding({
+        projectId,
+        conversationId,
+        providerId: "codex",
+        nativeSessionId: sourceSessionId,
+        lastDeliveredCompletedTurn: 2,
+        preferredModel: { providerId: "codex", modelId: "gpt-test" },
+        lastUsedAt: now,
+        bindingStatus: "stale",
+      });
+    } finally { database.close(); }
+
+    const forkSession = vi.fn(async () => ({
+      session: { providerId: "codex", sessionId: "private-review-recovery-thread" },
+      inheritedThroughTurn: { providerId: "codex", sessionId: "private-review-recovery-thread", turnId: "turn-2" },
+    }));
+    const request = await forkRequest("assistant-2", 2, "fork-review-recovery-1");
+    await expect(createOwner(forkSession).fork(project, request)).resolves.toMatchObject({ status: "forked" });
+    expect(forkSession).toHaveBeenCalledOnce();
+  });
+
   it("records bounded rejection evidence and requires a new client request", async () => {
     const rejection = new Error(`thread ${sourceSessionId} rejected secret-provider-detail`);
     rejection.name = "ProviderSessionForkRejected";

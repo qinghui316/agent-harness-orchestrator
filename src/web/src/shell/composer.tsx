@@ -60,6 +60,7 @@ export function TopicComposer({
   onOpenReview,
   onCloseReview,
   onStartReview,
+  onStartReviewCommand,
   onReviewCommandError,
 }: {
   value: string;
@@ -120,6 +121,7 @@ export function TopicComposer({
   onOpenReview?: (capturedCommand?: string) => void | Promise<void>;
   onCloseReview?: () => void;
   onStartReview?: (target: ProviderReviewTarget, capturedCommand?: string) => void | Promise<void>;
+  onStartReviewCommand?: (target: ProviderReviewTarget, capturedCommand: string) => void | Promise<void>;
   onReviewCommandError?: (message: string) => void;
 }): ReactElement {
   const [dragOver, setDragOver] = useState(false);
@@ -185,7 +187,7 @@ export function TopicComposer({
         return;
       }
       if (command.kind === "target") {
-        void onStartReview?.(command.target, value);
+        void onStartReviewCommand?.(command.target, value);
         return;
       }
       if (command.kind === "invalid") {

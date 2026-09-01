@@ -67,6 +67,7 @@ export class WorkbenchDatabase {
       this.skills,
       this.drafts,
       this.conversationTurnQueues,
+      this.conversationReviews,
     );
   }
 

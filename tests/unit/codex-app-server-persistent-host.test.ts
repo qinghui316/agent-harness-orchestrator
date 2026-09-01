@@ -272,6 +272,32 @@ describe("Codex persistent app-server Host", () => {
     expect(server.interruptParams).toEqual([{ threadId: "thread-main", turnId: "turn-main-1" }]);
   });
 
+  it("classifies an unproven Review timeout as transport-uncertain", async () => {
+    const cwd = await tempDir();
+    const server = new PersistentCollaborationServer(4057, false);
+    server.holdNextReview();
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+    const options = await turnOptions(cwd, "review-uncertain", "thread-main");
+
+    await expect(runCodexReview({
+      providerId: "codex",
+      projectId: options.projectId,
+      conversationId: options.conversationId,
+      graphScopeId: "review-graph",
+      runtimeScopeId: options.runtimeScopeId,
+      runId: options.runId,
+      attemptId: "review-uncertain-attempt",
+      cwd,
+      target: { type: "uncommitted-changes" },
+      existingSession: { providerId: "codex", sessionId: "thread-main" },
+      bootstrapModel: null,
+      bootstrapReasoningEffort: null,
+      sandboxPolicy: "read-only",
+      paths: options.paths,
+      timeoutMs: 20,
+    })).rejects.toMatchObject({ name: "ProviderReviewTransportUncertain" });
+  });
+
   it("maps turn/completed with a failed nested Turn status to a failed result", async () => {
     const cwd = await tempDir();
     const server = new PersistentCollaborationServer(4053, false);

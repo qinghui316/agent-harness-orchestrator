@@ -19,6 +19,7 @@ import type { TimelineRepository } from "./repositories/timeline-repository.js";
 import type { SkillRepository } from "./repositories/skill-repository.js";
 import { ComposerDraftConflictError, type ComposerDraftRepository } from "./repositories/composer-draft-repository.js";
 import type { ConversationTurnQueueRepository } from "./repositories/conversation-turn-queue-repository.js";
+import type { ConversationReviewRepository } from "./repositories/conversation-review-repository.js";
 import type { ConversationQueuedTurnDispatchEvidence } from "../types.js";
 
 export class WorkbenchUnitOfWork {
@@ -31,6 +32,7 @@ export class WorkbenchUnitOfWork {
     private readonly skills: SkillRepository,
     private readonly drafts: ComposerDraftRepository,
     private readonly conversationTurnQueues: ConversationTurnQueueRepository,
+    private readonly conversationReviews: ConversationReviewRepository,
   ) {}
 
   enqueueConversationTurn(input: {
@@ -424,6 +426,7 @@ export class WorkbenchUnitOfWork {
     this.db.transaction(() => {
       this.timeline.deleteMessages(input.projectId, input.conversationId);
       this.conversationTurnQueues.deleteConversationQueue(input.projectId, input.conversationId);
+      this.conversationReviews.deleteConversation(input.projectId, input.conversationId);
       this.providerAttempts.deleteConversationRuntimeState(input.projectId, input.conversationId);
       this.skills.deleteConversationEnablement(input.projectId, input.conversationId);
       if (input.productMode === "agent") {

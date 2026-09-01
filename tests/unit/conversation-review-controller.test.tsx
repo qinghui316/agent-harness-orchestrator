@@ -67,6 +67,30 @@ describe("Conversation Review frontend owners", () => {
     expect(clearAcceptedCommand).toHaveBeenCalledTimes(1);
   });
 
+  it("releases the same-identity submission lock after the selector closes", async () => {
+    api.postJson.mockReset();
+    let resolveFirst!: (value: { projectId: string; conversationId: string }) => void;
+    api.postJson.mockImplementationOnce(() => new Promise<{ projectId: string; conversationId: string }>((resolve) => {
+      resolveFirst = resolve;
+    }));
+    const { result } = renderHook(() => useConversationReviewController(controllerInput("project-a")));
+
+    let first!: Promise<void>;
+    await act(async () => {
+      first = result.current.start({ type: "uncommitted-changes" });
+      await Promise.resolve();
+    });
+    act(() => result.current.closeSelector());
+    await act(async () => {
+      resolveFirst({ projectId: "project-a", conversationId: "conversation-created" });
+      await first;
+    });
+
+    api.postJson.mockResolvedValueOnce({ projectId: "project-a", conversationId: "conversation-created-2" });
+    await act(async () => result.current.start({ type: "uncommitted-changes" }));
+    expect(api.postJson).toHaveBeenCalledTimes(2);
+  });
+
   it("owns keyboard focus and supports Arrow and Escape navigation", () => {
     const onStart = vi.fn();
     const onClose = vi.fn();

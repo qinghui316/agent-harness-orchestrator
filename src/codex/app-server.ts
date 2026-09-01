@@ -939,13 +939,13 @@ async function runCodexAppServerOperation(
     await writeSession(finalStatus);
     return { status: finalStatus, threadId, turnId, lastMessageItemId, lastMessage, planText, goal, childThreads, changedFiles: [...changedFiles], host: hostLeaseIdentity(hostLease) };
   } catch (error) {
-    terminalStatus = "failed";
-    terminalError = error instanceof Error ? error.message : String(error);
     const failureKind = options.existingThreadId && !turnId && isExplicitStaleSessionError(error)
       ? "stale-session" as const
       : options.reviewTarget && reviewRequestSubmitted && !terminalStatus && !isExplicitReviewRejection(error)
         ? "review-transport-uncertain" as const
         : undefined;
+    terminalStatus = "failed";
+    terminalError = error instanceof Error ? error.message : String(error);
     options.onError?.(error);
     await writeFile(options.paths.lastMessage, lastMessage || terminalError, "utf8");
     await writeSession("failed", terminalError).catch(() => undefined);

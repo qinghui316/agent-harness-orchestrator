@@ -503,7 +503,9 @@ function isExactSessionRecoveryRequest(
 ): boolean {
   if (!latestAttempt || latestAttempt.status !== "failed" || latestAttempt.providerId !== providerId || latestAttempt.roleId !== "main-agent") return false;
   return rows.some((row) => {
-    if (row.agentSurfaceId !== "main-agent" || row.type !== "assistant.message" || row.status !== "failed") return false;
+    if (row.agentSurfaceId !== "main-agent"
+      || (row.type !== "assistant.message" && row.type !== "provider.review")
+      || row.status !== "failed") return false;
     const raw = safeRecord(row.rawJson);
     const recovery = raw.sessionRecovery && typeof raw.sessionRecovery === "object" && !Array.isArray(raw.sessionRecovery)
       ? raw.sessionRecovery as Record<string, unknown>

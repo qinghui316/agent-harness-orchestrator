@@ -8,6 +8,28 @@ import type { ConversationTurnQueueSnapshot } from "../../src/web/src/types.js";
 afterEach(cleanup);
 
 describe("Topic Composer height", () => {
+  it("routes an explicit Review command with its captured Composer text", () => {
+    const onStartReviewCommand = vi.fn();
+    const onSend = vi.fn();
+    render(<TopicComposer
+      value="/review base origin/main"
+      onChange={vi.fn()}
+      modelLabel="gpt"
+      projectId="project"
+      productMode="agent"
+      onSend={onSend}
+      onStartReviewCommand={onStartReviewCommand}
+    />);
+
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(onStartReviewCommand).toHaveBeenCalledWith(
+      { type: "base-branch", branch: "origin/main" },
+      "/review base origin/main",
+    );
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
   it("shows the turn-mode control only for Agent and keeps unsupported Plan selected", () => {
     const onSelect = vi.fn();
     const view = render(<TopicComposer

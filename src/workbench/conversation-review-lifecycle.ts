@@ -213,11 +213,14 @@ export class ConversationReviewLifecycleOwner {
       if (binding?.bindingStatus === "stale") {
         throw conflict("Conversation Provider Session is stale; create a recovery branch before reviewing.");
       }
+      if (!binding?.nativeSessionId || binding.bindingStatus !== "ready") {
+        throw conflict("Code Review requires a ready Provider Session for the existing Conversation.");
+      }
       return {
         conversationId: conversation.conversationId,
         graphScopeId: conversation.currentGraphScopeId,
         createConversation: false,
-        existingSessionId: binding?.nativeSessionId ?? null,
+        existingSessionId: binding.nativeSessionId,
         completedTurnSequence: conversation.completedTurnSequence,
         agentTurnMode: conversation.agentTurnMode ?? "default",
         modelId: conversation.agentModelId,
@@ -689,10 +692,35 @@ function normalizeRequest(request: ConversationReviewRequest): ConversationRevie
   const providerId = request.providerId?.trim();
   if (!clientRequestId || !providerId) throw badRequest("Code Review requires exact request and Provider identity.");
   if (request.productMode !== "agent") throw conflict("Native Code Review is available only in Agent mode.");
-  if (!request.target || !["uncommitted-changes", "base-branch", "commit", "custom"].includes(request.target.type)) {
-    throw badRequest("Code Review target is invalid.");
+  return {
+    ...request,
+    clientRequestId,
+    providerId,
+    conversationId: request.conversationId?.trim() || null,
+    target: normalizeReviewTarget(request.target),
+  };
+}
+
+function normalizeReviewTarget(value: unknown): ProviderReviewTarget {
+  if (!value || typeof value !== "object") throw badRequest("Code Review target is invalid.");
+  const target = value as Partial<ProviderReviewTarget>;
+  if (target.type === "uncommitted-changes") return { type: target.type };
+  if (target.type === "base-branch" && "branch" in target && typeof target.branch === "string") {
+    const branch = target.branch.trim();
+    if (branch && branch.length <= 512) return { type: target.type, branch };
   }
-  return { ...request, clientRequestId, providerId, conversationId: request.conversationId?.trim() || null };
+  if (target.type === "commit" && "sha" in target && typeof target.sha === "string") {
+    const sha = target.sha.trim();
+    const title = "title" in target && typeof target.title === "string" ? target.title.trim() : "";
+    if (sha && sha.length <= 512 && title.length <= 500) {
+      return { type: target.type, sha, ...(title ? { title } : {}) };
+    }
+  }
+  if (target.type === "custom" && "instructions" in target && typeof target.instructions === "string") {
+    const instructions = target.instructions.trim();
+    if (instructions && instructions.length <= 100_000) return { type: target.type, instructions };
+  }
+  throw badRequest("Code Review target is invalid.");
 }
 
 function assertReviewAdmissionIdle(
@@ -816,6 +844,7 @@ function requestDigest(projectId: string, request: ConversationReviewRequest): s
     target: request.target,
     expectedTimelineRevision: request.expectedTimelineRevision,
     expectedExecutionRevision: request.expectedExecutionRevision,
+    source: request.source ?? "direct",
   }));
 }
 

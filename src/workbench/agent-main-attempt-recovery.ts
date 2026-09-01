@@ -23,6 +23,7 @@ export async function reconcileStaleAgentMainAttempts(input: {
         if (attempt.productMode !== "agent"
           || attempt.roleId !== "main-agent"
           || attempt.operationProfile !== "agent"
+          || attempt.operationKind !== "conversation-turn"
           || (attempt.status !== "queued" && attempt.status !== "running")) continue;
         const active = input.providerRegistry.findActiveTurn(conversation.conversationId);
         const link = links.find((candidate) => candidate.attemptId === attempt.attemptId && candidate.roleId === "main-agent");

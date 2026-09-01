@@ -36,6 +36,7 @@ afterEach(async () => {
 describe("ConversationLifecycleOwner", () => {
   it("archives, restores, and permanently deletes an Agent Conversation with exact replay", async () => {
     await seedConversation("agent-conversation", "agent");
+    await seedCompletedReviewOperation("agent-conversation", "review-before-delete");
     const setSessionArchived = vi.fn(async () => ({ status: "completed" as const }));
     const owner = createOwner(setSessionArchived);
 
@@ -65,6 +66,7 @@ describe("ConversationLifecycleOwner", () => {
       expect(database.conversations.readConversation(projectId, "agent-conversation", { includeDeleted: true }))
         .toMatchObject({ deletedAt: expect.any(String), state: "archive", archiveOrigin: "agent-user" });
       expect(database.timeline.listConversationMessages(projectId, "agent-conversation")).toEqual([]);
+      expect(database.conversationReviews.read(projectId, "review-before-delete")).toBeNull();
       expect(database.conversationLifecycle.read(projectId, "delete-1")).toMatchObject({ status: "completed" });
     } finally {
       database.close();
@@ -390,6 +392,59 @@ async function seedConversation(
       preferredModel: null,
       lastUsedAt: now,
       bindingStatus: "ready",
+    });
+  } finally {
+    database.close();
+  }
+}
+
+async function seedCompletedReviewOperation(conversationId: string, clientRequestId: string): Promise<void> {
+  const database = await openProjectRuntimeWorkbenchDatabase(paths);
+  try {
+    const now = "2026-08-31T00:00:00.000Z";
+    const attemptId = `attempt-${clientRequestId}`;
+    database.providerAttempts.createProviderAttempt({
+      projectId,
+      conversationId,
+      attemptId,
+      productMode: "agent",
+      agentTurnMode: null,
+      operationKind: "review",
+      graphScopeId: `graph-${conversationId}`,
+      changeId: null,
+      agentTaskId: null,
+      roleId: "main-agent",
+      operationProfile: "agent",
+      providerId: "codex",
+      nativeSessionId: `session-${conversationId}`,
+      model: null,
+      reasoningEffort: null,
+      capabilitySnapshot: capabilitySnapshot(true),
+      effectiveSkillInputs: [],
+      handoffHash: `handoff-${clientRequestId}`,
+      deliveredThroughCompletedTurn: 0,
+      worktreeId: null,
+      status: "completed",
+      createdAt: now,
+      updatedAt: now,
+    });
+    database.conversationReviews.create({
+      projectId,
+      conversationId,
+      graphScopeId: `graph-${conversationId}`,
+      clientRequestId,
+      requestHash: `hash-${clientRequestId}`,
+      providerId: "codex",
+      reviewTargetJson: JSON.stringify({ type: "uncommitted-changes" }),
+      gitAdmissionJson: JSON.stringify({}),
+      attemptId,
+      status: "completed",
+      sessionBindingHash: null,
+      turnIdentityHash: null,
+      source: "direct",
+      diagnostic: null,
+      createdAt: now,
+      updatedAt: now,
     });
   } finally {
     database.close();

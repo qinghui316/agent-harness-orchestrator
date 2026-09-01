@@ -585,9 +585,21 @@ function normalizeReviewTarget(value: unknown): ProviderReviewTarget {
   if (!value || typeof value !== "object") throw badRequest("Queued Review target is invalid.");
   const target = value as Partial<ProviderReviewTarget>;
   if (target.type === "uncommitted-changes") return { type: target.type };
-  if (target.type === "base-branch" && "branch" in target && typeof target.branch === "string" && target.branch.trim()) return { type: target.type, branch: target.branch.trim() };
-  if (target.type === "commit" && "sha" in target && typeof target.sha === "string" && target.sha.trim()) return { type: target.type, sha: target.sha.trim(), ...("title" in target && typeof target.title === "string" && target.title.trim() ? { title: target.title.trim() } : {}) };
-  if (target.type === "custom" && "instructions" in target && typeof target.instructions === "string" && target.instructions.trim()) return { type: target.type, instructions: target.instructions.trim() };
+  if (target.type === "base-branch" && "branch" in target && typeof target.branch === "string") {
+    const branch = target.branch.trim();
+    if (branch && branch.length <= 512) return { type: target.type, branch };
+  }
+  if (target.type === "commit" && "sha" in target && typeof target.sha === "string") {
+    const sha = target.sha.trim();
+    const title = "title" in target && typeof target.title === "string" ? target.title.trim() : "";
+    if (sha && sha.length <= 512 && title.length <= 500) {
+      return { type: target.type, sha, ...(title ? { title } : {}) };
+    }
+  }
+  if (target.type === "custom" && "instructions" in target && typeof target.instructions === "string") {
+    const instructions = target.instructions.trim();
+    if (instructions && instructions.length <= 100_000) return { type: target.type, instructions };
+  }
   throw badRequest("Queued Review target is invalid.");
 }
 function parseReviewTarget(value: string | null): ProviderReviewTarget {

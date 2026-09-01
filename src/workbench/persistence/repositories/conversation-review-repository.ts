@@ -39,6 +39,13 @@ export class ConversationReviewRepository {
       .all(projectId) as SqliteRow[]).map(mapRow);
   }
 
+  deleteConversation(projectId: string, conversationId: string): void {
+    this.db.prepare(`
+      DELETE FROM conversation_review_operations
+      WHERE project_id = ? AND conversation_id = ?
+    `).run(projectId, conversationId);
+  }
+
   update(input: {
     projectId: string;
     clientRequestId: string;

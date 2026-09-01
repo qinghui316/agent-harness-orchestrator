@@ -8,6 +8,7 @@ import type { ProviderReviewRequest, ProviderReviewResult } from "../../src/prov
 import { resolveProjectRuntimePaths, type ProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import { projectCanonicalTimelineEnvelope } from "../../src/workbench/canonical-timeline-projector.js";
+import { reconcileStaleAgentMainAttempts } from "../../src/workbench/agent-main-attempt-recovery.js";
 import { ConversationReviewLifecycleOwner, type ConversationReviewRequest } from "../../src/workbench/conversation-review-lifecycle.js";
 import { createConversationExecutionRevision } from "../../src/workbench/conversation-turn-queue.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
@@ -113,7 +114,41 @@ describe("ConversationReviewLifecycleOwner", () => {
 
     await expect(owner.start(project, { ...request, target: { type: "custom", instructions: "different" } }))
       .rejects.toMatchObject({ name: "Conflict" });
+    await expect(owner.start(project, { ...request, source: "queue" }))
+      .rejects.toMatchObject({ name: "Conflict" });
     expect(runReview).toHaveBeenCalledOnce();
+  });
+
+  it("does not silently replace an unavailable existing Conversation Session", async () => {
+    const request = await reviewRequest("review-unavailable-binding");
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      database.providerAttempts.writeConversationProviderBinding({
+        projectId,
+        conversationId,
+        providerId: "codex",
+        nativeSessionId: null,
+        lastDeliveredCompletedTurn: 1,
+        preferredModel: null,
+        lastUsedAt: "2026-09-01T00:00:01.000Z",
+        bindingStatus: "unavailable",
+      });
+    } finally {
+      database.close();
+    }
+    const runReview = vi.fn();
+    const owner = createOwner(runReview);
+
+    await expect(owner.start(project, request)).rejects.toMatchObject({ name: "Conflict" });
+    expect(runReview).not.toHaveBeenCalled();
+    const stored = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      expect(stored.conversationReviews.read(projectId, request.clientRequestId)).toBeNull();
+      expect(stored.providerAttempts.listProviderAttempts(projectId, conversationId)
+        .filter((attempt) => attempt.operationKind === "review")).toEqual([]);
+    } finally {
+      stored.close();
+    }
   });
 
   it("uses the persisted empty-Composer model selection only to bootstrap a new Review Session", async () => {
@@ -230,6 +265,23 @@ describe("ConversationReviewLifecycleOwner", () => {
     expect(runReview).not.toHaveBeenCalled();
   });
 
+  it("rejects malformed and oversized direct Review targets before Provider I/O", async () => {
+    const runReview = vi.fn();
+    const owner = createOwner(runReview);
+    const request = await reviewRequest("review-invalid-target");
+
+    await expect(owner.start(project, {
+      ...request,
+      target: { type: "base-branch" } as never,
+    })).rejects.toMatchObject({ name: "BadRequest" });
+    await expect(owner.start(project, {
+      ...request,
+      clientRequestId: "review-oversized-target",
+      target: { type: "custom", instructions: "x".repeat(100_001) },
+    })).rejects.toMatchObject({ name: "BadRequest" });
+    expect(runReview).not.toHaveBeenCalled();
+  });
+
   it("projects stale Session recovery from the last completed normal Turn", async () => {
     const owner = createOwner(vi.fn(async (): Promise<ProviderReviewResult> => ({
       providerId: "codex",
@@ -273,6 +325,21 @@ describe("ConversationReviewLifecycleOwner", () => {
     let database = await openProjectRuntimeWorkbenchDatabase(paths);
     try {
       expect(database.conversationReviews.read(projectId, request.clientRequestId)).toMatchObject({ status: "submitting" });
+      expect(database.providerAttempts.listProviderAttempts(projectId, conversationId)
+        .find((candidate) => candidate.operationKind === "review")).toMatchObject({ status: "running" });
+    } finally {
+      database.close();
+    }
+
+    await expect(reconcileStaleAgentMainAttempts({
+      project,
+      providerRegistry: { findActiveTurn: () => null } as never,
+      runtimeState: { state: "onboarding", project, paths },
+    })).resolves.toEqual({ failed: 0, diagnostics: [] });
+    database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      expect(database.timeline.listConversationMessages(projectId, conversationId)
+        .some((item) => item.type === "assistant.message" && item.status === "failed")).toBe(false);
       expect(database.providerAttempts.listProviderAttempts(projectId, conversationId)
         .find((candidate) => candidate.operationKind === "review")).toMatchObject({ status: "running" });
     } finally {

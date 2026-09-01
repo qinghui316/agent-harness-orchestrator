@@ -174,6 +174,32 @@ describe("ConversationTurnQueueOwner", () => {
     }
   });
 
+  it("rejects oversized queued Review targets before persistence", async () => {
+    const owner = createOwner();
+    const initial = await owner.read(project, "agent", conversationId);
+
+    await expect(owner.enqueue(project, {
+      ...queueRequest(initial.revision, initial.executionRevision!),
+      clientRequestId: "queue-review-oversized",
+      itemKind: "review",
+      reviewTarget: { type: "custom", instructions: "x".repeat(100_001) },
+      text: "",
+      contextRefs: [],
+      attachmentIds: [],
+      skillOverrides: {},
+      agentTurnMode: null,
+      modelId: null,
+      reasoningEffort: null,
+    })).rejects.toMatchObject({ name: "BadRequest" });
+
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      expect(database.conversationTurnQueues.listItems(projectId, conversationId)).toEqual([]);
+    } finally {
+      database.close();
+    }
+  });
+
   it("dispatches mixed Review and conversation Turn items in strict FIFO order", async () => {
     const order: string[] = [];
     const reviewStart = vi.fn(async () => {
