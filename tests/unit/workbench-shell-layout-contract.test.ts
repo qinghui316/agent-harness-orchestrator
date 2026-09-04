@@ -59,4 +59,10 @@ describe("Workbench shell layout contract", () => {
     ]);
     expect(sources.join("\n")).not.toMatch(/onNewWorkpad|workpad-route-switch|workpad-hero|workpad-section|task-queue-|coding-package-|workpad-scroll/);
   });
+
+  it("anchors the mobile model popover to the Composer toolbar viewport", async () => {
+    const composerCss = (await readFile("src/web/src/styles/surfaces/composer.css", "utf8")).replace(/\r\n/g, "\n");
+    expect(composerCss).toMatch(/@media \(max-width: 680px\)[\s\S]*\.composer-model-control \{\n    position: static;\n  \}/);
+    expect(composerCss).toMatch(/@media \(max-width: 680px\)[\s\S]*\.composer-model-popover \{\n    right: 0;\n    left: 0;\n    width: auto;\n  \}/);
+  });
 });

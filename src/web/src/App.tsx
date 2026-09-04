@@ -1231,7 +1231,7 @@ export function App(): ReactElement {
             project={selectedProjectStatus}
             providerDisplayName={providerDisplayName}
             modelLabel={providerModelLabel}
-            onOpenModelSettings={() => void openProviderModelPicker()}
+            onOpenModelSettings={() => openSettings("provider")}
             projects={projects}
             selectedProjectId={selectedProjectId}
             onCreateDemand={createTopicFromText}
@@ -1390,7 +1390,7 @@ export function App(): ReactElement {
                   onChange={setComposerText}
                   providerDisplayName={providerDisplayName}
                   modelLabel={providerModelLabel}
-                  onOpenModelSettings={() => void openProviderModelPicker()}
+                  onOpenModelSettings={() => openSettings("provider")}
                   enabledSkillCount={enabledSkillCount}
                   projectId={selectedProjectId}
                   skills={skillItems}

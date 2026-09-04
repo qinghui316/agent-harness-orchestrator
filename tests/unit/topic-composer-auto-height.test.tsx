@@ -105,6 +105,7 @@ describe("Topic Composer height", () => {
       actionRunning={null}
     />);
 
+    fireEvent.click(screen.getByRole("button", { name: "模型与推理设置，当前模型：gpt-test" }));
     expect(screen.getByTestId("agent-turn-model-controls")).toBeTruthy();
     fireEvent.change(screen.getByRole("combobox", { name: "本次 Turn 模型" }), { target: { value: "" } });
     fireEvent.change(screen.getByRole("combobox", { name: "本次 Turn 推理强度" }), { target: { value: "" } });
@@ -192,6 +193,34 @@ describe("Topic Composer height", () => {
     expect(stop.hasAttribute("disabled")).toBe(false);
     fireEvent.click(stop);
     expect(onStop).toHaveBeenCalledOnce();
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("routes Enter through the projected Queue action when an item is already ahead", () => {
+    const onSend = vi.fn(async () => undefined);
+    const onEnqueue = vi.fn(async () => undefined);
+    render(<TopicComposer
+      value="next turn"
+      onChange={vi.fn()}
+      modelLabel="gpt"
+      projectId="project"
+      productMode="agent"
+      onSend={onSend}
+      onEnqueue={onEnqueue}
+      turnQueue={{
+        projectId: "project",
+        productMode: "agent",
+        conversationId: "conversation",
+        revision: "queue:1",
+        executionRevision: null,
+        canEnqueue: true,
+        canDispatch: false,
+        items: [queuedItem("dispatching", "dispatching-item", "ahead", 1)],
+      }}
+    />);
+
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter", shiftKey: false });
+    expect(onEnqueue).toHaveBeenCalledOnce();
     expect(onSend).not.toHaveBeenCalled();
   });
 });

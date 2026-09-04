@@ -49,6 +49,48 @@ describe("SkillsSettingsView request identity", () => {
     expect(screen.queryByText("stale-skill")).toBeNull();
   });
 
+  it("groups Skills, opens details on demand, and hides absolute paths outside source settings", async () => {
+    fetchJson.mockResolvedValue({ skills: [skill("reviewer")], roots: [{ rootPath: "C:/skills", sourceKind: "custom", updatedAt: "2026-09-04T00:00:00.000Z" }] });
+    render(<SkillsSettingsView projectId="repo" productMode="agent" conversationId="conversation-1" providerId="codex" onRefresh={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText("已启用")).toBeTruthy());
+    expect(screen.queryByText("C:/skills/reviewer/SKILL.md")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /reviewer/ }));
+    expect(screen.getByRole("dialog", { name: "reviewer 详情" })).toBeTruthy();
+    expect(screen.queryByText("C:/skills/reviewer/SKILL.md")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "关闭 Skill 详情" }));
+    expect(screen.queryByRole("dialog", { name: "reviewer 详情" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Skill 来源设置" }));
+    expect(screen.getByRole("dialog", { name: "Skill 来源设置" })).toBeTruthy();
+    expect(screen.getByText("C:/skills")).toBeTruthy();
+  });
+
+  it("closes a detail drawer when search filters out the selected Skill", async () => {
+    fetchJson.mockResolvedValue({ skills: [skill("reviewer"), skill("planner")] });
+    render(<SkillsSettingsView projectId="repo" productMode="agent" conversationId="conversation-1" providerId="codex" onRefresh={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText("reviewer")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /reviewer/ }));
+    fireEvent.change(screen.getByRole("textbox", { name: "搜索 Skills" }), { target: { value: "planner" } });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "reviewer 详情" })).toBeNull());
+    expect(screen.getByText("planner")).toBeTruthy();
+  });
+
+  it("redacts absolute paths from catalog diagnostics", async () => {
+    fetchJson.mockResolvedValue({
+      skills: [skill("reviewer")],
+      errors: [{
+        path: "C:/Users/example/.codex/skills/broken/SKILL.md",
+        message: "Cannot read Skill package: C:\\Users\\example\\.codex\\skills\\broken",
+      }],
+    });
+    render(<SkillsSettingsView projectId="repo" productMode="agent" conversationId="conversation-1" providerId="codex" onRefresh={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText("有 1 个 Skill 无法读取。")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "查看诊断" }));
+
+    expect(screen.getByText("…/broken/SKILL.md")).toBeTruthy();
+    expect(screen.getByText("Cannot read Skill package: [本机路径已隐藏]")).toBeTruthy();
+    expect(screen.queryByText(/C:\\Users\\example/)).toBeNull();
+  });
+
   it("does not refresh the current scope after an old Provider mutation completes", async () => {
     const mutation = deferred<void>();
     const refresh = vi.fn(async () => undefined);

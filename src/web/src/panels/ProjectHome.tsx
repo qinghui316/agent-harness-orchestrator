@@ -1,17 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { useState, type ReactElement } from "react";
 import {
+  ArrowUp,
   Bot,
   RefreshCw,
-  Search,
-  Send,
   X,
 } from "lucide-react";
-import { ComposerControls } from "../shell/ComposerControls.js";
-import { AgentTurnModeControl, AgentTurnModelControls, ReviewInlineSelector } from "../shell/composer.js";
-import { ComposerAttachButton, ComposerAttachmentList, filesFromDrop, hasFileDrag, imageFilesFromPaste } from "../shell/ComposerAttachments.js";
-import { buildComposerContextSummary, ComposerContextSourcesPopover, type ComposerContextKind } from "../shell/ComposerContextSources.js";
-import { FileMentionPicker } from "../shell/FileMentionPicker.js";
-import { SkillMentionPicker } from "../shell/SkillMentionPicker.js";
+import { ConversationComposerSurface } from "../shell/composer.js";
 import { WorkspacePicker } from "./WorkspacePicker.js";
 import { InfoRow } from "./ProjectPanels.js";
 import { parseReviewCommand } from "../reviewCommand.js";
@@ -59,7 +53,6 @@ export function ProjectReadinessHome({
   draftAttachments,
   onAttachFiles,
   onRemoveAttachment,
-  enabledSkillCount,
   skills,
   activeSkillIds,
   onToggleSkill,
@@ -131,26 +124,9 @@ export function ProjectReadinessHome({
   onStartReviewCommand?: (target: ProviderReviewTarget, capturedCommand: string) => void | Promise<void>;
   onReviewCommandError?: (message: string) => void;
 }): ReactElement {
-  const [dragOver, setDragOver] = useState(false);
-  const [openContextKind, setOpenContextKind] = useState<ComposerContextKind | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const lastResetToken = useRef(resetToken);
   const canStartDemand = project.pathExists;
   const canAttach = canStartDemand;
-  const contextSummary = useMemo(() => buildComposerContextSummary({
-    skills,
-    activeSkillIds,
-    selectedFileRefs: draftFileRefs,
-    attachments: draftAttachments,
-  }), [skills, activeSkillIds, draftFileRefs, draftAttachments]);
-
-  useEffect(() => {
-    if (resetToken === undefined) return;
-    if (lastResetToken.current === resetToken) return;
-    lastResetToken.current = resetToken;
-    window.setTimeout(() => textareaRef.current?.focus(), 0);
-  }, [resetToken]);
 
   async function submitDemand(): Promise<void> {
     if (productMode === "agent") {
@@ -185,14 +161,10 @@ export function ProjectReadinessHome({
     await onAttachFiles(files);
   }
 
-  function removeAttachment(id: string): void {
-    void onRemoveAttachment(id);
-  }
-
   return (
     <section className="home-chat-surface" aria-label="项目对话首页">
       <div className="home-chat-center">
-        <div className="home-chat-mark" aria-label="Agent">
+        <div className="home-chat-mark" aria-label={productMode === "agent" ? "Agent" : "AHO"}>
           <Bot size={50} />
         </div>
         <h1>创造任何东西</h1>
@@ -203,129 +175,58 @@ export function ProjectReadinessHome({
           onRefresh={onRefresh}
         />
 
-        <section
-          className={`home-demand-composer ${dragOver ? "is-drag-over" : ""}`}
-          aria-label="新建需求对话"
-          onDragOver={(event) => {
-            if (!canAttach || !hasFileDrag(event)) return;
-            event.preventDefault();
-            setDragOver(true);
-          }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={(event) => {
-            if (!canAttach) return;
-            const files = filesFromDrop(event);
-            if (files.length === 0) return;
-            event.preventDefault();
-            setDragOver(false);
-            void attachFiles(files);
-          }}
-        >
-          <ComposerControls
-            providerDisplayName={providerDisplayName}
-            modelLabel={modelLabel}
-            onOpenModelSettings={onOpenModelSettings}
-            enabledSkillCount={enabledSkillCount}
-            contextSummary={contextSummary}
-            openContextKind={openContextKind}
-            onToggleContextKind={(kind) => setOpenContextKind((current) => current === kind ? null : kind)}
-            providerOptions={providerOptions}
-            selectedProviderId={selectedProviderId}
-            onSelectProvider={onSelectProvider}
-          />
-          <div className="agent-turn-settings-row">
-            <AgentTurnModeControl
-              productMode={productMode}
-              value={agentTurnMode}
-              onChange={onSelectAgentTurnMode}
-              planDisabledReason={agentTurnModeDisabledReason}
-            />
-            <AgentTurnModelControls
-              productMode={productMode}
-              modelId={agentModelId}
-              reasoningEffort={agentReasoningEffort}
-              modelSettings={providerModelSettings}
-              onSelectModel={onSelectAgentModel}
-              onSelectReasoningEffort={onSelectAgentReasoningEffort}
-            />
-          </div>
-          <ComposerContextSourcesPopover
-            kind={openContextKind}
-            skills={skills}
-            activeSkillIds={activeSkillIds}
-            selectedFileRefs={draftFileRefs}
-            attachments={draftAttachments}
-            onToggleSkill={onToggleSkill}
-            onSelectedFileRefsChange={onDraftFileRefsChange}
-            onRemoveAttachment={removeAttachment}
-            onClose={() => setOpenContextKind(null)}
-          />
-          <SkillMentionPicker
-            value={draft}
-            onChange={onDraftChange}
-            skills={skills ?? []}
-            activeSkillIds={activeSkillIds ?? []}
-            onToggleSkill={onToggleSkill ?? (() => undefined)}
-          />
-          <FileMentionPicker
-            projectId={project.project?.id ?? null}
-            value={draft}
-            onChange={onDraftChange}
-            selectedRefs={draftFileRefs}
-            onSelectedRefsChange={onDraftFileRefsChange}
-          />
-          <ComposerAttachmentList attachments={draftAttachments} onRemove={removeAttachment} />
-          {productMode === "agent" && reviewOpen ? <ReviewInlineSelector
-            options={reviewOptions ?? null}
-            loading={Boolean(reviewLoading)}
-            submitting={Boolean(reviewSubmitting)}
-            onClose={() => onCloseReview?.()}
-            onStart={(target) => onStartReview?.(target)}
-          /> : null}
-          <textarea
-            ref={textareaRef}
-            value={draft}
-            onChange={(event) => onDraftChange(event.target.value)}
-            onPaste={(event) => {
-              if (!canAttach) return;
-              const files = imageFilesFromPaste(event);
-              if (files.length === 0) return;
-              event.preventDefault();
-              void attachFiles(files);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                void submitDemand();
-              }
-            }}
-            disabled={!canStartDemand || submitting}
-            placeholder="描述你的需求；Enter 发送，Shift+Enter 换行"
-            aria-label="新建需求输入框"
-          />
-          <div className="home-demand-composer-footer">
-            <ComposerAttachButton disabled={!canAttach || submitting} onAttachFiles={attachFiles} />
-            {productMode === "agent" ? <button
-              className="composer-review-button"
-              type="button"
-              disabled={!canStartDemand || submitting || Boolean(reviewSubmitting)}
-              title="代码审查"
-              aria-label="代码审查"
-              onClick={() => void onOpenReview?.()}
-            >
-              {reviewLoading || reviewSubmitting ? <RefreshCw size={15} className="spin" /> : <Search size={15} />}
-            </button> : null}
-            <span className="composer-footer-spacer" />
-            <button
-              className="composer-send"
-              disabled={!canStartDemand || submitting || Boolean(agentTurnModeDisabledReason) || (!draft.trim() && draftAttachments.length === 0)}
-              onClick={() => void submitDemand()}
-              title={agentTurnModeDisabledReason ?? "创建需求对话"}
-            >
-              <Send size={16} />
-            </button>
-          </div>
-        </section>
+        <ConversationComposerSurface
+          ariaLabel="新建需求对话"
+          inputAriaLabel="新建需求输入框"
+          className="home-demand-composer"
+          value={draft}
+          onChange={onDraftChange}
+          disabledReason={!canStartDemand ? "项目目录不可用" : submitting ? "正在创建会话" : undefined}
+          placeholder="描述你的需求"
+          projectId={project.project?.id ?? null}
+          skills={skills}
+          activeSkillIds={activeSkillIds}
+          selectedFileRefs={draftFileRefs}
+          attachments={draftAttachments}
+          onAttachFiles={attachFiles}
+          onRemoveAttachment={onRemoveAttachment}
+          onToggleSkill={onToggleSkill}
+          onSelectedFileRefsChange={onDraftFileRefsChange}
+          productMode={productMode}
+          agentTurnMode={agentTurnMode}
+          onSelectAgentTurnMode={onSelectAgentTurnMode}
+          agentTurnModeDisabledReason={agentTurnModeDisabledReason}
+          providerDisplayName={providerDisplayName}
+          modelLabel={modelLabel}
+          onOpenModelSettings={onOpenModelSettings}
+          providerOptions={providerOptions}
+          selectedProviderId={selectedProviderId}
+          onSelectProvider={onSelectProvider}
+          agentModelId={agentModelId}
+          agentReasoningEffort={agentReasoningEffort}
+          providerModelSettings={providerModelSettings}
+          onSelectAgentModel={onSelectAgentModel}
+          onSelectAgentReasoningEffort={onSelectAgentReasoningEffort}
+          reviewOpen={reviewOpen}
+          reviewOptions={reviewOptions}
+          reviewLoading={reviewLoading}
+          reviewSubmitting={reviewSubmitting}
+          onOpenReview={onOpenReview}
+          onCloseReview={onCloseReview}
+          onStartReview={onStartReview}
+          onSubmit={submitDemand}
+          focusToken={resetToken}
+          trailingControls={<button
+            className="composer-send"
+            type="button"
+            disabled={!canStartDemand || submitting || Boolean(agentTurnModeDisabledReason) || (!draft.trim() && draftAttachments.length === 0)}
+            onClick={() => void submitDemand()}
+            title={agentTurnModeDisabledReason ?? "创建需求对话"}
+            aria-label="创建需求对话"
+          >
+            {submitting ? <RefreshCw size={16} className="spin" /> : <ArrowUp size={17} />}
+          </button>}
+        />
       </div>
     </section>
   );

@@ -1,35 +1,17 @@
-import { useState, type ReactElement } from "react";
-import { ArrowLeft, Bot, Folder, Settings, Sparkles } from "lucide-react";
-import { InfoRow } from "./ProjectPanels.js";
+import { useEffect, useState, type ReactElement } from "react";
+import { ArrowLeft, Bot, CircleAlert, RefreshCw, Sparkles, X } from "lucide-react";
 import { SkillsSettingsView } from "./SkillsSettingsView.js";
-import { projectDisplayName } from "../formatters.js";
 import type { ProductMode, ProviderDiagnostics, ProviderModelSettingsSnapshot, ProjectStatus, ProviderCapabilityItem, ProviderCapabilitySnapshot } from "../types.js";
 
 export type SettingsSection = "basic" | "project" | "provider" | "skills";
+type VisibleSettingsSection = "provider" | "skills";
 
-const sections: Array<{ id: SettingsSection; label: string; icon: typeof Settings }> = [
-  { id: "basic", label: "基础", icon: Settings },
-  { id: "project", label: "项目", icon: Folder },
-  { id: "provider", label: "AI 服务", icon: Bot },
-  { id: "skills", label: "技能", icon: Sparkles },
+const sections: Array<{ id: VisibleSettingsSection; label: string; icon: typeof Bot }> = [
+  { id: "provider", label: "模型与服务", icon: Bot },
+  { id: "skills", label: "Skills", icon: Sparkles },
 ];
 
-export function SettingsSurface({
-  section,
-  onSectionChange,
-  project,
-  productMode,
-  conversationId,
-  selectedProviderId,
-  diagnostics,
-  modelSettings,
-  providerCapabilities,
-  modelSettingsBusy,
-  modelSettingsMessage,
-  onOpenModelSettings,
-  onClose,
-  onRefresh,
-}: {
+export function SettingsSurface({ section, onSectionChange, project, productMode, conversationId, selectedProviderId, diagnostics, modelSettings, providerCapabilities, modelSettingsBusy, modelSettingsMessage, onOpenModelSettings, onClose, onRefresh }: {
   section: SettingsSection;
   onSectionChange: (section: SettingsSection) => void;
   project: ProjectStatus | null;
@@ -46,208 +28,94 @@ export function SettingsSurface({
   onRefresh: () => Promise<void>;
 }): ReactElement {
   const [message, setMessage] = useState<string | null>(null);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const visibleSection: VisibleSettingsSection = section === "skills" ? "skills" : "provider";
   const selectedProjectId = project?.project?.id ?? null;
-  const providerLabel = diagnostics?.displayName ?? "AI 服务";
+  const providerLabel = diagnostics?.displayName ?? "当前 Provider";
+  const capabilitySnapshot = providerCapabilities?.find((item) => item.providerId === (diagnostics?.providerId ?? selectedProviderId)) ?? null;
+
+  useEffect(() => {
+    if (!diagnosticsOpen) return;
+    const close = (event: KeyboardEvent) => { if (event.key === "Escape") setDiagnosticsOpen(false); };
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, [diagnosticsOpen]);
 
   async function refresh(): Promise<void> {
     setMessage(null);
-    try {
-      await onRefresh();
-    } catch (cause) {
-      setMessage(cause instanceof Error ? cause.message : String(cause));
-    }
+    try { await onRefresh(); }
+    catch (cause) { setMessage(cause instanceof Error ? cause.message : String(cause)); }
   }
 
+  const status = providerConnectionStatus(capabilitySnapshot, diagnostics);
   return (
     <section className="settings-surface" aria-label="设置">
       <aside className="settings-surface-sidebar" aria-label="设置分类">
-        <header>
-          <p className="eyebrow">设置</p>
-          <h2>偏好与能力</h2>
-        </header>
-        <nav>
-          {sections.map((item) => {
-            const Icon = item.icon;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                className={section === item.id ? "selected" : ""}
-                onClick={() => onSectionChange(item.id)}
-              >
-                <Icon size={16} />{item.id === "provider" ? providerLabel : item.label}
-              </button>
-            );
-          })}
-        </nav>
+        <header><p className="eyebrow">设置</p><h2>工作台设置</h2></header>
+        <nav>{sections.map((item) => { const Icon = item.icon; return <button key={item.id} type="button" className={visibleSection === item.id ? "selected" : ""} onClick={() => onSectionChange(item.id)}><Icon size={16} aria-hidden="true" />{item.label}</button>; })}</nav>
       </aside>
 
       <div className="settings-surface-content">
         <header className="settings-surface-header">
-          <div>
-            <h1>{section === "provider" ? providerLabel : sections.find((item) => item.id === section)?.label ?? "设置"}</h1>
-            <p>{settingsDescription(section)}</p>
-          </div>
+          <div><h1>{visibleSection === "provider" ? "模型与服务" : "Skills"}</h1><p>{settingsDescription(visibleSection)}</p></div>
           <button className="outline-button settings-back-button" aria-label="返回工作区" onClick={onClose}><ArrowLeft size={16} />返回工作区</button>
         </header>
 
-        {section === "basic" ? (
-          <section className="settings-content-card">
-            <h3>当前环境</h3>
-            <p className="muted-copy">管理当前项目使用的 AI 服务、模型和常用能力。</p>
-            <div className="settings-info-grid">
-              <Info label="AI 服务" value={providerLabel} />
-              <Info label="模型" value={modelSettings?.effectiveModel?.modelId ?? diagnostics?.models.effectiveModel?.modelId ?? "默认模型"} />
-              <Info label="右侧工具" value="确认 / 文件 / Git / 诊断" />
+        {visibleSection === "provider" ? (
+          <section className="provider-settings-section" aria-label="模型与服务">
+            <div className="provider-settings-summary">
+              <span className={`provider-connection-mark ${status}`}><Bot size={19} aria-hidden="true" /></span>
+              <div><h3>{providerLabel}</h3><p>{providerSummary(capabilitySnapshot, diagnostics)}</p></div>
+              <span className={`provider-status-pill ${status}`}>{providerStatusLabel(status)}</span>
             </div>
-          </section>
-        ) : null}
-
-        {section === "project" ? (
-          <section className="settings-content-card">
-            <h3>项目</h3>
-            {project?.project ? (
-              <>
-                <div className="settings-info-grid">
-                  <Info label="名称" value={projectDisplayName(project.project)} />
-                  <Info label="路径" value={project.path} />
-                  <Info label="项目状态" value={project.harness.readiness === "ready" ? "已准备" : project.harness.readiness === "partial" ? "需要修复项目 Harness" : "首次需求时自动建立说明"} />
-                  <Info label="Git" value={project.isGitRepo ? "Git 仓库" : "非 Git 仓库"} />
-                </div>
-              </>
-            ) : <p className="muted-copy">还没有选择项目。</p>}
-          </section>
-        ) : null}
-
-        {section === "provider" ? (
-          <section className="settings-content-card">
-            <h3>{providerLabel}</h3>
-            <div className="settings-info-grid">
-              <Info label="当前模型" value={modelSettings?.effectiveModel?.modelId ?? diagnostics?.models.effectiveModel?.modelId ?? `${providerLabel} 默认模型`} />
-              <Info label="来源" value={modelSourceLabel(modelSettings?.effectiveModelSource ?? diagnostics?.models.effectiveModelSource)} />
-              <Info label="运行状态" value={diagnostics?.installation.available ? "可用" : "未确认"} />
-            </div>
+            <dl className="settings-definition-list">
+              <div><dt>默认模型</dt><dd>{modelSettings?.effectiveModel?.modelId ?? diagnostics?.models.effectiveModel?.modelId ?? `${providerLabel} 默认模型`}</dd></div>
+              <div><dt>模型来源</dt><dd>{modelSourceLabel(modelSettings?.effectiveModelSource ?? diagnostics?.models.effectiveModelSource)}</dd></div>
+              <div><dt>服务版本</dt><dd>{diagnostics?.installation.version ?? "自动检测"}</dd></div>
+            </dl>
             <div className="settings-inline-actions">
-              <button className="outline-button" onClick={onOpenModelSettings} disabled={!onOpenModelSettings || modelSettingsBusy}>选择模型</button>
-              <button className="outline-button" onClick={() => void refresh()}>刷新状态</button>
+              <button className="primary-button" onClick={onOpenModelSettings} disabled={!onOpenModelSettings || modelSettingsBusy}>选择默认模型</button>
+              <button className="outline-button" onClick={() => void refresh()} disabled={modelSettingsBusy}><RefreshCw size={14} className={modelSettingsBusy ? "spin" : undefined} />重新检测</button>
+              {(capabilitySnapshot?.status !== "ready" || modelSettingsMessage || diagnostics?.lastError) ? <button className="outline-button" onClick={() => setDiagnosticsOpen(true)}><CircleAlert size={14} />查看诊断</button> : null}
             </div>
-            {modelSettingsMessage ? <p className="diagnostic-errors">{modelSettingsMessage}</p> : null}
-            <ProviderCapabilityMatrix snapshot={providerCapabilities?.find((item) => item.providerId === diagnostics?.providerId) ?? null} />
+            {modelSettingsMessage ? <p className="settings-problem-summary" role="status">模型配置需要处理。打开诊断可查看详情。</p> : null}
           </section>
-        ) : null}
-
-        {section === "skills" ? <SkillsSettingsView
-          projectId={selectedProjectId}
-          productMode={productMode}
-          conversationId={conversationId}
-          providerId={selectedProviderId}
-          onRefresh={onRefresh}
-        /> : null}
-
-        {message ? <p className="diagnostic-errors">{message}</p> : null}
+        ) : <SkillsSettingsView projectId={selectedProjectId} productMode={productMode} conversationId={conversationId} providerId={selectedProviderId} onRefresh={onRefresh} />}
+        {message ? <p className="diagnostic-errors" role="alert">{message}</p> : null}
       </div>
+
+      {diagnosticsOpen ? <ProviderDiagnosticsDrawer snapshot={capabilitySnapshot} diagnostics={diagnostics} modelMessage={modelSettingsMessage} onClose={() => setDiagnosticsOpen(false)} /> : null}
     </section>
   );
 }
 
-function Info({ label, value }: { label: string; value: string }): ReactElement {
-  return <InfoRow label={label} value={value} />;
-}
-
-function settingsDescription(section: SettingsSection): string {
-  if (section === "basic") return "只保留当前可用的产品选项。";
-  if (section === "project") return "查看当前项目状态和必要的显式操作。";
-  if (section === "provider") return "查看 AI 服务状态并选择模型。";
-  return "管理当前 AI 服务可用的技能。";
-}
-
-function modelSourceLabel(source: ProviderModelSettingsSnapshot["effectiveModelSource"] | undefined): string {
-  if (source === "selected") return "用户选择";
-  if (source === "config") return "服务配置";
-  if (source === "provider-default") return "服务默认";
-  return "未知";
-}
-
-function ProviderCapabilityMatrix({ snapshot }: { snapshot: ProviderCapabilitySnapshot | null }): ReactElement {
-  if (!snapshot) {
-    return (
-      <section className="provider-capability-matrix" aria-label="AI 服务能力">
-        <div className="settings-section-header">
-          <div>
-            <h3>能力矩阵</h3>
-            <p>正在读取 AI 服务能力。</p>
-          </div>
-        </div>
-      </section>
-    );
-  }
-  const capabilities = Array.isArray(snapshot.capabilities) ? snapshot.capabilities : [];
-  const degradedReasons = Array.isArray(snapshot.degradedReasons) ? snapshot.degradedReasons : [];
-  return (
-    <section className="provider-capability-matrix" aria-label="AI 服务能力">
-      <div className="settings-section-header">
-        <div>
-          <h3>能力矩阵</h3>
-          <p>{providerStatusText(snapshot)}</p>
-        </div>
-        <span className={`provider-status-pill ${snapshot.status}`}>{providerStatusLabel(snapshot.status)}</span>
-      </div>
-      <div className="settings-info-grid">
-        <Info label="AI 服务" value={snapshot.displayName} />
-        <Info label="模型" value={snapshot.effectiveModel ?? "默认模型"} />
-      </div>
-      <div className="provider-capability-list">
-        {capabilities.map((item) => <ProviderCapabilityRow item={item} key={item.key} />)}
-      </div>
-      {degradedReasons.length > 0 ? (
-        <details className="provider-degraded-details">
-          <summary>降级原因</summary>
-          <ul>
-            {degradedReasons.map((reason) => <li key={reason}>{reason}</li>)}
-          </ul>
-        </details>
-      ) : null}
+function ProviderDiagnosticsDrawer({ snapshot, diagnostics, modelMessage, onClose }: { snapshot: ProviderCapabilitySnapshot | null; diagnostics: ProviderDiagnostics | null; modelMessage?: string | null; onClose: () => void }): ReactElement {
+  const capabilities = snapshot?.capabilities ?? [];
+  const reasons = [modelMessage, diagnostics?.lastError, ...(snapshot?.degradedReasons ?? [])].filter((value): value is string => Boolean(value));
+  return <div className="settings-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <section className="settings-panel provider-diagnostics-drawer" role="dialog" aria-modal="true" aria-label="服务诊断">
+      <header className="settings-panel-header"><div><p className="eyebrow">高级诊断</p><h2>{snapshot?.displayName ?? diagnostics?.displayName ?? "AI 服务"}</h2></div><button className="icon-button" aria-label="关闭服务诊断" onClick={onClose}><X size={16} /></button></header>
+      <p className="muted-copy">这些信息用于排查连接和能力问题，不会改变服务配置。</p>
+      {reasons.length > 0 ? <div className="diagnostic-errors"><strong>检测到的问题</strong>{reasons.map((reason) => <p key={reason}>{reason}</p>)}</div> : <p className="provider-healthy-note">当前未检测到服务问题。</p>}
+      <div className="provider-capability-list" aria-label="能力诊断">{capabilities.map((item) => <ProviderCapabilityRow item={item} key={item.key} />)}</div>
+      <dl className="settings-definition-list compact"><div><dt>Adapter</dt><dd>{diagnostics ? `${diagnostics.adapter.id} ${diagnostics.adapter.version}` : "未读取"}</dd></div><div><dt>Snapshot</dt><dd>{snapshot ? `v${snapshot.snapshotVersion}` : "未读取"}</dd></div></dl>
     </section>
-  );
+  </div>;
 }
 
 function ProviderCapabilityRow({ item }: { item: ProviderCapabilityItem }): ReactElement {
-  return (
-    <div className="provider-capability-row">
-      <div>
-        <strong>{item.label}</strong>
-        <small>{item.summary}</small>
-        {item.reason ? <small className="provider-capability-reason">{item.reason}</small> : null}
-      </div>
-      <div className="provider-capability-states">
-        <span className={`provider-state-pill spec ${item.spec}`}>{specStateLabel(item.spec)}</span>
-        <span className={`provider-state-pill runtime ${item.runtime}`}>{runtimeStateLabel(item.runtime)}</span>
-      </div>
-    </div>
-  );
+  return <div className="provider-capability-row"><div><strong>{item.label}</strong><small>{item.summary}</small>{item.reason ? <small className="provider-capability-reason">{item.reason}</small> : null}<code>{item.key}</code></div><div className="provider-capability-states"><span className={`provider-state-pill spec ${item.spec}`}>{specStateLabel(item.spec)}</span><span className={`provider-state-pill runtime ${item.runtime}`}>{runtimeStateLabel(item.runtime)}</span></div></div>;
 }
 
-function providerStatusText(snapshot: ProviderCapabilitySnapshot): string {
-  if (snapshot.status === "ready") return `${snapshot.displayName} 已满足当前项目需要。`;
-  if (snapshot.status === "degraded") return `${snapshot.displayName} 可用，但部分能力正在降级。`;
-  return `${snapshot.displayName} 当前不可运行，请查看诊断。`;
+function settingsDescription(section: VisibleSettingsSection): string { return section === "provider" ? "管理当前 Coding Agent 的连接和默认模型。" : "查找、了解并管理当前项目可用的 Skills。"; }
+function providerConnectionStatus(snapshot: ProviderCapabilitySnapshot | null, diagnostics: ProviderDiagnostics | null): ProviderCapabilitySnapshot["status"] { return snapshot?.status ?? (diagnostics?.installation.available ? "ready" : "unavailable"); }
+function providerSummary(snapshot: ProviderCapabilitySnapshot | null, diagnostics: ProviderDiagnostics | null): string {
+  if (!diagnostics?.installation.available) return "尚未检测到可用的 Coding Agent。";
+  if (snapshot?.status === "degraded") return `${snapshot.displayName} 已连接，部分功能暂不可用。`;
+  if (snapshot?.status === "unavailable") return `${snapshot.displayName} 当前不可用。`;
+  return `${snapshot?.displayName ?? diagnostics.displayName} 已连接，当前功能可用。`;
 }
-
-function providerStatusLabel(status: ProviderCapabilitySnapshot["status"]): string {
-  if (status === "ready") return "可用";
-  if (status === "degraded") return "降级";
-  return "不可用";
-}
-
-function specStateLabel(state: ProviderCapabilityItem["spec"]): string {
-  if (state === "supported") return "支持";
-  if (state === "compat-input") return "兼容";
-  if (state === "unsupported") return "不支持";
-  return "未知";
-}
-
-function runtimeStateLabel(state: ProviderCapabilityItem["runtime"]): string {
-  if (state === "ready") return "当前可用";
-  if (state === "degraded") return "降级";
-  return "不可用";
-}
+function providerStatusLabel(status: ProviderCapabilitySnapshot["status"]): string { return status === "ready" ? "已连接" : status === "degraded" ? "需注意" : "不可用"; }
+function modelSourceLabel(source: ProviderModelSettingsSnapshot["effectiveModelSource"] | undefined): string { return source === "selected" ? "用户选择" : source === "config" ? "服务配置" : source === "provider-default" ? "服务默认" : "自动检测"; }
+function specStateLabel(state: ProviderCapabilityItem["spec"]): string { return state === "supported" ? "支持" : state === "compat-input" ? "兼容" : state === "unsupported" ? "不支持" : "未知"; }
+function runtimeStateLabel(state: ProviderCapabilityItem["runtime"]): string { return state === "ready" ? "可用" : state === "degraded" ? "降级" : "不可用"; }

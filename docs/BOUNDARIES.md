@@ -652,6 +652,25 @@ content, or interpret Timeline events. Panels render controlled state. The
 frontend boundary lint rejects retired giant App tests and direct domain access
 returning to the shell.
 
+`ConversationComposerSurface` is the single Web presentation owner for both the
+empty-Conversation and existing-Conversation Composer. It receives normalized
+draft, execution, configuration, context, and action projections from existing
+controllers and must not call Provider, Harness, Queue, Review, Draft, or
+Conversation domain APIs directly. Product-mode differences are capability
+projections within the shared layout; Harness cannot acquire Agent-only
+Default/Plan, model override, Review, Steer, or other direct-Agent behavior
+through presentation reuse. Primary-action projection is advisory UI state;
+server admission and Conflict responses remain authoritative.
+
+Settings presentation separates normal configuration from diagnostics. The
+ordinary surface may expose only actionable provider/model settings and the
+searchable Skill catalog. Provider capability keys, runtime/spec detail, bounded
+errors, and custom Skill root paths require explicit diagnostic or advanced
+drawers. The Web must not derive readiness, broaden Provider capabilities, read
+arbitrary `SKILL.md` paths, or fabricate package contents. Existing Skill APIs
+remain the only source for list, enable, refresh, and root-add operations, and
+all project, product-mode, Conversation, and Provider assertions remain intact.
+
 Composer draft persistence has one owner per layer. The schema-14
 `ComposerDraftRepository` owns the sole durable `projectId + productMode` row and
 full-snapshot compare-and-swap; the Workbench recovery service owns structured

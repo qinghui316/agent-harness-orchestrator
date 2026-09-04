@@ -1,10 +1,10 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement } from "react";
-import { AlertCircle, ArrowLeft, Check, CheckCircle2, Gauge, ListPlus, LoaderCircle, RefreshCw, RotateCcw, Search, Send, Square, Trash2, Undo2, X } from "lucide-react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement, type ReactNode } from "react";
+import { AlertCircle, ArrowLeft, ArrowUp, Check, CheckCircle2, ChevronDown, File, Gauge, ListPlus, LoaderCircle, Paperclip, Plus, RefreshCw, RotateCcw, Search, Sparkles, Square, Trash2, Undo2, X } from "lucide-react";
 import type { AgentTurnMode, ConversationContextSnapshot, ConversationTurnQueueSnapshot, ProductMode, ProjectGitReviewOptions, ProviderModelSettingsSnapshot, ProviderReviewTarget, SkillListItem, TopicAttachment, TopicFileReference, WorkpadRuntimeStatus } from "../types.js";
 import { parseReviewCommand } from "../reviewCommand.js";
 import { ComposerAttachButton, ComposerAttachmentList, filesFromDrop, hasFileDrag, imageFilesFromPaste } from "./ComposerAttachments.js";
 import { ComposerControls } from "./ComposerControls.js";
-import { buildComposerContextSummary, ComposerContextSourcesPopover, type ComposerContextKind } from "./ComposerContextSources.js";
+import { buildComposerContextSummary } from "./ComposerContextSources.js";
 import { FileMentionPicker } from "./FileMentionPicker.js";
 import { SkillMentionPicker } from "./SkillMentionPicker.js";
 import { ComposerFrame } from "./ComposerFrame.js";
@@ -15,7 +15,6 @@ export function TopicComposer({
   providerDisplayName,
   modelLabel,
   onOpenModelSettings,
-  enabledSkillCount,
   projectId,
   skills,
   activeSkillIds,
@@ -124,9 +123,6 @@ export function TopicComposer({
   onStartReviewCommand?: (target: ProviderReviewTarget, capturedCommand: string) => void | Promise<void>;
   onReviewCommandError?: (message: string) => void;
 }): ReactElement {
-  const [dragOver, setDragOver] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const [openContextKind, setOpenContextKind] = useState<ComposerContextKind | null>(null);
   const runningConversation = Boolean(actionRunning) || currentWorkpadStatus === "running";
   const canStop = runningConversation
     && Boolean(onStopAndContinue)
@@ -148,37 +144,20 @@ export function TopicComposer({
     && runControlState?.steerState !== "submitting"
     && runControlState?.state !== "stopping";
   const canQueue = canSend && Boolean(turnQueue?.canEnqueue) && !queueBusy;
-  const sendDisabled = Boolean(disabledReason)
-    || (!runningConversation && Boolean(agentTurnModeDisabledReason))
-    || (runningConversation ? (!canSteerText && !canQueue) : !canSend || Boolean(queueBusy) || queueAvailable === false);
-  const buttonTitle = runningConversation
-    ? runControlState?.state === "stopping"
-      ? "当前执行正在停止"
-      : runControlState?.steerState === "submitting"
-        ? "正在发送给当前执行"
-        : canSteerText
-          ? "发送给当前执行"
-          : "加入下一回合队列"
-    : queueAvailable === false ? "正在校准会话队列"
-      : turnQueue?.items?.length ? "加入下一回合队列" : "发送";
-  useLayoutEffect(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-    resizeComposerTextarea(textarea);
-  }, [value]);
-  useLayoutEffect(() => {
-    const textarea = textareaRef.current;
-    if (!textarea || typeof ResizeObserver === "undefined") return;
-    let observedWidth = textarea.getBoundingClientRect().width;
-    const observer = new ResizeObserver(([entry]) => {
-      const nextWidth = entry?.contentRect.width ?? textarea.getBoundingClientRect().width;
-      if (nextWidth === observedWidth) return;
-      observedWidth = nextWidth;
-      resizeComposerTextarea(textarea);
-    });
-    observer.observe(textarea);
-    return () => observer.disconnect();
-  }, []);
+  const hasNextTurnContext = contextSummary.totalCount > 0;
+  const actionProjection = buildComposerActionProjection({
+    running: runningConversation,
+    stopping: runControlState?.state === "stopping",
+    steerSubmitting: runControlState?.steerState === "submitting",
+    hasDraft: canSend,
+    hasNextTurnContext,
+    canSteer: canSteerText,
+    canQueue,
+    canStop,
+    queueHasItems: Boolean(turnQueue?.items?.length),
+    queueReady: queueAvailable !== false,
+    disabledReason: disabledReason ?? (!runningConversation ? agentTurnModeDisabledReason : null),
+  });
   function submit(): void {
     if (productMode === "agent") {
       const command = parseReviewCommand(value);
@@ -198,9 +177,285 @@ export function TopicComposer({
     void onSend();
   }
   return (
+    <ConversationComposerSurface
+      ariaLabel="需求对话输入框"
+      inputAriaLabel="需求对话输入框"
+      value={value}
+      onChange={onChange}
+      disabledReason={disabledReason}
+      placeholder={runningConversation
+        ? runControlState?.canSteer ? "补充当前执行" : "输入下一回合"
+        : "输入问题或下一步需求"}
+      projectId={projectId}
+      skills={skills}
+      activeSkillIds={activeSkillIds}
+      selectedFileRefs={selectedFileRefs}
+      attachments={attachments}
+      onAttachFiles={onAttachFiles}
+      onRemoveAttachment={onRemoveAttachment}
+      onToggleSkill={onToggleSkill}
+      onSelectedFileRefsChange={onSelectedFileRefsChange}
+      productMode={productMode}
+      agentTurnMode={agentTurnMode}
+      onSelectAgentTurnMode={onSelectAgentTurnMode}
+      agentTurnModeDisabledReason={agentTurnModeDisabledReason}
+      providerDisplayName={providerDisplayName}
+      modelLabel={modelLabel}
+      onOpenModelSettings={onOpenModelSettings}
+      providerOptions={providerOptions}
+      selectedProviderId={selectedProviderId}
+      onSelectProvider={onSelectProvider}
+      agentModelId={agentModelId}
+      agentReasoningEffort={agentReasoningEffort}
+      providerModelSettings={providerModelSettings}
+      onSelectAgentModel={onSelectAgentModel}
+      onSelectAgentReasoningEffort={onSelectAgentReasoningEffort}
+      reviewOpen={reviewOpen}
+      reviewOptions={reviewOptions}
+      reviewLoading={reviewLoading}
+      reviewSubmitting={reviewSubmitting}
+      onOpenReview={onOpenReview}
+      onCloseReview={onCloseReview}
+      onStartReview={onStartReview}
+      onSubmit={() => {
+        if (!actionProjection.canSubmitDraft) return;
+        if (actionProjection.primaryIntent === "queue") void onEnqueue?.();
+        else submit();
+      }}
+      beforeEditor={<ConversationTurnQueue
+        snapshot={turnQueue ?? null}
+        busy={Boolean(queueBusy)}
+        onReclaim={onReclaimQueuedTurn}
+        onRemove={onRemoveQueuedTurn}
+        onRetry={onRetryQueuedTurn}
+      />}
+      contextControl={<ConversationContextIndicator
+        snapshot={conversationContext ?? null}
+        submitting={Boolean(contextSubmitting)}
+        onCompact={onCompactContext}
+      />}
+      trailingControls={
+        <ComposerActionButtons
+          projection={actionProjection}
+          busy={Boolean(actionRunning || queueBusy)}
+          onSend={submit}
+          onQueue={() => void onEnqueue?.()}
+          onStop={() => void onStopAndContinue?.()}
+        />
+      }
+    />
+  );
+}
+
+export type ComposerPrimaryIntent = "send" | "steer" | "queue" | "stop" | "jump-to-request" | "wait";
+
+export interface ComposerActionProjection {
+  primaryIntent: ComposerPrimaryIntent;
+  canSubmitDraft: boolean;
+  canStop: boolean;
+  disabledReason: string | null;
+  alternativeIntent?: "queue";
+}
+
+export function buildComposerActionProjection(input: {
+  running: boolean;
+  stopping?: boolean;
+  steerSubmitting?: boolean;
+  hasDraft: boolean;
+  hasNextTurnContext?: boolean;
+  canSteer?: boolean;
+  canQueue?: boolean;
+  canStop?: boolean;
+  queueHasItems?: boolean;
+  queueReady?: boolean;
+  disabledReason?: string | null;
+}): ComposerActionProjection {
+  if (input.disabledReason) {
+    return { primaryIntent: "wait", canSubmitDraft: false, canStop: Boolean(input.canStop), disabledReason: input.disabledReason };
+  }
+  if (input.running) {
+    if (input.stopping) {
+      return { primaryIntent: "wait", canSubmitDraft: false, canStop: false, disabledReason: "当前执行正在停止" };
+    }
+    if (input.steerSubmitting) {
+      return { primaryIntent: "wait", canSubmitDraft: false, canStop: Boolean(input.canStop), disabledReason: "正在发送给当前执行" };
+    }
+    if (input.hasDraft && input.canSteer && !input.hasNextTurnContext) {
+      return {
+        primaryIntent: "steer",
+        canSubmitDraft: true,
+        canStop: Boolean(input.canStop),
+        disabledReason: null,
+        alternativeIntent: input.canQueue ? "queue" : undefined,
+      };
+    }
+    if (input.hasDraft && input.canQueue) {
+      return { primaryIntent: "queue", canSubmitDraft: true, canStop: Boolean(input.canStop), disabledReason: null };
+    }
+    if (input.canStop) {
+      return { primaryIntent: "stop", canSubmitDraft: false, canStop: true, disabledReason: null };
+    }
+    return { primaryIntent: "wait", canSubmitDraft: false, canStop: false, disabledReason: "等待当前执行完成" };
+  }
+  if (input.queueReady === false) {
+    return { primaryIntent: "wait", canSubmitDraft: false, canStop: false, disabledReason: "正在校准会话队列" };
+  }
+  if (!input.hasDraft) {
+    return { primaryIntent: "send", canSubmitDraft: false, canStop: false, disabledReason: "输入内容后发送" };
+  }
+  if (input.queueHasItems) {
+    return input.canQueue
+      ? { primaryIntent: "queue", canSubmitDraft: true, canStop: false, disabledReason: null }
+      : { primaryIntent: "wait", canSubmitDraft: false, canStop: false, disabledReason: "队列暂时不可用" };
+  }
+  return { primaryIntent: "send", canSubmitDraft: true, canStop: false, disabledReason: null };
+}
+
+export function ConversationComposerSurface({
+  ariaLabel,
+  inputAriaLabel,
+  className,
+  value,
+  onChange,
+  disabledReason,
+  placeholder,
+  projectId,
+  skills = [],
+  activeSkillIds = [],
+  selectedFileRefs = [],
+  attachments = [],
+  onAttachFiles,
+  onRemoveAttachment,
+  onToggleSkill,
+  onSelectedFileRefsChange,
+  productMode,
+  agentTurnMode,
+  onSelectAgentTurnMode,
+  agentTurnModeDisabledReason,
+  providerDisplayName,
+  modelLabel,
+  onOpenModelSettings,
+  providerOptions,
+  selectedProviderId,
+  onSelectProvider,
+  agentModelId,
+  agentReasoningEffort,
+  providerModelSettings,
+  onSelectAgentModel,
+  onSelectAgentReasoningEffort,
+  reviewOpen,
+  reviewOptions,
+  reviewLoading,
+  reviewSubmitting,
+  onOpenReview,
+  onCloseReview,
+  onStartReview,
+  onSubmit,
+  focusToken,
+  beforeEditor,
+  contextControl,
+  trailingControls,
+}: {
+  ariaLabel: string;
+  inputAriaLabel: string;
+  className?: string;
+  value: string;
+  onChange: (value: string) => void;
+  disabledReason?: string;
+  placeholder: string;
+  projectId: string | null;
+  skills?: SkillListItem[];
+  activeSkillIds?: string[];
+  selectedFileRefs?: TopicFileReference[];
+  attachments?: TopicAttachment[];
+  onAttachFiles?: (files: File[]) => void | Promise<void>;
+  onRemoveAttachment?: (id: string) => void | Promise<void>;
+  onToggleSkill?: (skillId: string) => void | Promise<void>;
+  onSelectedFileRefsChange?: (refs: TopicFileReference[]) => void;
+  productMode?: ProductMode;
+  agentTurnMode?: AgentTurnMode;
+  onSelectAgentTurnMode?: (mode: AgentTurnMode) => void | Promise<void>;
+  agentTurnModeDisabledReason?: string | null;
+  providerDisplayName?: string;
+  modelLabel: string;
+  onOpenModelSettings?: () => void;
+  providerOptions?: Array<{ id: string; label: string }>;
+  selectedProviderId?: string;
+  onSelectProvider?: (providerId: string) => void;
+  agentModelId?: string | null;
+  agentReasoningEffort?: string | null;
+  providerModelSettings?: ProviderModelSettingsSnapshot | null;
+  onSelectAgentModel?: (modelId: string | null) => void | Promise<void>;
+  onSelectAgentReasoningEffort?: (effort: string | null) => void | Promise<void>;
+  reviewOpen?: boolean;
+  reviewOptions?: ProjectGitReviewOptions | null;
+  reviewLoading?: boolean;
+  reviewSubmitting?: boolean;
+  onOpenReview?: (capturedCommand?: string) => void | Promise<void>;
+  onCloseReview?: () => void;
+  onStartReview?: (target: ProviderReviewTarget, capturedCommand?: string) => void | Promise<void>;
+  onSubmit: () => void | Promise<void>;
+  focusToken?: number;
+  beforeEditor?: ReactNode;
+  contextControl?: ReactNode;
+  trailingControls: ReactNode;
+}): ReactElement {
+  const [dragOver, setDragOver] = useState(false);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const addMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (focusToken === undefined) return;
+    window.setTimeout(() => textareaRef.current?.focus(), 0);
+  }, [focusToken]);
+
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    resizeComposerTextarea(textarea);
+  }, [value]);
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea || typeof ResizeObserver === "undefined") return;
+    let observedWidth = textarea.getBoundingClientRect().width;
+    const observer = new ResizeObserver(([entry]) => {
+      const nextWidth = entry?.contentRect.width ?? textarea.getBoundingClientRect().width;
+      if (nextWidth === observedWidth) return;
+      observedWidth = nextWidth;
+      resizeComposerTextarea(textarea);
+    });
+    observer.observe(textarea);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    if (!addMenuOpen) return;
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setAddMenuOpen(false);
+    };
+    const closeOnPointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && !addMenuRef.current?.contains(event.target)) setAddMenuOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("pointerdown", closeOnPointerDown);
+    return () => {
+      window.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("pointerdown", closeOnPointerDown);
+    };
+  }, [addMenuOpen]);
+
+  function insertTrigger(trigger: "@" | "/"): void {
+    const separator = value.length > 0 && !/\s$/.test(value) ? " " : "";
+    onChange(`${value}${separator}${trigger}`);
+    setAddMenuOpen(false);
+    window.setTimeout(() => textareaRef.current?.focus(), 0);
+  }
+
+  return (
     <ComposerFrame
-      className={dragOver ? "is-drag-over" : ""}
-      aria-label="需求对话输入框"
+      className={`${className ?? ""}${dragOver ? `${className ? " " : ""}is-drag-over` : ""}`}
+      aria-label={ariaLabel}
+      controls={null}
       onDragOver={(event) => {
         if (disabledReason || !hasFileDrag(event)) return;
         event.preventDefault();
@@ -215,128 +470,57 @@ export function TopicComposer({
         setDragOver(false);
         void onAttachFiles?.(files);
       }}
-      controls={<div className="composer-control-stack">
+      toolbar={<>
+        <div className="composer-add-control" ref={addMenuRef}>
+          <button type="button" className="composer-add-trigger" aria-label="添加上下文" aria-expanded={addMenuOpen} disabled={Boolean(disabledReason)} onClick={() => setAddMenuOpen((current) => !current)}><Plus size={18} /></button>
+          {addMenuOpen ? <div className="composer-add-menu" role="menu" aria-label="添加到输入框">
+            <div className="composer-add-attachment"><ComposerAttachButton disabled={Boolean(disabledReason)} onAttachFiles={(files) => { setAddMenuOpen(false); return onAttachFiles?.(files); }} /><span><Paperclip size={14} />添加附件</span></div>
+            <button type="button" role="menuitem" onClick={() => insertTrigger("@") }><File size={15} />引用项目文件</button>
+            <button type="button" role="menuitem" disabled={skills.length === 0} onClick={() => insertTrigger("/")}><Sparkles size={15} />选择 Skill</button>
+            {productMode === "agent" ? <button type="button" role="menuitem" disabled={Boolean(reviewSubmitting)} onClick={() => { setAddMenuOpen(false); void onOpenReview?.(); }}><Search size={15} />代码审查</button> : null}
+          </div> : null}
+        </div>
+        <AgentTurnModeControl productMode={productMode} value={agentTurnMode} onChange={onSelectAgentTurnMode} planDisabledReason={agentTurnModeDisabledReason} />
+        <span className="composer-spacer" />
+        {contextControl}
         <ComposerControls
           providerDisplayName={providerDisplayName}
           modelLabel={modelLabel}
           onOpenModelSettings={onOpenModelSettings}
-          enabledSkillCount={enabledSkillCount}
-          contextSummary={contextSummary}
-          openContextKind={openContextKind}
-          onToggleContextKind={(kind) => setOpenContextKind((current) => current === kind ? null : kind)}
           providerOptions={providerOptions}
           selectedProviderId={selectedProviderId}
           onSelectProvider={onSelectProvider}
-        />
-        <div className="agent-turn-settings-row">
-          <AgentTurnModeControl
-            productMode={productMode}
-            value={agentTurnMode}
-            onChange={onSelectAgentTurnMode}
-            planDisabledReason={agentTurnModeDisabledReason}
-          />
-          <AgentTurnModelControls
-            productMode={productMode}
-            modelId={agentModelId}
-            reasoningEffort={agentReasoningEffort}
-            modelSettings={providerModelSettings}
-            onSelectModel={onSelectAgentModel}
-            onSelectReasoningEffort={onSelectAgentReasoningEffort}
-          />
-        </div>
-      </div>}
-      toolbar={<>
-        <ComposerAttachButton disabled={Boolean(disabledReason)} onAttachFiles={onAttachFiles} />
-        <ConversationContextIndicator
-          snapshot={conversationContext ?? null}
-          submitting={Boolean(contextSubmitting)}
-          onCompact={onCompactContext}
-        />
-        {productMode === "agent" ? <button
-          className="composer-review-button"
-          type="button"
-          disabled={Boolean(disabledReason) || Boolean(reviewSubmitting)}
-          title="代码审查"
-          aria-label="代码审查"
-          onClick={() => void onOpenReview?.()}
+          requestDescription={productMode === "harness" ? "查看当前 AHO 服务配置" : undefined}
         >
-          {reviewLoading || reviewSubmitting ? <LoaderCircle size={15} className="spin" /> : <Search size={15} />}
-        </button> : null}
-        <button
-          className="composer-queue-button"
-          type="button"
-          disabled={Boolean(disabledReason) || !canQueue}
-          title={turnQueue?.disabledReason ?? "加入下一回合队列"}
-          aria-label="加入下一回合队列"
-          onClick={() => void onEnqueue?.()}
-        >
-          {queueBusy ? <RefreshCw size={15} className="spin" /> : <ListPlus size={15} />}
-        </button>
-        <span className="composer-spacer" />
-        {canStop ? <button
-          className="composer-stop"
-          type="button"
-          title="停止当前执行"
-          aria-label="停止当前执行"
-          onClick={() => void onStopAndContinue?.()}
-        >
-          <Square size={14} fill="currentColor" />
-        </button> : null}
-        <button
-          className={`composer-send ${actionRunning ? "running" : ""}`}
-          disabled={sendDisabled}
-          title={!runningConversation && agentTurnModeDisabledReason ? agentTurnModeDisabledReason : buttonTitle}
-          onClick={submit}
-        >
-          <Send size={16} />
-        </button>
+          <AgentTurnModelControls productMode={productMode} modelId={agentModelId} reasoningEffort={agentReasoningEffort} modelSettings={providerModelSettings} onSelectModel={onSelectAgentModel} onSelectReasoningEffort={onSelectAgentReasoningEffort} />
+        </ComposerControls>
+        {trailingControls}
       </>}
     >
-      <ConversationTurnQueue
-        snapshot={turnQueue ?? null}
-        busy={Boolean(queueBusy)}
-        onReclaim={onReclaimQueuedTurn}
-        onRemove={onRemoveQueuedTurn}
-        onRetry={onRetryQueuedTurn}
-      />
-      {productMode === "agent" && reviewOpen ? <ReviewInlineSelector
-        options={reviewOptions ?? null}
-        loading={Boolean(reviewLoading)}
-        submitting={Boolean(reviewSubmitting)}
-        onClose={() => onCloseReview?.()}
-        onStart={(target) => onStartReview?.(target)}
-      /> : null}
-      <ComposerContextSourcesPopover
-        kind={openContextKind}
+      {beforeEditor}
+      {productMode === "agent" && reviewOpen ? <ReviewInlineSelector options={reviewOptions ?? null} loading={Boolean(reviewLoading)} submitting={Boolean(reviewSubmitting)} onClose={() => onCloseReview?.()} onStart={(target) => onStartReview?.(target)} /> : null}
+      <SkillMentionPicker value={value} onChange={onChange} skills={skills} activeSkillIds={activeSkillIds} onToggleSkill={onToggleSkill ?? (() => undefined)} />
+      <FileMentionPicker projectId={projectId} value={value} onChange={onChange} selectedRefs={selectedFileRefs} onSelectedRefsChange={onSelectedFileRefsChange ?? (() => undefined)} />
+      <ComposerSelectedContextItems
         skills={skills}
         activeSkillIds={activeSkillIds}
-        selectedFileRefs={selectedFileRefs}
-        attachments={attachments}
+        fileRefs={selectedFileRefs}
         onToggleSkill={onToggleSkill}
-        onSelectedFileRefsChange={onSelectedFileRefsChange}
-        onRemoveAttachment={onRemoveAttachment}
-        onClose={() => setOpenContextKind(null)}
+        onFileRefsChange={onSelectedFileRefsChange}
       />
-      <SkillMentionPicker
-        value={value}
-        onChange={onChange}
-        skills={skills ?? []}
-        activeSkillIds={activeSkillIds ?? []}
-        onToggleSkill={onToggleSkill ?? (() => undefined)}
-      />
-      <FileMentionPicker
-        projectId={projectId}
-        value={value}
-        onChange={onChange}
-        selectedRefs={selectedFileRefs ?? []}
-        onSelectedRefsChange={onSelectedFileRefsChange ?? (() => undefined)}
-      />
-      <ComposerAttachmentList attachments={attachments ?? []} onRemove={onRemoveAttachment ?? (() => undefined)} />
+      <ComposerAttachmentList attachments={attachments} onRemove={onRemoveAttachment ?? (() => undefined)} />
       <textarea
         ref={textareaRef}
+        aria-label={inputAriaLabel}
         rows={1}
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+            event.preventDefault();
+            void onSubmit();
+          }
+        }}
         onPaste={(event) => {
           const files = imageFilesFromPaste(event);
           if (files.length === 0) return;
@@ -344,12 +528,65 @@ export function TopicComposer({
           void onAttachFiles?.(files);
         }}
         disabled={Boolean(disabledReason)}
-        placeholder={disabledReason ?? (runningConversation
-          ? runControlState?.canSteer ? "补充当前执行" : "当前回合运行中"
-          : "输入问题或下一步需求")}
+        placeholder={disabledReason ?? placeholder}
       />
     </ComposerFrame>
   );
+}
+
+function ComposerSelectedContextItems({ skills, activeSkillIds, fileRefs, onToggleSkill, onFileRefsChange }: {
+  skills: SkillListItem[];
+  activeSkillIds: string[];
+  fileRefs: TopicFileReference[];
+  onToggleSkill?: (skillId: string) => void | Promise<void>;
+  onFileRefsChange?: (refs: TopicFileReference[]) => void;
+}): ReactElement | null {
+  const selectedSkills = activeSkillIds.map((skillId) => skills.find((skill) => skill.skillId === skillId)).filter((skill): skill is SkillListItem => Boolean(skill));
+  if (selectedSkills.length === 0 && fileRefs.length === 0) return null;
+  return <div className="composer-selected-context" aria-label="已选上下文">
+    {fileRefs.map((file) => <span className="composer-selected-item" key={`file:${file.relativePath}`} title={file.relativePath}><File size={13} aria-hidden="true" /><span>{file.name}</span><button type="button" aria-label={`移除文件 ${file.name}`} onClick={() => onFileRefsChange?.(fileRefs.filter((item) => item.relativePath !== file.relativePath))}><X size={12} /></button></span>)}
+    {selectedSkills.map((skill) => <span className="composer-selected-item" key={`skill:${skill.skillId}`} title={skill.description}><Sparkles size={13} aria-hidden="true" /><span>{skill.name}</span><button type="button" aria-label={`移除 Skill ${skill.name}`} onClick={() => void onToggleSkill?.(skill.skillId)}><X size={12} /></button></span>)}
+  </div>;
+}
+
+function ComposerActionButtons({ projection, busy, onSend, onQueue, onStop }: {
+  projection: ComposerActionProjection;
+  busy: boolean;
+  onSend: () => void;
+  onQueue: () => void;
+  onStop: () => void;
+}): ReactElement {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const intent = projection.primaryIntent;
+  const label = composerActionLabel(intent, projection.disabledReason);
+  const submitDisabled = busy || !projection.canSubmitDraft;
+  const invokePrimary = () => {
+    if (intent === "send" || intent === "steer") onSend();
+    else if (intent === "queue") onQueue();
+    else if (intent === "stop") onStop();
+  };
+  return <div className="composer-action-group">
+    {projection.canStop && intent !== "stop" ? <button type="button" className="composer-stop" title="停止当前执行" aria-label="停止当前执行" onClick={onStop}><Square size={14} fill="currentColor" /></button> : null}
+    <div className={`composer-primary-action ${projection.alternativeIntent ? "has-alternative" : ""}`}>
+      <button type="button" className="composer-send" disabled={intent === "stop" ? busy : submitDisabled} title={label} aria-label={label} onClick={invokePrimary}>
+        {intent === "stop" ? <Square size={14} fill="currentColor" /> : intent === "queue" ? <ListPlus size={16} /> : intent === "wait" ? <LoaderCircle size={16} className={busy ? "spin" : undefined} /> : <ArrowUp size={17} />}
+      </button>
+      {projection.alternativeIntent === "queue" ? <>
+        <button type="button" className="composer-action-alternative-trigger" aria-label="其他发送方式" aria-expanded={menuOpen} onClick={() => setMenuOpen((current) => !current)}><ChevronDown size={13} /></button>
+        {menuOpen ? <div className="composer-action-menu" role="menu"><button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onQueue(); }}><ListPlus size={14} />加入下一回合队列</button></div> : null}
+      </> : null}
+    </div>
+  </div>;
+}
+
+function composerActionLabel(intent: ComposerPrimaryIntent, disabledReason: string | null): string {
+  if (disabledReason) return disabledReason;
+  if (intent === "steer") return "发送给当前执行";
+  if (intent === "queue") return "加入下一回合队列";
+  if (intent === "stop") return "停止当前执行";
+  if (intent === "jump-to-request") return "查看待处理请求";
+  if (intent === "wait") return "暂时不可发送";
+  return "发送";
 }
 
 export function ConversationTurnQueue({
@@ -451,7 +688,7 @@ export function ReviewInlineSelector({ options, loading, submitting, onClose, on
     if ("step" in entry && entry.step) setStep(entry.step);
     else if (entry.target) void onStart(entry.target);
   }
-  function onKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
+  function onKeyDown(event: ReactKeyboardEvent<HTMLDivElement>): void {
     if (event.key === "Escape") {
       event.preventDefault();
       if (step === "preset") onClose(); else setStep("preset");

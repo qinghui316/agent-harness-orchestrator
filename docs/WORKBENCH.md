@@ -42,6 +42,28 @@ the user message, ProviderAttempt, or Provider turn is created. The adapter alon
 constructs any private Plan payload. Harness conversations expose none of these
 Agent controls and continue through their existing operation-profile model path.
 
+The existing-Conversation and empty-Conversation entry points render one shared
+`ConversationComposerSurface`. It owns one bordered input container, selected
+context items, one compact footer, and the responsive placement of Default/Plan,
+context usage, model, and the primary action. The page controllers still own
+draft CAS, generation fencing, Review, Queue, Steer, Stop, and send commands.
+Product mode projects available controls into this surface; it does not fork the
+layout or grant Agent-only actions to Harness conversations. Attachments, project
+file references, and selected Skills remain individually identifiable and
+removable above the editor. Low-frequency additions live behind the `+` menu,
+while Queue and running-turn actions only appear when their current snapshots
+make them relevant.
+
+Workbench Settings has two user-facing destinations: `Models and services` and
+`Skills`. The normal provider view shows connection state, effective default
+model, source, and actions that can actually change or refresh configuration.
+Capability keys, spec/runtime states, versions, and bounded errors appear only
+in an on-demand diagnostics drawer. The Skills page uses grouped searchable
+results and temporary detail/source drawers. Ordinary rows and details never
+show absolute source paths; real custom-root paths are confined to the explicit
+advanced source-management flow. The browser uses only the existing catalog
+contract and does not open arbitrary local paths or synthesize package content.
+
 Composer drafts are durable full snapshots scoped by `projectId + productMode`.
 They reuse the schema-14 `composer_drafts` row and include unsent text, safe
 project-relative file references, managed attachment ids, provider-neutral Skill
