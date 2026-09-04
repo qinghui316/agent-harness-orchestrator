@@ -234,6 +234,8 @@ describe("Topic Composer height", () => {
       modelLabel="gpt"
       projectId="project"
       productMode="agent"
+      skills={[composerSkill("reviewer")]}
+      activeSkillIds={["reviewer"]}
       onSend={onSend}
       queueBusy
       turnQueue={{
