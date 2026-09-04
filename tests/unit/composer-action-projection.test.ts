@@ -14,6 +14,7 @@ describe("Composer action projection", () => {
   });
 
   it("never exposes a submit action while state is being reconciled", () => {
+    expect(buildComposerActionProjection({ running: false, hasDraft: true, queueBusy: true })).toMatchObject({ primaryIntent: "wait", canSubmitDraft: false });
     expect(buildComposerActionProjection({ running: false, hasDraft: true, queueReady: false })).toMatchObject({ primaryIntent: "wait", canSubmitDraft: false });
     expect(buildComposerActionProjection({ running: true, hasDraft: true, stopping: true, canStop: true })).toMatchObject({ primaryIntent: "wait", canSubmitDraft: false, canStop: false });
   });

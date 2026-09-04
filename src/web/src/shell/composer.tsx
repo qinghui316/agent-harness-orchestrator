@@ -1,10 +1,9 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement, type ReactNode } from "react";
 import { AlertCircle, ArrowLeft, ArrowUp, Check, CheckCircle2, ChevronDown, File, Gauge, ListPlus, LoaderCircle, Paperclip, Plus, RefreshCw, RotateCcw, Search, Sparkles, Square, Trash2, Undo2, X } from "lucide-react";
 import type { AgentTurnMode, ConversationContextSnapshot, ConversationTurnQueueSnapshot, ProductMode, ProjectGitReviewOptions, ProviderModelSettingsSnapshot, ProviderReviewTarget, SkillListItem, TopicAttachment, TopicFileReference, WorkpadRuntimeStatus } from "../types.js";
 import { parseReviewCommand } from "../reviewCommand.js";
 import { ComposerAttachButton, ComposerAttachmentList, filesFromDrop, hasFileDrag, imageFilesFromPaste } from "./ComposerAttachments.js";
 import { ComposerControls } from "./ComposerControls.js";
-import { buildComposerContextSummary } from "./ComposerContextSources.js";
 import { FileMentionPicker } from "./FileMentionPicker.js";
 import { SkillMentionPicker } from "./SkillMentionPicker.js";
 import { ComposerFrame } from "./ComposerFrame.js";
@@ -128,12 +127,6 @@ export function TopicComposer({
     && Boolean(onStopAndContinue)
     && Boolean(runControlState?.canStop);
   const hasAttachments = (attachments?.length ?? 0) > 0;
-  const contextSummary = useMemo(() => buildComposerContextSummary({
-    skills,
-    activeSkillIds,
-    selectedFileRefs,
-    attachments,
-  }), [skills, activeSkillIds, selectedFileRefs, attachments]);
   const canSend = Boolean(value.trim()) || hasAttachments;
   const steerIdentityReady = productMode === "harness"
     || Boolean(runControlState?.providerId && runControlState.attemptId);
@@ -144,9 +137,10 @@ export function TopicComposer({
     && runControlState?.steerState !== "submitting"
     && runControlState?.state !== "stopping";
   const canQueue = canSend && Boolean(turnQueue?.canEnqueue) && !queueBusy;
-  const hasNextTurnContext = contextSummary.totalCount > 0;
+  const hasNextTurnContext = hasAttachments || (selectedFileRefs?.length ?? 0) > 0;
   const actionProjection = buildComposerActionProjection({
     running: runningConversation,
+    queueBusy: Boolean(queueBusy),
     stopping: runControlState?.state === "stopping",
     steerSubmitting: runControlState?.steerState === "submitting",
     hasDraft: canSend,
@@ -259,6 +253,7 @@ export interface ComposerActionProjection {
 
 export function buildComposerActionProjection(input: {
   running: boolean;
+  queueBusy?: boolean;
   stopping?: boolean;
   steerSubmitting?: boolean;
   hasDraft: boolean;
@@ -272,6 +267,9 @@ export function buildComposerActionProjection(input: {
 }): ComposerActionProjection {
   if (input.disabledReason) {
     return { primaryIntent: "wait", canSubmitDraft: false, canStop: Boolean(input.canStop), disabledReason: input.disabledReason };
+  }
+  if (input.queueBusy) {
+    return { primaryIntent: "wait", canSubmitDraft: false, canStop: Boolean(input.canStop), disabledReason: "正在更新会话队列" };
   }
   if (input.running) {
     if (input.stopping) {

@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { ArrowLeft, Bot, CircleAlert, RefreshCw, Sparkles, X } from "lucide-react";
 import { SkillsSettingsView } from "./SkillsSettingsView.js";
+import { useModalDialogFocus } from "./useModalDialogFocus.js";
 import type { ProductMode, ProviderDiagnostics, ProviderModelSettingsSnapshot, ProjectStatus, ProviderCapabilityItem, ProviderCapabilitySnapshot } from "../types.js";
 
 export type SettingsSection = "basic" | "project" | "provider" | "skills";
@@ -90,10 +91,11 @@ export function SettingsSurface({ section, onSectionChange, project, productMode
 }
 
 function ProviderDiagnosticsDrawer({ snapshot, diagnostics, modelMessage, onClose }: { snapshot: ProviderCapabilitySnapshot | null; diagnostics: ProviderDiagnostics | null; modelMessage?: string | null; onClose: () => void }): ReactElement {
+  const dialogRef = useModalDialogFocus(true);
   const capabilities = snapshot?.capabilities ?? [];
   const reasons = [modelMessage, diagnostics?.lastError, ...(snapshot?.degradedReasons ?? [])].filter((value): value is string => Boolean(value));
   return <div className="settings-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section className="settings-panel provider-diagnostics-drawer" role="dialog" aria-modal="true" aria-label="服务诊断">
+    <section ref={dialogRef} className="settings-panel provider-diagnostics-drawer" role="dialog" aria-modal="true" aria-label="服务诊断" tabIndex={-1}>
       <header className="settings-panel-header"><div><p className="eyebrow">高级诊断</p><h2>{snapshot?.displayName ?? diagnostics?.displayName ?? "AI 服务"}</h2></div><button className="icon-button" aria-label="关闭服务诊断" onClick={onClose}><X size={16} /></button></header>
       <p className="muted-copy">这些信息用于排查连接和能力问题，不会改变服务配置。</p>
       {reasons.length > 0 ? <div className="diagnostic-errors"><strong>检测到的问题</strong>{reasons.map((reason) => <p key={reason}>{reason}</p>)}</div> : <p className="provider-healthy-note">当前未检测到服务问题。</p>}

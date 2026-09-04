@@ -54,14 +54,28 @@ describe("SkillsSettingsView request identity", () => {
     render(<SkillsSettingsView projectId="repo" productMode="agent" conversationId="conversation-1" providerId="codex" onRefresh={vi.fn()} />);
     await waitFor(() => expect(screen.getByText("已启用")).toBeTruthy());
     expect(screen.queryByText("C:/skills/reviewer/SKILL.md")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /reviewer/ }));
+    const skillTrigger = screen.getByRole("button", { name: /reviewer/ });
+    fireEvent.click(skillTrigger);
     expect(screen.getByRole("dialog", { name: "reviewer 详情" })).toBeTruthy();
     expect(screen.queryByText("C:/skills/reviewer/SKILL.md")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "关闭 Skill 详情" }));
+    const closeDetail = screen.getByRole("button", { name: "关闭 Skill 详情" });
+    expect(document.activeElement).toBe(closeDetail);
+    fireEvent.click(closeDetail);
     expect(screen.queryByRole("dialog", { name: "reviewer 详情" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Skill 来源设置" }));
+    await waitFor(() => expect(document.activeElement).toBe(skillTrigger));
+    const sourceTrigger = screen.getByRole("button", { name: "Skill 来源设置" });
+    sourceTrigger.focus();
+    fireEvent.click(sourceTrigger);
     expect(screen.getByRole("dialog", { name: "Skill 来源设置" })).toBeTruthy();
     expect(screen.getByText("C:/skills")).toBeTruthy();
+    const sourceInput = screen.getByRole("textbox", { name: "Skill 根目录" });
+    const closeSource = screen.getByRole("button", { name: "关闭 Skill 来源设置" });
+    expect(document.activeElement).toBe(closeSource);
+    sourceInput.focus();
+    fireEvent.keyDown(sourceInput, { key: "Tab" });
+    expect(document.activeElement).toBe(closeSource);
+    fireEvent.click(closeSource);
+    await waitFor(() => expect(document.activeElement).toBe(sourceTrigger));
   });
 
   it("closes a detail drawer when search filters out the selected Skill", async () => {
@@ -79,7 +93,7 @@ describe("SkillsSettingsView request identity", () => {
       skills: [skill("reviewer")],
       errors: [{
         path: "C:/Users/example/.codex/skills/broken/SKILL.md",
-        message: "Cannot read Skill package: C:\\Users\\example\\.codex\\skills\\broken",
+        message: "Cannot read Skill package: /root/.codex/skills/broken",
       }],
     });
     render(<SkillsSettingsView projectId="repo" productMode="agent" conversationId="conversation-1" providerId="codex" onRefresh={vi.fn()} />);
@@ -88,7 +102,7 @@ describe("SkillsSettingsView request identity", () => {
 
     expect(screen.getByText("…/broken/SKILL.md")).toBeTruthy();
     expect(screen.getByText("Cannot read Skill package: [本机路径已隐藏]")).toBeTruthy();
-    expect(screen.queryByText(/C:\\Users\\example/)).toBeNull();
+    expect(screen.queryByText(/\/root\/\.codex/)).toBeNull();
   });
 
   it("does not refresh the current scope after an old Provider mutation completes", async () => {

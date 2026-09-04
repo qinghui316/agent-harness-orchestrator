@@ -3,7 +3,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConversationTurnQueue, TopicComposer } from "../../src/web/src/shell/composer.js";
-import type { ConversationTurnQueueSnapshot } from "../../src/web/src/types.js";
+import type { ConversationTurnQueueSnapshot, SkillListItem } from "../../src/web/src/types.js";
 
 afterEach(cleanup);
 
@@ -205,6 +205,8 @@ describe("Topic Composer height", () => {
       modelLabel="gpt"
       projectId="project"
       productMode="agent"
+      skills={[composerSkill("reviewer")]}
+      activeSkillIds={["reviewer"]}
       onSend={onSend}
       onEnqueue={onEnqueue}
       turnQueue={{
@@ -222,6 +224,33 @@ describe("Topic Composer height", () => {
     fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter", shiftKey: false });
     expect(onEnqueue).toHaveBeenCalledOnce();
     expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("does not submit with Enter while a queue mutation is in flight", () => {
+    const onSend = vi.fn(async () => undefined);
+    render(<TopicComposer
+      value="do not send yet"
+      onChange={vi.fn()}
+      modelLabel="gpt"
+      projectId="project"
+      productMode="agent"
+      onSend={onSend}
+      queueBusy
+      turnQueue={{
+        projectId: "project",
+        productMode: "agent",
+        conversationId: "conversation",
+        revision: "queue:1",
+        executionRevision: null,
+        canEnqueue: true,
+        canDispatch: true,
+        items: [],
+      }}
+    />);
+
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter", shiftKey: false });
+    expect(onSend).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "正在更新会话队列" }).hasAttribute("disabled")).toBe(true);
   });
 });
 
@@ -274,6 +303,26 @@ function queuedItem(status: "blocked" | "dispatching", queueItemId: string, text
     reasoningEffort: null,
     createdAt: "2026-08-28T00:00:00.000Z",
     updatedAt: "2026-08-28T00:00:00.000Z",
+  };
+}
+
+function composerSkill(skillId: string): SkillListItem {
+  return {
+    skillId,
+    name: skillId,
+    description: `${skillId} description`,
+    sourcePath: `C:/skills/${skillId}/SKILL.md`,
+    sourceKind: "custom",
+    scope: "repo",
+    contentHash: `hash-${skillId}`,
+    compatibility: { requiredCapabilities: [] },
+    providerBindings: [],
+    providerEnabled: true,
+    required: false,
+    runtimeAssigned: false,
+    enabledProject: true,
+    enabledTopics: [],
+    disabledTopics: [],
   };
 }
 

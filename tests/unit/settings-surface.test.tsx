@@ -18,15 +18,20 @@ describe("SettingsSurface clarity", () => {
     expect(screen.queryByRole("button", { name: "项目" })).toBeNull();
   });
 
-  it("keeps capability keys inside diagnostics and only reveals them for degraded state", () => {
+  it("keeps capability keys inside diagnostics and contains keyboard focus", () => {
     const view = render(<SettingsSurface section="provider" onSectionChange={vi.fn()} project={null} productMode="agent" conversationId={null} selectedProviderId="codex" diagnostics={null} modelSettings={null} providerCapabilities={[snapshot("ready")]} onClose={vi.fn()} onRefresh={vi.fn()} />);
     expect(screen.queryByRole("button", { name: "查看诊断" })).toBeNull();
     expect(screen.queryByText("turn.review")).toBeNull();
 
     view.rerender(<SettingsSurface section="provider" onSectionChange={vi.fn()} project={null} productMode="agent" conversationId={null} selectedProviderId="codex" diagnostics={null} modelSettings={null} providerCapabilities={[snapshot("degraded")]} onClose={vi.fn()} onRefresh={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: "查看诊断" }));
-    expect(screen.getByRole("dialog", { name: "服务诊断" })).toBeTruthy();
+    const dialog = screen.getByRole("dialog", { name: "服务诊断" });
+    const close = screen.getByRole("button", { name: "关闭服务诊断" });
+    expect(dialog).toBeTruthy();
+    expect(document.activeElement).toBe(close);
     expect(screen.getByText("turn.review")).toBeTruthy();
+    fireEvent.keyDown(close, { key: "Tab" });
+    expect(document.activeElement).toBe(close);
   });
 });
 

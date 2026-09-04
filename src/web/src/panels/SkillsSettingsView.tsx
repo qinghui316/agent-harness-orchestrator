@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { CheckCircle2, CircleAlert, Folder, RefreshCw, Search, Settings2, Sparkles, X } from "lucide-react";
 import { fetchJson, postJson } from "../api.js";
+import { useModalDialogFocus } from "./useModalDialogFocus.js";
 import type { ProductMode, SkillListItem, SkillRootListItem } from "../types.js";
 
 type SkillGroupId = "enabled" | "project" | "provider" | "custom";
@@ -26,6 +27,9 @@ export function SkillsSettingsView({ projectId, productMode, conversationId, pro
   const requestGenerationRef = useRef(0);
   const actionGenerationRef = useRef(0);
   const detailTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const detailDialogRef = useModalDialogFocus(Boolean(selectedSkillId));
+  const sourceDialogRef = useModalDialogFocus(sourceManagerOpen);
+  const diagnosticsDialogRef = useModalDialogFocus(catalogDiagnosticsOpen);
   const identityKey = skillSettingsIdentityKey(projectId, productMode, conversationId, providerId);
   const identityKeyRef = useRef(identityKey);
   identityKeyRef.current = identityKey;
@@ -130,21 +134,21 @@ export function SkillsSettingsView({ projectId, productMode, conversationId, pro
         })}</div></section>)}
       </div>
 
-      {selectedSkill ? <div className="settings-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeSkillDetail(); }}><section className="settings-panel skill-detail-drawer" role="dialog" aria-modal="true" aria-label={`${selectedSkill.name} 详情`}>
+      {selectedSkill ? <div className="settings-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeSkillDetail(); }}><section ref={detailDialogRef} className="settings-panel skill-detail-drawer" role="dialog" aria-modal="true" aria-label={`${selectedSkill.name} 详情`} tabIndex={-1}>
         <header className="settings-panel-header"><div className="skill-detail-title"><span className="skill-list-icon"><Sparkles size={18} /></span><div><p className="eyebrow">{sourceKindLabel(selectedSkill.sourceKind)}</p><h2>{selectedSkill.name}</h2></div></div><button className="icon-button" aria-label="关闭 Skill 详情" onClick={closeSkillDetail}><X size={16} /></button></header>
         <p className="skill-detail-description">{selectedSkill.description || "当前 Skill 没有提供说明。"}</p>
         <dl className="settings-definition-list compact"><div><dt>来源</dt><dd>{sourceKindLabel(selectedSkill.sourceKind)}</dd></div><div><dt>作用域</dt><dd>{scopeLabel(selectedSkill.scope)}</dd></div><div><dt>状态</dt><dd>{runtimeStatusLabel(selectedTarget?.status)}</dd></div></dl>
         {selectedSkill.required || selectedSkill.runtimeAssigned ? <div className="skill-required-note"><CheckCircle2 size={16} /><div><strong>项目必需</strong><p>由当前项目或 AHO 运行流程管理，不能在这里关闭。</p></div></div> : <label className="settings-toggle-row prominent"><span><strong>在 Provider 中启用</strong><small>后续会话可以选择使用此 Skill。</small></span><input type="checkbox" checked={selectedSkill.providerEnabled} disabled={busy || selectedSkill.sourceKind === "project-harness"} onChange={(event) => run(async () => { await postJson(`/api/projects/${encodeURIComponent(projectId)}/skills/${encodeURIComponent(selectedSkill.skillId)}/provider-enable`, { enabled: event.target.checked, ...skillRequestBody(productMode, conversationId, providerId) }); })} /></label>}
       </section></div> : null}
 
-      {sourceManagerOpen ? <div className="settings-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSourceManagerOpen(false); }}><section className="settings-panel skill-source-drawer" role="dialog" aria-modal="true" aria-label="Skill 来源设置">
+      {sourceManagerOpen ? <div className="settings-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSourceManagerOpen(false); }}><section ref={sourceDialogRef} className="settings-panel skill-source-drawer" role="dialog" aria-modal="true" aria-label="Skill 来源设置" tabIndex={-1}>
         <header className="settings-panel-header"><div><p className="eyebrow">高级</p><h2>Skill 来源</h2></div><button className="icon-button" aria-label="关闭 Skill 来源设置" onClick={() => setSourceManagerOpen(false)}><X size={16} /></button></header>
         <p className="muted-copy">添加受信任的本机目录，让当前项目发现其中的 Skills。</p>
         <div className="skill-root-form compact"><input value={rootPath} onChange={(event) => setRootPath(event.target.value)} placeholder="输入本机 Skill 文件夹路径" aria-label="Skill 根目录" /><button className="primary-button" disabled={busy || !rootPath.trim()} onClick={async () => { const added = await run(async () => { await postJson(`/api/projects/${encodeURIComponent(projectId)}/skill-roots`, { rootPath: rootPath.trim(), sourceKind: "custom", ...skillRequestBody(productMode, conversationId, providerId) }); }); if (added) setRootPath(""); }}>添加</button></div>
         <div className="skill-root-list" aria-label="已添加 Skill 目录">{roots.length === 0 ? <span>尚未添加自定义来源。</span> : roots.map((root) => <div key={root.rootPath}><Folder size={14} /><span title={root.rootPath}>{root.rootPath}</span></div>)}</div>
       </section></div> : null}
 
-      {catalogDiagnosticsOpen ? <div className="settings-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCatalogDiagnosticsOpen(false); }}><section className="settings-panel skill-diagnostics-drawer" role="dialog" aria-modal="true" aria-label="Skill 扫描诊断"><header className="settings-panel-header"><div><p className="eyebrow">诊断</p><h2>无法读取的 Skills</h2></div><button className="icon-button" aria-label="关闭 Skill 扫描诊断" onClick={() => setCatalogDiagnosticsOpen(false)}><X size={16} /></button></header>{catalogErrors.map((error) => <div className="skill-diagnostic-item" key={`${error.path}:${error.message}`}><strong>{safePathLabel(error.path)}</strong><p>{safeDiagnosticMessage(error.message)}</p></div>)}</section></div> : null}
+      {catalogDiagnosticsOpen ? <div className="settings-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCatalogDiagnosticsOpen(false); }}><section ref={diagnosticsDialogRef} className="settings-panel skill-diagnostics-drawer" role="dialog" aria-modal="true" aria-label="Skill 扫描诊断" tabIndex={-1}><header className="settings-panel-header"><div><p className="eyebrow">诊断</p><h2>无法读取的 Skills</h2></div><button className="icon-button" aria-label="关闭 Skill 扫描诊断" onClick={() => setCatalogDiagnosticsOpen(false)}><X size={16} /></button></header>{catalogErrors.map((error) => <div className="skill-diagnostic-item" key={`${error.path}:${error.message}`}><strong>{safePathLabel(error.path)}</strong><p>{safeDiagnosticMessage(error.message)}</p></div>)}</section></div> : null}
     </section>
   );
 }
@@ -167,6 +171,6 @@ function safeDiagnosticMessage(message: string): string {
   const redacted = message
     .replace(/[A-Za-z]:[\\/][^\r\n]*/g, "[本机路径已隐藏]")
     .replace(/\\\\[^\r\n]*/g, "[本机路径已隐藏]")
-    .replace(/\/(?:Users|home|tmp|var|private|mnt|opt|workspace)\/[^\r\n]*/g, "[本机路径已隐藏]");
+    .replace(/(^|[\s("'=])\/(?!\/)[^\r\n]*/g, "$1[本机路径已隐藏]");
   return redacted.length > 320 ? `${redacted.slice(0, 319)}…` : redacted;
 }
