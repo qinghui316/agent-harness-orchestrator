@@ -18,7 +18,9 @@ export function useModalDialogFocus(open: boolean): RefObject<HTMLElement | null
     if (!dialog) return;
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const focusable = () => Array.from(dialog.querySelectorAll<HTMLElement>(focusableSelector));
-    (focusable()[0] ?? dialog).focus();
+    const focusInitial = () => (focusable()[0] ?? dialog).focus();
+    focusInitial();
+    const focusTimer = window.setTimeout(focusInitial, 0);
 
     const trapFocus = (event: KeyboardEvent) => {
       if (event.key !== "Tab") return;
@@ -39,9 +41,10 @@ export function useModalDialogFocus(open: boolean): RefObject<HTMLElement | null
       }
     };
 
-    dialog.addEventListener("keydown", trapFocus);
+    window.addEventListener("keydown", trapFocus);
     return () => {
-      dialog.removeEventListener("keydown", trapFocus);
+      window.clearTimeout(focusTimer);
+      window.removeEventListener("keydown", trapFocus);
       if (previousFocus?.isConnected) previousFocus.focus();
     };
   }, [open]);

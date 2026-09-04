@@ -139,7 +139,7 @@ describe("Topic Composer height", () => {
     else delete (HTMLTextAreaElement.prototype as { scrollHeight?: number }).scrollHeight;
   });
 
-  it("keeps Agent steer and Stop as independent running actions", () => {
+  it("keeps Agent steer and Stop available with a conversation Skill enabled", () => {
     const onSend = vi.fn(async () => undefined);
     const onStop = vi.fn(async () => undefined);
     render(<TopicComposer

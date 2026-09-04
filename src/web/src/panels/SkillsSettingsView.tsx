@@ -169,8 +169,9 @@ function scopeLabel(scope: SkillListItem["scope"]): string { return scope === "r
 function safePathLabel(path: string): string { const parts = path.split(/[\\/]+/).filter(Boolean); return parts.length > 1 ? `…/${parts.slice(-2).join("/")}` : parts[0] ?? "未知来源"; }
 function safeDiagnosticMessage(message: string): string {
   const redacted = message
-    .replace(/[A-Za-z]:[\\/][^\r\n]*/g, "[本机路径已隐藏]")
+    .replace(/(^|[^A-Za-z0-9])(?:[A-Za-z]:[\\/])[^\r\n]*/g, "$1[本机路径已隐藏]")
     .replace(/\\\\[^\r\n]*/g, "[本机路径已隐藏]")
-    .replace(/(^|[\s("'=])\/(?!\/)[^\r\n]*/g, "$1[本机路径已隐藏]");
+    .replace(/file:\/\/\/?[^\r\n]*/gi, "[本机路径已隐藏]")
+    .replace(/(^|[^A-Za-z0-9+./-])\/(?!\/)[^\r\n]*/g, "$1[本机路径已隐藏]");
   return redacted.length > 320 ? `${redacted.slice(0, 319)}…` : redacted;
 }

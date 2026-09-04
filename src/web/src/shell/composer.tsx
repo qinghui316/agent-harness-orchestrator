@@ -268,12 +268,12 @@ export function buildComposerActionProjection(input: {
   if (input.disabledReason) {
     return { primaryIntent: "wait", canSubmitDraft: false, canStop: Boolean(input.canStop), disabledReason: input.disabledReason };
   }
-  if (input.queueBusy) {
-    return { primaryIntent: "wait", canSubmitDraft: false, canStop: Boolean(input.canStop), disabledReason: "正在更新会话队列" };
-  }
   if (input.running) {
     if (input.stopping) {
       return { primaryIntent: "wait", canSubmitDraft: false, canStop: false, disabledReason: "当前执行正在停止" };
+    }
+    if (input.queueBusy) {
+      return { primaryIntent: "wait", canSubmitDraft: false, canStop: Boolean(input.canStop), disabledReason: "正在更新会话队列" };
     }
     if (input.steerSubmitting) {
       return { primaryIntent: "wait", canSubmitDraft: false, canStop: Boolean(input.canStop), disabledReason: "正在发送给当前执行" };
@@ -294,6 +294,9 @@ export function buildComposerActionProjection(input: {
       return { primaryIntent: "stop", canSubmitDraft: false, canStop: true, disabledReason: null };
     }
     return { primaryIntent: "wait", canSubmitDraft: false, canStop: false, disabledReason: "等待当前执行完成" };
+  }
+  if (input.queueBusy) {
+    return { primaryIntent: "wait", canSubmitDraft: false, canStop: false, disabledReason: "正在更新会话队列" };
   }
   if (input.queueReady === false) {
     return { primaryIntent: "wait", canSubmitDraft: false, canStop: false, disabledReason: "正在校准会话队列" };

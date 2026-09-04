@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SettingsSurface } from "../../src/web/src/panels/SettingsSurface.js";
 import type { ProviderCapabilitySnapshot } from "../../src/web/src/types.js";
@@ -18,7 +18,7 @@ describe("SettingsSurface clarity", () => {
     expect(screen.queryByRole("button", { name: "项目" })).toBeNull();
   });
 
-  it("keeps capability keys inside diagnostics and contains keyboard focus", () => {
+  it("keeps capability keys inside diagnostics and contains keyboard focus", async () => {
     const view = render(<SettingsSurface section="provider" onSectionChange={vi.fn()} project={null} productMode="agent" conversationId={null} selectedProviderId="codex" diagnostics={null} modelSettings={null} providerCapabilities={[snapshot("ready")]} onClose={vi.fn()} onRefresh={vi.fn()} />);
     expect(screen.queryByRole("button", { name: "查看诊断" })).toBeNull();
     expect(screen.queryByText("turn.review")).toBeNull();
@@ -28,7 +28,7 @@ describe("SettingsSurface clarity", () => {
     const dialog = screen.getByRole("dialog", { name: "服务诊断" });
     const close = screen.getByRole("button", { name: "关闭服务诊断" });
     expect(dialog).toBeTruthy();
-    expect(document.activeElement).toBe(close);
+    await waitFor(() => expect(document.activeElement).toBe(close));
     expect(screen.getByText("turn.review")).toBeTruthy();
     fireEvent.keyDown(close, { key: "Tab" });
     expect(document.activeElement).toBe(close);

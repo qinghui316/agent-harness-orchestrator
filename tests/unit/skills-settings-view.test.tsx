@@ -91,18 +91,26 @@ describe("SkillsSettingsView request identity", () => {
   it("redacts absolute paths from catalog diagnostics", async () => {
     fetchJson.mockResolvedValue({
       skills: [skill("reviewer")],
-      errors: [{
-        path: "C:/Users/example/.codex/skills/broken/SKILL.md",
-        message: "Cannot read Skill package: /root/.codex/skills/broken",
-      }],
+      errors: [
+        {
+          path: "C:/Users/example/.codex/skills/broken/SKILL.md",
+          message: "ENOENT:/root/.codex/skills/broken",
+        },
+        {
+          path: "/srv/skills/unreadable/SKILL.md",
+          message: "Cannot read file:///srv/skills/unreadable",
+        },
+      ],
     });
     render(<SkillsSettingsView projectId="repo" productMode="agent" conversationId="conversation-1" providerId="codex" onRefresh={vi.fn()} />);
-    await waitFor(() => expect(screen.getByText("有 1 个 Skill 无法读取。")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("有 2 个 Skill 无法读取。")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "查看诊断" }));
 
     expect(screen.getByText("…/broken/SKILL.md")).toBeTruthy();
-    expect(screen.getByText("Cannot read Skill package: [本机路径已隐藏]")).toBeTruthy();
+    expect(screen.getByText("ENOENT:[本机路径已隐藏]")).toBeTruthy();
+    expect(screen.getByText("Cannot read [本机路径已隐藏]")).toBeTruthy();
     expect(screen.queryByText(/\/root\/\.codex/)).toBeNull();
+    expect(screen.queryByText(/file:\/\/\/srv/)).toBeNull();
   });
 
   it("does not refresh the current scope after an old Provider mutation completes", async () => {
