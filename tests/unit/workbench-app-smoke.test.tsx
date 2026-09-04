@@ -313,6 +313,16 @@ describe("Workbench App owner composition", () => {
     installApiFixture(createEmptySnapshot("agent"));
     render(<App />);
 
+    const initialProjectPicker = await screen.findByRole("button", { name: "选择项目" });
+    expect(initialProjectPicker.getAttribute("title")).toBe("选择项目");
+    await screen.findByRole("button", { name: "Repo" });
+    const projectPicker = screen.getByRole("button", { name: "选择项目" });
+    expect(projectPicker.getAttribute("title")).toBe("Repo");
+    fireEvent.click(projectPicker);
+    expect(screen.getByText("repo")).toBeTruthy();
+    expect(document.body.innerHTML).not.toContain("E:/repo");
+    fireEvent.click(projectPicker);
+
     const composer = await screen.findByLabelText("新建需求输入框");
     fireEvent.change(composer, { target: { value: "Start an Agent conversation" } });
     await waitFor(() => {

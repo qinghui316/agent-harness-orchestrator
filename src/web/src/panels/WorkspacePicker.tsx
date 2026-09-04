@@ -25,6 +25,9 @@ export function WorkspacePicker({
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<"closed" | "add" | "new">("closed");
   const selectedProject = projects.find((item) => item.project?.id === selectedProjectId) ?? null;
+  const selectedProjectName = selectedProject?.project
+    ? projectDisplayName(selectedProject.project)
+    : "选择项目";
   const normalizedQuery = query.trim().toLowerCase();
   const filteredProjects = useMemo(() => {
     if (!normalizedQuery) return projects;
@@ -57,9 +60,9 @@ export function WorkspacePicker({
         aria-label="选择项目"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        title={selectedProject?.path ?? "选择项目"}
+        title={selectedProjectName}
       >
-        <span>{selectedProject?.project ? projectDisplayName(selectedProject.project) : "选择项目"}</span>
+        <span>{selectedProjectName}</span>
         <ChevronDown size={16} aria-hidden />
       </button>
 
@@ -94,7 +97,7 @@ export function WorkspacePicker({
                   <Folder size={15} aria-hidden />
                   <span className="workspace-picker-item-main">
                     <strong>{name}</strong>
-                    <small>{item.path}</small>
+                    <small>{projectLocationLabel(item.path)}</small>
                   </span>
                   {selected ? <Check size={15} aria-hidden /> : null}
                 </button>
@@ -125,4 +128,9 @@ export function WorkspacePicker({
       ) : null}
     </div>
   );
+}
+
+function projectLocationLabel(path: string): string {
+  const parts = path.split(/[\\/]+/).filter((part) => part && !/^[A-Za-z]:$/.test(part));
+  return parts.length > 2 ? `…/${parts.slice(-2).join("/")}` : parts.join("/") || "本地项目";
 }
