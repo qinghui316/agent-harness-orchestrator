@@ -1,6 +1,7 @@
 import { RefreshCw } from "lucide-react";
 import { useEffect, useState, type ReactElement } from "react";
 import { fetchJson } from "../../api.js";
+import { userFacingErrorMessage } from "../../presentation/user-facing-language.js";
 import type { ProjectGitDiffResult, ProjectGitDiffSection } from "../../types.js";
 
 export function GitDiffViewer({
@@ -23,7 +24,7 @@ export function GitDiffViewer({
     try {
       setDiff(await fetchJson<ProjectGitDiffResult>(`/api/projects/${encodeURIComponent(projectId)}/git/diff?path=${encodeURIComponent(selectedPath)}`));
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(userFacingErrorMessage(err, "git"));
     } finally {
       setLoading(false);
     }

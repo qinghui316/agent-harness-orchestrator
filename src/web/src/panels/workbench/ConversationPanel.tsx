@@ -17,6 +17,7 @@ import { officeAvatarIdForRole } from "../../office/officePresentationRegistry.j
 import { OfficeLoadingScreen } from "../../office/OfficeLoadingScreen.js";
 import { loadAgentOfficeRuntimeComposition, type AgentOfficeRuntimeComposition } from "../../office/agentOfficeRuntimeComposition.js";
 import { officeResidentRoles } from "../../office/officeResidentPolicy.js";
+import { userFacingErrorMessage } from "../../presentation/user-facing-language.js";
 
 export function MainConversationView({
   transcript,
@@ -134,13 +135,13 @@ function ParentAgentTranscriptView({
         }}>
           <section className="conversation-fork-dialog" role="dialog" aria-modal="true" aria-labelledby="conversation-fork-title">
             <div className="conversation-fork-dialog-heading">
-              <h2 id="conversation-fork-title">{forkTarget.recovery ? "创建恢复分支" : "从此回合分叉"}</h2>
+              <h2 id="conversation-fork-title">{forkTarget.recovery ? "创建恢复会话" : "从这里创建新会话"}</h2>
               <button type="button" className="icon-button" title="关闭" aria-label="关闭" disabled={forking} onClick={() => setForkTarget(null)}><X size={17} /></button>
             </div>
             <p>{forkTarget.recovery
-              ? "当前 Provider Session 已失效。将从失败请求前最后一个成功回合创建新会话，失败输入不会自动重发。"
+              ? "当前会话已经失效。将从失败请求前最后一个成功回合创建新会话，失败输入不会自动发送。"
               : "将创建一个保留至此回合的新会话，当前会话保持不变。"}</p>
-            <p className="conversation-fork-warning">分叉只复制会话历史，不会恢复、回滚或修改项目文件。</p>
+            <p className="conversation-fork-warning">新会话会保留此前的对话历史，项目文件保持不变。</p>
             {forkError ? <p className="conversation-fork-error" role="alert">{forkError}</p> : null}
             <div className="conversation-fork-dialog-actions">
               <button type="button" className="outline-button" disabled={forking} onClick={() => setForkTarget(null)}>取消</button>
@@ -149,9 +150,9 @@ function ParentAgentTranscriptView({
                 setForking(true);
                 setForkError(null);
                 void onFork(forkTarget).then(() => setForkTarget(null)).catch((error: unknown) => {
-                  setForkError(error instanceof Error ? error.message : String(error));
+                  setForkError(userFacingErrorMessage(error, "conversation"));
                 }).finally(() => setForking(false));
-              }}>{forking ? "正在分叉..." : forkTarget.recovery ? "创建恢复分支" : "确认分叉"}</button>
+              }}>{forking ? "正在创建..." : forkTarget.recovery ? "创建恢复会话" : "创建新会话"}</button>
             </div>
           </section>
         </div>
@@ -179,9 +180,8 @@ export function AgentOfficePanel({
     void loadAgentOfficeRuntimeComposition(projectId).then((next) => {
       if (!cancelled) setRuntime(next);
     }).catch((cause: unknown) => {
-      const message = cause instanceof Error ? cause.message : String(cause);
       console.error("Agent Office calibration is unavailable.", cause);
-      if (!cancelled) setRuntimeError(message);
+      if (!cancelled) setRuntimeError(userFacingErrorMessage(cause, "load"));
     });
     return () => { cancelled = true; };
   }, [projectId, runtimeRetry]);

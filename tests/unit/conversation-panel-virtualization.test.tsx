@@ -88,17 +88,17 @@ describe("main conversation virtualization", () => {
     ];
     renderForkTranscript(cells, onFork);
 
-    expect(screen.getByRole("button", { name: "从此回合分叉" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "创建恢复分支" }));
-    const dialog = screen.getByRole("dialog", { name: "创建恢复分支" });
-    expect(screen.getByText(/失败输入不会自动重发/)).toBeTruthy();
-    fireEvent.click(within(dialog).getByRole("button", { name: "创建恢复分支" }));
+    expect(screen.getByRole("button", { name: "从这里创建新会话" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "创建恢复会话" }));
+    const dialog = screen.getByRole("dialog", { name: "创建恢复会话" });
+    expect(screen.getByText(/失败输入不会自动发送/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "创建恢复会话" }));
     await waitFor(() => expect(onFork).toHaveBeenCalledWith(recoveryTarget));
 
     cleanup();
     renderForkTranscript(cells);
-    expect(screen.queryByRole("button", { name: "从此回合分叉" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "创建恢复分支" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "从这里创建新会话" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "创建恢复会话" })).toBeNull();
   });
 
   it("keeps a sub-threshold transcript at natural grid height after repeated measurements", async () => {

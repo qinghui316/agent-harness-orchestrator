@@ -83,6 +83,7 @@ import {
 import { removalConfirmationMessage, useProjectConversationSession } from "./controllers/useProjectConversationSession.js";
 import { useAppModeController } from "./controllers/AppModeController.js";
 import { modePresentationPolicy } from "./presentation/ModePresentationPolicy.js";
+import { sanitizeTechnicalDetail, userFacingErrorMessage } from "./presentation/user-facing-language.js";
 
 const LEFT_SIDEBAR_DEFAULT_WIDTH = 280;
 const LEFT_SIDEBAR_MIN_WIDTH = 220;
@@ -306,7 +307,7 @@ export function App(): ReactElement {
           title: "诊断读取失败",
           status: "error",
           summary: "无法读取运行诊断。",
-          detail: cause instanceof Error ? cause.message : String(cause),
+          detail: sanitizeTechnicalDetail(cause instanceof Error ? ("technicalDetail" in cause && typeof cause.technicalDetail === "string" ? cause.technicalDetail : cause.message) : String(cause)),
         }],
       });
     } finally {
@@ -340,7 +341,7 @@ export function App(): ReactElement {
           type: "action-error",
           severity: "error",
           title: "运行日志读取失败",
-          summary: cause instanceof Error ? cause.message : String(cause),
+          summary: userFacingErrorMessage(cause, "load"),
           refs: [],
         }],
       });
@@ -426,7 +427,7 @@ export function App(): ReactElement {
     setSettingsSection(section);
     setSettingsOpen(true);
     if (section === "skills") {
-      loadSkillSummary().catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)));
+      loadSkillSummary().catch((cause: unknown) => setError(userFacingErrorMessage(cause, "load")));
     }
   }
 
@@ -437,7 +438,7 @@ export function App(): ReactElement {
   function changeSettingsSection(section: SettingsSection): void {
     setSettingsSection(section);
     if (section === "skills") {
-      loadSkillSummary().catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)));
+      loadSkillSummary().catch((cause: unknown) => setError(userFacingErrorMessage(cause, "load")));
     }
   }
 
@@ -489,7 +490,7 @@ export function App(): ReactElement {
   }
 
   async function runComposerSteerRequest(request: ComposerActionRequest) {
-    if (!request.clientRequestId || !request.prompt) throw new Error("Conversation steering requires request and text identity.");
+    if (!request.clientRequestId || !request.prompt) throw new Error("无法确认要补充的内容，请重试。");
     const timelineScope = {
       projectId: request.projectId,
       productMode: request.productMode,
@@ -510,7 +511,7 @@ export function App(): ReactElement {
         return outcome;
       } else {
         if (!request.providerId || !request.expectedAttemptId) {
-          throw new Error("Agent steering requires the exact Provider and Attempt identity.");
+          throw new Error("当前 Agent 状态已经变化，请刷新后重试。");
         }
         const outcome = await conversationActions.steerAgentTurn({
           projectId: request.projectId,
@@ -536,7 +537,7 @@ export function App(): ReactElement {
       return;
     }
     if (!request.providerId || !request.expectedAttemptId) {
-      throw new Error("Agent Stop requires the exact current Provider and Attempt identity.");
+      throw new Error("当前 Agent 状态已经变化，请刷新后重试。");
     }
     await conversationActions.interruptAgentTurn({
       projectId: request.projectId,
@@ -876,7 +877,7 @@ export function App(): ReactElement {
     error: {
       received: (projectId, data) => {
         if (selectedProjectIdRef.current !== projectId || isTransientReconnectMessage(data.message)) return;
-        setError(data.message);
+        setError(userFacingErrorMessage(new Error(data.message), "load"));
       },
     },
   }, {

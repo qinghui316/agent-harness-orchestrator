@@ -1,5 +1,6 @@
 import { useCallback, useRef } from "react";
 import { consumeWorkbenchLiveStream, postJson } from "../api.js";
+import { userFacingErrorMessage } from "../presentation/user-facing-language.js";
 import type { ConversationInteractionDraft } from "../panels/workbench/ConversationInteractionDock.js";
 import type {
   ConversationInteractionSettlement,
@@ -378,7 +379,7 @@ export function useConversationActionController({
         (event) => {
           if (event.event === "error") liveFailure = event.data.message;
           if (event.event === "done" && event.data.status === "failed" && !liveFailure) {
-            liveFailure = "Conversation Retry failed before the Provider Turn completed.";
+            liveFailure = "重试未能完成，请再试一次。";
           }
           if (ownsScope()) actionPorts.routeProjectionEvent(request.projectId, event);
         },
@@ -389,7 +390,7 @@ export function useConversationActionController({
         retryRequestRef.current = null;
       }
     } catch (error) {
-      if (ownsScope()) actionPorts.setError(error instanceof Error ? error.message : String(error));
+      if (ownsScope()) actionPorts.setError(userFacingErrorMessage(error, "conversation"));
       throw error;
     } finally {
       try {
@@ -471,7 +472,7 @@ export function useConversationActionController({
       }
       return { targetConversationId: receipt.targetConversationId };
     } catch (error) {
-      if (ownsSourceScope()) actionPorts.setError(error instanceof Error ? error.message : String(error));
+      if (ownsSourceScope()) actionPorts.setError(userFacingErrorMessage(error, "conversation"));
       throw error;
     } finally {
       actionPorts.operationGate.release(operationToken);

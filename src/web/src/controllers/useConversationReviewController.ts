@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchJson, postJson } from "../api.js";
+import { userFacingErrorMessage } from "../presentation/user-facing-language.js";
 import type { ProductMode, ProjectGitReviewOptions, ProviderReviewTarget } from "../types.js";
 import type { ConversationTurnQueueEnqueueInput } from "./useConversationTurnQueueController.js";
 
@@ -80,7 +81,7 @@ export function useConversationReviewController(input: {
     const current = inputRef.current;
     if (submittingRef.current) return;
     if (!current.projectId || current.productMode !== "agent" || !current.providerId) {
-      current.onError("代码审查需要已选择的 Agent 项目和 Provider。");
+      current.onError("请先选择项目和可用的 Agent，再开始代码审查。");
       return;
     }
     const requestIdentity = identityRef.current;
@@ -158,5 +159,5 @@ function createRequestId(prefix: string): string {
 }
 
 function errorMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
+  return userFacingErrorMessage(cause, "review");
 }

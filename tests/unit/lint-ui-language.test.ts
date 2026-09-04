@@ -45,12 +45,27 @@ describe("UI language lint", () => {
 
   it("checks user-copy presenter modules and the complete forbidden vocabulary", async () => {
     const root = await fixture({
-      "src/web/src/action-labels.ts": `export function label() { return "Topic Change TaskRun WorkerLease blocked audit-blocked queue blocked Approval Inbox"; }`,
+      "src/web/src/action-labels.ts": `export function label() { return "Topic Change TaskRun WorkerLease blocked audit-blocked queue blocked Approval Inbox Adapter Snapshot Capability revision SSE CAS Provider Session Skills Default Plan Review Queue Fork Harness"; }`,
+    });
+    const violations = (await lintUiLanguage(root)).violations.join("\n").toLowerCase();
+    for (const term of ["Topic", "Change", "TaskRun", "WorkerLease", "blocked", "Approval Inbox", "Adapter", "Snapshot", "Capability", "revision", "SSE", "CAS", "Provider", "Session", "Skills", "Default", "Plan", "Review", "Queue", "Fork", "Harness"]) {
+      expect(violations).toContain(term.toLowerCase());
+    }
+  });
+
+  it("rejects direct raw errors and unregistered enum fallbacks", async () => {
+    const root = await fixture({
+      "src/web/src/Panel.tsx": `export function Panel({ cause, response }) {
+        const setError = () => undefined;
+        setError(cause.message);
+        setError(response.text());
+        return <div>完成</div>;
+      }`,
+      "src/web/src/formatters.ts": `export function label(status) { return status; }`,
     });
     const violations = (await lintUiLanguage(root)).violations.join("\n");
-    for (const term of ["Topic", "Change", "TaskRun", "WorkerLease", "blocked", "Approval Inbox"]) {
-      expect(violations).toContain(term);
-    }
+    expect(violations).toContain("raw error or response body");
+    expect(violations).toContain("unregistered raw enum value");
   });
 
   it("allows raw terms only inside an explicit Diagnostics evidence subtree", async () => {
@@ -61,6 +76,17 @@ describe("UI language lint", () => {
     const result = await lintUiLanguage(root);
     expect(result.violations).toHaveLength(1);
     expect(result.violations[0]).toContain("Workpad");
+  });
+
+  it("preserves approved developer and source-authored terminology", async () => {
+    const root = await fixture({
+      "src/web/src/Panel.tsx": `export const Panel = ({ source }) => <>
+        <p>在 Terminal 查看 Git Diff，与 Branch 比较 Commit，并创建 PR。Context 已使用 68% Token。</p>
+        <h1>Agent Harness Orchestrator</h1>
+        <section data-source-authored-content>{source}</section>
+      </>;`,
+    });
+    expect((await lintUiLanguage(root)).violations).toEqual([]);
   });
 });
 

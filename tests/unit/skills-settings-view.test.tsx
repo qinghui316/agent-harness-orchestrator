@@ -41,35 +41,36 @@ describe("SkillsSettingsView request identity", () => {
       providerId="other-provider"
       onRefresh={vi.fn()}
     />);
-    await waitFor(() => expect(within(screen.getByRole("list", { name: "Skill 列表" })).getByText("current-skill")).toBeTruthy());
+    await waitFor(() => expect(within(screen.getByRole("list", { name: "技能列表" })).getByText("current-skill")).toBeTruthy());
     initial.resolve({ skills: [skill("stale-skill")] });
     await Promise.resolve();
 
-    expect(within(screen.getByRole("list", { name: "Skill 列表" })).getByText("current-skill")).toBeTruthy();
+    expect(within(screen.getByRole("list", { name: "技能列表" })).getByText("current-skill")).toBeTruthy();
     expect(screen.queryByText("stale-skill")).toBeNull();
   });
 
   it("groups Skills, opens details on demand, and hides absolute paths outside source settings", async () => {
-    fetchJson.mockResolvedValue({ skills: [skill("reviewer")], roots: [{ rootPath: "C:/skills", sourceKind: "custom", updatedAt: "2026-09-04T00:00:00.000Z" }] });
+    fetchJson.mockResolvedValue({ skills: [{ ...skill("reviewer"), sourceKind: "provider-native" }], roots: [{ rootPath: "C:/skills", sourceKind: "custom", updatedAt: "2026-09-04T00:00:00.000Z" }] });
     render(<SkillsSettingsView projectId="repo" productMode="agent" conversationId="conversation-1" providerId="codex" onRefresh={vi.fn()} />);
     await waitFor(() => expect(screen.getByText("已启用")).toBeTruthy());
     expect(screen.queryByText("C:/skills/reviewer/SKILL.md")).toBeNull();
+    expect(screen.getByText("当前 Agent 的本地技能")).toBeTruthy();
     const skillTrigger = screen.getByRole("button", { name: /reviewer/ });
     fireEvent.click(skillTrigger);
     expect(screen.getByRole("dialog", { name: "reviewer 详情" })).toBeTruthy();
     expect(screen.queryByText("C:/skills/reviewer/SKILL.md")).toBeNull();
-    const closeDetail = screen.getByRole("button", { name: "关闭 Skill 详情" });
+    const closeDetail = screen.getByRole("button", { name: "关闭技能详情" });
     expect(document.activeElement).toBe(closeDetail);
     fireEvent.click(closeDetail);
     expect(screen.queryByRole("dialog", { name: "reviewer 详情" })).toBeNull();
     await waitFor(() => expect(document.activeElement).toBe(skillTrigger));
-    const sourceTrigger = screen.getByRole("button", { name: "Skill 来源设置" });
+    const sourceTrigger = screen.getByRole("button", { name: "技能来源设置" });
     sourceTrigger.focus();
     fireEvent.click(sourceTrigger);
-    expect(screen.getByRole("dialog", { name: "Skill 来源设置" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "技能来源设置" })).toBeTruthy();
     expect(screen.getByText("C:/skills")).toBeTruthy();
-    const sourceInput = screen.getByRole("textbox", { name: "Skill 根目录" });
-    const closeSource = screen.getByRole("button", { name: "关闭 Skill 来源设置" });
+    const sourceInput = screen.getByRole("textbox", { name: "技能目录" });
+    const closeSource = screen.getByRole("button", { name: "关闭技能来源设置" });
     expect(document.activeElement).toBe(closeSource);
     sourceInput.focus();
     fireEvent.keyDown(sourceInput, { key: "Tab" });
@@ -83,7 +84,7 @@ describe("SkillsSettingsView request identity", () => {
     render(<SkillsSettingsView projectId="repo" productMode="agent" conversationId="conversation-1" providerId="codex" onRefresh={vi.fn()} />);
     await waitFor(() => expect(screen.getByText("reviewer")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: /reviewer/ }));
-    fireEvent.change(screen.getByRole("textbox", { name: "搜索 Skills" }), { target: { value: "planner" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "搜索技能" }), { target: { value: "planner" } });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "reviewer 详情" })).toBeNull());
     expect(screen.getByText("planner")).toBeTruthy();
   });
@@ -103,7 +104,7 @@ describe("SkillsSettingsView request identity", () => {
       ],
     });
     render(<SkillsSettingsView projectId="repo" productMode="agent" conversationId="conversation-1" providerId="codex" onRefresh={vi.fn()} />);
-    await waitFor(() => expect(screen.getByText("有 2 个 Skill 无法读取。")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("有 2 个技能无法读取。")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "查看诊断" }));
 
     expect(screen.getByText("…/broken/SKILL.md")).toBeTruthy();
@@ -125,7 +126,7 @@ describe("SkillsSettingsView request identity", () => {
       providerId="codex"
       onRefresh={refresh}
     />);
-    await waitFor(() => expect(within(screen.getByRole("list", { name: "Skill 列表" })).getByText("reviewer")).toBeTruthy());
+    await waitFor(() => expect(within(screen.getByRole("list", { name: "技能列表" })).getByText("reviewer")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: /刷新/ }));
     await waitFor(() => expect(postJson).toHaveBeenCalledTimes(1));
 
@@ -174,13 +175,13 @@ describe("SkillsSettingsView request identity", () => {
       onRefresh={vi.fn()}
     />);
     await waitFor(() => expect(
-      within(screen.getByRole("list", { name: "Skill 列表" })).getByText("current-skill"),
+      within(screen.getByRole("list", { name: "技能列表" })).getByText("current-skill"),
     ).toBeTruthy());
     stale.reject(new Error("stale load failed"));
     await Promise.resolve();
 
     expect(screen.queryByText("stale load failed")).toBeNull();
-    expect(within(screen.getByRole("list", { name: "Skill 列表" })).getByText("current-skill")).toBeTruthy();
+    expect(within(screen.getByRole("list", { name: "技能列表" })).getByText("current-skill")).toBeTruthy();
   });
 });
 

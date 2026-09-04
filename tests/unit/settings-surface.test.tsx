@@ -13,7 +13,7 @@ describe("SettingsSurface clarity", () => {
     const navigation = screen.getByRole("navigation");
     expect(navigation.querySelectorAll("button")).toHaveLength(2);
     expect(screen.getByRole("button", { name: "模型与服务" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Skills" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "技能" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "基础" })).toBeNull();
     expect(screen.queryByRole("button", { name: "项目" })).toBeNull();
   });

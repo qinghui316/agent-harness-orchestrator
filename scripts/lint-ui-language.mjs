@@ -12,6 +12,7 @@ const USER_PRESENTATION_MODULES = new Set([
   "src/web/src/panels/workbench/transcriptDisplay.ts",
 ]);
 const DIAGNOSTIC_RAW_EVIDENCE_ATTRIBUTE = "data-diagnostic-raw-evidence";
+const SOURCE_AUTHORED_CONTENT_ATTRIBUTE = "data-source-authored-content";
 const USER_VISIBLE_ATTRIBUTES = new Set(["aria-label", "title", "placeholder", "alt", "label", "description", "emptyMessage"]);
 const FORBIDDEN_TERMS = [
   /\bWorkpad\b/i,
@@ -37,6 +38,22 @@ const FORBIDDEN_TERMS = [
   /\bscheduler\b/i,
   /\bworker\b/i,
   /\brework\b/i,
+  /\bAdapter\b/i,
+  /\bSnapshot\b/i,
+  /\bCapability\b/i,
+  /\brevision\b/i,
+  /\bSSE\b/,
+  /\bCAS\b/,
+  /\bruntime[ -]?scope\b/i,
+  /\bSkills?\b/i,
+  /\bDefault\b/i,
+  /\bPlan\b/i,
+  /\bReview\b/i,
+  /\bQueue\b/i,
+  /\bFork\b/i,
+  /\bProvider\b/i,
+  /\bSession\b/i,
+  /\bHarness\b/i,
 ];
 const RAW_ID_FIELDS = new Set([
   "changeId", "taskId", "taskRunId", "queueRunId", "runId", "threadId", "turnId",
@@ -54,18 +71,20 @@ export async function lintUiLanguage(rootDirectory = process.cwd()) {
     const content = await readFile(file, "utf8");
     const source = ts.createSourceFile(file, content, ts.ScriptTarget.Latest, true, file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
     const rawAliasesByScope = collectRawIdentifierAliases(source);
-    const visit = (node, insideCode = false, insideDiagnosticRawEvidence = false) => {
+    const visit = (node, insideCode = false, insideDiagnosticRawEvidence = false, insideSourceAuthoredContent = false) => {
       const nextInsideCode = insideCode || isCodeElement(node);
       const nextInsideDiagnosticRawEvidence = insideDiagnosticRawEvidence || isDiagnosticRawEvidenceElement(node);
-      if (!nextInsideCode && !nextInsideDiagnosticRawEvidence && ts.isJsxText(node)) checkText(node.getText(source), node, source, relativePath, violations);
-      if (!nextInsideCode && !nextInsideDiagnosticRawEvidence && ts.isJsxAttribute(node) && USER_VISIBLE_ATTRIBUTES.has(node.name.getText(source))) {
+      const nextInsideSourceAuthoredContent = insideSourceAuthoredContent || isSourceAuthoredContentElement(node);
+      const inspectVisibleCopy = !nextInsideCode && !nextInsideDiagnosticRawEvidence && !nextInsideSourceAuthoredContent;
+      if (inspectVisibleCopy && ts.isJsxText(node)) checkText(node.getText(source), node, source, relativePath, violations);
+      if (inspectVisibleCopy && ts.isJsxAttribute(node) && USER_VISIBLE_ATTRIBUTES.has(node.name.getText(source))) {
         const expression = attributeExpression(node.initializer);
         for (const value of staticExpressionValues(expression)) checkText(value, node, source, relativePath, violations);
         for (const rawId of rawIdNames(expression, aliasesForNode(rawAliasesByScope, node))) {
           violations.push(`${relativePath}:${lineOf(source, node)} exposes raw identifier ${rawId} outside Diagnostics`);
         }
       }
-      if (!nextInsideCode && !nextInsideDiagnosticRawEvidence && ts.isJsxExpression(node) && isVisibleJsxChild(node) && node.expression) {
+      if (inspectVisibleCopy && ts.isJsxExpression(node) && isVisibleJsxChild(node) && node.expression) {
         for (const value of staticExpressionValues(node.expression)) checkText(value, node, source, relativePath, violations);
         for (const rawId of rawIdNames(node.expression, aliasesForNode(rawAliasesByScope, node))) {
           violations.push(`${relativePath}:${lineOf(source, node)} exposes raw identifier ${rawId} outside Diagnostics`);
@@ -73,8 +92,14 @@ export async function lintUiLanguage(rootDirectory = process.cwd()) {
       }
       if (USER_PRESENTATION_MODULES.has(relativePath) && ts.isReturnStatement(node) && node.expression) {
         for (const value of returnedStaticValues(node.expression)) checkText(value, node, source, relativePath, violations);
+        if (isRawEnumFallback(node.expression)) {
+          violations.push(`${relativePath}:${lineOf(source, node)} returns an unregistered raw enum value`);
+        }
       }
-      ts.forEachChild(node, (child) => visit(child, nextInsideCode, nextInsideDiagnosticRawEvidence));
+      if (inspectVisibleCopy && ts.isCallExpression(node) && directlyPresentsRawError(node)) {
+        violations.push(`${relativePath}:${lineOf(source, node)} renders a raw error or response body outside Diagnostics`);
+      }
+      ts.forEachChild(node, (child) => visit(child, nextInsideCode, nextInsideDiagnosticRawEvidence, nextInsideSourceAuthoredContent));
     };
     visit(source);
   }
@@ -82,12 +107,59 @@ export async function lintUiLanguage(rootDirectory = process.cwd()) {
 }
 
 function checkText(value, node, source, path, violations) {
-  const compact = value.replace(/\s+/g, " ").trim();
+  const compact = value.replace(/Agent Harness Orchestrator/gi, "").replace(/\s+/g, " ").trim();
   if (!compact) return;
   for (const pattern of FORBIDDEN_TERMS) {
     const match = pattern.exec(compact);
     if (match) violations.push(`${path}:${lineOf(source, node)} exposes internal term ${JSON.stringify(match[0])} outside Diagnostics`);
   }
+}
+
+function isRawEnumFallback(expression) {
+  return ts.isIdentifier(expression) && /^(?:status|state|kind|type|action|actionType)$/i.test(expression.text);
+}
+
+function directlyPresentsRawError(call) {
+  const callee = call.expression;
+  if (!ts.isIdentifier(callee) || !/^(?:set.*Error|setMessage|onError)$/i.test(callee.text)) return false;
+  return call.arguments.some((argument) => !isSafeFailureProjection(argument) && containsRawErrorValue(argument));
+}
+
+function isSafeFailureProjection(node) {
+  return ts.isCallExpression(node)
+    && ts.isIdentifier(node.expression)
+    && ["userFacingErrorMessage", "toUserFacingFailure", "sanitizeTechnicalDetail"].includes(node.expression.text);
+}
+
+function containsRawErrorValue(node) {
+  let found = false;
+  const visit = (current) => {
+    if (ts.isCallExpression(current)
+      && ts.isPropertyAccessExpression(current.expression)
+      && ts.isIdentifier(current.expression.expression)
+      && current.expression.expression.text === "response"
+      && current.expression.name.text === "text") {
+      found = true;
+      return;
+    }
+    if (ts.isPropertyAccessExpression(current)
+      && current.name.text === "message"
+      && ts.isIdentifier(current.expression)
+      && /^(?:cause|error|err|data|response)$/i.test(current.expression.text)) {
+      found = true;
+      return;
+    }
+    if (ts.isCallExpression(current)
+      && ts.isIdentifier(current.expression)
+      && current.expression.text === "String"
+      && current.arguments.some((argument) => ts.isIdentifier(argument) && /^(?:cause|error|err)$/i.test(argument.text))) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(current, visit);
+  };
+  visit(node);
+  return found;
 }
 
 function attributeExpression(initializer) {
@@ -101,6 +173,13 @@ function staticExpressionValues(expression) {
   if (!expression) return [];
   const values = [];
   const visit = (node) => {
+    if (ts.isParenthesizedExpression(node)
+      || ts.isAsExpression(node)
+      || ts.isTypeAssertionExpression(node)
+      || ts.isNonNullExpression(node)) {
+      visit(node.expression);
+      return;
+    }
     if (ts.isStringLiteralLike(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
       values.push(node.text);
       return;
@@ -113,8 +192,15 @@ function staticExpressionValues(expression) {
       }
       return;
     }
-    if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node) || ts.isFunctionLike(node)) return;
-    ts.forEachChild(node, visit);
+    if (ts.isConditionalExpression(node)) {
+      visit(node.whenTrue);
+      visit(node.whenFalse);
+      return;
+    }
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+      visit(node.left);
+      visit(node.right);
+    }
   };
   visit(expression);
   return values;
@@ -219,6 +305,12 @@ function isDiagnosticRawEvidenceElement(node) {
   if (!ts.isJsxElement(node) && !ts.isJsxSelfClosingElement(node)) return false;
   const attributes = ts.isJsxElement(node) ? node.openingElement.attributes.properties : node.attributes.properties;
   return attributes.some((attribute) => ts.isJsxAttribute(attribute) && attribute.name.getText() === DIAGNOSTIC_RAW_EVIDENCE_ATTRIBUTE);
+}
+
+function isSourceAuthoredContentElement(node) {
+  if (!ts.isJsxElement(node) && !ts.isJsxSelfClosingElement(node)) return false;
+  const attributes = ts.isJsxElement(node) ? node.openingElement.attributes.properties : node.attributes.properties;
+  return attributes.some((attribute) => ts.isJsxAttribute(attribute) && attribute.name.getText() === SOURCE_AUTHORED_CONTENT_ATTRIBUTE);
 }
 
 function lineOf(source, node) {

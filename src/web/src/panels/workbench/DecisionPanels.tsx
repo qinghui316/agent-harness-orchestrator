@@ -36,7 +36,7 @@ export function DecisionInspectorPane({
       {!primaryQueueItem ? (
         <div className="approval-empty">
           <h3>暂无需要确认</h3>
-          <p>执行过程、证据和后台维护不会堆在这里；只有需要你做决定的事项会出现。</p>
+          <p>只有需要你做决定的事项会出现在这里。</p>
         </div>
       ) : (
         <ConfirmationQueueCard
@@ -183,16 +183,16 @@ function DecisionContextCard({
       </div>
       <div className="decision-explainer">
         <strong>推荐动作</strong>
-        <p>{context.recommendation ?? "查看证据后选择同意、要求修改或放弃。"}</p>
+        <p>{context.recommendation ?? "查看检查结果后选择同意、要求修改或放弃。"}</p>
       </div>
       <div className="decision-explainer muted">
         <strong>说明</strong>
         <p>{context.explanation ?? "详细运行信息可在诊断工具中查看。"}</p>
       </div>
       {context.evidenceRefs?.length ? (
-        <div className="workpad-links" aria-label="Decision evidence refs">
+        <div className="workpad-links" aria-label="检查结果">
           {context.evidenceRefs.slice(0, 4).map((artifact) => (
-            <span className="artifact-link" key={artifact}>查看证据：{artifactName(artifact)}</span>
+            <span className="artifact-link" key={artifact}>查看检查结果：{artifactName(artifact)}</span>
           ))}
         </div>
       ) : null}

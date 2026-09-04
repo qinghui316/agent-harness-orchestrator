@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { consumeWorkbenchLiveStream, fetchJson, postJson } from "../api.js";
+import { userFacingErrorMessage } from "../presentation/user-facing-language.js";
 import { projectDisplayName } from "../formatters.js";
 import type {
   AgentTurnMode,
@@ -160,7 +161,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
   );
 
   const reportError = useCallback((cause: unknown): void => {
-    portsRef.current.onError?.(cause instanceof Error ? cause.message : String(cause));
+    portsRef.current.onError?.(userFacingErrorMessage(cause, "load"));
   }, []);
 
   const beginTransition = useCallback((
@@ -1055,7 +1056,7 @@ function defaultConfirmRemoveProject(
 }
 
 export function removalConfirmationMessage(projectName: string): string {
-  return `永久移出“${projectName}”？\n\n这会停止该项目正在运行的 Agent，并永久删除 AHO 中的对话、运行记录、日志和运行 sidecar。删除后无法从 App 恢复这些数据。\n\n项目源码、物理项目 Harness Skill、Git worktree 和 Git 历史会保留。`;
+  return `永久移出“${projectName}”？\n\n这会停止该项目正在运行的 Agent，并永久删除 AHO 中的会话、执行记录和日志。删除后无法在 Workbench 中恢复。\n\n项目源码、项目协作配置、Git 独立工作区和 Git 历史会保留。`;
 }
 
 export function snapshotForProject(
@@ -1249,9 +1250,12 @@ async function fetchSnapshot(url: string): Promise<Snapshot> {
 }
 
 class WorkbenchHttpError extends Error {
-  constructor(readonly status: number, message: string) {
-    super(message);
+  readonly technicalDetail: string;
+
+  constructor(readonly status: number, technicalDetail: string) {
+    super(`Workbench request failed (${status}).`);
     this.name = status === 409 ? "Conflict" : "WorkbenchHttpError";
+    this.technicalDetail = technicalDetail;
   }
 }
 

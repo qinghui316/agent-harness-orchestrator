@@ -103,8 +103,8 @@ export function TranscriptReviewCard({ cell, onFork, onOpenProjectFile }: {
       {cell.forkTarget?.recovery && onFork ? <button
         type="button"
         className="transcript-fork-button"
-        title="创建恢复分支"
-        aria-label="创建恢复分支"
+        title="创建恢复会话"
+        aria-label="创建恢复会话"
         onClick={() => onFork(cell.forkTarget!)}
       ><GitFork size={15} aria-hidden="true" /></button> : null}
     </header>
@@ -235,8 +235,8 @@ export function TranscriptActivityRow({ cell, expanded, onToggleExpanded, onOpen
           <button
             type="button"
             className="transcript-fork-button"
-            title={cell.forkTarget.recovery ? "创建恢复分支" : "从此回合分叉"}
-            aria-label={cell.forkTarget.recovery ? "创建恢复分支" : "从此回合分叉"}
+            title={cell.forkTarget.recovery ? "创建恢复会话" : "从这里创建新会话"}
+            aria-label={cell.forkTarget.recovery ? "创建恢复会话" : "从这里创建新会话"}
             onClick={() => onFork(cell.forkTarget!)}
           >
             <GitFork size={15} aria-hidden="true" />

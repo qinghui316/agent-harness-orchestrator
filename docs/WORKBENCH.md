@@ -54,8 +54,8 @@ removable above the editor. Low-frequency additions live behind the `+` menu,
 while Queue and running-turn actions only appear when their current snapshots
 make them relevant.
 
-Workbench Settings has two user-facing destinations: `Models and services` and
-`Skills`. The normal provider view shows connection state, effective default
+Workbench Settings has two user-facing destinations: `模型与服务` and `技能`.
+The normal provider view shows connection state, effective default
 model, source, and actions that can actually change or refresh configuration.
 Capability keys, spec/runtime states, versions, and bounded errors appear only
 in an on-demand diagnostics drawer. The Skills page uses grouped searchable
@@ -63,6 +63,16 @@ results and temporary detail/source drawers. Ordinary rows and details never
 show absolute source paths; real custom-root paths are confined to the explicit
 advanced source-management flow. The browser uses only the existing catalog
 contract and does not open arbitrary local paths or synthesize package content.
+
+All product-authored Workbench copy passes through one user-facing language
+policy. Primary labels stay concise, recovery details explain the next useful
+action, and protocol or persistence terminology appears only in an explicit
+diagnostics surface. Common developer objects such as Git, Branch, Commit, Diff,
+PR, Terminal, Token, Agent, and model names remain recognizable. Feature labels
+use the shared Chinese vocabulary, including `默认`, `计划`, `技能`, `代码审查`,
+`上下文`, `稍后发送`, and `从这里创建新会话`. User input, Agent output, code,
+Terminal output, Git content, model names, Skill names, and Skill bodies remain
+verbatim rather than being rewritten by the presentation layer.
 
 Composer drafts are durable full snapshots scoped by `projectId + productMode`.
 They reuse the schema-14 `composer_drafts` row and include unsent text, safe

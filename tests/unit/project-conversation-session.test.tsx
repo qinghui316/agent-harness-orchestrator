@@ -742,7 +742,7 @@ describe("Project conversation session owner", () => {
     });
 
     expect(result.current.selectedTopic).toBe("conv-committed");
-    expect(fixture.ports.onError).toHaveBeenCalledWith("stream disconnected");
+    expect(fixture.ports.onError).toHaveBeenCalledWith("暂时无法加载内容。请重试。");
   });
 
   it("keeps the selected run and stream scoped to the latest request", async () => {
@@ -918,8 +918,8 @@ function ownerFixture(options: { restore?: WorkbenchRestoreParams } = {}) {
 describe("Project removal confirmation", () => {
   it("states the destructive runtime boundary and preserved source owners", () => {
     const message = removalConfirmationMessage("Example");
-    expect(message).toContain("永久删除 AHO 中的对话、运行记录、日志和运行 sidecar");
-    expect(message).toContain("项目源码、物理项目 Harness Skill、Git worktree 和 Git 历史会保留");
+    expect(message).toContain("永久删除 AHO 中的会话、执行记录和日志");
+    expect(message).toContain("项目源码、项目协作配置、Git 独立工作区和 Git 历史会保留");
     expect(message).not.toContain("只会从 App 项目列表移出");
   });
 });

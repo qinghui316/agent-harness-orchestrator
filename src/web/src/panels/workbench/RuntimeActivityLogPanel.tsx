@@ -25,7 +25,7 @@ export function RuntimeActivityLogPanel({
       return true;
     });
   }, [snapshot?.items, typeFilter, severityFilter]);
-  const copyText = snapshot ? formatRuntimeActivityForCopy(snapshot, items) : "暂无运行日志。";
+  const copyText = snapshot ? formatRuntimeActivityForCopy(snapshot, items) : "暂无执行日志。";
   const isRail = variant === "rail";
 
   return (
@@ -33,18 +33,18 @@ export function RuntimeActivityLogPanel({
       <header className="runtime-activity-log-header">
         <div>
           <p className="eyebrow">{isRail ? "只读" : "只读观察"}</p>
-          <h2>运行日志</h2>
-          <span>{loading ? "正在读取运行证据。" : snapshot ? `${items.length} / ${snapshot.items.length} 条事件` : "暂无运行证据。"}</span>
+          <h2>执行日志</h2>
+          <span>{loading ? "正在读取检查结果。" : snapshot ? `${items.length} / ${snapshot.items.length} 条记录` : "暂无检查结果。"}</span>
         </div>
         <div className="runtime-activity-log-actions">
-          <button type="button" className="secondary-button" aria-label="刷新运行日志" onClick={onRefresh}>
+          <button type="button" className="secondary-button" aria-label="刷新执行日志" onClick={onRefresh}>
             <RefreshCcw size={14} aria-hidden="true" />
             {!isRail ? "刷新" : null}
           </button>
           <button
             type="button"
             className="secondary-button"
-            aria-label="复制运行日志摘要"
+            aria-label="复制执行日志摘要"
             onClick={() => {
               void navigator.clipboard?.writeText(copyText);
             }}
@@ -54,7 +54,7 @@ export function RuntimeActivityLogPanel({
           </button>
         </div>
       </header>
-      <div className="runtime-activity-filters" aria-label="运行日志过滤">
+      <div className="runtime-activity-filters" aria-label="执行日志筛选">
         <label>
           类型
           <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as "all" | RuntimeActivityType)}>
@@ -68,8 +68,8 @@ export function RuntimeActivityLogPanel({
           </select>
         </label>
       </div>
-      {loading ? <div className="runtime-activity-empty">正在读取运行日志...</div> : null}
-      {!loading && !snapshot ? <div className="runtime-activity-empty">暂无运行日志。</div> : null}
+      {loading ? <div className="runtime-activity-empty">正在读取执行日志...</div> : null}
+      {!loading && !snapshot ? <div className="runtime-activity-empty">暂无执行日志。</div> : null}
       {!loading && snapshot && items.length === 0 ? <div className="runtime-activity-empty">当前过滤条件下没有事件。</div> : null}
       <div className="runtime-activity-timeline">
         {items.map((item) => <RuntimeActivityRow key={item.id} item={item} variant={variant} />)}
@@ -94,7 +94,7 @@ function RuntimeActivityRow({ item, variant }: { item: RuntimeActivityItem; vari
         <p>{item.summary}</p>
         {(item.details?.length || item.refs.length) ? (
           <details className="runtime-activity-details">
-            <summary>查看证据</summary>
+            <summary>查看检查结果</summary>
             {item.details?.length ? (
               <ul>
                 {item.details.map((detail, index) => <li key={`${item.id}-detail-${index}`}>{detail}</li>)}
@@ -130,7 +130,7 @@ function RuntimeActivityRow({ item, variant }: { item: RuntimeActivityItem; vari
       </div>
       {(item.details?.length || item.refs.length) ? (
         <details className="runtime-activity-details">
-          <summary>查看证据</summary>
+          <summary>查看检查结果</summary>
           {item.details?.length ? (
             <ul>
               {item.details.map((detail, index) => <li key={`${item.id}-detail-${index}`}>{detail}</li>)}
@@ -153,7 +153,7 @@ function RuntimeActivityRow({ item, variant }: { item: RuntimeActivityItem; vari
 
 function formatRuntimeActivityForCopy(snapshot: RuntimeActivityLogSnapshot, items: RuntimeActivityItem[]): string {
   return [
-    `运行日志 ${snapshot.generatedAt}`,
+    `执行日志 ${snapshot.generatedAt}`,
     `Project: ${snapshot.projectId}`,
     snapshot.topicId ? `Topic: ${snapshot.topicId}` : "",
     ...items.map((item) => `- [${item.severity}] ${item.title}: ${item.summary}`),
@@ -163,13 +163,13 @@ function formatRuntimeActivityForCopy(snapshot: RuntimeActivityLogSnapshot, item
 function typeLabel(type: "all" | RuntimeActivityType): string {
   const labels: Record<"all" | RuntimeActivityType, string> = {
     all: "全部",
-    provider: "Provider",
-    run: "运行",
-    "run-event": "运行事件",
+    provider: "AI 服务",
+    run: "执行",
+    "run-event": "执行动态",
     validation: "验证",
     audit: "审查",
     "message-context": "消息上下文",
-    terminal: "终端",
+    terminal: "Terminal",
     "action-error": "操作错误",
   };
   return labels[type];

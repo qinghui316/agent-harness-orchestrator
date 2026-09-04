@@ -38,10 +38,10 @@ export function RuntimeDiagnosticsRailPanel({
             <button type="button" className="icon-button" aria-label="返回诊断摘要" onClick={() => setView("summary")}>
               <ArrowLeft size={14} aria-hidden="true" />
             </button>
-            <strong>运行日志</strong>
+            <strong>执行日志</strong>
           </div>
           <div className="runtime-diagnostics-rail-actions">
-            <button type="button" className="icon-button" aria-label="刷新运行日志" onClick={onRefreshRuntimeLog}>
+            <button type="button" className="icon-button" aria-label="刷新执行日志" onClick={onRefreshRuntimeLog}>
               <RefreshCcw size={14} aria-hidden="true" />
             </button>
           </div>
@@ -147,8 +147,8 @@ function RecentRuntimeEvents({
           查看日志
         </button>
       </header>
-      {loading ? <div className="runtime-diagnostics-empty compact">正在读取运行日志...</div> : null}
-      {!loading && events.length === 0 ? <div className="runtime-diagnostics-empty compact">暂无运行事件。</div> : null}
+      {loading ? <div className="runtime-diagnostics-empty compact">正在读取执行日志...</div> : null}
+      {!loading && events.length === 0 ? <div className="runtime-diagnostics-empty compact">暂无执行动态。</div> : null}
       {events.map((item) => <RecentRuntimeEventRow key={item.id} item={item} elevated={elevated} />)}
     </section>
   );
@@ -169,13 +169,13 @@ function RecentRuntimeEventRow({ item, elevated }: { item: RuntimeActivityItem; 
 
 function typeLabel(type: RuntimeActivityItem["type"]): string {
   const labels: Record<RuntimeActivityItem["type"], string> = {
-    provider: "Provider",
-    run: "运行",
-    "run-event": "运行事件",
+    provider: "AI 服务",
+    run: "执行",
+    "run-event": "执行动态",
     validation: "验证",
     audit: "审查",
     "message-context": "消息上下文",
-    terminal: "终端",
+    terminal: "Terminal",
     "action-error": "操作错误",
   };
   return labels[type];

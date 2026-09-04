@@ -257,7 +257,7 @@ describe("Conversation action controller", () => {
       },
       expect.any(Function),
     );
-    expect(harness.ports.setError).toHaveBeenLastCalledWith("Retry admission failed.");
+    expect(harness.ports.setError).toHaveBeenLastCalledWith("会话操作暂时无法完成。请重试。");
     expect(harness.ports.calibrateTimeline).toHaveBeenCalledWith({
       projectId: "repo-1",
       productMode: "agent",

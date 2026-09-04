@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactElement } from "react";
 import { ArrowLeft, Bot, CircleAlert, RefreshCw, Sparkles, X } from "lucide-react";
 import { SkillsSettingsView } from "./SkillsSettingsView.js";
 import { useModalDialogFocus } from "./useModalDialogFocus.js";
+import { sanitizeTechnicalDetail, userFacingErrorMessage } from "../presentation/user-facing-language.js";
 import type { ProductMode, ProviderDiagnostics, ProviderModelSettingsSnapshot, ProjectStatus, ProviderCapabilityItem, ProviderCapabilitySnapshot } from "../types.js";
 
 export type SettingsSection = "basic" | "project" | "provider" | "skills";
@@ -9,7 +10,7 @@ type VisibleSettingsSection = "provider" | "skills";
 
 const sections: Array<{ id: VisibleSettingsSection; label: string; icon: typeof Bot }> = [
   { id: "provider", label: "模型与服务", icon: Bot },
-  { id: "skills", label: "Skills", icon: Sparkles },
+  { id: "skills", label: "技能", icon: Sparkles },
 ];
 
 export function SettingsSurface({ section, onSectionChange, project, productMode, conversationId, selectedProviderId, diagnostics, modelSettings, providerCapabilities, modelSettingsBusy, modelSettingsMessage, onOpenModelSettings, onClose, onRefresh }: {
@@ -32,7 +33,7 @@ export function SettingsSurface({ section, onSectionChange, project, productMode
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const visibleSection: VisibleSettingsSection = section === "skills" ? "skills" : "provider";
   const selectedProjectId = project?.project?.id ?? null;
-  const providerLabel = diagnostics?.displayName ?? "当前 Provider";
+  const providerLabel = diagnostics?.displayName ?? "当前 AI 服务";
   const capabilitySnapshot = providerCapabilities?.find((item) => item.providerId === (diagnostics?.providerId ?? selectedProviderId)) ?? null;
 
   useEffect(() => {
@@ -45,7 +46,7 @@ export function SettingsSurface({ section, onSectionChange, project, productMode
   async function refresh(): Promise<void> {
     setMessage(null);
     try { await onRefresh(); }
-    catch (cause) { setMessage(cause instanceof Error ? cause.message : String(cause)); }
+    catch (cause) { setMessage(userFacingErrorMessage(cause, "settings")); }
   }
 
   const status = providerConnectionStatus(capabilitySnapshot, diagnostics);
@@ -58,7 +59,7 @@ export function SettingsSurface({ section, onSectionChange, project, productMode
 
       <div className="settings-surface-content">
         <header className="settings-surface-header">
-          <div><h1>{visibleSection === "provider" ? "模型与服务" : "Skills"}</h1><p>{settingsDescription(visibleSection)}</p></div>
+          <div><h1>{visibleSection === "provider" ? "模型与服务" : "技能"}</h1><p>{settingsDescription(visibleSection)}</p></div>
           <button className="outline-button settings-back-button" aria-label="返回工作区" onClick={onClose}><ArrowLeft size={16} />返回工作区</button>
         </header>
 
@@ -95,10 +96,10 @@ function ProviderDiagnosticsDrawer({ snapshot, diagnostics, modelMessage, onClos
   const capabilities = snapshot?.capabilities ?? [];
   const reasons = [modelMessage, diagnostics?.lastError, ...(snapshot?.degradedReasons ?? [])].filter((value): value is string => Boolean(value));
   return <div className="settings-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section ref={dialogRef} className="settings-panel provider-diagnostics-drawer" role="dialog" aria-modal="true" aria-label="服务诊断" tabIndex={-1}>
+    <section ref={dialogRef} className="settings-panel provider-diagnostics-drawer" role="dialog" aria-modal="true" aria-label="服务诊断" tabIndex={-1} data-diagnostic-raw-evidence>
       <header className="settings-panel-header"><div><p className="eyebrow">高级诊断</p><h2>{snapshot?.displayName ?? diagnostics?.displayName ?? "AI 服务"}</h2></div><button className="icon-button" aria-label="关闭服务诊断" onClick={onClose}><X size={16} /></button></header>
       <p className="muted-copy">这些信息用于排查连接和能力问题，不会改变服务配置。</p>
-      {reasons.length > 0 ? <div className="diagnostic-errors"><strong>检测到的问题</strong>{reasons.map((reason) => <p key={reason}>{reason}</p>)}</div> : <p className="provider-healthy-note">当前未检测到服务问题。</p>}
+      {reasons.length > 0 ? <div className="diagnostic-errors"><strong>检测到的问题</strong>{reasons.map((reason) => <p key={reason}>{sanitizeTechnicalDetail(reason)}</p>)}</div> : <p className="provider-healthy-note">当前未检测到服务问题。</p>}
       <div className="provider-capability-list" aria-label="能力诊断">{capabilities.map((item) => <ProviderCapabilityRow item={item} key={item.key} />)}</div>
       <dl className="settings-definition-list compact"><div><dt>Adapter</dt><dd>{diagnostics ? `${diagnostics.adapter.id} ${diagnostics.adapter.version}` : "未读取"}</dd></div><div><dt>Snapshot</dt><dd>{snapshot ? `v${snapshot.snapshotVersion}` : "未读取"}</dd></div></dl>
     </section>
@@ -109,7 +110,7 @@ function ProviderCapabilityRow({ item }: { item: ProviderCapabilityItem }): Reac
   return <div className="provider-capability-row"><div><strong>{item.label}</strong><small>{item.summary}</small>{item.reason ? <small className="provider-capability-reason">{item.reason}</small> : null}<code>{item.key}</code></div><div className="provider-capability-states"><span className={`provider-state-pill spec ${item.spec}`}>{specStateLabel(item.spec)}</span><span className={`provider-state-pill runtime ${item.runtime}`}>{runtimeStateLabel(item.runtime)}</span></div></div>;
 }
 
-function settingsDescription(section: VisibleSettingsSection): string { return section === "provider" ? "管理当前 Coding Agent 的连接和默认模型。" : "查找、了解并管理当前项目可用的 Skills。"; }
+function settingsDescription(section: VisibleSettingsSection): string { return section === "provider" ? "管理当前 Coding Agent 的连接和默认模型。" : "查找、了解并管理当前项目可用的技能。"; }
 function providerConnectionStatus(snapshot: ProviderCapabilitySnapshot | null, diagnostics: ProviderDiagnostics | null): ProviderCapabilitySnapshot["status"] { return snapshot?.status ?? (diagnostics?.installation.available ? "ready" : "unavailable"); }
 function providerSummary(snapshot: ProviderCapabilitySnapshot | null, diagnostics: ProviderDiagnostics | null): string {
   if (!diagnostics?.installation.available) return "尚未检测到可用的 Coding Agent。";

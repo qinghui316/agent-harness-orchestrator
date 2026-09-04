@@ -1,6 +1,6 @@
 export async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) throw await WorkbenchRequestError.fromResponse(response);
   return response.json() as Promise<T>;
 }
 
@@ -10,7 +10,7 @@ export async function postJson<T>(url: string, body: unknown): Promise<T> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) throw await WorkbenchRequestError.fromResponse(response);
   return response.json() as Promise<T>;
 }
 
@@ -20,7 +20,7 @@ export async function consumeWorkbenchLiveStream<TEvent>(url: string, body: unkn
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) throw await WorkbenchRequestError.fromResponse(response);
   if (!response.body) throw new Error("Live response did not include a readable body.");
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -44,6 +44,22 @@ export async function consumeWorkbenchLiveStream<TEvent>(url: string, body: unkn
     const event = parseWorkbenchSseFrame<TEvent>(trailing);
     if (event) onEvent(event);
     await yieldToBrowser();
+  }
+}
+
+export class WorkbenchRequestError extends Error {
+  readonly status: number;
+  readonly technicalDetail: string;
+
+  constructor(status: number, technicalDetail: string) {
+    super(`Workbench request failed (${status}).`);
+    this.name = "WorkbenchRequestError";
+    this.status = status;
+    this.technicalDetail = technicalDetail;
+  }
+
+  static async fromResponse(response: Response): Promise<WorkbenchRequestError> {
+    return new WorkbenchRequestError(response.status, await response.text());
   }
 }
 

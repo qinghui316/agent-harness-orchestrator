@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchJson, postJson } from "../api.js";
+import { userFacingErrorMessage } from "../presentation/user-facing-language.js";
 import type {
   ProductMode,
   ProviderCapabilitySnapshot,
@@ -100,7 +101,7 @@ export function useProviderConfigurationController(input: ProviderConfigurationI
     let active = true;
     reload().catch((cause: unknown) => {
       if (active) {
-        const message = cause instanceof Error ? cause.message : String(cause);
+        const message = userFacingErrorMessage(cause, "settings");
         setCapabilities([]);
         setCapabilitiesError(message);
         setResolvedScopeIdentity(scopeIdentity);
@@ -143,7 +144,7 @@ export function useProviderConfigurationController(input: ProviderConfigurationI
       if (generation === requestGenerationRef.current) setResolvedScopeIdentity(scopeIdentity);
     } catch (cause) {
       if (generation === requestGenerationRef.current) {
-        setCapabilitiesError(cause instanceof Error ? cause.message : String(cause));
+        setCapabilitiesError(userFacingErrorMessage(cause, "settings"));
         setResolvedScopeIdentity(scopeIdentity);
       }
     }
@@ -166,7 +167,7 @@ export function useProviderConfigurationController(input: ProviderConfigurationI
       if (generation === requestGenerationRef.current) setResolvedScopeIdentity(scopeIdentity);
     }).catch((cause: unknown) => {
       if (generation === requestGenerationRef.current) {
-        setCapabilitiesError(cause instanceof Error ? cause.message : String(cause));
+        setCapabilitiesError(userFacingErrorMessage(cause, "settings"));
         setResolvedScopeIdentity(scopeIdentity);
       }
     });
@@ -182,7 +183,7 @@ export function useProviderConfigurationController(input: ProviderConfigurationI
       await loadProviderDetails(providerId, generation);
     } catch (cause) {
       if (generation === requestGenerationRef.current) {
-        setModelSettingsMessage(cause instanceof Error ? cause.message : String(cause));
+        setModelSettingsMessage(userFacingErrorMessage(cause, "settings"));
       }
     }
   }, [loadProviderDetails, visibleSelectedProviderId]);
@@ -212,7 +213,7 @@ export function useProviderConfigurationController(input: ProviderConfigurationI
       }
     } catch (cause) {
       if (generation === requestGenerationRef.current) {
-        setModelSettingsMessage(cause instanceof Error ? cause.message : String(cause));
+        setModelSettingsMessage(userFacingErrorMessage(cause, "settings"));
       }
     } finally {
       if (generation === requestGenerationRef.current) setModelSettingsBusy(false);

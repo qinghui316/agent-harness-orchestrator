@@ -4,7 +4,7 @@ import { eventLabel, formatTime, humanStatus, runtimeLabel } from "../../formatt
 import type { AssistantReadableEvent, RunSummary, StreamPacket } from "../../types.js";
 
 export function RunReplay({ stream, run }: { stream: StreamPacket | null; run?: RunSummary }): ReactElement {
-  if (!run) return <div className="dark-panel empty-dark">选择一个 Run 查看回放。</div>;
+  if (!run) return <div className="dark-panel empty-dark">选择一条执行记录查看详情。</div>;
   const finalOutput = artifactPreview(stream, "lastMessage") ?? artifactPreview(stream, "implementation") ?? "暂无 AI 最终输出";
   const rawPreview = artifactPreview(stream, "providerEvents") ?? artifactPreview(stream, "events") ?? artifactPreview(stream, "stdout") ?? "暂无原始日志";
   const visibleEvents = (stream?.events ?? []).slice(0, 8);
@@ -12,7 +12,7 @@ export function RunReplay({ stream, run }: { stream: StreamPacket | null; run?: 
   return (
     <div className="dark-panel">
       <div className="replay-header">
-        <div><span>{runtimeLabel(run.runtime)}</span><small>{run.id}</small></div>
+        <div><span>{runtimeLabel(run.runtime)}</span></div>
         <em>{humanStatus(run.status)}</em>
       </div>
       <div className="run-summary-grid">
@@ -21,9 +21,9 @@ export function RunReplay({ stream, run }: { stream: StreamPacket | null; run?: 
         <div><span>结束</span><strong>{formatTime(run.finishedAt) || "-"}</strong></div>
       </div>
       <section className="run-readable-section">
-        <h3>运行阶段</h3>
+        <h3>执行阶段</h3>
         <div className="phase-list">
-          {visibleEvents.length === 0 ? <div className="phase-row muted-row"><span>暂无阶段</span><small>等待 run artifact</small></div> : null}
+          {visibleEvents.length === 0 ? <div className="phase-row muted-row"><span>暂无阶段</span><small>等待执行结果</small></div> : null}
           {visibleEvents.map((event) => (
             <div className="phase-row" key={event.id}>
               <time>{formatTime(event.timestamp)}</time>
@@ -41,7 +41,7 @@ export function RunReplay({ stream, run }: { stream: StreamPacket | null; run?: 
         <h3>AI 最终输出</h3>
         <pre className="final-output">{finalOutput}</pre>
       </section>
-      <details className="raw-log-details">
+      <details className="raw-log-details" data-diagnostic-raw-evidence>
         <summary>查看原始日志</summary>
         <pre className="code-preview">{rawPreview}</pre>
       </details>
@@ -92,11 +92,10 @@ function AssistantReadableEventCard({ event }: { event: AssistantReadableEvent }
       </div>
       {event.summary ? <p>{event.summary}</p> : null}
       {event.command ? <code>{event.command}</code> : null}
-      {event.cwd ? <small className="event-muted">cwd: {event.cwd}</small> : null}
       {typeof event.exitCode === "number" ? <small className="event-muted">exit {event.exitCode}</small> : null}
       {event.preview ? <pre className="event-preview">{event.preview}</pre> : null}
-      {event.artifactRef ? <small className="artifact-link">查看证据：{artifactName(event.artifactRef)}</small> : null}
-      {event.truncated ? <small className="event-muted">输出已截断，完整内容在 Agent Loop 原始日志中。</small> : null}
+      {event.artifactRef ? <small className="artifact-link">查看检查结果：{artifactName(event.artifactRef)}</small> : null}
+      {event.truncated ? <small className="event-muted">输出已截断，完整内容可在原始日志中查看。</small> : null}
     </div>
   );
 }
@@ -113,13 +112,13 @@ function readableEventTitle(event: AssistantReadableEvent): string {
   if (event.kind === "reasoning-summary") return "推理摘要";
   if (event.kind === "command") return event.isError ? "命令失败" : event.phase === "started" ? "正在运行命令" : "命令完成";
   if (event.kind === "file-change") return "文件变更";
-  if (event.kind === "mcp-tool") return "MCP 工具调用";
+  if (event.kind === "mcp-tool") return "工具调用";
   if (event.kind === "web-search") return "网页搜索";
   if (event.kind === "plan-update") return "计划更新";
   if (event.kind === "tool-result") return "工具返回";
   if (event.kind === "usage") return "用量";
   if (event.kind === "error") return "错误";
-  return "运行状态";
+  return "执行状态";
 }
 
 function artifactPreview(stream: StreamPacket | null, key: string): string | null {
@@ -136,7 +135,7 @@ function readableEventsFromStream(stream: StreamPacket | null, runId: string): A
         itemId: event.id,
         kind: "status",
         phase: event.status ?? event.label,
-        title: event.type === "validation.command.exited" ? "Validation command" : "Validation",
+        title: event.type === "validation.command.exited" ? "验证命令" : "验证",
         summary: eventLabel(event.type),
         isError: event.status === "failed",
       });
@@ -147,7 +146,7 @@ function readableEventsFromStream(stream: StreamPacket | null, runId: string): A
         itemId: event.id,
         kind: "status",
         phase: event.status ?? event.label,
-        title: "Audit",
+        title: "审查",
         summary: eventLabel(event.type),
         isError: event.status === "failed",
       });

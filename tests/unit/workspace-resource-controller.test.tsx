@@ -157,7 +157,7 @@ describe("Workspace resource controller", () => {
     const resourceId = workspaceResourceId(target);
 
     await act(async () => { await result.current.ensureLoaded(target); });
-    expect(result.current.resourceErrors[resourceId]).toBe("read failed");
+    expect(result.current.resourceErrors[resourceId]).toBe("暂时无法加载内容。请重试。");
     expect(result.current.loadingResourceIds).toEqual([]);
 
     await act(async () => { await result.current.ensureLoaded(target); });

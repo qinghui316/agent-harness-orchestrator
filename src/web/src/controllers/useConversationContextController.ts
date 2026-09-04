@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { postJson } from "../api.js";
+import { userFacingErrorMessage } from "../presentation/user-facing-language.js";
 import type { ConversationContextSnapshot, ProductMode } from "../types.js";
 
 export function useConversationContextController(input: {
@@ -41,7 +42,7 @@ export function useConversationContextController(input: {
       );
       if (identityRef.current === requestIdentity) await current.refreshConversation(current.projectId, current.conversationId);
     } catch (error) {
-      if (identityRef.current === requestIdentity) current.onError(error instanceof Error ? error.message : String(error));
+      if (identityRef.current === requestIdentity) current.onError(userFacingErrorMessage(error, "conversation"));
     } finally {
       if (identityRef.current === requestIdentity) setSubmitting(false);
     }

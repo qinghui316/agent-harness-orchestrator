@@ -87,7 +87,7 @@ describe("shared conversation context UI", () => {
     }));
 
     await act(async () => result.current.compact());
-    expect(onError).toHaveBeenCalledWith("stale revision");
+    expect(onError).toHaveBeenCalledWith("当前状态已经变化。刷新后再试一次。");
     expect(result.current.snapshot?.contextRevision).toBe("revision-a");
     expect(result.current.submitting).toBe(false);
   });

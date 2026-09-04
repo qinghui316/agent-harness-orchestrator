@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchJson, postJson } from "../api.js";
+import { userFacingErrorMessage } from "../presentation/user-facing-language.js";
 import type {
   ConversationQueuedTurnInput,
   ConversationTurnQueueSnapshot,
@@ -280,5 +281,5 @@ function createRequestId(prefix: string): string {
 }
 
 function errorMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
+  return userFacingErrorMessage(cause, "queue");
 }

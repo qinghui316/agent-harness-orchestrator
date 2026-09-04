@@ -32,20 +32,20 @@ export function workpadStateLabel(state: Workpad["state"]): string {
 }
 
 export function workpadStatusLabel(status: WorkpadRuntimeStatus): string {
-  if (status === "running") return "处理中";
-  if (status === "queued") return "稍后处理";
-  if (status === "blocked") return "需要修改或补证据";
+  if (status === "running") return "执行中";
+  if (status === "queued") return "等待执行";
+  if (status === "blocked") return "需要处理";
   if (status === "waiting-decision") return "等你确认";
   if (status === "archived") return "已完成";
-  if (status === "readonly") return "稍后处理";
+  if (status === "readonly") return "等待执行";
   return "等你确认";
 }
 
 export function userStatusLabel(status?: WorkpadUserStatus): string {
-  if (status === "processing") return "处理中";
+  if (status === "processing") return "执行中";
   if (status === "waiting-confirmation") return "等你确认";
-  if (status === "needs-rework") return "需要修改或补证据";
-  if (status === "later") return "稍后处理";
+  if (status === "needs-rework") return "需要处理";
+  if (status === "later") return "等待执行";
   if (status === "abandoned") return "已放弃";
   return "已完成";
 }
@@ -59,13 +59,13 @@ export function conversationLifecycleLabel(status?: ConversationLifecycle): stri
 }
 
 export function agentRunStatusLabel(status: AgentSurfaceStatus): string {
-  if (status === "running") return "进行中";
-  if (status === "queued") return "等待中";
+  if (status === "running") return "执行中";
+  if (status === "queued") return "等待执行";
   if (status === "completed") return "已完成";
-  if (status === "needs-change") return "需要修改";
-  if (status === "failed") return "失败";
+  if (status === "needs-change") return "需要处理";
+  if (status === "failed") return "需要处理";
   if (status === "waiting-user") return "等你确认";
-  if (status === "interrupted") return "已中断";
+  if (status === "interrupted") return "需要处理";
   return "待开始";
 }
 
@@ -77,16 +77,16 @@ export function readinessLabel(value: "missing" | "ready" | "unknown"): string {
 
 export function taskStatusLabel(status: WorkbenchTaskNode["status"]): string {
   if (status === "planned") return "计划中";
-  if (status === "running") return "处理中";
-  if (status === "evidence-ready") return "有证据";
-  if (status === "blocked") return "需要修改";
-  return "已勾选";
+  if (status === "running") return "执行中";
+  if (status === "evidence-ready") return "正在检查";
+  if (status === "blocked") return "需要处理";
+  return "已完成";
 }
 
 export function codingPackageStatusLabel(status: WorkbenchCodingPackage["status"]): string {
   if (status === "suggested") return "建议执行";
-  if (status === "blocked") return "需要修改";
-  if (status === "evidence-ready") return "证据就绪";
+  if (status === "blocked") return "需要处理";
+  if (status === "evidence-ready") return "检查完成";
   if (status === "readonly") return "只读";
   return "缺失";
 }
@@ -124,39 +124,39 @@ export function runtimeLabel(runtime: string): string {
 }
 
 export function humanStatus(status: string): string {
-  if (status === "created") return "已创建";
-  if (status === "preparing") return "正在准备";
-  if (status === "context-prepared") return "上下文已准备";
-  if (status === "running") return "处理中";
-  if (status === "queued") return "稍后处理";
-  if (status === "paused") return "稍后处理";
-  if (status === "blocked") return "需要修改或补证据";
+  if (status === "created") return "计划中";
+  if (status === "preparing") return "计划中";
+  if (status === "context-prepared") return "正在检查";
+  if (status === "running") return "执行中";
+  if (status === "queued") return "等待执行";
+  if (status === "paused") return "等待执行";
+  if (status === "blocked") return "需要处理";
   if (status === "waiting-decision") return "等你确认";
-  if (status === "claimed") return "已领取";
-  if (status === "released") return "已释放";
-  if (status === "evidence-ready") return "证据就绪";
-  if (status === "readonly") return "只读";
-  if (status === "streaming") return "流式输出中";
+  if (status === "claimed") return "执行中";
+  if (status === "released") return "已完成";
+  if (status === "evidence-ready") return "正在检查";
+  if (status === "readonly") return "等待执行";
+  if (status === "streaming") return "执行中";
   if (status === "completed") return "已完成";
   if (status === "passed") return "已通过";
   if (status === "approved") return "已批准";
-  if (status === "approved-with-notes") return "带备注批准";
-  if (status === "failed") return "失败";
-  if (status === "started") return "已开始";
+  if (status === "approved-with-notes") return "已完成";
+  if (status === "failed") return "需要处理";
+  if (status === "started") return "执行中";
   if (status === "stderr") return "错误输出";
   if (status === "draft") return "草案";
   if (status === "confirmed") return "已确认";
-  if (status === "needs-user-input") return "需要用户补充";
-  if (status === "stopped") return "已停止";
+  if (status === "needs-user-input") return "等你确认";
+  if (status === "stopped") return "需要处理";
   return "状态更新";
 }
 
 export function resultReviewStatusLabel(status: NonNullable<Workpad["resultReview"]>["status"]): string {
   if (status === "ready-to-apply") return "可应用";
-  if (status === "needs-rework") return "需要修改";
+  if (status === "needs-rework") return "需要处理";
   if (status === "applied-clean") return "已应用";
   if (status === "applied-source-dirty") return "已应用，待处理本地改动";
-  return "证据未完整";
+  return "检查未完成";
 }
 
 export function roleLabel(roleId: string): string {
@@ -171,25 +171,25 @@ export function roleLabel(roleId: string): string {
 export function eventLabel(type: string): string {
   if (type === "run.created") return "创建运行";
   if (type === "context.prepared") return "准备上下文";
-  if (type === "provider.started" || type === "coder.started") return "启动 Agent Provider";
-  if (type === "provider.exited" || type === "coder.exited") return "Agent Provider 结束";
+  if (type === "provider.started" || type === "coder.started") return "Agent 开始工作";
+  if (type === "provider.exited" || type === "coder.exited") return "Agent 完成工作";
   if (type === "validation.started") return "开始验证";
   if (type === "validation.command.started") return "运行验证命令";
   if (type === "validation.command.exited") return "验证命令结束";
   if (type === "audit.started") return "开始审查";
   if (type === "audit.completed") return "审查完成";
   if (type === "diff.collected") return "收集 diff";
-  if (type === "run.completed") return "运行完成";
-  if (type === "run.failed") return "运行失败";
-  return "运行事件";
+  if (type === "run.completed") return "执行完成";
+  if (type === "run.failed") return "执行需要处理";
+  return "执行动态";
 }
 
 export function formatUsage(usage: Record<string, unknown>): string {
   const input = typeof usage.input_tokens === "number" ? usage.input_tokens : undefined;
   const output = typeof usage.output_tokens === "number" ? usage.output_tokens : undefined;
   const pieces = [
-    input === undefined ? null : `${input} input tokens`,
-    output === undefined ? null : `${output} output tokens`,
+    input === undefined ? null : `输入 ${input} Token`,
+    output === undefined ? null : `输出 ${output} Token`,
   ].filter((item): item is string => Boolean(item));
   return pieces.length > 0 ? `用量：${pieces.join(" · ")}` : "用量已记录";
 }
@@ -198,9 +198,9 @@ export function threadLabel(item: ThreadStreamItem): string {
   if (item.kind === "user-message") return "用户消息";
   if (item.kind === "assistant-turn") return item.source === "workflow" ? "执行结果" : "AI";
   if (item.kind === "assistant-message") return "AI 回复";
-  if (item.kind === "workflow-summary") return "工作流摘要";
-  if (item.source === "validation") return "验证证据";
-  if (item.source === "audit") return "审查证据";
+  if (item.kind === "workflow-summary") return "执行摘要";
+  if (item.source === "validation") return "验证结果";
+  if (item.source === "audit") return "审查结果";
   if (item.kind === "decision") return "决策记录";
   if (item.kind === "change-state") return "需求意图";
   return item.label;
@@ -218,11 +218,11 @@ export function decisionKindLabel(kind: string): string {
   if (kind === "task-blocker") return "需要修改";
   if (kind === "validation-failed") return "验证未通过";
   if (kind === "audit-blocked") return "审查未通过";
-  if (kind === "spec-proposal") return "Spec";
+  if (kind === "spec-proposal") return "需求说明";
   if (kind === "plan-proposal") return "计划";
   if (kind === "audit-approved") return "审查";
   if (kind === "apply-gate") return "应用";
-  if (kind === "evolution-pending") return "Harness";
+  if (kind === "evolution-pending") return "维护建议";
   return "历史";
 }
 

@@ -40,15 +40,15 @@ describe("Topic Composer height", () => {
       productMode="agent"
       agentTurnMode="plan"
       onSelectAgentTurnMode={onSelect}
-      agentTurnModeDisabledReason="当前 Agent 不支持 Plan 模式。"
+      agentTurnModeDisabledReason="当前 Agent 不支持计划模式。"
       onSend={async () => undefined}
       actionRunning={null}
     />);
     expect(screen.getByTestId("agent-turn-mode-control")).toBeTruthy();
-    const planButton = screen.getByRole("button", { name: "Plan" });
+    const planButton = screen.getByRole("button", { name: "计划" });
     expect(planButton.getAttribute("aria-pressed")).toBe("true");
     expect(planButton.hasAttribute("disabled")).toBe(false);
-    expect(screen.getByRole("button", { name: "当前 Agent 不支持 Plan 模式。" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "当前 Agent 不支持计划模式。" }).hasAttribute("disabled")).toBe(true);
 
     view.rerender(composer("draft"));
     expect(screen.queryByTestId("agent-turn-mode-control")).toBeNull();
@@ -276,15 +276,15 @@ describe("Conversation Turn queue surface", () => {
     };
     render(<ConversationTurnQueue snapshot={snapshot} busy={false} onReclaim={onReclaim} onRemove={onRemove} onRetry={onRetry} />);
 
-    expect(screen.getByLabelText("下一回合队列")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "重新尝试队列项" }));
+    expect(screen.getByLabelText("待发送内容")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "重新尝试发送" }));
     fireEvent.click(screen.getAllByRole("button", { name: "移回输入框" })[0]!);
-    fireEvent.click(screen.getAllByRole("button", { name: "删除队列项" })[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "删除待发送内容" })[0]!);
     expect(onRetry).toHaveBeenCalledWith("blocked-item");
     expect(onReclaim).toHaveBeenCalledWith("blocked-item");
     expect(onRemove).toHaveBeenCalledWith("blocked-item");
     expect(screen.getAllByRole("button", { name: "移回输入框" })[1]!.hasAttribute("disabled")).toBe(true);
-    expect(screen.getAllByRole("button", { name: "删除队列项" })[1]!.hasAttribute("disabled")).toBe(true);
+    expect(screen.getAllByRole("button", { name: "删除待发送内容" })[1]!.hasAttribute("disabled")).toBe(true);
   });
 });
 

@@ -217,8 +217,8 @@ describe("Workbench App owner composition", () => {
 
     await waitFor(() => expect(confirm).toHaveBeenCalledOnce());
     const warning = String(confirm.mock.calls[0]?.[0] ?? "");
-    expect(warning).toContain("永久删除 AHO 中的对话、运行记录、日志和运行 sidecar");
-    expect(warning).toContain("物理项目 Harness Skill、Git worktree 和 Git 历史会保留");
+    expect(warning).toContain("永久删除 AHO 中的会话、执行记录和日志");
+    expect(warning).toContain("项目源码、项目协作配置、Git 独立工作区和 Git 历史会保留");
     await waitFor(() => {
       const removalCall = vi.mocked(fetch).mock.calls.find(([input]) => String(input).endsWith("/api/projects/repo/remove"));
       expect(removalCall).toBeDefined();

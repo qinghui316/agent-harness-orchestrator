@@ -9,6 +9,14 @@ import type { ProjectStatus, Snapshot } from "../../src/web/src/types.js";
 afterEach(cleanup);
 
 describe("Conversation sidebar rename", () => {
+  it("keeps the local project path out of the ordinary sidebar surface", () => {
+    renderSidebar(vi.fn(async () => undefined));
+
+    const projectButton = screen.getByRole("button", { name: "Repo" });
+    expect(projectButton.getAttribute("title")).toBe("Repo");
+    expect(document.body.innerHTML).not.toContain("C:/repo");
+  });
+
   it("falls back to topics when an Agent snapshot has no Harness workpads", () => {
     const snapshot = sidebarSnapshot();
     snapshot.left.workpads = [];
@@ -41,7 +49,7 @@ describe("Conversation sidebar rename", () => {
     fireEvent.change(input, { target: { value: "Broken title" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
-    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("rename failed"));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("会话操作暂时无法完成。请重试。"));
     expect((screen.getByLabelText("重命名 Old title") as HTMLInputElement).value).toBe("Old title");
   });
 

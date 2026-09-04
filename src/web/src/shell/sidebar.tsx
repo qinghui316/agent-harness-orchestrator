@@ -18,6 +18,7 @@ import {
   ProjectCreateForm,
 } from "../panels/ProjectPanels.js";
 import { projectDisplayName, workpadStatusLabel } from "../formatters.js";
+import { userFacingErrorMessage } from "../presentation/user-facing-language.js";
 import type {
   ProjectStatus,
   Snapshot,
@@ -133,7 +134,7 @@ export function ProjectConversationSidebar({
         ...editing,
         value: editing.originalTitle,
         saving: false,
-        error: cause instanceof Error ? cause.message : String(cause),
+        error: userFacingErrorMessage(cause, "conversation"),
       });
     } finally {
       renameInFlightRef.current = false;
@@ -144,7 +145,7 @@ export function ProjectConversationSidebar({
     try {
       await action;
     } catch (cause) {
-      setLifecycleError(cause instanceof Error ? cause.message : String(cause));
+      setLifecycleError(userFacingErrorMessage(cause, "conversation"));
     }
   }
   return (
@@ -200,11 +201,11 @@ export function ProjectConversationSidebar({
                   <button className="project-folder-toggle" aria-label={expanded ? "收起项目" : "展开项目"} onClick={() => item.project ? void onToggleProject(item.project.id) : undefined}>
                     {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                   </button>
-                  <button className="project-folder-main" aria-label={projectName} title={item.path} onClick={() => item.project ? void onOpenProject(item.project.id) : undefined}>
+                  <button className="project-folder-main" aria-label={projectName} title={projectName} onClick={() => item.project ? void onOpenProject(item.project.id) : undefined}>
                     <Folder size={16} />
                     <span className="project-folder-text">
                       <strong>{projectName}</strong>
-                      <small title={item.path}>{secondary}</small>
+                      <small title={secondary}>{secondary}</small>
                     </span>
                   </button>
                   {canStartConversation ? (
@@ -385,7 +386,7 @@ export function ProjectConversationSidebar({
                                     busy: false,
                                     error: null,
                                   }))
-                                  .catch((cause) => setLifecycleError(cause instanceof Error ? cause.message : String(cause)));
+                                  .catch((cause) => setLifecycleError(userFacingErrorMessage(cause, "conversation")));
                               }}><Trash2 size={14} />{conversation.lifecycle?.archiveOrigin === "harness-workflow" ? "永久删除本地会话记录" : "永久删除"}</button>
                             </div>
                           ) : null}
@@ -420,7 +421,7 @@ export function ProjectConversationSidebar({
                 setDeleteConfirmation({ ...current, busy: true, error: null });
                 void onDeleteConversation(current.projectId, current.conversationId, current.lifecycleRevision, current.confirmation.token)
                   .then(() => setDeleteConfirmation(null))
-                  .catch((cause) => setDeleteConfirmation({ ...current, busy: false, error: cause instanceof Error ? cause.message : String(cause) }));
+                  .catch((cause) => setDeleteConfirmation({ ...current, busy: false, error: userFacingErrorMessage(cause, "conversation") }));
               }}>{deleteConfirmation.busy ? "正在删除" : "永久删除"}</button>
             </div>
           </section>
@@ -443,7 +444,7 @@ export function UnmanagedProjectView({ project }: { project: ProjectStatus | nul
       <p className="eyebrow">项目已添加</p>
       <h1>{projectDisplayName(project.project)}</h1>
       <p>{project.path}</p>
-      <p>{issue?.detail ?? "项目 Harness 尚未完成准备。"}</p>
+      <p>{issue?.detail ?? "项目协作配置尚未完成准备。"}</p>
     </section>
   );
 }
@@ -503,8 +504,8 @@ function harnessStatusIssue(project: ProjectStatus, snapshot?: Snapshot): { kind
   if (harnessReady) return null;
   return {
     kind: "uninitialized",
-    short: project.harness.readiness === "partial" ? "项目 Harness 需要修复" : "首次对话建立说明",
-    detail: project.harness.readiness === "partial" ? "项目 Harness 尚未通过完整检查。" : "首次需求时会根据项目情况建立必要工作说明。",
+    short: project.harness.readiness === "partial" ? "协作配置需要修复" : "首次对话自动准备",
+    detail: project.harness.readiness === "partial" ? "项目协作配置尚未通过检查。" : "首次需求时会自动准备必要的协作说明。",
   };
 }
 

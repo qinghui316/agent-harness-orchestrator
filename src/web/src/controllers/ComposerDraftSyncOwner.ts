@@ -1,4 +1,5 @@
 import type { ComposerDraftSnapshot, ComposerDraftWrite, ProductMode } from "../types.js";
+import { userFacingErrorMessage } from "../presentation/user-facing-language.js";
 
 export interface ComposerDraftApi {
   load(projectId: string, productMode: ProductMode): Promise<ComposerDraftSnapshot | null>;
@@ -180,5 +181,5 @@ function scopeKey(projectId: string, productMode: ProductMode): string {
 }
 
 function errorMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
+  return userFacingErrorMessage(cause, "save");
 }

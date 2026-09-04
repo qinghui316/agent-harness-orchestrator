@@ -140,7 +140,7 @@ function ConversationInteractionDockBody({
           {summary.network ? <p><strong>网络</strong><span>允许当前回合访问网络</span></p> : null}
           {summary.readPaths?.map((path) => <p key={`read:${path}`}><strong>读取</strong><span>{path}</span></p>)}
           {summary.writePaths?.map((path) => <p key={`write:${path}`}><strong>写入</strong><span>{path}</span></p>)}
-          {interaction.readOnlyBlocked ? <p className="interaction-dock-approval-blocked">Plan 回合保持只读，无法批准该写入请求。</p> : null}
+          {interaction.readOnlyBlocked ? <p className="interaction-dock-approval-blocked">计划回合保持只读，无法批准该写入请求。</p> : null}
           <div className="interaction-dock-footer interaction-dock-footer-start">
             {interaction.availableDecisions.includes("approve-once") ? (
               <button type="button" className="interaction-dock-primary" disabled={disabled} onClick={() => void settle({ action: "approve-once" })}>
@@ -213,7 +213,7 @@ function ConversationInteractionDockBody({
               value={feedback}
               disabled={disabled}
               autoFocus
-              placeholder="说明希望 Plan Agent 修改的内容"
+              placeholder="说明希望规划 Agent 修改的内容"
               onChange={(event) => setFeedback(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key !== "Enter" || event.shiftKey || !feedback.trim()) return;

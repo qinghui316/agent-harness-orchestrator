@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { consumeWorkbenchLiveStream, fetchJson, postJson } from "../api.js";
+import { userFacingErrorMessage } from "../presentation/user-facing-language.js";
 import { extractInlineFileMentions } from "../shell/file-mentions.js";
 import { extractInlineSkillMentions } from "../shell/skill-mentions.js";
 import type { AgentTurnMode, ComposerDraftDiagnostic, ComposerDraftSnapshot, ConversationTurnQueueSnapshot, ProductMode, ProviderCapabilitySnapshot, ProviderModelSettingsSnapshot, SkillListItem, TopicAttachment, TopicFileReference, WorkbenchLiveEvent } from "../types.js";
@@ -505,7 +506,7 @@ export function useConversationComposerController(
       ...current.filter((item) => item.code !== "unavailable-skill"),
       {
         code: "unavailable-skill",
-        message: "部分已保存的 Skill 当前不可用，已从草稿中停用。",
+        message: "部分已保存的技能当前不可用，已从草稿中停用。",
       },
     ]);
     markDraftDirty();
@@ -1496,14 +1497,14 @@ export function resolveAgentTurnModeDisabledReason(
   agentTurnMode: AgentTurnMode,
 ): string | null {
   if (composerProductMode(scope) !== "agent" || agentTurnMode === "default" || scope.running) return null;
-  if (scope.providerCapabilitiesLoading) return "正在检查当前 Agent 是否支持 Plan 模式。";
-  if (scope.providerCapabilitiesError) return `无法确认 Plan 模式能力：${scope.providerCapabilitiesError}`;
+  if (scope.providerCapabilitiesLoading) return "正在检查当前 Agent 是否支持计划模式。";
+  if (scope.providerCapabilitiesError) return "暂时无法确认计划模式是否可用，请刷新后重试。";
   const providerId = effectiveComposerProviderId(scope);
-  if (!providerId) return "请先选择支持 Plan 模式的 Agent。";
+  if (!providerId) return "请先选择支持计划模式的 Agent。";
   const snapshot = scope.providerCapabilities?.find((candidate) => candidate.providerId === providerId);
   const plan = snapshot?.capabilities.find((capability) => capability.key === "turn.plan");
   if (!snapshot || plan?.runtime !== "ready") {
-    return plan?.reason ?? "当前 Agent 不支持 Plan 模式。";
+    return plan?.reason ?? "当前 Agent 不支持计划模式。";
   }
   return null;
 }
@@ -1526,7 +1527,7 @@ export function resolveAgentTurnModelDisabledReason(
   const candidate = resolveSelectedModelCandidate(snapshot, modelId);
   if (modelId && !candidate) return "已选择的模型当前不可用，请重新选择后再发送。";
   const resolvedModelId = modelId ?? snapshot.effectiveModel?.modelId ?? null;
-  if (agentTurnMode === "plan" && !resolvedModelId) return "Plan 模式需要当前 Agent 解析出有效模型。";
+  if (agentTurnMode === "plan" && !resolvedModelId) return "计划模式需要先选择可用模型。";
   if (reasoningEffort) {
     if (!candidate) return "显式推理强度需要先解析出可验证的模型。";
     if (candidate.supportedReasoningEfforts.length === 0) return "当前模型没有可验证的推理强度选项，请使用模型默认值。";
@@ -1568,7 +1569,7 @@ export function resolveAttachmentCapabilityDisabledReason(
 ): string | null {
   if (composerProductMode(scope) !== "agent" || attachments.length === 0 || scope.running) return null;
   if (scope.providerCapabilitiesLoading) return "正在检查当前 Agent 是否支持附件输入。";
-  if (scope.providerCapabilitiesError) return `无法确认附件能力：${scope.providerCapabilitiesError}`;
+  if (scope.providerCapabilitiesError) return "暂时无法确认附件是否可用，请刷新后重试。";
   const providerId = effectiveComposerProviderId(scope);
   if (!providerId) return "请先选择支持附件输入的 Agent。";
   const snapshot = scope.providerCapabilities?.find((candidate) => candidate.providerId === providerId);
@@ -1688,5 +1689,5 @@ function readFileAsDataUrl(file: File): Promise<string> {
 }
 
 function errorMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
+  return userFacingErrorMessage(cause, "send");
 }

@@ -277,7 +277,7 @@ describe("ConversationInteractionDock", () => {
     };
     render(<ConversationInteractionDock interaction={approval} busy={false} onSettle={vi.fn()} onStop={vi.fn()} />);
 
-    expect(screen.getByText(/Plan 回合保持只读/)).toBeTruthy();
+    expect(screen.getByText(/计划回合保持只读/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "仅本次允许" })).toBeNull();
     expect(screen.getByRole("button", { name: "拒绝" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "拒绝并停止" })).toBeTruthy();

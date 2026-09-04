@@ -477,7 +477,7 @@ export function ConversationComposerSurface({
           {addMenuOpen ? <div className="composer-add-menu" role="menu" aria-label="添加到输入框">
             <div className="composer-add-attachment"><ComposerAttachButton disabled={Boolean(disabledReason)} onAttachFiles={(files) => { setAddMenuOpen(false); return onAttachFiles?.(files); }} /><span><Paperclip size={14} />添加附件</span></div>
             <button type="button" role="menuitem" onClick={() => insertTrigger("@") }><File size={15} />引用项目文件</button>
-            <button type="button" role="menuitem" disabled={skills.length === 0} onClick={() => insertTrigger("/")}><Sparkles size={15} />选择 Skill</button>
+            <button type="button" role="menuitem" disabled={skills.length === 0} onClick={() => insertTrigger("/")}><Sparkles size={15} />选择技能</button>
             {productMode === "agent" ? <button type="button" role="menuitem" disabled={Boolean(reviewSubmitting)} onClick={() => { setAddMenuOpen(false); void onOpenReview?.(); }}><Search size={15} />代码审查</button> : null}
           </div> : null}
         </div>
@@ -546,7 +546,7 @@ function ComposerSelectedContextItems({ skills, activeSkillIds, fileRefs, onTogg
   if (selectedSkills.length === 0 && fileRefs.length === 0) return null;
   return <div className="composer-selected-context" aria-label="已选上下文">
     {fileRefs.map((file) => <span className="composer-selected-item" key={`file:${file.relativePath}`} title={file.relativePath}><File size={13} aria-hidden="true" /><span>{file.name}</span><button type="button" aria-label={`移除文件 ${file.name}`} onClick={() => onFileRefsChange?.(fileRefs.filter((item) => item.relativePath !== file.relativePath))}><X size={12} /></button></span>)}
-    {selectedSkills.map((skill) => <span className="composer-selected-item" key={`skill:${skill.skillId}`} title={skill.description}><Sparkles size={13} aria-hidden="true" /><span>{skill.name}</span><button type="button" aria-label={`移除 Skill ${skill.name}`} onClick={() => void onToggleSkill?.(skill.skillId)}><X size={12} /></button></span>)}
+    {selectedSkills.map((skill) => <span className="composer-selected-item" key={`skill:${skill.skillId}`} title={skill.description}><Sparkles size={13} aria-hidden="true" /><span>{skill.name}</span><button type="button" aria-label={`移除技能 ${skill.name}`} onClick={() => void onToggleSkill?.(skill.skillId)}><X size={12} /></button></span>)}
   </div>;
 }
 
@@ -574,7 +574,7 @@ function ComposerActionButtons({ projection, busy, onSend, onQueue, onStop }: {
       </button>
       {projection.alternativeIntent === "queue" ? <>
         <button type="button" className="composer-action-alternative-trigger" aria-label="其他发送方式" aria-expanded={menuOpen} onClick={() => setMenuOpen((current) => !current)}><ChevronDown size={13} /></button>
-        {menuOpen ? <div className="composer-action-menu" role="menu"><button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onQueue(); }}><ListPlus size={14} />加入下一回合队列</button></div> : null}
+        {menuOpen ? <div className="composer-action-menu" role="menu"><button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onQueue(); }}><ListPlus size={14} />稍后发送</button></div> : null}
       </> : null}
     </div>
   </div>;
@@ -583,7 +583,7 @@ function ComposerActionButtons({ projection, busy, onSend, onQueue, onStop }: {
 function composerActionLabel(intent: ComposerPrimaryIntent, disabledReason: string | null): string {
   if (disabledReason) return disabledReason;
   if (intent === "steer") return "发送给当前执行";
-  if (intent === "queue") return "加入下一回合队列";
+  if (intent === "queue") return "稍后发送";
   if (intent === "stop") return "停止当前执行";
   if (intent === "jump-to-request") return "查看待处理请求";
   if (intent === "wait") return "暂时不可发送";
@@ -604,9 +604,9 @@ export function ConversationTurnQueue({
   onRetry?: (queueItemId: string) => void | Promise<void>;
 }): ReactElement | null {
   if (!snapshot?.items?.length) return null;
-  return <div className="conversation-turn-queue" aria-label="下一回合队列">
+  return <div className="conversation-turn-queue" aria-label="待发送内容">
     <div className="conversation-turn-queue-heading">
-      <span>下一回合</span>
+      <span>待发送</span>
       <span>{snapshot.items.length}</span>
     </div>
     <ol>
@@ -623,7 +623,7 @@ export function ConversationTurnQueue({
             {needsAttention ? <button
               type="button"
               title="重新尝试"
-              aria-label="重新尝试队列项"
+              aria-label="重新尝试发送"
               disabled={busy}
               onClick={() => void onRetry?.(item.queueItemId)}
             ><RotateCcw size={14} /></button> : null}
@@ -636,8 +636,8 @@ export function ConversationTurnQueue({
             ><Undo2 size={14} /></button>
             <button
               type="button"
-              title="删除队列项"
-              aria-label="删除队列项"
+              title="删除待发送内容"
+              aria-label="删除待发送内容"
               disabled={busy || settlementPending}
               onClick={() => void onRemove?.(item.queueItemId)}
             ><Trash2 size={14} /></button>
@@ -673,7 +673,7 @@ export function ReviewInlineSelector({ options, loading, submitting, onClose, on
   const presets: Array<{ label: string; detail?: string; step?: ReviewSelectorStep; target?: ProviderReviewTarget }> = [
     { label: "对比基准分支", detail: "PR 风格", step: "base" },
     { label: "审查未提交改动", target: { type: "uncommitted-changes" } },
-    { label: "审查指定 commit", step: "commit" },
+    { label: "审查指定 Commit", step: "commit" },
     { label: "自定义审查要求", step: "custom" },
   ];
   const entries: Array<{ label: string; detail?: string; step?: ReviewSelectorStep; target?: ProviderReviewTarget }> = step === "preset" ? presets
@@ -715,7 +715,7 @@ export function ReviewInlineSelector({ options, loading, submitting, onClose, on
   return <div ref={selectorRef} className="review-inline-selector" role="dialog" aria-label="选择代码审查方式" tabIndex={-1} onKeyDown={onKeyDown}>
     <header>
       <div>
-        <strong>{step === "preset" ? "代码审查" : step === "base" ? "选择基准分支" : step === "commit" ? "选择 commit" : "自定义审查要求"}</strong>
+        <strong>{step === "preset" ? "代码审查" : step === "base" ? "选择基准分支" : step === "commit" ? "选择 Commit" : "自定义审查要求"}</strong>
         <span>{options?.branch ? `当前分支 ${options.branch}` : "当前项目"}</span>
       </div>
       <div>
@@ -872,7 +872,7 @@ export function AgentTurnModelControls({
           value={modelId ?? ""}
           onChange={(event) => void onSelectModel(event.target.value || null)}
         >
-          <option value="">跟随 Provider 配置</option>
+          <option value="">跟随当前 Agent 配置</option>
           {modelIsUnavailable ? <option value={modelId!}>不可用：{modelId}</option> : null}
           {candidates.map((item) => <option key={`${item.source}:${item.modelId}`} value={item.modelId}>{item.label}</option>)}
         </select>
@@ -907,15 +907,15 @@ export function AgentTurnModeControl({
   if (productMode !== "agent" || !value || !onChange) return null;
   return (
     <div className="agent-turn-mode-segment" role="group" aria-label="Agent 执行模式" data-testid="agent-turn-mode-control">
-      <button type="button" className={value === "default" ? "active" : ""} aria-pressed={value === "default"} onClick={() => void onChange("default")}>Default</button>
+      <button type="button" className={value === "default" ? "active" : ""} aria-pressed={value === "default"} onClick={() => void onChange("default")}>默认</button>
       <button
         type="button"
         className={value === "plan" ? "active" : ""}
         aria-pressed={value === "plan"}
         disabled={Boolean(planDisabledReason) && value !== "plan"}
-        title={planDisabledReason ?? "Plan"}
+        title={planDisabledReason ?? "计划"}
         onClick={() => void onChange("plan")}
-      >Plan</button>
+      >计划</button>
     </div>
   );
 }

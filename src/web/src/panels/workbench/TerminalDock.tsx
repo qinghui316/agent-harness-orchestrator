@@ -4,6 +4,7 @@ import "@xterm/xterm/css/xterm.css";
 import { Plus, SquareTerminal, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactElement } from "react";
 import { postJson } from "../../api.js";
+import { userFacingErrorMessage } from "../../presentation/user-facing-language.js";
 
 export interface TerminalTab {
   id: string;
@@ -183,7 +184,7 @@ function TerminalPane({ projectId, terminalId, onOpen }: { projectId: string; te
 
     const dataDisposable = terminal.onData((data) => {
       void postJson(`/api/projects/${encodeURIComponent(projectId)}/terminal/sessions/${encodeURIComponent(terminalId)}/write`, { data })
-        .catch((cause: unknown) => setMessage(cause instanceof Error ? cause.message : String(cause)));
+        .catch((cause: unknown) => setMessage(userFacingErrorMessage(cause, "terminal")));
     });
 
     let disposed = false;
@@ -223,7 +224,7 @@ function TerminalPane({ projectId, terminalId, onOpen }: { projectId: string; te
           const frame = parseTerminalEvent(event);
           if (frame?.event === "terminal-error") {
             setStatus("error");
-            setMessage(frame.data.message);
+            setMessage(userFacingErrorMessage(new Error(frame.data.message), "terminal"));
           }
         });
         events.onerror = () => {
@@ -235,7 +236,7 @@ function TerminalPane({ projectId, terminalId, onOpen }: { projectId: string; te
         if (disposed) return;
         window.clearTimeout(openTimeout);
         setStatus("error");
-        setMessage(cause instanceof Error ? cause.message : String(cause));
+        setMessage(userFacingErrorMessage(cause, "terminal"));
       });
 
     return () => {

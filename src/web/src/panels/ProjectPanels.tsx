@@ -1,6 +1,7 @@
 import { useState, type ReactElement } from "react";
 import { Folder, Plus } from "lucide-react";
-import { postJson } from "../api.js";
+import { postJson, WorkbenchRequestError } from "../api.js";
+import { userFacingErrorMessage } from "../presentation/user-facing-language.js";
 import type { FolderDialogResult, ProjectStatus, Snapshot } from "../types.js";
 
 export function ProjectDetailsPanel({ project, snapshot, selected, onOpen, onRefresh }: { project: ProjectStatus; snapshot: Snapshot | undefined; selected: boolean; onOpen: () => void; onRefresh: () => void }): ReactElement {
@@ -8,7 +9,7 @@ export function ProjectDetailsPanel({ project, snapshot, selected, onOpen, onRef
   return (
     <div className="project-details-panel">
       <InfoRow label="仓库" value={snapshot?.left.repo?.branch ?? (project.isGitRepo ? "已准备" : "未检测到 Git")} />
-      <InfoRow label="项目状态" value={harnessReady ? "已准备" : project.harness.readiness === "partial" ? "需要修复项目 Harness" : "首次需求时自动建立说明"} />
+      <InfoRow label="项目状态" value={harnessReady ? "已准备" : project.harness.readiness === "partial" ? "需要修复协作配置" : "首次使用时自动准备"} />
       {!selected ? <button className="project-detail-action" onClick={onOpen}>打开项目</button> : null}
       <button className="project-detail-action" onClick={onRefresh}>刷新项目</button>
     </div>
@@ -35,7 +36,7 @@ export function ProjectAddForm({ onDone }: { onDone: (projectId?: string) => Pro
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path: selectedPath, name: name || undefined, confirm: true }),
     });
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) throw await WorkbenchRequestError.fromResponse(response);
     const result = await response.json() as { project: { id: string } };
     setMessage("项目已添加。");
     await onDone(result.project.id);
@@ -61,8 +62,8 @@ export function ProjectAddForm({ onDone }: { onDone: (projectId?: string) => Pro
     setMessage(result.error ?? "无法打开文件夹选择器，请手动输入路径。");
   }
   return (
-    <form className="project-form" onSubmit={(event) => { event.preventDefault(); void submit().catch((cause: unknown) => setMessage(cause instanceof Error ? cause.message : String(cause))); }}>
-      <button type="button" className="primary-button" onClick={() => void chooseFolder().catch((cause: unknown) => setMessage(cause instanceof Error ? cause.message : String(cause)))}><Folder size={15} />打开文件夹</button>
+    <form className="project-form" onSubmit={(event) => { event.preventDefault(); void submit().catch((cause: unknown) => setMessage(userFacingErrorMessage(cause, "save"))); }}>
+      <button type="button" className="primary-button" onClick={() => void chooseFolder().catch((cause: unknown) => setMessage(userFacingErrorMessage(cause, "load")))}><Folder size={15} />打开文件夹</button>
       <input value={name} onChange={(event) => setName(event.target.value)} placeholder="项目名称，可选" />
       <button type="button" className="text-button" onClick={() => setManual(!manual)}>{manual ? "收起路径输入" : "输入路径"}</button>
       {manual ? (
@@ -89,7 +90,7 @@ export function ProjectCreateForm({ onDone }: { onDone: (projectId?: string) => 
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ parentPath, name, git, readme, initialCommit, confirm: true }),
     });
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) throw await WorkbenchRequestError.fromResponse(response);
     const result = await response.json() as { project: { id: string } };
     setMessage("新项目已创建并注册。");
     await onDone(result.project.id);
@@ -112,8 +113,8 @@ export function ProjectCreateForm({ onDone }: { onDone: (projectId?: string) => 
     setMessage(result.error ?? "无法打开文件夹选择器，请手动输入父目录。");
   }
   return (
-    <form className="project-form" onSubmit={(event) => { event.preventDefault(); void submit().catch((cause: unknown) => setMessage(cause instanceof Error ? cause.message : String(cause))); }}>
-      <button type="button" className="outline-button" onClick={() => void chooseParent().catch((cause: unknown) => setMessage(cause instanceof Error ? cause.message : String(cause)))}><Folder size={15} />选择位置</button>
+    <form className="project-form" onSubmit={(event) => { event.preventDefault(); void submit().catch((cause: unknown) => setMessage(userFacingErrorMessage(cause, "save"))); }}>
+      <button type="button" className="outline-button" onClick={() => void chooseParent().catch((cause: unknown) => setMessage(userFacingErrorMessage(cause, "load")))}><Folder size={15} />选择位置</button>
       <input value={parentPath} onChange={(event) => setParentPath(event.target.value)} placeholder="保存位置，例如 E:\\work" />
       <input value={name} onChange={(event) => setName(event.target.value)} placeholder="项目名" />
       <label><input type="checkbox" checked={git} onChange={(event) => setGit(event.target.checked)} /> 初始化 Git</label>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { consumeWorkbenchLiveStream, postJson } from "../api.js";
+import { userFacingErrorMessage } from "../presentation/user-facing-language.js";
 import type {
   AgentSurfaceProjectionItem,
   TextDocumentResource,
@@ -99,7 +100,7 @@ export function useWorkspaceResourceController({
       if (isCurrent()) {
         setResourceErrors((current) => ({
           ...current,
-          [resourceId]: cause instanceof Error ? cause.message : String(cause),
+          [resourceId]: userFacingErrorMessage(cause, "load"),
         }));
       }
     }).finally(() => {

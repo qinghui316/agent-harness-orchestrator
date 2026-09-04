@@ -281,7 +281,7 @@ describe("Conversation composer controller", () => {
 
     expect(ports.attachments.remove).toHaveBeenCalledWith("repo", "uploaded");
     expect(result.current.composerText).toBe("keep me");
-    expect(ports.onError).toHaveBeenLastCalledWith("create failed");
+    expect(ports.onError).toHaveBeenLastCalledWith("消息暂时无法发送。请重试。");
   });
 
   it("sends ordinary messages through the action port and restores failed text without overwriting newer edits", async () => {
@@ -482,7 +482,7 @@ describe("Conversation composer controller", () => {
     await act(async () => { await result.current.send(); });
 
     expect(result.current.agentTurnMode).toBe("plan");
-    expect(result.current.agentTurnModeDisabledReason).toBe("当前 Agent 不支持 Plan 模式。");
+    expect(result.current.agentTurnModeDisabledReason).toBe("当前 Agent 不支持计划模式。");
     expect(ports.actions.sendMessage).not.toHaveBeenCalled();
     expect(ports.skills.setEnabled).not.toHaveBeenCalled();
     expect(result.current.composerText).toBe("must stay local");

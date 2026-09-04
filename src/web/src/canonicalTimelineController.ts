@@ -1,5 +1,6 @@
 import { useCallback, useReducer, useRef } from "react";
 import { fetchJson } from "./api.js";
+import { userFacingErrorMessage } from "./presentation/user-facing-language.js";
 import {
   canonicalTimelineReducer,
   canonicalTimelineScopeKey,
@@ -54,7 +55,7 @@ export function useCanonicalTimelineController(onError: (message: string) => voi
       );
       dispatch({ type: "page.received", scope, requestKind, generation, page });
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause);
+      const message = userFacingErrorMessage(cause, "load");
       dispatch({ type: "request.failed", scope, requestKind, generation, error: message });
       onError(message);
     }

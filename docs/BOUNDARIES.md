@@ -671,6 +671,17 @@ arbitrary `SKILL.md` paths, or fabricate package contents. Existing Skill APIs
 remain the only source for list, enable, refresh, and root-add operations, and
 all project, product-mode, Conversation, and Provider assertions remain intact.
 
+The Web presentation language owner is the only layer that turns stable domain
+facts and request failures into ordinary UI copy. Primary and detail surfaces
+must not render raw response bodies, exception messages, internal identities,
+absolute paths, protocol states, or unregistered enum values. Bounded technical
+detail may appear only inside an explicitly marked diagnostics subtree after
+path and identity sanitization. This boundary does not rewrite user or external
+source content: Agent messages, code, Terminal output, Git content, model names,
+Skill names, and Skill bodies remain verbatim. It also cannot reinterpret domain
+success, bypass HTTP Conflict, or change any admission, permission, Provider, or
+Harness decision.
+
 Composer draft persistence has one owner per layer. The schema-14
 `ComposerDraftRepository` owns the sole durable `projectId + productMode` row and
 full-snapshot compare-and-swap; the Workbench recovery service owns structured

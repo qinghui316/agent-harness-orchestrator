@@ -1,6 +1,7 @@
 import { File, Folder, RefreshCw, Search } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { fetchJson } from "../../api.js";
+import { userFacingErrorMessage } from "../../presentation/user-facing-language.js";
 import type { ProjectFilePreviewResult, ProjectFileTreeResult, TopicFileReference } from "../../types.js";
 
 export function ProjectFilesPanel({
@@ -39,7 +40,7 @@ export function ProjectFilesPanel({
       setTree(result);
       setPath(result.path);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(userFacingErrorMessage(err, "files"));
     } finally {
       setLoadingTree(false);
     }
@@ -64,7 +65,7 @@ export function ProjectFilesPanel({
     try {
       setPreview(await fetchJson<ProjectFilePreviewResult>(`/api/projects/${encodeURIComponent(projectId)}/files/preview?path=${encodeURIComponent(ref.relativePath)}`));
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(userFacingErrorMessage(err, "files"));
     } finally {
       setLoadingPreview(false);
     }

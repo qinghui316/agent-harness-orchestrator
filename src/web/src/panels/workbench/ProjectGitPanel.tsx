@@ -1,6 +1,7 @@
 import { ArrowLeft, ChevronDown, ChevronRight, FileText, GitCommit, Link2, RefreshCw, Search } from "lucide-react";
 import { useEffect, useMemo, useState, type MouseEvent, type PointerEvent, type ReactElement } from "react";
 import { fetchJson } from "../../api.js";
+import { userFacingErrorMessage } from "../../presentation/user-facing-language.js";
 import type { ProjectGitCommitDetailResult, ProjectGitCommitDiffResult, ProjectGitCommitFileChange, ProjectGitFileStatus, ProjectGitHistoryCommit, ProjectGitHistoryResult, ProjectGitStatusResult, TopicFileReference } from "../../types.js";
 import { GitDiffViewer } from "./GitDiffViewer.js";
 
@@ -42,7 +43,7 @@ export function ProjectGitPanel({
     try {
       setStatus(await fetchJson<ProjectGitStatusResult>(`/api/projects/${encodeURIComponent(projectId)}/git/status`));
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(userFacingErrorMessage(err, "git"));
     } finally {
       setLoading(false);
     }
@@ -59,7 +60,7 @@ export function ProjectGitPanel({
         ? { ...next, commits: [...current.commits, ...next.commits] }
         : next);
     } catch (err) {
-      setHistoryError(err instanceof Error ? err.message : String(err));
+      setHistoryError(userFacingErrorMessage(err, "git"));
     } finally {
       setHistoryLoading(false);
     }
@@ -73,7 +74,7 @@ export function ProjectGitPanel({
     try {
       setCommitDetail(await fetchJson<ProjectGitCommitDetailResult>(`/api/projects/${encodeURIComponent(projectId)}/git/commit?sha=${encodeURIComponent(sha)}`));
     } catch (err) {
-      setCommitDetailError(err instanceof Error ? err.message : String(err));
+      setCommitDetailError(userFacingErrorMessage(err, "git"));
     } finally {
       setCommitDetailLoading(false);
     }
@@ -89,7 +90,7 @@ export function ProjectGitPanel({
         `/api/projects/${encodeURIComponent(projectId)}/git/commit-diff?sha=${encodeURIComponent(sha)}&path=${encodeURIComponent(path)}`,
       ));
     } catch (err) {
-      setCommitDiffError(err instanceof Error ? err.message : String(err));
+      setCommitDiffError(userFacingErrorMessage(err, "git"));
     } finally {
       setCommitDiffLoading(false);
     }
