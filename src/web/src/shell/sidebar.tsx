@@ -443,7 +443,6 @@ export function UnmanagedProjectView({ project }: { project: ProjectStatus | nul
     <section className="empty-workbench">
       <p className="eyebrow">项目已添加</p>
       <h1>{projectDisplayName(project.project)}</h1>
-      <p>{project.path}</p>
       <p>{issue?.detail ?? "项目协作配置尚未完成准备。"}</p>
     </section>
   );

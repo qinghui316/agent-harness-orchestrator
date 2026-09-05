@@ -44,12 +44,13 @@ export function toUserFacingFailure(
 ): UserFacingFailure {
   const requestFailure = cause instanceof Error ? cause as RequestFailureShape : null;
   const status = typeof requestFailure?.status === "number" ? requestFailure.status : null;
+  const rawDetail = typeof requestFailure?.technicalDetail === "string"
+    ? requestFailure.technicalDetail
+    : cause instanceof Error
+      ? cause.message
+      : String(cause ?? "");
   const technicalDetail = sanitizeTechnicalDetail(
-    typeof requestFailure?.technicalDetail === "string"
-      ? requestFailure.technicalDetail
-      : cause instanceof Error
-        ? cause.message
-        : String(cause ?? ""),
+    rawDetail,
   );
 
   if (status === 401 || status === 403) {
@@ -59,7 +60,7 @@ export function toUserFacingFailure(
     return { summary: "要操作的内容已不存在或已移动。", recoveryAction: "刷新后重试。", technicalDetail };
   }
   if (status === 409) {
-    return { summary: "当前状态已经变化。", recoveryAction: "刷新后再试一次。", technicalDetail };
+    return conflictFailure(rawDetail, context, technicalDetail);
   }
   if (status === 413) {
     return { summary: "提交的内容超出大小限制。", recoveryAction: "减少内容或附件后重试。", technicalDetail };
@@ -87,13 +88,43 @@ export function userFacingErrorMessage(
 export function sanitizeTechnicalDetail(value: string): string {
   const compact = value.replace(/\s+/g, " ").trim();
   const redacted = compact
-    .replace(/file:\/\/\/?[^\s"']+/gi, "[本机路径已隐藏]")
-    .replace(/(^|[^A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\)[^\s"']+/g, "$1[本机路径已隐藏]")
-    .replace(/(^|[\s(=:])\/(?!\/)[^\s"']+/g, "$1[本机路径已隐藏]")
-    .replace(/\b((?:request|session|thread|turn|attempt|graph|runtime)[-_ ]?id)\b\s*[:=]\s*[^\s,;]+/gi, "$1=[身份已隐藏]")
+    .replace(/file:\/\/\/?[^,;"']+/gi, "[本机路径已隐藏]")
+    .replace(/(^|[^A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\)[^,;"']+/g, "$1[本机路径已隐藏]")
+    .replace(/(^|[\s(=:])\/(?!\/)[^,;"']+/g, "$1[本机路径已隐藏]")
+    .replace(/\b((?:(?:change|task|taskRun|queueRun|run|thread|turn|attempt|agentSurface|providerSession|workerLease|integrationCheck|recommendedRole|worker|node|unit|request|session|graph|graphScope|runtime|runtimeScope)[-_ ]?id)|(?:[A-Za-z][A-Za-z0-9_-]*hash))\b\s*[:=]\s*[^\s,;]+/gi, "$1=[身份已隐藏]")
     .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, "[身份已隐藏]")
     .replace(/\b[a-f0-9]{32,}\b/gi, "[身份已隐藏]");
   return redacted.length > 500 ? `${redacted.slice(0, 499)}...` : redacted;
+}
+
+function conflictFailure(
+  detail: string,
+  context: UserFacingFailureContext,
+  technicalDetail: string,
+): UserFacingFailure {
+  const normalized = detail.toLowerCase();
+  if (/model|reasoning effort|推理|模型/.test(normalized)) {
+    return {
+      summary: "当前模型或推理设置不可用。",
+      recoveryAction: "重新选择模型或推理强度后重试。",
+      technicalDetail,
+    };
+  }
+  if (/approval|permission|awaits input|waiting[- ]user|待确认|权限/.test(normalized)) {
+    return {
+      summary: "当前操作正在等待你的处理。",
+      recoveryAction: "先完成待确认事项，再重试。",
+      technicalDetail,
+    };
+  }
+  if (/revision|stale|concurrent|changed|no longer current|已变化|已更新/.test(normalized)) {
+    return { summary: "当前状态已经变化。", recoveryAction: "刷新后再试一次。", technicalDetail };
+  }
+  return {
+    summary: CONTEXT_SUMMARIES[context],
+    recoveryAction: "检查当前设置或待处理事项后重试。",
+    technicalDetail,
+  };
 }
 
 export function ahoProgressLabel(status: string): string {

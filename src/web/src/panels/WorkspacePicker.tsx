@@ -132,5 +132,5 @@ export function WorkspacePicker({
 
 function projectLocationLabel(path: string): string {
   const parts = path.split(/[\\/]+/).filter((part) => part && !/^[A-Za-z]:$/.test(part));
-  return parts.length > 2 ? `…/${parts.slice(-2).join("/")}` : parts.join("/") || "本地项目";
+  return parts.at(-1) ?? "本地项目";
 }

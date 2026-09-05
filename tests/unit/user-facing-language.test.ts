@@ -15,6 +15,16 @@ describe("user-facing language", () => {
     expect(userFacingErrorMessage(error, "save")).not.toContain("revision");
   });
 
+  it("gives model and unknown conflicts recovery actions that match the actual problem", () => {
+    const modelError = new WorkbenchRequestError(409, "Selected reasoning effort is not supported by the current model.");
+    expect(userFacingErrorMessage(modelError, "send"))
+      .toBe("当前模型或推理设置不可用。重新选择模型或推理强度后重试。");
+
+    const unknownConflict = new WorkbenchRequestError(409, "Conversation cannot accept this operation.");
+    expect(userFacingErrorMessage(unknownConflict, "conversation"))
+      .toBe("会话操作暂时无法完成。检查当前设置或待处理事项后重试。");
+  });
+
   it("distinguishes connection failures from ordinary operation failures", () => {
     expect(userFacingErrorMessage(new TypeError("Failed to fetch"), "load"))
       .toBe("暂时无法连接到本地服务。确认 Workbench 正在运行后重试。");
@@ -24,11 +34,16 @@ describe("user-facing language", () => {
 
   it("redacts local paths and private identities in diagnostic detail", () => {
     const detail = sanitizeTechnicalDetail(
-      "C:\\Users\\qinghui\\repo\\file.ts /home/qinghui/repo/file.ts \\\\server\\share\\file.ts file:///C:/repo/file.ts threadId=abc UUID 123e4567-e89b-42d3-a456-426614174000 deadbeefdeadbeefdeadbeefdeadbeef",
+      "C:\\Users\\qing hui\\repo\\file.ts, /home/qing hui/repo/file.ts; \\\\server\\shared folder\\file.ts, file:///C:/repo with spaces/file.ts; changeId=change-1 taskRunId=task-1 agentSurfaceId=surface-1 workerId=worker-1 payloadHash=secret-hash threadId=abc UUID 123e4567-e89b-42d3-a456-426614174000 deadbeefdeadbeefdeadbeefdeadbeef",
     );
     expect(detail).not.toContain("qinghui");
     expect(detail).not.toContain("server");
     expect(detail).not.toContain("threadId=abc");
+    expect(detail).not.toContain("change-1");
+    expect(detail).not.toContain("task-1");
+    expect(detail).not.toContain("surface-1");
+    expect(detail).not.toContain("worker-1");
+    expect(detail).not.toContain("secret-hash");
     expect(detail).not.toContain("123e4567");
     expect(detail).not.toContain("deadbeef");
     expect(detail).toContain("threadId=[身份已隐藏]");

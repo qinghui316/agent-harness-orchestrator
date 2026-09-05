@@ -78,7 +78,7 @@ describe("UI language lint", () => {
     expect(result.violations[0]).toContain("Workpad");
   });
 
-  it("preserves approved developer and source-authored terminology", async () => {
+  it("preserves approved developer terminology and dynamic source-authored content", async () => {
     const root = await fixture({
       "src/web/src/Panel.tsx": `export const Panel = ({ source }) => <>
         <p>在 Terminal 查看 Git Diff，与 Branch 比较 Commit，并创建 PR。Context 已使用 68% Token。</p>
@@ -87,6 +87,15 @@ describe("UI language lint", () => {
       </>;`,
     });
     expect((await lintUiLanguage(root)).violations).toEqual([]);
+  });
+
+  it("does not let a source-content marker exempt static product copy", async () => {
+    const root = await fixture({
+      "src/web/src/Panel.tsx": `export const Panel = ({ source }) => <section data-source-authored-content>{source}<span>Provider Snapshot</span></section>;`,
+    });
+    const violations = (await lintUiLanguage(root)).violations.join("\n");
+    expect(violations).toContain("Provider");
+    expect(violations).toContain("Snapshot");
   });
 });
 

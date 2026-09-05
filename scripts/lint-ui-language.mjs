@@ -12,7 +12,6 @@ const USER_PRESENTATION_MODULES = new Set([
   "src/web/src/panels/workbench/transcriptDisplay.ts",
 ]);
 const DIAGNOSTIC_RAW_EVIDENCE_ATTRIBUTE = "data-diagnostic-raw-evidence";
-const SOURCE_AUTHORED_CONTENT_ATTRIBUTE = "data-source-authored-content";
 const USER_VISIBLE_ATTRIBUTES = new Set(["aria-label", "title", "placeholder", "alt", "label", "description", "emptyMessage"]);
 const FORBIDDEN_TERMS = [
   /\bWorkpad\b/i,
@@ -71,11 +70,10 @@ export async function lintUiLanguage(rootDirectory = process.cwd()) {
     const content = await readFile(file, "utf8");
     const source = ts.createSourceFile(file, content, ts.ScriptTarget.Latest, true, file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
     const rawAliasesByScope = collectRawIdentifierAliases(source);
-    const visit = (node, insideCode = false, insideDiagnosticRawEvidence = false, insideSourceAuthoredContent = false) => {
+    const visit = (node, insideCode = false, insideDiagnosticRawEvidence = false) => {
       const nextInsideCode = insideCode || isCodeElement(node);
       const nextInsideDiagnosticRawEvidence = insideDiagnosticRawEvidence || isDiagnosticRawEvidenceElement(node);
-      const nextInsideSourceAuthoredContent = insideSourceAuthoredContent || isSourceAuthoredContentElement(node);
-      const inspectVisibleCopy = !nextInsideCode && !nextInsideDiagnosticRawEvidence && !nextInsideSourceAuthoredContent;
+      const inspectVisibleCopy = !nextInsideCode && !nextInsideDiagnosticRawEvidence;
       if (inspectVisibleCopy && ts.isJsxText(node)) checkText(node.getText(source), node, source, relativePath, violations);
       if (inspectVisibleCopy && ts.isJsxAttribute(node) && USER_VISIBLE_ATTRIBUTES.has(node.name.getText(source))) {
         const expression = attributeExpression(node.initializer);
@@ -99,7 +97,7 @@ export async function lintUiLanguage(rootDirectory = process.cwd()) {
       if (inspectVisibleCopy && ts.isCallExpression(node) && directlyPresentsRawError(node)) {
         violations.push(`${relativePath}:${lineOf(source, node)} renders a raw error or response body outside Diagnostics`);
       }
-      ts.forEachChild(node, (child) => visit(child, nextInsideCode, nextInsideDiagnosticRawEvidence, nextInsideSourceAuthoredContent));
+      ts.forEachChild(node, (child) => visit(child, nextInsideCode, nextInsideDiagnosticRawEvidence));
     };
     visit(source);
   }
@@ -305,12 +303,6 @@ function isDiagnosticRawEvidenceElement(node) {
   if (!ts.isJsxElement(node) && !ts.isJsxSelfClosingElement(node)) return false;
   const attributes = ts.isJsxElement(node) ? node.openingElement.attributes.properties : node.attributes.properties;
   return attributes.some((attribute) => ts.isJsxAttribute(attribute) && attribute.name.getText() === DIAGNOSTIC_RAW_EVIDENCE_ATTRIBUTE);
-}
-
-function isSourceAuthoredContentElement(node) {
-  if (!ts.isJsxElement(node) && !ts.isJsxSelfClosingElement(node)) return false;
-  const attributes = ts.isJsxElement(node) ? node.openingElement.attributes.properties : node.attributes.properties;
-  return attributes.some((attribute) => ts.isJsxAttribute(attribute) && attribute.name.getText() === SOURCE_AUTHORED_CONTENT_ATTRIBUTE);
 }
 
 function lineOf(source, node) {
