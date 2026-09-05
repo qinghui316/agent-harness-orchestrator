@@ -15,10 +15,18 @@ describe("user-facing language", () => {
     expect(userFacingErrorMessage(error, "save")).not.toContain("revision");
   });
 
-  it("gives model and unknown conflicts recovery actions that match the actual problem", () => {
+  it("gives model, input, and unknown conflicts recovery actions that match the actual problem", () => {
     const modelError = new WorkbenchRequestError(409, "Selected reasoning effort is not supported by the current model.");
     expect(userFacingErrorMessage(modelError, "send"))
       .toBe("当前模型或推理设置不可用。重新选择模型或推理强度后重试。");
+
+    const effortError = new WorkbenchRequestError(409, "Selected effort is unavailable.");
+    expect(userFacingErrorMessage(effortError, "send"))
+      .toBe("当前模型或推理设置不可用。重新选择模型或推理强度后重试。");
+
+    const inputError = new WorkbenchRequestError(409, "This conversation needs user input.");
+    expect(userFacingErrorMessage(inputError, "send"))
+      .toBe("当前操作正在等待你的处理。先完成待确认事项，再重试。");
 
     const unknownConflict = new WorkbenchRequestError(409, "Conversation cannot accept this operation.");
     expect(userFacingErrorMessage(unknownConflict, "conversation"))

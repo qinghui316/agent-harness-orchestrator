@@ -10,6 +10,8 @@ export interface ComposerDraftApi {
 export type ComposerDraftContent = Omit<ComposerDraftWrite, "expectedUpdatedAt">;
 
 export class ComposerDraftApiConflict extends Error {
+  readonly status = 409;
+
   constructor(readonly current: ComposerDraftSnapshot | null, message = "Composer draft changed in another window.") {
     super(message);
     this.name = "Conflict";

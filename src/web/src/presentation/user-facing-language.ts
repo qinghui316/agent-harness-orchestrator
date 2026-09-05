@@ -103,14 +103,14 @@ function conflictFailure(
   technicalDetail: string,
 ): UserFacingFailure {
   const normalized = detail.toLowerCase();
-  if (/model|reasoning effort|推理|模型/.test(normalized)) {
+  if (/model|reasoning(?:[- ]effort)?|\beffort\b|推理|模型/.test(normalized)) {
     return {
       summary: "当前模型或推理设置不可用。",
       recoveryAction: "重新选择模型或推理强度后重试。",
       technicalDetail,
     };
   }
-  if (/approval|permission|awaits input|waiting[- ]user|待确认|权限/.test(normalized)) {
+  if (/approval|permission|awaits input|input required|needs user input|waiting[- ]user|待确认|权限/.test(normalized)) {
     return {
       summary: "当前操作正在等待你的处理。",
       recoveryAction: "先完成待确认事项，再重试。",

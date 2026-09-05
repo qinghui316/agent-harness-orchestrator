@@ -6,6 +6,7 @@ import {
   type ComposerDraftContent,
 } from "../../src/web/src/controllers/ComposerDraftSyncOwner.js";
 import type { ComposerDraftSnapshot } from "../../src/web/src/types.js";
+import { userFacingErrorMessage } from "../../src/web/src/presentation/user-facing-language.js";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -49,6 +50,13 @@ describe("ComposerDraftSyncOwner", () => {
       text: "after conflict",
       expectedUpdatedAt: "server-token",
     }));
+  });
+
+  it("preserves HTTP conflict identity for user-facing recovery guidance", () => {
+    const conflict = new ComposerDraftApiConflict(null);
+
+    expect(conflict.status).toBe(409);
+    expect(userFacingErrorMessage(conflict, "save")).toBe("当前状态已经变化。刷新后再试一次。");
   });
 
   it("does not let an old send settlement delete a newer saved draft", async () => {
