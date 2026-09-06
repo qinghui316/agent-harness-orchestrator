@@ -12,7 +12,21 @@
 
 ## 1. Current Status
 
-Agent Harness Orchestrator is a single-package TypeScript CLI plus a local browser Workbench shell. It currently manages local project registration, Harness audit/init, ECL index rebuilds, structured change creation/status/close, demand conversation interaction logs, Workbench SQLite interaction/config state, AHO skill sources, Codex bridge projection, main planning-agent proposal bundles, Acceptance Criteria parsing, task mapping, generated `ac-map.json`, explicit `spec-tests.json` evidence mapping, deterministic Spec-Test drift diagnostics, local command run artifacts, Codex read-only proposal artifacts, validation artifacts, Auditor proposal artifacts, Codex Coder proposal artifacts, apply/discard artifacts, diagnostic memory status, opt-in external-local memory, AHO-owned worktrees, Workpad snapshots, TaskGraph projection, TaskRun / WorkerLease orchestration records, local TaskRun Queue, role pipeline projection, Decision Inspector projection, and local result review/apply handoff.
+Agent Harness Orchestrator is a single-package TypeScript CLI plus a local browser Workbench shell and the Beaver Code Electron desktop host. It currently manages local project registration, Harness audit/init, ECL index rebuilds, structured change creation/status/close, demand conversation interaction logs, Workbench SQLite interaction/config state, AHO skill sources, Codex bridge projection, main planning-agent proposal bundles, Acceptance Criteria parsing, task mapping, generated `ac-map.json`, explicit `spec-tests.json` evidence mapping, deterministic Spec-Test drift diagnostics, local command run artifacts, Codex read-only proposal artifacts, validation artifacts, Auditor proposal artifacts, Codex Coder proposal artifacts, apply/discard artifacts, diagnostic memory status, opt-in external-local memory, AHO-owned worktrees, Workpad snapshots, TaskGraph projection, TaskRun / WorkerLease orchestration records, local TaskRun Queue, role pipeline projection, Decision Inspector projection, and local result review/apply handoff.
+
+### Beaver Code desktop composition
+
+```text
+Electron Main
+  -> window, menu, single instance, native folder dialog, supervision
+  -> versioned MessagePort lifecycle protocol
+Electron Utility Process
+  -> existing Workbench Server, Provider Runtime, SQLite, Terminal and Harness owners
+BrowserWindow
+  -> authenticated random-port loopback HTTP/SSE only
+```
+
+Electron Main owns no Conversation, Provider, SQLite, Timeline, Change, Workflow, Run, validation, audit, or source-transition state. The Utility Process starts the existing `startWorkbenchServer()` composition and keeps Node/TypeScript Core authoritative. The Renderer has no Node integration or general IPC surface. Desktop authentication, shutdown and native folder selection are opt-in host ports, so the CLI and ordinary browser Workbench retain their existing composition.
 
 The long-term architecture is a local-first Agent Development OS with a Spec-Anchored Harness Kernel. AHO keeps durable project memory in AHO-managed stores, prepares context for constrained external agents, records execution evidence, and routes local source transitions through explicit bounded authorization while remote landing and Harness evolution remain separately confirmed.
 

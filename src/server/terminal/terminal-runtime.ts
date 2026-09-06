@@ -171,6 +171,10 @@ export class TerminalRuntime {
     return this.sessions.has(sessionKey(projectId, terminalId));
   }
 
+  activeSessionCount(): number {
+    return this.sessions.size;
+  }
+
   subscribe(projectId: string, terminalId: string, listener: (event: TerminalRuntimeEvent) => void): () => void {
     const session = this.requireSession(projectId, terminalId);
     for (const event of session.buffer) listener(event);

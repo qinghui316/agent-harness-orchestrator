@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Local-first Spec-Anchored managed-run harness for AI coding.",
   "type": "module",
+  "main": "dist/desktop/main.js",
   "bin": {
     "aho": "dist/index.js"
   },
@@ -16,7 +17,12 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "build": "tsc && vite build && node scripts/build-project-harness-runtime.mjs && node scripts/copy-templates.mjs",
+    "build": "tsc && vite build && node scripts/build-project-harness-runtime.mjs && node scripts/copy-templates.mjs && node scripts/copy-desktop-assets.mjs",
+    "build:desktop": "npm run build && node scripts/build-desktop-icon.mjs",
+    "dev:desktop": "npm run build:desktop && electron .",
+    "package:desktop:win": "npm run build:desktop && electron-builder --config electron-builder.yml --win nsis --x64",
+    "test:desktop:native": "electron scripts/desktop-native-smoke.cjs",
+    "verify:desktop:package": "node scripts/verify-desktop-package.mjs",
     "build:project-harness-runtime": "node scripts/build-project-harness-runtime.mjs",
     "dev": "tsx src/index.ts",
     "dev:web": "vite --host 127.0.0.1",
@@ -34,6 +40,7 @@
     "lint:frontend-boundaries": "node scripts/lint-frontend-boundaries.mjs",
     "lint:ui-styles": "node scripts/lint-ui-styles.mjs",
     "lint:ui-language": "node scripts/lint-ui-language.mjs",
+    "lint:desktop-boundaries": "node scripts/lint-desktop-boundaries.mjs",
     "office-assets:cutout": "node scripts/office-assets/office-assets.mjs cutout",
     "office-assets:pack": "node scripts/office-assets/office-assets.mjs pack",
     "office-assets:promote-handoff": "node scripts/office-assets/office-assets.mjs promote-handoff",
@@ -47,7 +54,7 @@
     "@tweenjs/tween.js": "^25.0.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
-    "better-sqlite3": "^12.10.0",
+    "better-sqlite3": "13.0.3",
     "commander": "^13.1.0",
     "cross-spawn": "^7.0.6",
     "lucide-react": "^1.16.0",
@@ -68,6 +75,8 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.7.0",
+    "electron": "44.2.0",
+    "electron-builder": "26.15.3",
     "eslint": "^9.39.1",
     "jsdom": "^25.0.1",
     "sharp": "^0.34.5",
@@ -76,11 +85,6 @@
     "typescript-eslint": "^8.47.0",
     "vite": "^5.4.21",
     "vitest": "^2.1.9"
-  },
-  "main": "eslint.config.js",
-  "directories": {
-    "doc": "docs",
-    "test": "tests"
   },
   "repository": {
     "type": "git",

@@ -2,7 +2,8 @@ import { execFile } from "node:child_process";
 import { platform } from "node:os";
 import type { FolderDialogResult, NativeFolderDialogCommand } from "./types.js";
 
-export async function openNativeFolderDialog(): Promise<FolderDialogResult> {
+export async function openNativeFolderDialog(port?: () => Promise<FolderDialogResult>): Promise<FolderDialogResult> {
+  if (port) return port();
   const command = buildNativeFolderDialogCommand();
   if (!command) {
     return { path: null, canceled: false, supported: false, error: "Native folder picker is not supported on this platform." };

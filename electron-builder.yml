@@ -1,0 +1,38 @@
+appId: com.agentharness.desktop
+productName: Beaver Code
+artifactName: Beaver-Code-Setup-${version}-win-${arch}.${ext}
+asar: true
+npmRebuild: false
+directories:
+  output: release/desktop
+  buildResources: build
+files:
+  - dist/**/*
+  - package.json
+  - '!dist/**/*.map'
+  - '!node_modules/better-sqlite3/prebuilds/darwin-*.node'
+  - '!node_modules/better-sqlite3/prebuilds/linux*.node'
+  - '!node_modules/better-sqlite3/prebuilds/win32-arm64.node'
+  - '!node_modules/node-pty/prebuilds/darwin-*/*'
+  - '!node_modules/node-pty/prebuilds/win32-arm64/**/*'
+  - '!node_modules/node-pty/third_party/**/*'
+asarUnpack:
+  - '**/*.node'
+  - 'node_modules/node-pty/prebuilds/win32-x64/**/*'
+win:
+  executableName: BeaverCode
+  icon: build/BeaverCode.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: false
+  allowToChangeInstallationDirectory: true
+  createStartMenuShortcut: true
+  createDesktopShortcut: true
+  shortcutName: Beaver Code
+  deleteAppDataOnUninstall: false
+publish: null

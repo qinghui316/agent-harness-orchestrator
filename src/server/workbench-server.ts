@@ -1,4 +1,6 @@
+import { existsSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import type { Socket } from "node:net";
 import { ProjectRegistryStore } from "../registry/store.js";
 import { recoverApplyApprovalReceipts, recoverDiscardApprovalReceipts } from "../apply/manager.js";
 import { recoverIntegrationCheckApprovalReceipts } from "../integration-check/manager.js";
@@ -8,7 +10,7 @@ import type { ManagedProject } from "../types/index.js";
 import { TerminalRuntime } from "./terminal/terminal-runtime.js";
 import { handleApi } from "./workbench/api-router.js";
 import { restoreDirectProjectInput } from "./workbench/direct-project.js";
-import { sendJson, statusForError } from "./workbench/http.js";
+import { assertDesktopSession, sendJson, statusForError } from "./workbench/http.js";
 import { defaultStaticRoot, serveStatic } from "./workbench/static.js";
 import { defaultProviderRegistry } from "../provider-runtime/index.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
@@ -130,11 +132,25 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
     conversationTurnQueue,
     conversationLifecycle,
     conversationReview,
+    desktopHost: options.desktopHost,
   };
+  const sockets = new Set<Socket>();
+  const responses = new Set<ServerResponse>();
+  let acceptingRequests = true;
   const server = createServer((request, response) => {
+    responses.add(response);
+    response.once("close", () => responses.delete(response));
+    if (!acceptingRequests) {
+      sendJson(response, 503, { error: "Beaver Code is closing." });
+      return;
+    }
     handleRequest(context, request, response).catch((error: unknown) => {
       sendJson(response, statusForError(error), { error: error instanceof Error ? error.message : String(error) });
     });
+  });
+  server.on("connection", (socket) => {
+    sockets.add(socket);
+    socket.once("close", () => sockets.delete(socket));
   });
   let runtimeCleanup: Promise<void> | null = null;
   const cleanupRuntime = (): Promise<void> => runtimeCleanup ??= (async () => {
@@ -150,11 +166,93 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
   return {
     server,
     url: `http://${host}:${actualPort}`,
-    async close() {
-      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-      await cleanupRuntime();
+    snapshot: () => readRuntimeSnapshot({
+      store,
+      directInput: composedInput,
+      projectRuntimeCoordinator,
+      providerRegistry,
+      terminalRuntime,
+      productModeActivity,
+      turnControl,
+      conversationContext,
+      conversationLifecycle,
+    }),
+    async close(deadlineMs = 8_000) {
+      acceptingRequests = false;
+      for (const response of responses) {
+        const contentType = String(response.getHeader("content-type") ?? "");
+        if (contentType.startsWith("text/event-stream") && !response.writableEnded) response.end();
+      }
+      const closing = (async () => {
+        await cleanupRuntime();
+        await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+      })();
+      let timeout: NodeJS.Timeout | undefined;
+      try {
+        await Promise.race([
+          closing,
+          new Promise<never>((_, reject) => {
+            timeout = setTimeout(() => reject(new Error("Workbench shutdown deadline exceeded.")), Math.max(1, deadlineMs));
+          }),
+        ]);
+      } catch (cause) {
+        for (const socket of sockets) socket.destroy();
+        throw cause;
+      } finally {
+        if (timeout) clearTimeout(timeout);
+      }
     },
   };
+}
+
+async function readRuntimeSnapshot(input: {
+  store: ProjectRegistryStore;
+  directInput: WorkbenchProjectInput | null;
+  projectRuntimeCoordinator: ProjectRuntimeCoordinatorPort;
+  providerRegistry: typeof defaultProviderRegistry;
+  terminalRuntime: TerminalRuntime;
+  productModeActivity: ProductModeActivityProjectionOwner;
+  turnControl: ConversationTurnControlOwner;
+  conversationContext: ConversationContextLifecycleOwner;
+  conversationLifecycle: ConversationLifecycleOwner;
+}): Promise<import("./workbench/types.js").WorkbenchRuntimeSnapshot> {
+  const activeTurnCount = input.providerRegistry.listActiveTurns().length;
+  const activeTerminalCount = input.terminalRuntime.activeSessionCount();
+  if (activeTurnCount + activeTerminalCount > 0) {
+    return { state: "active", activeTurnCount, activeTerminalCount, pendingInteractionCount: 0 };
+  }
+  try {
+    const registered = await input.store.listProjects();
+    const directProject = input.directInput?.project;
+    const projects = directProject && !registered.some((project) => project.id === directProject.id)
+      ? [...registered, directProject]
+      : registered;
+    let pendingInteractionCount = 0;
+    let hasBackgroundActivity = false;
+    for (const project of projects) {
+      const projectInput: WorkbenchProjectInput = {
+        project,
+        path: project.path,
+        runtimeStateResolver: (selected) => input.projectRuntimeCoordinator.resolve(selected),
+        turnControlStateResolver: (projectId, conversationId, attemptId) => input.turnControl.state(projectId, conversationId, attemptId),
+        conversationContextSnapshotResolver: (selected, productMode, conversationId) => input.conversationContext.read(selected, productMode, conversationId),
+        conversationLifecycleSnapshotResolver: (selected, productMode, conversationId) => input.conversationLifecycle.read(selected, productMode, conversationId),
+      };
+      const activity = await input.productModeActivity.read(projectInput);
+      for (const mode of [activity.agent, activity.harness]) {
+        if (mode.state === "attention" || mode.state === "failed") pendingInteractionCount += 1;
+        if (mode.state === "running") hasBackgroundActivity = true;
+      }
+    }
+    return {
+      state: pendingInteractionCount > 0 ? "attention" : hasBackgroundActivity ? "active" : "idle",
+      activeTurnCount,
+      activeTerminalCount,
+      pendingInteractionCount,
+    };
+  } catch {
+    return { state: "unknown", activeTurnCount, activeTerminalCount, pendingInteractionCount: 0 };
+  }
 }
 
 export async function recoverWorkbenchProjects(
@@ -176,6 +274,7 @@ export async function recoverWorkbenchProjects(
     projects.push(directInput.project);
   }
   for (const project of projects) {
+    if (!existsSync(project.path)) continue;
     const runtime = await projectRuntimeCoordinator.resolve(project);
     await reconcileStaleAgentMainAttempts({ project, providerRegistry, runtimeState: runtime });
     await reconcileStaleAgentNativeChildren({ project, providerRegistry });
@@ -200,6 +299,11 @@ export async function recoverWorkbenchProjects(
 async function handleRequest(context: WorkbenchServerContext, request: IncomingMessage, response: ServerResponse): Promise<void> {
   const url = new URL(request.url ?? "/", "http://localhost");
   if (url.pathname.startsWith("/api/")) {
+    const desktopHost = context.desktopHost;
+    if (desktopHost) {
+      assertDesktopSession(request, desktopHost.sessionToken, desktopHost.cookieName);
+      if ((request.method ?? "GET").toUpperCase() !== "GET") await desktopHost.beforeSideEffect?.();
+    }
     await handleApi(context, request, response, url);
     return;
   }

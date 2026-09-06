@@ -138,7 +138,7 @@ async function handleApiRequest(context: WorkbenchServerContext, request: Incomi
     return;
   }
   if (request.method === "POST" && url.pathname === "/api/dialog/open-folder") {
-    sendJson(response, 200, await openNativeFolderDialog());
+    sendJson(response, 200, await openNativeFolderDialog(context.desktopHost?.openFolder));
     return;
   }
   const runtimeDiagnosticsMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/runtime\/diagnostics$/);

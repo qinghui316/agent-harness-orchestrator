@@ -57,6 +57,34 @@ for the full Workbench contract, including slow/deep Workbench suites. Use
 
 The CLI command name is `aho` when installed from the package bin.
 
+## 4A. Beaver Code desktop development
+
+The Windows desktop foundation targets a current-user x64 NSIS installer. It is
+an unsigned internal acceptance build, not a public 1.0 release.
+
+```powershell
+npm run dev:desktop
+npm run build:desktop
+npm run test:desktop:native
+npm run package:desktop:win
+npm run verify:desktop:package
+npm run lint:desktop-boundaries
+```
+
+`build:desktop` consumes the same compiled Workbench assets as the browser
+product. `test:desktop:native` launches Electron and proves that the packaged
+ABI can load `better-sqlite3` and start a real `node-pty` session.
+`package:desktop:win` creates `Beaver-Code-Setup-<version>-win-x64.exe` under
+`release/desktop/`; `verify:desktop:package` checks the installer and unpacked
+Windows x64 native resources. The current locked dependencies ship official
+Windows x64 prebuilt binaries, which are accepted only after both Electron
+runtime smoke and package-layout verification pass. Runtime network downloads
+of native modules are not allowed.
+
+Desktop application data remains under `~/.agent-harness`. Window state and
+bounded host logs use `~/.agent-harness/desktop`; uninstall must preserve this
+directory by default.
+
 ## 5. Structured Change Commands
 
 Use a temporary `AHO_HOME` for manual acceptance if you do not want to touch your real registry:

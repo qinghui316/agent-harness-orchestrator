@@ -19,6 +19,21 @@ const retiredFiles = [
 ];
 
 describe("Workbench module boundaries", () => {
+  it("keeps Electron Main out of business owners and limits Utility composition", () => {
+    const main = readFileSync("src/desktop/main.ts", "utf8");
+    const utility = readFileSync("src/desktop/utility.ts", "utf8");
+    expect(main).not.toMatch(/\.\.\/server|\.\.\/workbench|\.\.\/provider-runtime|\.\.\/project-runtime/);
+    expect(main).not.toMatch(/ipcRenderer|contextBridge|nodeIntegration:\s*true/);
+    expect(main).toContain('window.on("page-title-updated"');
+    expect(main).toContain('window?.setTitle("Beaver Code")');
+    expect(main).toContain("return value === startupUrl");
+    expect(main).not.toContain('return value.startsWith("file:")');
+    expect(utility).toContain('from "../server/workbench-server.js"');
+    expect(utility).toContain("process.parentPort");
+    expect(utility).not.toMatch(/import\s*\{[^}]*parentPort[^}]*\}\s*from\s*["']electron["']/);
+    expect(utility).not.toMatch(/\.\.\/workbench|\.\.\/provider-runtime|\.\.\/project-runtime/);
+  });
+
   it("retires the legacy objective loop, controlled continuation, scoped automation, and bridge owners", () => {
     for (const file of retiredFiles) expect(existsSync(file), file).toBe(false);
   });

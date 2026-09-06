@@ -563,33 +563,43 @@ Decisions:
 - Runs record enabled skill ids, runtime target, source hashes, and materialized
   hashes so Codex behavior can be audited later.
 
-## 6A.1 Hybrid Desktop Native Boundary
+## 6A.1 Beaver Code Electron Desktop Boundary
 
-AHO's long-term desktop product may use a Tauri/Rust host and native adapter
-layer, but the current Node/TypeScript AHO core remains the owner of Harness
-workflow truth and product orchestration.
+Beaver Code uses Electron as its single desktop host direction. The existing
+Node/TypeScript Core remains the owner of Workbench, Provider, SQLite, Terminal,
+Harness workflow truth, and product orchestration. Tauri/Rust is not a parallel
+desktop-host option.
 
 Decisions:
 
 - Node/TypeScript continues to own Change/ECL, accepted artifacts, Workbench
   APIs, Codex bridge, Skills, provider Goal/Plan-child integration, Scheduler,
   SQLite interaction stores, and project registry behavior.
-- A future Tauri/Rust shell may own desktop host responsibilities such as
-  windows, native menus, tray, updater, native dialogs, notifications, and
-  packaging.
+- Electron Main owns windows, native menus, single-instance behavior, native
+  dialogs, packaging, and desktop lifecycle. It supervises one Utility Process
+  through a narrow versioned MessagePort protocol.
+- The Electron Utility Process owns the existing Workbench Server composition,
+  Provider Runtime, SQLite, Terminal, and Harness behavior. Business logic does
+  not move into Electron Main or Renderer IPC.
+- BrowserWindow uses only an authenticated random-port `127.0.0.1` HTTP/SSE
+  origin. Its session token is memory-only and must not enter URLs, Renderer
+  JavaScript, logs, SQLite, Timeline, Harness evidence, or project files.
 - Native-heavy tools such as Terminal PTY, file watcher, native file dialogs,
   runtime log collection, and system notifications must enter through explicit
   adapter/service owners. They must not be scattered through React components,
   broad server facades, or Harness workflow modules.
-- Terminal V1 may use Node `node-pty` behind a `TerminalRuntime`-style owner.
-  A future Tauri build may replace that owner with Rust `portable-pty` without
-  changing Workbench UI or public Terminal APIs.
+- Terminal remains behind the Node `TerminalRuntime` owner and uses `node-pty`.
+  `better-sqlite3` and `node-pty` native binaries must be verified against the
+  packaged Electron ABI and target architecture.
 - Native tools are user/project tools and runtime adapters. They do not become
   validation, audit, apply, close, scheduler, remote, PR, merge, or Harness
   evolution authority.
 - Packaging is distribution and process management. It must not turn auto
   update, native shell startup, terminal output, or local process state into
   workflow truth.
+- Automatic restart is allowed at most once and only with a current, explicit
+  idle lease. Running work, pending interaction, stale lease, or unknown state
+  enters manual recovery and never replays a Provider request.
 
 ## 6B. ECL Agent Runtime Boundary
 

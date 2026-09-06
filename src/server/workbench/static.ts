@@ -22,7 +22,13 @@ export async function serveStatic(staticRoot: string, pathname: string, response
     sendJson(response, 404, { error: "Not found." });
     return;
   }
-  response.writeHead(200, { "Content-Type": contentTypeFor(target), "Cache-Control": "no-store" });
+  response.writeHead(200, {
+    "Content-Type": contentTypeFor(target),
+    "Cache-Control": "no-store",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+  });
   response.end(await readFile(target));
 }
 

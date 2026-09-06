@@ -36,12 +36,28 @@ export interface WorkbenchServeOptions {
   conversationTurnQueue?: ConversationTurnQueueOwner;
   conversationLifecycle?: ConversationLifecycleOwner;
   conversationReview?: ConversationReviewLifecycleOwner;
+  desktopHost?: WorkbenchDesktopHostPort;
 }
 
 export interface WorkbenchServerHandle {
   server: Server;
   url: string;
-  close(): Promise<void>;
+  snapshot(): Promise<WorkbenchRuntimeSnapshot>;
+  close(deadlineMs?: number): Promise<void>;
+}
+
+export interface WorkbenchDesktopHostPort {
+  sessionToken: string;
+  cookieName?: string;
+  beforeSideEffect?: () => Promise<void>;
+  openFolder?: () => Promise<FolderDialogResult>;
+}
+
+export interface WorkbenchRuntimeSnapshot {
+  state: "idle" | "active" | "attention" | "unknown";
+  activeTurnCount: number;
+  activeTerminalCount: number;
+  pendingInteractionCount: number;
 }
 
 export interface WorkbenchServerContext {
@@ -62,6 +78,7 @@ export interface WorkbenchServerContext {
   conversationTurnQueue: ConversationTurnQueueOwner;
   conversationLifecycle: ConversationLifecycleOwner;
   conversationReview: ConversationReviewLifecycleOwner;
+  desktopHost?: WorkbenchDesktopHostPort;
 }
 
 export interface ConversationLifecycleBody {

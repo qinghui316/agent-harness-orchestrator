@@ -1,0 +1,79 @@
+export const DESKTOP_PROTOCOL_VERSION = 1 as const;
+export const DESKTOP_SESSION_COOKIE = "beaver_code_session";
+
+export interface DesktopSafeDiagnostic {
+  stage: "bootstrap" | "startup" | "runtime" | "shutdown" | "dialog";
+  summary: string;
+  recovery?: string;
+}
+
+export interface DesktopRuntimeSnapshot {
+  state: "idle" | "active" | "attention" | "unknown";
+  activeTurnCount: number;
+  activeTerminalCount: number;
+  pendingInteractionCount: number;
+}
+
+export type DesktopHostMessage =
+  | { type: "bootstrap"; protocolVersion: 1; sessionToken: string; generation: string }
+  | { type: "ready"; protocolVersion: 1; origin: string; generation: string }
+  | { type: "startup-failed"; generation: string; diagnostic: DesktopSafeDiagnostic }
+  | { type: "read-quit-snapshot"; requestId: string; generation: string }
+  | ({ type: "quit-snapshot"; requestId: string; generation: string } & DesktopRuntimeSnapshot)
+  | { type: "open-folder-request"; requestId: string; generation: string; title: string }
+  | { type: "open-folder-result"; requestId: string; generation: string; path: string | null; canceled: boolean; error?: string }
+  | { type: "idle-lease-granted"; generation: string; leaseId: string }
+  | { type: "idle-lease-revoked"; generation: string; leaseId: string; requestId: string }
+  | { type: "idle-lease-revoke-ack"; generation: string; leaseId: string; requestId: string }
+  | { type: "shutdown"; requestId: string; generation: string; reason: "app-quit" | "window-close" | "restart" | "host-failure"; deadlineMs: number }
+  | { type: "shutdown-complete"; requestId: string; generation: string; diagnostic?: DesktopSafeDiagnostic };
+
+export function isDesktopHostMessage(value: unknown): value is DesktopHostMessage {
+  if (!isRecord(value) || typeof value.type !== "string" || typeof value.generation !== "string") return false;
+  switch (value.type) {
+    case "bootstrap": return value.protocolVersion === DESKTOP_PROTOCOL_VERSION && isNonEmpty(value.sessionToken);
+    case "ready": return value.protocolVersion === DESKTOP_PROTOCOL_VERSION && isLoopbackOrigin(value.origin);
+    case "startup-failed": return isDiagnostic(value.diagnostic);
+    case "read-quit-snapshot": return isNonEmpty(value.requestId);
+    case "quit-snapshot": return isNonEmpty(value.requestId) && isSnapshot(value);
+    case "open-folder-request": return isNonEmpty(value.requestId) && typeof value.title === "string";
+    case "open-folder-result": return isNonEmpty(value.requestId) && (value.path === null || typeof value.path === "string") && typeof value.canceled === "boolean" && (value.error === undefined || typeof value.error === "string");
+    case "idle-lease-granted": return isNonEmpty(value.leaseId);
+    case "idle-lease-revoked": return isNonEmpty(value.leaseId) && isNonEmpty(value.requestId);
+    case "idle-lease-revoke-ack": return isNonEmpty(value.leaseId) && isNonEmpty(value.requestId);
+    case "shutdown": return isNonEmpty(value.requestId) && Number.isInteger(value.deadlineMs) && Number(value.deadlineMs) > 0 && ["app-quit", "window-close", "restart", "host-failure"].includes(String(value.reason));
+    case "shutdown-complete": return isNonEmpty(value.requestId) && (value.diagnostic === undefined || isDiagnostic(value.diagnostic));
+    default: return false;
+  }
+}
+
+export function safeDiagnostic(stage: DesktopSafeDiagnostic["stage"], cause: unknown, recovery?: string): DesktopSafeDiagnostic {
+  const raw = cause instanceof Error ? cause.message : String(cause);
+  const summary = raw
+    .replace(/[\r\n]+/g, " ")
+    .replace(/(?:[A-Za-z]:\\|\\\\)[^\s'"<>|)]+/g, "[本地路径]")
+    .replace(/\/(?:Users|home|var|tmp)\/[^\s'"<>|)]+/g, "[本地路径]")
+    .slice(0, 400);
+  return { stage, summary, ...(recovery ? { recovery } : {}) };
+}
+
+function isSnapshot(value: Record<string, unknown>): boolean {
+  return ["idle", "active", "attention", "unknown"].includes(String(value.state))
+    && isCount(value.activeTurnCount) && isCount(value.activeTerminalCount) && isCount(value.pendingInteractionCount);
+}
+
+function isDiagnostic(value: unknown): value is DesktopSafeDiagnostic {
+  return isRecord(value) && ["bootstrap", "startup", "runtime", "shutdown", "dialog"].includes(String(value.stage)) && typeof value.summary === "string" && value.summary.length <= 400 && (value.recovery === undefined || typeof value.recovery === "string");
+}
+
+function isLoopbackOrigin(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" && url.hostname === "127.0.0.1" && Boolean(url.port) && url.pathname === "/";
+  } catch { return false; }
+}
+
+function isCount(value: unknown): boolean { return Number.isInteger(value) && Number(value) >= 0; }
+function isNonEmpty(value: unknown): value is string { return typeof value === "string" && value.length > 0; }
+function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null; }

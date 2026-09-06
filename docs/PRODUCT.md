@@ -1,8 +1,8 @@
-# Product Requirements
+# Beaver Code Product Requirements
 
 ## 1. Product Positioning
 
-Agent Harness Orchestrator is a local-first Agent Development OS with a Spec-Anchored Harness Kernel.
+Beaver Code is the public desktop product name. It is a local-first Agent Development OS with two shared Workbench modes: Agent mode for direct development and AHO mode for governed multi-Agent collaboration. `Agent Harness Orchestrator` remains the project and kernel name; `AHO` is the collaboration mode, not the desktop host name.
 
 It manages requirements, project understanding, demand conversations, internal Changes/Workpads, specs, plans, TaskGraphs, coding runs, validation, review, and Harness evolution across local code projects. Its core purpose is to let a developer ask for work in natural language while keeping every meaningful state transition traceable to human intent, accepted artifacts, evidence, and gates.
 

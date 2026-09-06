@@ -90,6 +90,7 @@ export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort 
     await assertProjectRuntimePathSafety(resolveProjectRuntimePaths("project-runtime-identities", this.ahoHome));
     const onboardingRecoveries: ProjectHarnessOnboardingRecord[] = [];
     for (const project of await this.options.store.listProjects()) {
+      if (!existsSync(project.path)) continue;
       const paths = resolveProjectRuntimePaths(project.id, this.ahoHome);
       if (!existsSync(join(paths.sidecarRoot, "onboarding", "transaction.json"))) continue;
       const recovered = await recoverProjectHarnessOnboarding(
@@ -112,6 +113,7 @@ export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort 
       const migrations: ProjectIdentityMigrationResult[] = [];
       const states: ProjectRuntimeState[] = [];
       for (const initial of await this.options.store.listProjects()) {
+        if (!existsSync(initial.path)) continue;
         const reconciled = await this.reconcileRegisteredProject(initial, lock);
         if (reconciled.migration) migrations.push(reconciled.migration);
         states.push(reconciled.state);

@@ -125,6 +125,34 @@ describe("workbench server", () => {
     expect(await page.text()).toContain("AHO");
   });
 
+  it("protects every desktop API route with the ephemeral session cookie", async () => {
+    const desktopHandle = await startWorkbenchServer({ project: project(), path: tempDir }, {
+      port: 0,
+      staticRoot,
+      desktopHost: { sessionToken: "desktop-secret", cookieName: "beaver_code_session" },
+    });
+    try {
+      const staticResponse = await fetch(desktopHandle.url);
+      expect(staticResponse.status).toBe(200);
+      expect(staticResponse.headers.get("content-security-policy")).toContain("default-src 'self'");
+
+      const anonymous = await fetch(`${desktopHandle.url}/api/projects`);
+      expect(anonymous.status).toBe(403);
+
+      const authenticated = await fetch(`${desktopHandle.url}/api/projects`, {
+        headers: { Cookie: "beaver_code_session=desktop-secret" },
+      });
+      expect(authenticated.status).toBe(200);
+
+      const wrong = await fetch(`${desktopHandle.url}/api/projects`, {
+        headers: { Cookie: "beaver_code_session=wrong" },
+      });
+      expect(wrong.status).toBe(403);
+    } finally {
+      await desktopHandle.close();
+    }
+  });
+
   it("serves the exact Agent Turn interrupt JSON contract and rejects Harness mode before the Owner", async () => {
     await new Promise<void>((resolve) => handle!.server.close(() => resolve()));
     const interrupt = vi.fn(async () => ({ status: "interrupt-requested" as const, attemptId: "attempt-agent", runId: "run-agent" }));
@@ -2006,6 +2034,28 @@ describe("workbench server", () => {
       await appHandle.close();
       await rm(sourceRoot, { recursive: true, force: true });
       await rm(otherRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("starts when a previously registered project directory no longer exists", async () => {
+    const removedRoot = await mkdtemp(join(tmpdir(), "aho-removed-project-"));
+    const missingHome = join(registryRoot, "missing-project-home");
+    const store = new ProjectRegistryStore(missingHome);
+    process.env.AHO_HOME = missingHome;
+    await store.registerProject({ path: removedRoot, name: "Removed Project", projectId: "removed-project" });
+    await rm(removedRoot, { recursive: true, force: true });
+
+    const appHandle = await startWorkbenchServer(null, { port: 0, staticRoot, store });
+    try {
+      const response = await fetch(`${appHandle.url}/api/projects`);
+      expect(response.status).toBe(200);
+      const body = await response.json() as { projects: Array<{ project: { id: string }; pathExists: boolean }> };
+      expect(body.projects).toContainEqual(expect.objectContaining({
+        project: expect.objectContaining({ id: "removed-project" }),
+        pathExists: false,
+      }));
+    } finally {
+      await appHandle.close();
     }
   });
 

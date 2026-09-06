@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { timingSafeEqual } from "node:crypto";
 import { relative, resolve } from "node:path";
 import type { ManagedProject } from "../../types/index.js";
 import type { WorkbenchProjectInput } from "../../workbench/read-model-types.js";
@@ -41,6 +42,15 @@ export function assertLocalWorkbenchRequest(request: IncomingMessage): void {
   const origin = request.headers.origin;
   if (typeof origin === "string" && origin.length > 0 && !isAllowedOrigin(origin, host)) {
     const error = new Error("Cross-origin Workbench API request rejected.");
+    error.name = "Forbidden";
+    throw error;
+  }
+}
+
+export function assertDesktopSession(request: IncomingMessage, token: string, cookieName = "beaver_code_session"): void {
+  const candidate = readCookie(request.headers.cookie, cookieName);
+  if (!candidate || !safeTokenEqual(candidate, token)) {
+    const error = new Error("Beaver Code session is not authorized.");
     error.name = "Forbidden";
     throw error;
   }
@@ -113,4 +123,24 @@ function normalizeHostHeader(value: string | undefined): string {
 function isLocalHostname(value: string): boolean {
   const normalized = value.toLowerCase();
   return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1" || normalized === "[::1]";
+}
+
+function readCookie(header: string | undefined, name: string): string | null {
+  if (!header) return null;
+  for (const entry of header.split(";")) {
+    const separator = entry.indexOf("=");
+    if (separator < 0 || entry.slice(0, separator).trim() !== name) continue;
+    try {
+      return decodeURIComponent(entry.slice(separator + 1).trim());
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function safeTokenEqual(left: string, right: string): boolean {
+  const leftBytes = Buffer.from(left, "utf8");
+  const rightBytes = Buffer.from(right, "utf8");
+  return leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes);
 }
