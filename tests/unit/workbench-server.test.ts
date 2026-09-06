@@ -158,6 +158,60 @@ describe("workbench server", () => {
     }
   });
 
+  it("does not report idle after a model request starts a persistent Provider Host", async () => {
+    const desktopHandle = await startWorkbenchServer({ project: project(), path: tempDir }, {
+      port: 0,
+      staticRoot,
+      desktopHost: { sessionToken: "desktop-model-secret", cookieName: "beaver_code_session" },
+    });
+    try {
+      const models = await fetch(`${desktopHandle.url}/api/projects/repo/providers/codex/models`, {
+        headers: { Cookie: "beaver_code_session=desktop-model-secret" },
+      });
+      expect(models.status).toBe(200);
+      expect(await desktopHandle.snapshot()).toMatchObject({
+        state: "active",
+        activeTurnCount: 0,
+        activeTerminalCount: 0,
+      });
+    } finally {
+      await desktopHandle.close();
+    }
+  });
+
+  it("fails graceful close when a registered Turn explicitly rejects interruption", async () => {
+    const interruptRejection = new Error("interrupt rejected");
+    interruptRejection.name = "ProviderInterruptRejected";
+    const interruptAll = vi.fn(async () => {
+      throw new AggregateError([interruptRejection], "One or more Conversation Turns rejected interruption.");
+    });
+    const drain = vi.fn(async () => undefined);
+    const turnControl = {
+      interruptAll,
+      drain,
+      state: () => ({ state: "idle" as const, canInterrupt: false, canSteer: false, steerState: "idle" as const }),
+      registerAttempt: () => undefined,
+      release: () => undefined,
+      onTurnStarted: () => undefined,
+    } as unknown as ConversationTurnControlOwner;
+    const closeHandle = await startWorkbenchServer(null, {
+      port: 0,
+      staticRoot,
+      store: new ProjectRegistryStore(join(registryRoot, "interrupt-rejection")),
+      turnControl,
+    });
+    try {
+      await expect(closeHandle.close()).rejects.toMatchObject({
+        name: "AggregateError",
+        errors: [interruptRejection],
+      });
+      expect(interruptAll).toHaveBeenCalledTimes(1);
+      expect(drain).not.toHaveBeenCalled();
+    } finally {
+      await new Promise<void>((resolve) => closeHandle.server.close(() => resolve()));
+    }
+  });
+
   it("serves the exact Agent Turn interrupt JSON contract and rejects Harness mode before the Owner", async () => {
     await new Promise<void>((resolve) => handle!.server.close(() => resolve()));
     const interrupt = vi.fn(async () => ({ status: "interrupt-requested" as const, attemptId: "attempt-agent", runId: "run-agent" }));

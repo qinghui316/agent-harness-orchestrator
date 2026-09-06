@@ -223,6 +223,7 @@ function fakeProvider(observed: ProviderTurnRequest[], options: FakeProviderOpti
     id: providerId,
     displayName: "Codex",
     runtime: {
+      liveness: () => ({ providerId, liveHostCount: 0 }),
       shutdown: async () => undefined,
       shutdownProject: async () => undefined,
     },

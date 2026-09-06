@@ -295,6 +295,7 @@ function fakeProvider(
     id: "test-provider",
     displayName: "Test Provider",
     runtime: {
+      liveness: () => ({ providerId: "test-provider", liveHostCount: 0 }),
       shutdown: async () => undefined,
       shutdownProject,
     },

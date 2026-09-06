@@ -130,6 +130,25 @@ describe("provider-neutral runtime contract", () => {
     expect(registry.findActiveTurns(["scope-1"]).map((turn) => turn.providerId).sort()).toEqual(["alpha", "beta"]);
   });
 
+  it("aggregates persistent Provider Host liveness independently from active Turns", () => {
+    const registry = new ProviderRegistry();
+    const alpha = fakeProvider("alpha");
+    const beta = fakeProvider("beta");
+    alpha.runtime.liveness = () => ({ providerId: "alpha", liveHostCount: 1 });
+    beta.runtime.liveness = () => ({ providerId: "beta", liveHostCount: 2 });
+    registry.register(alpha);
+    registry.register(beta);
+
+    expect(registry.listActiveTurns()).toEqual([]);
+    expect(registry.runtimeLiveness()).toEqual({
+      liveHostCount: 3,
+      providers: [
+        { providerId: "alpha", liveHostCount: 1 },
+        { providerId: "beta", liveHostCount: 2 },
+      ],
+    });
+  });
+
   it("shuts down every registered Provider runtime even when one fails", async () => {
     const registry = new ProviderRegistry();
     const calls: string[] = [];
@@ -653,6 +672,7 @@ function fakeProvider(providerId: string): ProviderDescriptor {
     id: providerId,
     displayName: providerId,
     runtime: {
+      liveness: () => ({ providerId, liveHostCount: 0 }),
       shutdown: async () => undefined,
       shutdownProject: async () => undefined,
     },

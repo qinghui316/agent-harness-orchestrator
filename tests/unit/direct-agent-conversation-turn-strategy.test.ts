@@ -272,6 +272,44 @@ describe("DirectAgentConversationTurnStrategy", () => {
     }
   });
 
+  it("propagates an explicit Provider rejection from interruptAll", async () => {
+    const releaseProvider = deferred<void>();
+    const providerEntered = deferred<void>();
+    const rejection = new Error("interrupt rejected");
+    rejection.name = "ProviderInterruptRejected";
+    const provider = fakeProvider({
+      waitForRelease: releaseProvider.promise,
+      onEntered: () => providerEntered.resolve(),
+      interruptErrors: [rejection],
+    });
+    const registry = new ProviderRegistry();
+    registry.register(provider.descriptor);
+    const turnControl = new ConversationTurnControlOwner({
+      providerRegistry: registry,
+      projectRuntimeCoordinator: {
+        resolve: async () => ({ state: "onboarding", project: fixture.project, paths: fixture.paths }),
+      },
+      onInvalidated: () => undefined,
+    });
+    const strategy = new DirectAgentConversationTurnStrategy({
+      providerRegistry: registry,
+      resolveRuntimePaths: () => fixture.paths,
+      turnControl,
+    });
+    const input = await initialTurnInput(fixture, "shutdown rejection");
+    const running = strategy.execute(input, { skillContext: { resolve: async () => skillResolution() } });
+    await providerEntered.promise;
+
+    await expect(turnControl.interruptAll("Beaver Code is closing.")).rejects.toMatchObject({
+      name: "AggregateError",
+      errors: [rejection],
+    });
+    expect(turnControl.state(fixture.project.id, input.conversation.conversationId)).toMatchObject({ state: "running" });
+
+    releaseProvider.resolve();
+    await running;
+  });
+
   it("steers the exact active Turn once, retries explicit rejection, and fences uncertain transport", async () => {
     const releaseProvider = deferred<void>();
     const providerEntered = deferred<void>();
@@ -1492,7 +1530,7 @@ function fakeProvider(behavior: FakeProviderBehavior = {}): {
   const descriptor: ProviderDescriptor = {
     id: providerId,
     displayName: "Codex",
-    runtime: { shutdown: async () => undefined, shutdownProject: async () => undefined },
+    runtime: { liveness: () => ({ providerId: "codex", liveHostCount: 0 }), shutdown: async () => undefined, shutdownProject: async () => undefined },
     capabilitySnapshot: async (_project, productMode) => capabilitySnapshot(productMode, behavior.childCapability !== false),
     runtimeSummary: async (_project, productMode) => ({
       providerId,

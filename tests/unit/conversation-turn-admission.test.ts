@@ -167,7 +167,7 @@ function admissionFixture(planReady: boolean, fileReady = true) {
       runTurn: vi.fn(), inspectChild: vi.fn(), continueChild: vi.fn(), closeChild: vi.fn(),
       getActiveTurn: vi.fn(() => null), listActiveTurns: vi.fn(() => []),
     },
-    runtime: { shutdown: vi.fn(), shutdownProject: vi.fn() },
+    runtime: { liveness: () => ({ providerId: "provider", liveHostCount: 0 }), shutdown: vi.fn(), shutdownProject: vi.fn() },
   } as unknown as ProviderDescriptor);
   const runtimeState = {
     state: "onboarding",

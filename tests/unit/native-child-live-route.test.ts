@@ -190,7 +190,7 @@ function fakeProvider(continued: ReturnType<typeof vi.fn>): ProviderDescriptor {
   return {
     id: "codex",
     displayName: "Codex",
-    runtime: { shutdown: async () => undefined, shutdownProject: async () => undefined },
+    runtime: { liveness: () => ({ providerId: "codex", liveHostCount: 0 }), shutdown: async () => undefined, shutdownProject: async () => undefined },
     capabilitySnapshot: async () => capabilitySnapshot(),
     runtimeSummary: async () => ({ providerId: "codex", productMode: "agent", harnessExecutionModes: ["stepwise"], snapshot: capabilitySnapshot() }),
     models: {

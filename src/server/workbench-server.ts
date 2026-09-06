@@ -194,7 +194,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
       if (directProject) projectIds.add(directProject.id);
       for (const projectId of projectIds) defaultProjectRuntimeActivityRegistry.blockProject(projectId);
       const closing = (async () => {
-        await Promise.allSettled([
+        await Promise.all([
           turnControl.interruptAll("Beaver Code is closing."),
           ...providerRegistry.listActiveTurns()
             .filter((turn) => turn.roleId !== "main-agent")
@@ -244,7 +244,8 @@ async function readRuntimeSnapshot(input: {
 }): Promise<import("./workbench/types.js").WorkbenchRuntimeSnapshot> {
   const activeTurnCount = input.providerRegistry.listActiveTurns().length;
   const activeTerminalCount = input.terminalRuntime.activeSessionCount();
-  if (activeTurnCount + activeTerminalCount > 0) {
+  const liveProviderHostCount = input.providerRegistry.runtimeLiveness().liveHostCount;
+  if (activeTurnCount + activeTerminalCount + liveProviderHostCount > 0) {
     return { state: "active", activeTurnCount, activeTerminalCount, pendingInteractionCount: 0 };
   }
   try {

@@ -270,7 +270,7 @@ function fakeProvider(inspect: (threadId: string) => "available" | "stale"): Pro
   return {
     id: "codex",
     displayName: "Codex",
-    runtime: { shutdown: async () => undefined, shutdownProject: async () => undefined },
+    runtime: { liveness: () => ({ providerId: "codex", liveHostCount: 0 }), shutdown: async () => undefined, shutdownProject: async () => undefined },
     capabilitySnapshot: async (_project, productMode) => capabilitySnapshot(productMode),
     runtimeSummary: async (_project, productMode) => ({ providerId: "codex", productMode, harnessExecutionModes: ["stepwise"], snapshot: capabilitySnapshot(productMode) }),
     models: {

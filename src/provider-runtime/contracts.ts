@@ -345,6 +345,11 @@ export interface ProviderRuntimeHostRef {
   pid: number | null;
 }
 
+export interface ProviderRuntimeLiveness {
+  providerId: ProviderId;
+  liveHostCount: number;
+}
+
 export interface ProviderTurnStartedIdentity {
   projectId: string;
   conversationId?: string;
@@ -585,6 +590,7 @@ export interface ProviderDescriptor {
   id: ProviderId;
   displayName: string;
   runtime: {
+    liveness(): ProviderRuntimeLiveness;
     shutdown(reason?: string): void | Promise<void>;
     shutdownProject(
       project: { projectId: string; projectPath: string },

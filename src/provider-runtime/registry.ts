@@ -1,4 +1,4 @@
-import type { ActiveProviderTurn, ProviderDescriptor } from "./contracts.js";
+import type { ActiveProviderTurn, ProviderDescriptor, ProviderRuntimeLiveness } from "./contracts.js";
 import { missingProviderCapabilities, type ProductMode, type ProviderCapabilitySnapshot, type ProviderId, type ProviderOperationProfile } from "./types.js";
 
 export class ProviderRegistry {
@@ -56,6 +56,22 @@ export class ProviderRegistry {
       }
     }
     return [...turns.values()];
+  }
+
+  runtimeLiveness(): { liveHostCount: number; providers: ProviderRuntimeLiveness[] } {
+    const providers = [...this.descriptors.values()].map((descriptor) => {
+      const liveness = descriptor.runtime.liveness();
+      if (liveness.providerId !== descriptor.id
+        || !Number.isSafeInteger(liveness.liveHostCount)
+        || liveness.liveHostCount < 0) {
+        throw new Error(`Provider ${descriptor.id} returned invalid runtime liveness.`);
+      }
+      return liveness;
+    });
+    return {
+      liveHostCount: providers.reduce((total, provider) => total + provider.liveHostCount, 0),
+      providers,
+    };
   }
 
   async shutdownAll(reason?: string): Promise<void> {

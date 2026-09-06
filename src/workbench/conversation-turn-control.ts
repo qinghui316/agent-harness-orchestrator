@@ -127,7 +127,11 @@ export class ConversationTurnControlOwner {
       entry.interruptReason = reason;
       return this.submitInterrupt(entry, undefined, reason);
     });
-    await Promise.allSettled(submissions);
+    const results = await Promise.allSettled(submissions);
+    const failures = results.flatMap((result) => result.status === "rejected" ? [result.reason] : []);
+    if (failures.length > 0) {
+      throw new AggregateError(failures, "One or more Conversation Turns rejected interruption.");
+    }
   }
 
   async drain(): Promise<void> {
