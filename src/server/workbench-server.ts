@@ -33,6 +33,7 @@ import { ConversationForkLifecycleOwner } from "../workbench/conversation-fork-l
 import { ConversationTurnQueueOwner } from "../workbench/conversation-turn-queue.js";
 import { ConversationLifecycleOwner } from "../workbench/conversation-lifecycle.js";
 import { ConversationReviewLifecycleOwner } from "../workbench/conversation-review-lifecycle.js";
+import { defaultProjectRuntimeActivityRegistry } from "../project-runtime/activity.js";
 
 export type { WorkbenchServeOptions, WorkbenchServerHandle } from "./workbench/types.js";
 export { executeWorkbenchAction } from "./workbench/actions.js";
@@ -136,6 +137,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
   };
   const sockets = new Set<Socket>();
   const responses = new Set<ServerResponse>();
+  const inFlightRequests = new Set<Promise<void>>();
   let acceptingRequests = true;
   const server = createServer((request, response) => {
     responses.add(response);
@@ -144,9 +146,12 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
       sendJson(response, 503, { error: "Beaver Code is closing." });
       return;
     }
-    handleRequest(context, request, response).catch((error: unknown) => {
-      sendJson(response, statusForError(error), { error: error instanceof Error ? error.message : String(error) });
-    });
+    const operation = handleRequest(context, request, response)
+      .catch((error: unknown) => {
+        sendJson(response, statusForError(error), { error: error instanceof Error ? error.message : String(error) });
+      })
+      .finally(() => inFlightRequests.delete(operation));
+    inFlightRequests.add(operation);
   });
   server.on("connection", (socket) => {
     sockets.add(socket);
@@ -183,11 +188,28 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
         const contentType = String(response.getHeader("content-type") ?? "");
         if (contentType.startsWith("text/event-stream") && !response.writableEnded) response.end();
       }
+      const registered = await store.listProjects();
+      const directProject = composedInput?.project;
+      const projectIds = new Set(registered.map((project) => project.id));
+      if (directProject) projectIds.add(directProject.id);
+      for (const projectId of projectIds) defaultProjectRuntimeActivityRegistry.blockProject(projectId);
       const closing = (async () => {
+        await Promise.allSettled([
+          turnControl.interruptAll("Beaver Code is closing."),
+          ...providerRegistry.listActiveTurns()
+            .filter((turn) => turn.roleId !== "main-agent")
+            .map((turn) => turn.interrupt("Beaver Code is closing.")),
+        ]);
+        await Promise.all([
+          turnControl.drain(),
+          ...[...projectIds].map((projectId) => defaultProjectRuntimeActivityRegistry.drainProject(projectId)),
+          ...inFlightRequests,
+        ]);
         await cleanupRuntime();
         await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
       })();
       let timeout: NodeJS.Timeout | undefined;
+      let completed = false;
       try {
         await Promise.race([
           closing,
@@ -195,11 +217,15 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
             timeout = setTimeout(() => reject(new Error("Workbench shutdown deadline exceeded.")), Math.max(1, deadlineMs));
           }),
         ]);
+        completed = true;
       } catch (cause) {
         for (const socket of sockets) socket.destroy();
         throw cause;
       } finally {
         if (timeout) clearTimeout(timeout);
+        if (completed) {
+          for (const projectId of projectIds) defaultProjectRuntimeActivityRegistry.activateProject(projectId);
+        }
       }
     },
   };
@@ -300,11 +326,16 @@ async function handleRequest(context: WorkbenchServerContext, request: IncomingM
   const url = new URL(request.url ?? "/", "http://localhost");
   if (url.pathname.startsWith("/api/")) {
     const desktopHost = context.desktopHost;
+    let endOperation: (() => void) | undefined;
     if (desktopHost) {
       assertDesktopSession(request, desktopHost.sessionToken, desktopHost.cookieName);
-      if ((request.method ?? "GET").toUpperCase() !== "GET") await desktopHost.beforeSideEffect?.();
+      endOperation = await desktopHost.beginOperation?.();
     }
-    await handleApi(context, request, response, url);
+    try {
+      await handleApi(context, request, response, url);
+    } finally {
+      endOperation?.();
+    }
     return;
   }
   await serveStatic(context.staticRoot, url.pathname, response);

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { startWorkbenchServer, type WorkbenchServerHandle } from "../server/workbench-server.js";
 import type { FolderDialogResult } from "../server/workbench/types.js";
+import { DesktopHostOperationGate } from "./lifecycle.js";
 import {
   DESKTOP_PROTOCOL_VERSION,
   DESKTOP_SESSION_COOKIE,
@@ -15,8 +16,8 @@ if (!hostPort) throw new Error("Beaver Code desktop host channel is unavailable.
 let generation: string | null = null;
 let server: WorkbenchServerHandle | null = null;
 let idleLeaseId: string | null = null;
-let idleLeaseEpoch = 0;
 let idleTimer: NodeJS.Timeout | null = null;
+const operationGate = new DesktopHostOperationGate();
 const folderRequests = new Map<string, (result: FolderDialogResult) => void>();
 const leaseAcks = new Map<string, () => void>();
 
@@ -37,7 +38,7 @@ async function receive(message: DesktopHostMessage): Promise<void> {
         desktopHost: {
           sessionToken: message.sessionToken,
           cookieName: DESKTOP_SESSION_COOKIE,
-          beforeSideEffect: revokeIdleLease,
+          beginOperation: beginHostOperation,
           openFolder: requestFolder,
         },
       });
@@ -95,14 +96,19 @@ async function receive(message: DesktopHostMessage): Promise<void> {
 
 async function refreshIdleLease(): Promise<void> {
   if (!server || !generation) return;
-  const observedEpoch = idleLeaseEpoch;
-  if ((await server.snapshot()).state !== "idle" || observedEpoch !== idleLeaseEpoch) return;
+  const observedEpoch = operationGate.captureEpoch();
+  if (!operationGate.canGrantIdleLease(observedEpoch)) return;
+  if ((await server.snapshot()).state !== "idle"
+    || !operationGate.canGrantIdleLease(observedEpoch)) return;
   idleLeaseId ??= randomUUID();
   post({ type: "idle-lease-granted", generation, leaseId: idleLeaseId });
 }
 
+async function beginHostOperation(): Promise<() => void> {
+  return operationGate.begin(revokeIdleLease, () => void refreshIdleLease());
+}
+
 async function revokeIdleLease(): Promise<void> {
-  idleLeaseEpoch += 1;
   if (!generation || !idleLeaseId) return;
   const requestId = randomUUID();
   const leaseId = idleLeaseId;

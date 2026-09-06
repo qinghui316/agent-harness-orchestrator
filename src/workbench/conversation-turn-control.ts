@@ -70,11 +70,13 @@ type ControlEntry = {
   started: ProviderTurnStartedIdentity | null;
   interruptPhase: "running" | "pending" | "submitting";
   interruptSubmission: Promise<ConversationTurnInterruptReceipt> | null;
+  interruptReason: string | null;
   steers: Map<string, SteerEntry>;
 };
 
 export class ConversationTurnControlOwner {
   private readonly entries = new Map<string, ControlEntry>();
+  private readonly drainWaiters = new Set<() => void>();
 
   constructor(private readonly options: {
     providerRegistry: ProviderRegistry;
@@ -93,6 +95,7 @@ export class ConversationTurnControlOwner {
       started: null,
       interruptPhase: "running",
       interruptSubmission: null,
+      interruptReason: null,
       steers: new Map(),
     });
     this.invalidate(registration);
@@ -103,7 +106,7 @@ export class ConversationTurnControlOwner {
     const entry = this.entries.get(controlKey(identity.projectId, identity.conversationId));
     if (!entry || !sameStartedIdentity(entry.registration, identity)) return;
     entry.started = { ...identity };
-    if (entry.interruptPhase === "pending") void this.submitInterrupt(entry).catch(() => undefined);
+    if (entry.interruptPhase === "pending") void this.submitInterrupt(entry, undefined, entry.interruptReason ?? undefined).catch(() => undefined);
     else this.invalidate(entry.registration);
   };
 
@@ -112,7 +115,24 @@ export class ConversationTurnControlOwner {
     const current = this.entries.get(key);
     if (!current || current.registration.expectedAttemptId !== registration.expectedAttemptId) return;
     this.entries.delete(key);
+    if (this.entries.size === 0) {
+      for (const resolve of this.drainWaiters) resolve();
+      this.drainWaiters.clear();
+    }
     this.invalidate(registration);
+  }
+
+  async interruptAll(reason: string): Promise<void> {
+    const submissions = [...this.entries.values()].map((entry) => {
+      entry.interruptReason = reason;
+      return this.submitInterrupt(entry, undefined, reason);
+    });
+    await Promise.allSettled(submissions);
+  }
+
+  async drain(): Promise<void> {
+    if (this.entries.size === 0) return;
+    await new Promise<void>((resolve) => this.drainWaiters.add(resolve));
   }
 
   state(projectId: string, conversationId: string, expectedAttemptId?: string): ConversationTurnControlState {
@@ -160,7 +180,7 @@ export class ConversationTurnControlOwner {
       this.invalidate(entry.registration);
       return { status: "pending", attemptId: request.expectedAttemptId, runId: entry.registration.runId };
     }
-    return this.submitInterrupt(entry, active);
+    return this.submitInterrupt(entry, active, "User requested interrupt from the owning Conversation.");
   }
 
   async steer(project: ManagedProject, request: ConversationTurnSteerRequest): Promise<ConversationTurnSteerReceipt> {
@@ -245,11 +265,12 @@ export class ConversationTurnControlOwner {
     }
   }
 
-  private submitInterrupt(entry: ControlEntry, knownActive?: ActiveProviderTurn): Promise<ConversationTurnInterruptReceipt> {
+  private submitInterrupt(entry: ControlEntry, knownActive?: ActiveProviderTurn, reason?: string): Promise<ConversationTurnInterruptReceipt> {
     if (entry.interruptSubmission) return entry.interruptSubmission;
     const active = knownActive ?? this.exactActiveTurn(entry.registration);
     if (!active) {
       entry.interruptPhase = "pending";
+      entry.interruptReason = reason ?? entry.interruptReason;
       this.invalidate(entry.registration);
       return Promise.resolve({
         status: "pending",
@@ -258,8 +279,9 @@ export class ConversationTurnControlOwner {
       });
     }
     entry.interruptPhase = "submitting";
+    entry.interruptReason = reason ?? entry.interruptReason;
     this.invalidate(entry.registration);
-    entry.interruptSubmission = active.interrupt("User requested interrupt from the owning Conversation.")
+    entry.interruptSubmission = active.interrupt(entry.interruptReason ?? "User requested interrupt from the owning Conversation.")
       .then((result) => result.status === "already-terminal"
         ? {
           status: "already-terminal" as const,
@@ -275,6 +297,7 @@ export class ConversationTurnControlOwner {
         if (error instanceof Error && error.name === "ProviderInterruptRejected") {
           entry.interruptPhase = "running";
           entry.interruptSubmission = null;
+          entry.interruptReason = null;
           this.invalidate(entry.registration);
         }
         throw error;

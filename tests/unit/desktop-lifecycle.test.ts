@@ -1,7 +1,39 @@
 import { describe, expect, it } from "vitest";
-import { DesktopRecoveryController } from "../../src/desktop/lifecycle.js";
+import { DesktopHostOperationGate, DesktopRecoveryController } from "../../src/desktop/lifecycle.js";
 
 describe("desktop recovery lifecycle", () => {
+  it("does not permit a new idle lease while any host operation is active", async () => {
+    const gate = new DesktopHostOperationGate();
+    const revoked: string[] = [];
+    let idleNotifications = 0;
+    let finishRevocation!: () => void;
+    const revocation = new Promise<void>((resolve) => { finishRevocation = resolve; });
+    const idleEpoch = gate.captureEpoch();
+    expect(gate.canGrantIdleLease(idleEpoch)).toBe(true);
+
+    const first = gate.begin(async () => { revoked.push("revoke"); await revocation; }, () => { idleNotifications += 1; });
+    const activeEpoch = gate.captureEpoch();
+    let secondStarted = false;
+    const second = gate.begin(async () => { revoked.push("unexpected"); }, () => { idleNotifications += 1; })
+      .then((end) => { secondStarted = true; return end; });
+    await Promise.resolve();
+    expect(revoked).toEqual(["revoke"]);
+    expect(secondStarted).toBe(false);
+    expect(gate.canGrantIdleLease(idleEpoch)).toBe(false);
+    expect(gate.canGrantIdleLease(activeEpoch)).toBe(false);
+
+    finishRevocation();
+    const [endFirst, endSecond] = await Promise.all([first, second]);
+    expect(secondStarted).toBe(true);
+
+    endFirst();
+    expect(gate.canGrantIdleLease(gate.captureEpoch())).toBe(false);
+    expect(idleNotifications).toBe(0);
+    endSecond();
+    expect(gate.canGrantIdleLease(gate.captureEpoch())).toBe(true);
+    expect(idleNotifications).toBe(1);
+  });
+
   it("allows one retry before ready", () => {
     const owner = new DesktopRecoveryController();
     owner.begin("g1");

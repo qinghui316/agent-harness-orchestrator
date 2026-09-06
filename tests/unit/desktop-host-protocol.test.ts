@@ -55,9 +55,16 @@ describe("desktop host protocol", () => {
   });
 
   it("redacts local paths and bounds diagnostics", () => {
-    const diagnostic = safeDiagnostic("runtime", new Error(`Failed at C:\\Users\\private\\project\\secret.ts\n${"x".repeat(800)}`));
+    const diagnostic = safeDiagnostic("runtime", new Error(`Failed at C:\\Users\\Jane Doe\\秘密项目\\secret.ts\n${"x".repeat(800)}`));
     expect(diagnostic.summary).toContain("[本地路径]");
-    expect(diagnostic.summary).not.toContain("private");
+    expect(diagnostic.summary).not.toContain("Jane Doe");
+    expect(diagnostic.summary).not.toContain("秘密项目");
     expect(diagnostic.summary.length).toBeLessThanOrEqual(400);
+
+    const unc = safeDiagnostic("runtime", new Error("Failed at \\\\server\\Shared Folder\\客户甲\\token.txt"));
+    expect(unc.summary).toBe("Failed at [本地路径]");
+
+    const unix = safeDiagnostic("runtime", new Error("Failed at '/Users/Jane Doe/秘密项目/token.txt' (denied)"));
+    expect(unix.summary).toBe("Failed at '[本地路径]' (denied)");
   });
 });

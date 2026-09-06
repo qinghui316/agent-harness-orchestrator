@@ -126,10 +126,12 @@ describe("workbench server", () => {
   });
 
   it("protects every desktop API route with the ephemeral session cookie", async () => {
+    const endOperation = vi.fn();
+    const beginOperation = vi.fn(async () => endOperation);
     const desktopHandle = await startWorkbenchServer({ project: project(), path: tempDir }, {
       port: 0,
       staticRoot,
-      desktopHost: { sessionToken: "desktop-secret", cookieName: "beaver_code_session" },
+      desktopHost: { sessionToken: "desktop-secret", cookieName: "beaver_code_session", beginOperation },
     });
     try {
       const staticResponse = await fetch(desktopHandle.url);
@@ -143,11 +145,14 @@ describe("workbench server", () => {
         headers: { Cookie: "beaver_code_session=desktop-secret" },
       });
       expect(authenticated.status).toBe(200);
+      expect(beginOperation).toHaveBeenCalledTimes(1);
+      expect(endOperation).toHaveBeenCalledTimes(1);
 
       const wrong = await fetch(`${desktopHandle.url}/api/projects`, {
         headers: { Cookie: "beaver_code_session=wrong" },
       });
       expect(wrong.status).toBe(403);
+      expect(beginOperation).toHaveBeenCalledTimes(1);
     } finally {
       await desktopHandle.close();
     }

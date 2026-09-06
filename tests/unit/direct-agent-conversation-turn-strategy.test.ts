@@ -225,6 +225,53 @@ describe("DirectAgentConversationTurnStrategy", () => {
     });
   });
 
+  it("interrupts every registered Turn and drains only after terminal persistence releases control", async () => {
+    const allowProviderStart = deferred<void>();
+    const providerEntered = deferred<void>();
+    const provider = fakeProvider({
+      beforeActive: allowProviderStart.promise,
+      onEntered: () => providerEntered.resolve(),
+      status: "interrupted",
+    });
+    const registry = new ProviderRegistry();
+    registry.register(provider.descriptor);
+    const turnControl = new ConversationTurnControlOwner({
+      providerRegistry: registry,
+      projectRuntimeCoordinator: {
+        resolve: async () => ({ state: "onboarding", project: fixture.project, paths: fixture.paths }),
+      },
+      onInvalidated: () => undefined,
+    });
+    const strategy = new DirectAgentConversationTurnStrategy({
+      providerRegistry: registry,
+      resolveRuntimePaths: () => fixture.paths,
+      turnControl,
+    });
+    const input = await initialTurnInput(fixture, "shutdown this turn");
+    const running = strategy.execute(input, { skillContext: { resolve: async () => skillResolution() } });
+    await providerEntered.promise;
+
+    await turnControl.interruptAll("Beaver Code is closing.");
+    let drained = false;
+    const draining = turnControl.drain().then(() => { drained = true; });
+    await Promise.resolve();
+    expect(drained).toBe(false);
+
+    allowProviderStart.resolve();
+    await expect(running).resolves.toMatchObject({ mode: "chat" });
+    await draining;
+    expect(drained).toBe(true);
+    expect(provider.interrupts).toBe(1);
+
+    const database = await openProjectRuntimeWorkbenchDatabase(fixture.paths);
+    try {
+      expect(database.providerAttempts.listProviderAttempts(fixture.project.id, input.conversation.conversationId))
+        .toEqual(expect.arrayContaining([expect.objectContaining({ status: "interrupted" })]));
+    } finally {
+      database.close();
+    }
+  });
+
   it("steers the exact active Turn once, retries explicit rejection, and fences uncertain transport", async () => {
     const releaseProvider = deferred<void>();
     const providerEntered = deferred<void>();

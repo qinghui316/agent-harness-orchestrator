@@ -51,8 +51,8 @@ export function safeDiagnostic(stage: DesktopSafeDiagnostic["stage"], cause: unk
   const raw = cause instanceof Error ? cause.message : String(cause);
   const summary = raw
     .replace(/[\r\n]+/g, " ")
-    .replace(/(?:[A-Za-z]:\\|\\\\)[^\s'"<>|)]+/g, "[本地路径]")
-    .replace(/\/(?:Users|home|var|tmp)\/[^\s'"<>|)]+/g, "[本地路径]")
+    .replace(/(?:[A-Za-z]:\\|\\\\)[^'"<>|\r\n)\]}]+/g, "[本地路径]")
+    .replace(/\/(?:Users|home|var|tmp)\/[^'"<>|\r\n)\]}]+/g, "[本地路径]")
     .slice(0, 400);
   return { stage, summary, ...(recovery ? { recovery } : {}) };
 }

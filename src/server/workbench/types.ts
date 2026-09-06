@@ -49,7 +49,7 @@ export interface WorkbenchServerHandle {
 export interface WorkbenchDesktopHostPort {
   sessionToken: string;
   cookieName?: string;
-  beforeSideEffect?: () => Promise<void>;
+  beginOperation?: () => Promise<() => void>;
   openFolder?: () => Promise<FolderDialogResult>;
 }
 
