@@ -159,8 +159,18 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
   });
   let runtimeCleanup: Promise<void> | null = null;
   const cleanupRuntime = (): Promise<void> => runtimeCleanup ??= (async () => {
-    await providerRegistry.shutdownAll("Workbench server stopped.");
-    terminalRuntime.cleanup();
+    const failures: unknown[] = [];
+    try {
+      await providerRegistry.shutdownAll("Workbench server stopped.");
+    } catch (cause) {
+      appendShutdownFailure(failures, cause);
+    }
+    try {
+      terminalRuntime.cleanup();
+    } catch (cause) {
+      appendShutdownFailure(failures, cause);
+    }
+    if (failures.length > 0) throw new AggregateError(failures, "Workbench runtime cleanup failed.");
   })();
   server.on("close", () => {
     void cleanupRuntime().catch(() => undefined);
@@ -194,19 +204,37 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
       if (directProject) projectIds.add(directProject.id);
       for (const projectId of projectIds) defaultProjectRuntimeActivityRegistry.blockProject(projectId);
       const closing = (async () => {
-        await Promise.all([
+        const failures: unknown[] = [];
+        const interruptionResults = await Promise.allSettled([
           turnControl.interruptAll("Beaver Code is closing."),
           ...providerRegistry.listActiveTurns()
             .filter((turn) => turn.roleId !== "main-agent")
             .map((turn) => turn.interrupt("Beaver Code is closing.")),
         ]);
-        await Promise.all([
-          turnControl.drain(),
-          ...[...projectIds].map((projectId) => defaultProjectRuntimeActivityRegistry.drainProject(projectId)),
-          ...inFlightRequests,
-        ]);
-        await cleanupRuntime();
-        await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+        for (const result of interruptionResults) {
+          if (result.status === "rejected") appendShutdownFailure(failures, result.reason);
+        }
+        if (failures.length === 0) {
+          const drainResults = await Promise.allSettled([
+            turnControl.drain(),
+            ...[...projectIds].map((projectId) => defaultProjectRuntimeActivityRegistry.drainProject(projectId)),
+            ...inFlightRequests,
+          ]);
+          for (const result of drainResults) {
+            if (result.status === "rejected") appendShutdownFailure(failures, result.reason);
+          }
+        }
+        try {
+          await cleanupRuntime();
+        } catch (cause) {
+          appendShutdownFailure(failures, cause);
+        }
+        try {
+          await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+        } catch (cause) {
+          appendShutdownFailure(failures, cause);
+        }
+        if (failures.length > 0) throw new AggregateError(failures, "Workbench shutdown failed.");
       })();
       let timeout: NodeJS.Timeout | undefined;
       let completed = false;
@@ -229,6 +257,14 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
       }
     },
   };
+}
+
+function appendShutdownFailure(failures: unknown[], cause: unknown): void {
+  if (cause instanceof AggregateError) {
+    for (const nested of cause.errors) appendShutdownFailure(failures, nested);
+    return;
+  }
+  failures.push(cause);
 }
 
 async function readRuntimeSnapshot(input: {

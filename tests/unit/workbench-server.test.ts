@@ -28,6 +28,8 @@ import type { ConversationReviewLifecycleOwner } from "../../src/workbench/conve
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
 import { createFakeCodexRuntime } from "../helpers/fake-codex-runtime.js";
 import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
+import { ProviderRegistry } from "../../src/provider-runtime/registry.js";
+import type { ProviderDescriptor } from "../../src/provider-runtime/contracts.js";
 
 let tempDir: string;
 let staticRoot: string;
@@ -194,22 +196,40 @@ describe("workbench server", () => {
       release: () => undefined,
       onTurnStarted: () => undefined,
     } as unknown as ConversationTurnControlOwner;
+    const providerShutdown = vi.fn(async () => undefined);
+    const providerRegistry = new ProviderRegistry();
+    providerRegistry.register({
+      id: "cleanup-provider",
+      displayName: "Cleanup Provider",
+      runtime: {
+        liveness: () => ({ providerId: "cleanup-provider", liveHostCount: 0 }),
+        shutdown: providerShutdown,
+        shutdownProject: async () => undefined,
+      },
+      conversation: {
+        getActiveTurn: () => null,
+        listActiveTurns: () => [],
+      },
+    } as unknown as ProviderDescriptor);
+    const terminalRuntime = new TerminalRuntime();
+    const terminalCleanup = vi.spyOn(terminalRuntime, "cleanup");
     const closeHandle = await startWorkbenchServer(null, {
       port: 0,
       staticRoot,
       store: new ProjectRegistryStore(join(registryRoot, "interrupt-rejection")),
       turnControl,
+      providerRegistry,
+      terminalRuntime,
     });
-    try {
-      await expect(closeHandle.close()).rejects.toMatchObject({
-        name: "AggregateError",
-        errors: [interruptRejection],
-      });
-      expect(interruptAll).toHaveBeenCalledTimes(1);
-      expect(drain).not.toHaveBeenCalled();
-    } finally {
-      await new Promise<void>((resolve) => closeHandle.server.close(() => resolve()));
-    }
+    await expect(closeHandle.close()).rejects.toMatchObject({
+      name: "AggregateError",
+      errors: [interruptRejection],
+    });
+    expect(interruptAll).toHaveBeenCalledTimes(1);
+    expect(drain).not.toHaveBeenCalled();
+    expect(providerShutdown).toHaveBeenCalledTimes(1);
+    expect(terminalCleanup).toHaveBeenCalledTimes(1);
+    expect(closeHandle.server.listening).toBe(false);
   });
 
   it("serves the exact Agent Turn interrupt JSON contract and rejects Harness mode before the Owner", async () => {
