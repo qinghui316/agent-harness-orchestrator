@@ -63,6 +63,8 @@ describe("Agent Office committed projection reconciliation", () => {
     const rendered = render(<AgentOfficePanel projectId="project-1" projection={emptyProjection} onOpenSurface={openSurface} />);
 
     const fallback = await rendered.findByRole("group", { name: "Agent 办公室列表" });
+    expect(within(fallback).getByText("办公场景暂时无法显示，请重试。")).toBeTruthy();
+    expect(within(fallback).queryByText("动画画布暂不可用")).toBeNull();
     const resident = within(fallback).getByTestId("agent-office-harness-evolution-agent");
     fireEvent.click(resident);
     const card = await rendered.findByTestId("office-resident-profile-card");

@@ -46,6 +46,23 @@ function contentTypeFor(path: string): string {
       return "text/css; charset=utf-8";
     case ".svg":
       return "image/svg+xml";
+    case ".json":
+      return "application/json; charset=utf-8";
+    case ".webp":
+      return "image/webp";
+    case ".png":
+      return "image/png";
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    case ".gif":
+      return "image/gif";
+    case ".ico":
+      return "image/x-icon";
+    case ".woff":
+      return "font/woff";
+    case ".woff2":
+      return "font/woff2";
     default:
       return "application/octet-stream";
   }

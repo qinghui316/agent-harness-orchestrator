@@ -127,6 +127,20 @@ describe("workbench server", () => {
     expect(await page.text()).toContain("AHO");
   });
 
+  it("serves Office assets with exact content types under nosniff", async () => {
+    await mkdir(join(staticRoot, "agent-office"), { recursive: true });
+    await writeFile(join(staticRoot, "agent-office", "atlas.json"), "{}", "utf8");
+    await writeFile(join(staticRoot, "agent-office", "atlas.webp"), Buffer.from([0x52, 0x49, 0x46, 0x46]));
+
+    const documentResponse = await fetch(`${handle!.url}/agent-office/atlas.json`);
+    const imageResponse = await fetch(`${handle!.url}/agent-office/atlas.webp`);
+
+    expect(documentResponse.headers.get("content-type")).toBe("application/json; charset=utf-8");
+    expect(imageResponse.headers.get("content-type")).toBe("image/webp");
+    expect(documentResponse.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(imageResponse.headers.get("x-content-type-options")).toBe("nosniff");
+  });
+
   it("protects every desktop API route with the ephemeral session cookie", async () => {
     const endOperation = vi.fn();
     const beginOperation = vi.fn(async () => endOperation);

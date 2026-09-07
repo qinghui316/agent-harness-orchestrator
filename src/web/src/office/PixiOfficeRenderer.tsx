@@ -16,6 +16,8 @@ import { OfficeLoadingScreen } from "./OfficeLoadingScreen.js";
 import { removeOfficeTickerIfCurrent } from "./officeRendererLifecycle.js";
 import { applyOfficeActionVisual, applyOfficeParticipantAction, applyOfficeParticipantRouteStage, destroyOfficeParticipants, followOfficeParticipantRoute, reconcileOfficeParticipants, type OfficeActorVisual } from "./OfficeParticipantRenderer.js";
 import { OFFICE_SCREEN_ANIMATION_SPEED } from "./officeVisualContract.js";
+import { loadOfficePixiModule } from "./officePixiRuntime.js";
+import { createOfficeRendererFailure, reportOfficeRendererFailure, type OfficeRendererFailure } from "./officeRendererDiagnostic.js";
 
 type PixiModule = typeof import("pixi.js");
 type Camera = { x: number; y: number; zoom: number };
@@ -48,6 +50,7 @@ export function PixiOfficeRenderer({ scene, calibration, resolver, behavior, amb
   const tickerRef = useRef<((ticker: { lastTime: number }) => void) | null>(null);
   const reducedMotionRef = useRef(false);
   const [rendererState, setRendererState] = useState<RendererState>("loading");
+  const [rendererFailure, setRendererFailure] = useState<OfficeRendererFailure | null>(null);
   const [loadProgress, setLoadProgress] = useState(10);
   const [retryVersion, setRetryVersion] = useState(0);
   const [camera, setCamera] = useState<Camera>({ x: 24, y: 24, zoom: 1 });
@@ -87,30 +90,60 @@ export function PixiOfficeRenderer({ scene, calibration, resolver, behavior, amb
     }
     let disposed = false;
     let canvas: HTMLCanvasElement | null = null;
+    let pendingApp: Application | null = null;
+    let removeContextListener: (() => void) | null = null;
     setRendererState("loading");
+    setRendererFailure(null);
     firstRenderCompleteRef.current = false;
     setLoadingVisible(true);
     setLoadProgress(24);
-    void import("pixi.js").then(async (pixi) => {
+    const initialize = async () => {
+      const pixi = await loadOfficePixiModule();
       const app = new pixi.Application();
-      await app.init({ background: "#faf9f7", antialias: true, autoDensity: true, resolution: Math.min(2, globalThis.devicePixelRatio || 1), resizeTo: host, preference: "webgl" });
-      if (disposed) return app.destroy(true, { children: true });
+      pendingApp = app;
+      try {
+        await app.init({ background: "#faf9f7", antialias: true, autoDensity: true, resolution: Math.min(2, globalThis.devicePixelRatio || 1), resizeTo: host, preference: "webgl" });
+      } catch (error) {
+        destroyOfficeApplication(app);
+        pendingApp = null;
+        throw error;
+      }
+      if (disposed) {
+        destroyOfficeApplication(app);
+        pendingApp = null;
+        return;
+      }
       const root = new pixi.Container();
       app.stage.addChild(root);
       host.replaceChildren(app.canvas);
       canvas = app.canvas;
-      const onLost = (event: Event) => { event.preventDefault(); setRendererState("fallback"); };
+      const onLost = (event: Event) => {
+        event.preventDefault();
+        const failure = createOfficeRendererFailure("context-lost");
+        setRendererFailure(failure);
+        reportOfficeRendererFailure(failure);
+        setRendererState("fallback");
+      };
       canvas.addEventListener("webglcontextlost", onLost);
+      removeContextListener = () => canvas?.removeEventListener("webglcontextlost", onLost);
       appRef.current = app;
+      pendingApp = null;
       pixiRef.current = pixi;
       sceneRootRef.current = root;
       assetsRef.current = new OfficeRuntimeAssets(pixi, chooseResolution(host));
       setLoadProgress(40);
       setRendererState("ready");
-      return () => canvas?.removeEventListener("webglcontextlost", onLost);
-    }).catch(() => { if (!disposed) setRendererState("fallback"); });
+    };
+    void initialize().catch((error: unknown) => {
+      if (disposed) return;
+      const failure = createOfficeRendererFailure("application-init", error);
+      setRendererFailure(failure);
+      reportOfficeRendererFailure(failure);
+      setRendererState("fallback");
+    });
     return () => {
       disposed = true;
+      removeContextListener?.();
       if (loadingFadeTimerRef.current) globalThis.clearTimeout(loadingFadeTimerRef.current);
       generationRef.current += 1;
       engineRef.current.resetScope();
@@ -127,7 +160,9 @@ export function PixiOfficeRenderer({ scene, calibration, resolver, behavior, amb
       pixiRef.current = null;
       sceneRootRef.current = null;
       tickerRef.current = null;
-      app?.destroy(false, { children: true });
+      destroyOfficeApplication(app);
+      if (pendingApp && pendingApp !== app) destroyOfficeApplication(pendingApp);
+      pendingApp = null;
       host.replaceChildren();
       canvas = null;
     };
@@ -200,7 +235,12 @@ export function PixiOfficeRenderer({ scene, calibration, resolver, behavior, amb
       }
     };
     void prepare().catch((error: unknown) => {
-      if (!cancelled && (!(error instanceof DOMException) || error.name !== "AbortError")) setRendererState("fallback");
+      if (!cancelled && (!(error instanceof DOMException) || error.name !== "AbortError")) {
+        const failure = createOfficeRendererFailure("scene-build", error);
+        setRendererFailure(failure);
+        reportOfficeRendererFailure(failure);
+        setRendererState("fallback");
+      }
     });
     const app = appRef.current!;
     if (tickerRef.current) app.ticker.remove(tickerRef.current);
@@ -301,12 +341,21 @@ export function PixiOfficeRenderer({ scene, calibration, resolver, behavior, amb
     <div className="office-canvas-host" ref={canvasHostRef} aria-hidden="true" />
     {rendererState !== "fallback" && loadingVisible ? <OfficeLoadingScreen progress={loadProgress} complete={loadProgress >= 100} /> : null}
     {rendererState === "fallback" ? <div className="office-fallback" role="group" aria-label="Agent 办公室列表">
-      <div className="office-fallback-heading"><span>动画画布暂不可用</span><button type="button" onClick={() => setRetryVersion((value) => value + 1)}><RotateCcw size={14} />重试</button></div>
+      <div className="office-fallback-heading"><span>{rendererFailure?.userMessage ?? "办公场景暂时无法显示，请重试。"}</span><button type="button" onClick={() => setRetryVersion((value) => value + 1)}><RotateCcw size={14} />重试</button></div>
       <OfficeAgentList actors={scene.actors} selectedActorId={selectedActorId} onSelectActor={onSelectActor} />
     </div> : <div className="office-agent-overlay" style={{ width: scene.width, height: scene.height, transform: overlayTransform }}>
       {scene.actors.map((actor) => <button key={actor.actorId} type="button" className={`office-agent-hitbox ${actor.status}`} style={{ left: actor.anchors.seat.x - 68, top: actor.anchors.seat.y - 170 }} aria-label={`${actor.label}，${statusLabel(actor.status)}`} aria-pressed={selectedActorId === actor.actorId} onClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); onSelectActor(actor.actorId, { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }); }} data-office-actor={actor.actorId} data-testid={actor.kind === "main-agent" ? "agent-office-main-agent" : `agent-office-${actor.roleId}`}><span className="sr-only">{actor.label}</span></button>)}
     </div>}
   </div>;
+}
+
+function destroyOfficeApplication(app: Application | null): void {
+  if (!app) return;
+  try {
+    app.destroy(false, { children: true });
+  } catch {
+    // A partially initialized Pixi application may not have every destroy system available.
+  }
 }
 
 function OfficeAgentList({ actors, selectedActorId, onSelectActor }: { actors: OfficeActor[]; selectedActorId: string | null; onSelectActor: (actorId: string, anchor: { x: number; y: number }) => void }): ReactElement {

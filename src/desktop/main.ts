@@ -26,6 +26,7 @@ import {
   type DesktopSafeDiagnostic,
 } from "./protocol.js";
 import { normalizeWindowState, type DesktopWindowState } from "./window-state.js";
+import { parseOfficeRendererConsoleDiagnostic } from "./renderer-diagnostic.js";
 
 const desktopDir = join(homedir(), ".agent-harness", "desktop");
 const statePath = join(desktopDir, "window-state.json");
@@ -108,6 +109,10 @@ async function createWindow(): Promise<void> {
   window.webContents.setWindowOpenHandler(({ url }) => {
     void openExternalUrl(url);
     return { action: "deny" };
+  });
+  window.webContents.on("console-message", (details) => {
+    const diagnostic = parseOfficeRendererConsoleDiagnostic(details.message);
+    if (diagnostic) void log("agent-office-renderer", diagnostic);
   });
   window.webContents.on("will-navigate", (event, url) => {
     if (isAllowedWorkbenchNavigation(url)) return;
