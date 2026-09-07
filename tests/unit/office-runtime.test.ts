@@ -88,6 +88,27 @@ describe("Office runtime owners", () => {
     expect(dispose).toHaveBeenCalledOnce();
   });
 
+  it("disposes an asset that resolves after its load generation is cancelled", async () => {
+    let resolveImport: ((asset: { key: string }) => void) | undefined;
+    const dispose = vi.fn();
+    const loader = new OfficeAssetLoader<{ key: string }>(
+      () => new Promise((resolve) => { resolveImport = resolve; }),
+      12,
+      dispose,
+    );
+    const acquire = loader.acquire("late-atlas", "actor-a");
+
+    loader.dispose();
+    const lateAsset = { key: "late-atlas" };
+    resolveImport?.(lateAsset);
+
+    await expect(acquire).rejects.toMatchObject({ name: "AbortError" });
+    expect(dispose).toHaveBeenCalledTimes(1);
+    expect(dispose).toHaveBeenCalledWith(lateAsset);
+    loader.dispose();
+    expect(dispose).toHaveBeenCalledTimes(1);
+  });
+
   it("semantic animation cancels the actor ambient channel and scope reset aborts work", async () => {
     const runtime = new ChoreographyEngine();
     const signals: AbortSignal[] = [];

@@ -74,7 +74,10 @@ export class OfficeAssetLoader<T = unknown> {
     if (inflight) return inflight;
     const signal = this.generationController.signal;
     const request = this.importer(key, signal).then((asset) => {
-      if (signal.aborted) throw new DOMException("Office asset load cancelled", "AbortError");
+      if (signal.aborted) {
+        this.disposeAsset(asset);
+        throw new DOMException("Office asset load cancelled", "AbortError");
+      }
       this.resolvedAssets.set(key, { asset, owners: new Map(), lastUsed: Date.now(), priority });
       return asset;
     }).finally(() => {
