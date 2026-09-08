@@ -102,6 +102,7 @@ export interface ConversationSubmissionPorts {
   timeline: {
     showPending?(scope: ConversationSubmissionScope, clientRequestId: string, text: string): void;
     markPending?(scope: ConversationSubmissionScope, clientRequestId: string, state: "sending" | "uncertain" | "failed", failure?: string): void;
+    consumePending?(scope: ConversationSubmissionScope, clientRequestId: string): void;
     rekeyPending?(from: ConversationSubmissionScope, to: ConversationSubmissionScope, clientRequestId: string): void;
     calibrate(projectId: string, conversationId: string, agentSurfaceId: "main-agent"): Promise<void>;
   };

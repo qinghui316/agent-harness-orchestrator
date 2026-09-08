@@ -105,6 +105,12 @@ export function useCanonicalTimelineController(onError: (message: string) => voi
   ): void => {
     dispatch({ type: "optimistic.state-changed", scope, clientRequestId, state: pendingState, failure });
   }, []);
+  const consumeOptimisticUserIntentActions = useCallback((
+    scope: CanonicalTimelineScope,
+    clientRequestId: string,
+  ): void => {
+    dispatch({ type: "optimistic.actions-consumed", scope, clientRequestId });
+  }, []);
   const rekeyOptimisticUserIntent = useCallback((
     from: CanonicalTimelineScope,
     to: CanonicalTimelineScope,
@@ -157,6 +163,7 @@ export function useCanonicalTimelineController(onError: (message: string) => voi
     ingestEnvelope,
     showOptimisticUserIntent,
     updateOptimisticUserIntent,
+    consumeOptimisticUserIntentActions,
     rekeyOptimisticUserIntent,
     discardOptimisticUserIntent,
     showOptimisticSteer,

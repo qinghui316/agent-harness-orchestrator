@@ -24,6 +24,7 @@ export interface ConversationSubmissionCompositionInput {
   timeline(): {
     showPending?(scope: ConversationSubmissionScope, clientRequestId: string, text: string): void;
     markPending?(scope: ConversationSubmissionScope, clientRequestId: string, state: "sending" | "uncertain" | "failed", failure?: string): void;
+    consumePending?(scope: ConversationSubmissionScope, clientRequestId: string): void;
     rekeyPending?(from: ConversationSubmissionScope, to: ConversationSubmissionScope, clientRequestId: string): void;
     calibrate(projectId: string, conversationId: string, agentSurfaceId: "main-agent"): Promise<void>;
   };
@@ -71,6 +72,7 @@ export function createConversationSubmissionPorts(
     timeline: {
       showPending: (scope, clientRequestId, text) => input.timeline().showPending?.(scope, clientRequestId, text),
       markPending: (scope, clientRequestId, state, failure) => input.timeline().markPending?.(scope, clientRequestId, state, failure),
+      consumePending: (scope, clientRequestId) => input.timeline().consumePending?.(scope, clientRequestId),
       rekeyPending: (from, to, clientRequestId) => input.timeline().rekeyPending?.(from, to, clientRequestId),
       calibrate: (projectId, conversationId, agentSurfaceId) => input.timeline().calibrate(projectId, conversationId, agentSurfaceId),
     },

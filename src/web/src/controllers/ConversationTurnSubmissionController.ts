@@ -17,6 +17,7 @@ export interface PendingConversationSubmission {
   snapshot: DraftSubmissionSnapshot;
   attachments: TopicAttachment[];
   attachmentFiles: File[];
+  acceptedDraft: ComposerDraftContent | null;
   skillIdentity: ConversationSubmissionSkillIdentity;
   state: PendingSubmissionState;
 }
@@ -27,6 +28,7 @@ export interface CreateConversationSubmissionInput {
   attachmentFiles: File[];
   acceptedDraft: ComposerDraftContent;
   isCurrent(created?: ComposerCreatedConversation): boolean;
+  onPending(): void;
   onAccepted(created: ComposerCreatedConversation): Promise<void>;
 }
 
@@ -47,6 +49,7 @@ export interface RetrySubmissionInput {
   selectedConversationProviderId: string | null;
   isCurrent(snapshot: DraftSubmissionSnapshot, created?: ComposerCreatedConversation): boolean;
   acceptsEvent(snapshot: DraftSubmissionSnapshot, event: WorkbenchLiveEvent): boolean;
+  onAccepted(submission: PendingConversationSubmission, created?: ComposerCreatedConversation): void | Promise<void>;
 }
 
 export class ConversationTurnSubmissionController {
@@ -62,9 +65,11 @@ export class ConversationTurnSubmissionController {
       snapshot,
       attachments: input.attachments,
       attachmentFiles: input.attachmentFiles,
+      acceptedDraft: input.acceptedDraft,
       skillIdentity: skillIdentityFromSnapshot(snapshot),
     });
     this.showPending(pendingScope, snapshot);
+    input.onPending();
     this.ports.session.beginPendingConversation?.({
       id: pendingScope.conversationId,
       projectId: snapshot.projectId,
@@ -149,6 +154,7 @@ export class ConversationTurnSubmissionController {
       snapshot,
       attachments: input.attachments,
       attachmentFiles: [],
+      acceptedDraft: input.acceptedDraft,
       skillIdentity: input.skillIdentity,
     });
     this.showPending(pendingScope, snapshot);
@@ -185,14 +191,20 @@ export class ConversationTurnSubmissionController {
   }
 
   async retryPendingIntent(clientRequestId: string, input: RetrySubmissionInput): Promise<void> {
-    const nextClientRequestId = this.ports.ids.createClientRequestId();
-    const submission = this.retry(clientRequestId, nextClientRequestId);
-    if (!submission) return;
-    if (!input.matchesCurrent(submission)) {
-      this.fail(nextClientRequestId, "failed");
+    const retryable = this.inspect(clientRequestId);
+    if (!retryable || retryable.state !== "failed") return;
+    if (!input.matchesCurrent(retryable)) {
       this.ports.onError("这条消息不属于当前会话，请切回原会话后重试。");
       return;
     }
+    const nextClientRequestId = this.ports.ids.createClientRequestId();
+    this.consume(clientRequestId, retryable);
+    const submission = cloneSubmission({
+      ...retryable,
+      state: "sending",
+      snapshot: { ...retryable.snapshot, clientRequestId: nextClientRequestId },
+    });
+    this.submissions.set(nextClientRequestId, cloneSubmission(submission));
 
     let snapshot = submission.snapshot;
     let pendingScope = pendingScopeFor(snapshot);
@@ -236,7 +248,9 @@ export class ConversationTurnSubmissionController {
         const created = await this.ports.session.createConversation(createRequest(snapshot));
         uploadedDraft = [];
         this.settle(nextClientRequestId);
+        if (submission.acceptedDraft) await this.ports.drafts.settleAccepted(submission.acceptedDraft);
         if (input.isCurrent(snapshot, created)) {
+          await input.onAccepted(submission, created);
           await this.ports.projection.refreshConversation(created.projectId, created.conversationId);
           await this.calibrate(created.projectId, created.conversationId, () => input.isCurrent(snapshot, created));
         }
@@ -255,7 +269,9 @@ export class ConversationTurnSubmissionController {
         }
       });
       this.settle(nextClientRequestId);
+      if (submission.acceptedDraft) await this.ports.drafts.settleAccepted(submission.acceptedDraft);
       if (input.isCurrent(snapshot)) {
+        await input.onAccepted(submission);
         await this.calibrate(snapshot.projectId, snapshot.conversationId, () => input.isCurrent(snapshot));
       }
     } catch (cause) {
@@ -276,9 +292,16 @@ export class ConversationTurnSubmissionController {
     }
   }
 
-  restore(clientRequestId: string): PendingConversationSubmission | null {
+  inspect(clientRequestId: string): PendingConversationSubmission | null {
     const current = this.submissions.get(clientRequestId);
     return current && current.state !== "sending" ? cloneSubmission(current) : null;
+  }
+
+  restore(clientRequestId: string): PendingConversationSubmission | null {
+    const current = this.inspect(clientRequestId);
+    if (!current) return null;
+    this.consume(clientRequestId, current);
+    return current;
   }
 
   private begin(input: Omit<PendingConversationSubmission, "state">): void {
@@ -303,16 +326,9 @@ export class ConversationTurnSubmissionController {
     return cloneSubmission(failed);
   }
 
-  private retry(clientRequestId: string, nextClientRequestId: string): PendingConversationSubmission | null {
-    const current = this.submissions.get(clientRequestId);
-    if (!current || current.state !== "failed") return null;
-    const retry = cloneSubmission({
-      ...current,
-      state: "sending",
-      snapshot: { ...current.snapshot, clientRequestId: nextClientRequestId },
-    });
-    this.submissions.set(nextClientRequestId, retry);
-    return cloneSubmission(retry);
+  private consume(clientRequestId: string, submission: PendingConversationSubmission): void {
+    this.submissions.delete(clientRequestId);
+    this.ports.timeline.consumePending?.(pendingScopeFor(submission.snapshot), clientRequestId);
   }
 
   private showPending(scope: ConversationSubmissionScope, snapshot: DraftSubmissionSnapshot): void {
@@ -438,7 +454,17 @@ function cloneSubmission(submission: PendingConversationSubmission): PendingConv
     snapshot: cloneSnapshot(submission.snapshot),
     attachments: submission.attachments.map((attachment) => ({ ...attachment })),
     attachmentFiles: [...submission.attachmentFiles],
+    acceptedDraft: submission.acceptedDraft ? cloneDraftContent(submission.acceptedDraft) : null,
     skillIdentity: { ...submission.skillIdentity },
+  };
+}
+
+function cloneDraftContent(content: ComposerDraftContent): ComposerDraftContent {
+  return {
+    ...content,
+    contextRefs: content.contextRefs.map((reference) => ({ ...reference })),
+    attachmentIds: [...content.attachmentIds],
+    skillOverrides: { ...content.skillOverrides },
   };
 }
 

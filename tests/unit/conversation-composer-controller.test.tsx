@@ -376,7 +376,7 @@ describe("Conversation composer controller", () => {
     expect(ports.timeline.calibrate).toHaveBeenCalledWith("repo", "conversation-single-provider", "main-agent");
   });
 
-  it("cleans transient uploads on failed creation while preserving the user's draft", async () => {
+  it("cleans transient uploads and keeps the failed first send recoverable from its optimistic row", async () => {
     const ports = composerPorts();
     ports.session.createConversation.mockRejectedValue(new Error("create failed"));
     ports.attachments.upload.mockResolvedValue(attachment("uploaded"));
@@ -390,7 +390,13 @@ describe("Conversation composer controller", () => {
     });
 
     expect(ports.attachments.remove).toHaveBeenCalledWith("repo", "uploaded");
-    expect(result.current.composerText).toBe("keep me");
+    expect(result.current.composerText).toBe("");
+    expect(ports.timeline.markPending).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: "pending:request-1" }),
+      "request-1",
+      "uncertain",
+      expect.any(String),
+    );
     expect(ports.onError).toHaveBeenLastCalledWith("消息暂时无法发送。请重试。");
   });
 
@@ -426,6 +432,72 @@ describe("Conversation composer controller", () => {
       providerId: "claude",
       providerSwitchIntent: "resume-workflow",
     }));
+    expect(ports.timeline.calibrate).toHaveBeenCalledWith("repo", "conversation-1", "main-agent");
+  });
+
+  it("keeps the active Turn routed while next-Turn mode, model, and effort change", async () => {
+    const sending = deferred<void>();
+    const ports = composerPorts();
+    ports.actions.sendMessage.mockImplementation(() => sending.promise);
+    const scope = conversationScope({
+      productMode: "agent",
+      selectedProviderId: "codex",
+      providerCapabilities: [providerCapability("codex", true)],
+      providerModelSettings: {
+        ...providerModelSettings("codex"),
+        candidates: [
+          {
+            providerId: "codex",
+            modelId: "model-current",
+            label: "Current",
+            source: "runtime",
+            supportedReasoningEfforts: [{ value: "low", label: "低" }],
+            defaultReasoningEffort: "low",
+          },
+          {
+            providerId: "codex",
+            modelId: "model-next",
+            label: "Next",
+            source: "runtime",
+            supportedReasoningEfforts: [{ value: "high", label: "高" }],
+            defaultReasoningEffort: "high",
+          },
+        ],
+      },
+      conversation: {
+        id: "conversation-1",
+        productMode: "agent",
+        state: "active",
+        selectedProviderId: "codex",
+        agentTurnMode: "default",
+        agentModelId: "model-current",
+        agentReasoningEffort: "low",
+      },
+    });
+    const { result } = renderHook(() => useConversationComposerController(scope, ports));
+    act(() => result.current.setComposerText("use the captured current configuration"));
+
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.send(); });
+    await waitFor(() => expect(ports.actions.sendMessage).toHaveBeenCalledOnce());
+    await act(async () => {
+      await result.current.selectAgentTurnMode("plan");
+      result.current.selectAgentModel("model-next");
+      result.current.selectAgentReasoningEffort("high");
+    });
+    await act(async () => {
+      sending.resolve();
+      await pending;
+    });
+
+    expect(ports.actions.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      agentTurnMode: "default",
+      modelId: "model-current",
+      reasoningEffort: "low",
+    }));
+    expect(result.current.agentTurnMode).toBe("plan");
+    expect(result.current.agentModelId).toBe("model-next");
+    expect(result.current.agentReasoningEffort).toBe("high");
     expect(ports.timeline.calibrate).toHaveBeenCalledWith("repo", "conversation-1", "main-agent");
   });
 
@@ -1827,7 +1899,7 @@ function composerPorts(): ConversationComposerPorts & {
   session: { ensureProjectRegistered: ReturnType<typeof vi.fn>; createConversation: ReturnType<typeof vi.fn>; restoreDraftProvider: ReturnType<typeof vi.fn>; selectProvider: ReturnType<typeof vi.fn> };
   actions: { sendMessage: ReturnType<typeof vi.fn>; steer: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> };
   projection: { refreshConversation: ReturnType<typeof vi.fn> };
-  timeline: { calibrate: ReturnType<typeof vi.fn>; showPending: ReturnType<typeof vi.fn>; markPending: ReturnType<typeof vi.fn>; rekeyPending: ReturnType<typeof vi.fn> };
+  timeline: { calibrate: ReturnType<typeof vi.fn>; showPending: ReturnType<typeof vi.fn>; markPending: ReturnType<typeof vi.fn>; consumePending: ReturnType<typeof vi.fn>; rekeyPending: ReturnType<typeof vi.fn> };
   skills: { load: ReturnType<typeof vi.fn>; setEnabled: ReturnType<typeof vi.fn> };
   attachments: { upload: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn> };
   drafts: { load: ReturnType<typeof vi.fn>; save: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn> };
@@ -1857,6 +1929,7 @@ function composerPorts(): ConversationComposerPorts & {
       calibrate: vi.fn(async () => undefined),
       showPending: vi.fn(),
       markPending: vi.fn(),
+      consumePending: vi.fn(),
       rekeyPending: vi.fn(),
     },
     skills: {

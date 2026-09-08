@@ -107,7 +107,7 @@ describe("Conversation experience application owners", () => {
     expect(ports.skills.apply).toHaveBeenCalledWith(skillIdentity(snapshot), { restored: true });
     expect(ports.drafts.settleAccepted).toHaveBeenCalledOnce();
     expect(ports.timeline.calibrate).toHaveBeenCalledWith("repo", "conversation-1", "main-agent");
-    expect(owner.restore(snapshot.clientRequestId)).toBeNull();
+    expect(owner.inspect(snapshot.clientRequestId)).toBeNull();
   });
 
   it("classifies explicit rejection as failed and retries with a new request identity", async () => {
@@ -121,7 +121,7 @@ describe("Conversation experience application owners", () => {
     const input = messageInput(snapshot);
 
     await expect(owner.submitMessage(input)).rejects.toBeInstanceOf(WorkbenchRequestError);
-    expect(owner.restore(snapshot.clientRequestId)).toMatchObject({ state: "failed" });
+    expect(owner.inspect(snapshot.clientRequestId)).toMatchObject({ state: "failed" });
     expect(ports.timeline.markPending).toHaveBeenCalledWith(
       expect.any(Object),
       snapshot.clientRequestId,
@@ -134,7 +134,13 @@ describe("Conversation experience application owners", () => {
       expect.objectContaining({ clientRequestId: "request-retry" }),
       expect.any(Function),
     );
-    expect(owner.restore("request-retry")).toBeNull();
+    expect(owner.inspect(snapshot.clientRequestId)).toBeNull();
+    expect(owner.inspect("request-retry")).toBeNull();
+    expect(ports.timeline.consumePending).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: "conversation-1" }),
+      snapshot.clientRequestId,
+    );
+    expect(ports.drafts.settleAccepted).toHaveBeenCalledOnce();
   });
 
   it("keeps an uncertain transport result non-retryable", async () => {
@@ -144,7 +150,7 @@ describe("Conversation experience application owners", () => {
     const snapshot = submissionSnapshot({ conversationId: "conversation-1" });
 
     await expect(owner.submitMessage(messageInput(snapshot))).rejects.toBeInstanceOf(WorkbenchRequestError);
-    expect(owner.restore(snapshot.clientRequestId)).toMatchObject({ state: "uncertain" });
+    expect(owner.inspect(snapshot.clientRequestId)).toMatchObject({ state: "uncertain" });
     const before = ports.transport.sendMessage.mock.calls.length;
     await owner.retryPendingIntent(snapshot.clientRequestId, retryInput());
     expect(ports.transport.sendMessage).toHaveBeenCalledTimes(before);
@@ -168,7 +174,8 @@ describe("Conversation experience application owners", () => {
     expect(ports.onError).not.toHaveBeenCalledWith(
       expect.stringContaining("late retry rejection"),
     );
-    expect(owner.restore("request-retry")).toMatchObject({ state: "failed" });
+    expect(owner.inspect(snapshot.clientRequestId)).toBeNull();
+    expect(owner.inspect("request-retry")).toMatchObject({ state: "failed" });
   });
 
   it("rekeys a first-send scope after registration and calibrates the created Conversation", async () => {
@@ -185,6 +192,7 @@ describe("Conversation experience application owners", () => {
       attachmentFiles: [],
       acceptedDraft: acceptedDraft(snapshot),
       isCurrent: () => true,
+      onPending: () => undefined,
       onAccepted: accepted,
     });
 
@@ -215,15 +223,54 @@ describe("Conversation experience application owners", () => {
       attachmentFiles: [file],
       acceptedDraft: acceptedDraft(snapshot),
       isCurrent: () => true,
+      onPending: () => undefined,
       onAccepted: async () => undefined,
     })).rejects.toBeInstanceOf(WorkbenchRequestError);
 
     expect(ports.attachments.remove).toHaveBeenCalledWith("repo", "temporary");
-    expect(owner.restore(snapshot.clientRequestId)).toMatchObject({
+    expect(owner.inspect(snapshot.clientRequestId)).toMatchObject({
       state: "failed",
       snapshot: { attachmentIds: ["existing"] },
       attachmentFiles: [file],
     });
+  });
+
+  it("consumes restore actions once and leaves the failed row non-actionable", async () => {
+    const ports = submissionPorts();
+    ports.transport.sendMessage.mockRejectedValue(new WorkbenchRequestError(400, "rejected"));
+    const owner = new ConversationTurnSubmissionController(ports);
+    const snapshot = submissionSnapshot({ conversationId: "conversation-1" });
+
+    await expect(owner.submitMessage(messageInput(snapshot))).rejects.toBeInstanceOf(WorkbenchRequestError);
+    expect(owner.restore(snapshot.clientRequestId)).toMatchObject({ state: "failed" });
+    expect(owner.restore(snapshot.clientRequestId)).toBeNull();
+    expect(ports.timeline.consumePending).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: "conversation-1" }),
+      snapshot.clientRequestId,
+    );
+  });
+
+  it("settles the accepted first-send draft after a successful retry", async () => {
+    const ports = submissionPorts();
+    ports.session.createConversation
+      .mockRejectedValueOnce(new WorkbenchRequestError(400, "rejected"))
+      .mockResolvedValueOnce({ projectId: "repo", conversationId: "conversation-new" });
+    const owner = new ConversationTurnSubmissionController(ports);
+    const snapshot = submissionSnapshot({ conversationId: null });
+
+    await expect(owner.submitCreate({
+      snapshot,
+      attachments: [attachment("existing")],
+      attachmentFiles: [],
+      acceptedDraft: acceptedDraft(snapshot),
+      isCurrent: () => true,
+      onPending: () => undefined,
+      onAccepted: async () => undefined,
+    })).rejects.toBeInstanceOf(WorkbenchRequestError);
+    await owner.retryPendingIntent(snapshot.clientRequestId, retryInput());
+
+    expect(ports.drafts.settleAccepted).toHaveBeenCalledOnce();
+    expect(ports.projection.refreshConversation).toHaveBeenCalledWith("repo", "conversation-new");
   });
 });
 
@@ -246,6 +293,7 @@ function retryInput() {
     selectedConversationProviderId: "codex",
     isCurrent: () => true,
     acceptsEvent: () => true,
+    onAccepted: () => undefined,
   };
 }
 
@@ -285,6 +333,7 @@ function submissionPorts(order: string[] = []): ConversationSubmissionPorts & {
   timeline: {
     showPending: ReturnType<typeof vi.fn>;
     markPending: ReturnType<typeof vi.fn>;
+    consumePending: ReturnType<typeof vi.fn>;
     rekeyPending: ReturnType<typeof vi.fn>;
     calibrate: ReturnType<typeof vi.fn>;
   };
@@ -311,6 +360,7 @@ function submissionPorts(order: string[] = []): ConversationSubmissionPorts & {
     timeline: {
       showPending: vi.fn(() => { order.push("optimistic"); }),
       markPending: vi.fn(),
+      consumePending: vi.fn(),
       rekeyPending: vi.fn(),
       calibrate: vi.fn(async () => undefined),
     },

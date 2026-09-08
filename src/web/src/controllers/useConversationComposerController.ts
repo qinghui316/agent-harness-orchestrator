@@ -129,6 +129,7 @@ export interface ConversationComposerPorts {
     calibrate(projectId: string, conversationId: string, agentSurfaceId: "main-agent"): Promise<void>;
     showPending?(scope: { projectId: string; productMode: ProductMode; conversationId: string }, clientRequestId: string, text: string): void;
     markPending?(scope: { projectId: string; productMode: ProductMode; conversationId: string }, clientRequestId: string, state: "sending" | "uncertain" | "failed", failure?: string): void;
+    consumePending?(scope: { projectId: string; productMode: ProductMode; conversationId: string }, clientRequestId: string): void;
     rekeyPending?(from: { projectId: string; productMode: ProductMode; conversationId: string }, to: { projectId: string; productMode: ProductMode; conversationId: string }, clientRequestId: string): void;
   };
   skills?: {
@@ -415,7 +416,6 @@ export function useConversationComposerController(
     const currentScope = scopeRef.current;
     if (composerProductMode(currentScope) !== "agent") return;
     if (stateRef.current.agentTurnMode === nextMode) return;
-    scopeGenerationRef.current += 1;
     confirmedTurnModesRef.current.set(draftScopeIdentity(currentScope.projectId, composerProductMode(currentScope)), nextMode);
     draftRestoredModesRef.current.set(draftScopeIdentity(currentScope.projectId, composerProductMode(currentScope)), nextMode);
     writeAgentTurnMode(nextMode);
@@ -432,7 +432,6 @@ export function useConversationComposerController(
     const nextEffort = currentEffort && nextCandidate?.supportedReasoningEfforts.some((option) => option.value === currentEffort)
       ? currentEffort
       : null;
-    scopeGenerationRef.current += 1;
     writeAgentModelId(normalized);
     writeAgentReasoningEffort(nextEffort);
     draftRestoredModelSelectionsRef.current.set(
@@ -447,7 +446,6 @@ export function useConversationComposerController(
     if (composerProductMode(currentScope) !== "agent") return;
     const normalized = normalizeNullableSelection(nextEffort);
     if (stateRef.current.agentReasoningEffort === normalized) return;
-    scopeGenerationRef.current += 1;
     writeAgentReasoningEffort(normalized);
     draftRestoredModelSelectionsRef.current.set(
       draftScopeIdentity(currentScope.projectId, composerProductMode(currentScope)),
@@ -959,6 +957,18 @@ export function useConversationComposerController(
         scopeRef,
         created?.conversationId,
       ),
+      onPending: () => {
+        if (!composerRequestOwnsCurrentScope(
+          generation,
+          [capturedProjectId],
+          capturedProductMode,
+          capturedProviderId,
+          scopeGenerationRef,
+          scopeRef,
+        )) return;
+        draftControllerRef.current!.clearAcceptedSnapshot(acceptedDraft, { text: true });
+        portsRef.current.onError(null);
+      },
       onAccepted: async (created) => {
         if (attachmentGeneration !== attachmentSelectionGenerationRef.current) return;
         draftControllerRef.current!.clearAcceptedSnapshot(acceptedDraft);
@@ -1159,22 +1169,35 @@ export function useConversationComposerController(
         productMode: snapshot.productMode,
         conversationId: snapshot.conversationId!,
       }),
+      onAccepted: async (submission, created) => {
+        const accepted = pendingSubmissionDraftViewModel(submission);
+        if (accepted) {
+          draftControllerRef.current!.clearAcceptedSnapshot(accepted, {
+            contextRefs: true,
+            attachments: true,
+            skillOverrides: true,
+          });
+        }
+        if (created) await reloadSkills(created.projectId);
+      },
     });
-  }, []);
+  }, [reloadSkills]);
 
   const restorePendingIntent = useCallback((clientRequestId: string): void => {
-    const submission = submissionOwner().restore(clientRequestId);
-    if (!submission) return;
+    const pending = submissionOwner().inspect(clientRequestId);
+    if (!pending) return;
     const currentScope = scopeRef.current;
-    const snapshot = submission.snapshot;
+    const snapshot = pending.snapshot;
     if (currentScope.projectId !== snapshot.projectId || composerProductMode(currentScope) !== snapshot.productMode) {
       portsRef.current.onError("这条消息不属于当前项目或模式，无法放回输入框。");
       return;
     }
-    if (submission.kind === "message" && currentScope.conversation?.id !== snapshot.conversationId) {
+    if (pending.kind === "message" && currentScope.conversation?.id !== snapshot.conversationId) {
       portsRef.current.onError("请切回原会话，再把这条消息放回输入框。");
       return;
     }
+    const submission = submissionOwner().restore(clientRequestId);
+    if (!submission) return;
     draftControllerRef.current!.restore(snapshot, submission.attachments, {
       restoreSkillOverrides: submission.kind === "create",
       restoreConfiguration: true,
@@ -1392,6 +1415,25 @@ function conversationDraftViewModel(input: {
     agentTurnMode: input.agentTurnMode,
     modelId: input.agentModelId,
     reasoningEffort: input.agentReasoningEffort,
+  };
+}
+
+function pendingSubmissionDraftViewModel(
+  submission: PendingConversationSubmission,
+): ConversationDraftViewModel | null {
+  const accepted = submission.acceptedDraft;
+  if (!accepted) return null;
+  const acceptedAttachmentIds = new Set(accepted.attachmentIds);
+  return {
+    text: accepted.text,
+    contextRefs: accepted.contextRefs.map((reference) => ({ ...reference })),
+    attachments: submission.attachments
+      .filter((attachment) => acceptedAttachmentIds.has(attachment.id))
+      .map((attachment) => ({ ...attachment })),
+    skillOverrides: { ...accepted.skillOverrides },
+    agentTurnMode: accepted.agentTurnMode ?? "default",
+    modelId: accepted.agentModelId,
+    reasoningEffort: accepted.agentReasoningEffort,
   };
 }
 

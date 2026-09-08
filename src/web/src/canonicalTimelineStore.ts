@@ -67,6 +67,7 @@ export type CanonicalTimelineAction =
   | { type: "envelope.received"; projectId: string; envelope: CanonicalTimelineEnvelope }
   | { type: "optimistic.received"; scope: CanonicalTimelineScope; envelope: CanonicalTimelineEnvelope }
   | { type: "optimistic.state-changed"; scope: CanonicalTimelineScope; clientRequestId: string; state: PendingUserIntentState; failure?: string }
+  | { type: "optimistic.actions-consumed"; scope: CanonicalTimelineScope; clientRequestId: string }
   | { type: "optimistic.rekeyed"; from: CanonicalTimelineScope; to: CanonicalTimelineScope; clientRequestId: string }
   | { type: "optimistic.discarded"; scope: CanonicalTimelineScope; messageId: string }
   | { type: "request.started"; scope: CanonicalTimelineScope; requestKind: CanonicalTimelineRequestKind; generation: number }
@@ -132,6 +133,8 @@ export function canonicalTimelineReducer(
       return receiveOptimisticEnvelope(state, action.scope, action.envelope);
     case "optimistic.state-changed":
       return changeOptimisticState(state, action.scope, action.clientRequestId, action.state, action.failure);
+    case "optimistic.actions-consumed":
+      return consumeOptimisticActions(state, action.scope, action.clientRequestId);
     case "optimistic.rekeyed":
       return rekeyOptimisticEnvelope(state, action.from, action.to, action.clientRequestId);
     case "optimistic.discarded":
@@ -407,6 +410,32 @@ function changeOptimisticState(
         canRestore: pendingState !== "sending",
       },
     })),
+  };
+  const mutation = mutationFor(key, "calibrate", surface.watermark, [], [optimistic.messageId], []);
+  return putSurface(state, {
+    ...surface,
+    envelopes: { ...surface.envelopes, [optimistic.messageId]: { envelope, lane: optimistic.lane } },
+    lastMutation: mutation,
+  }, mutation);
+}
+
+function consumeOptimisticActions(
+  state: CanonicalTimelineState,
+  scope: CanonicalTimelineScope,
+  clientRequestId: string,
+): CanonicalTimelineState {
+  const key = canonicalTimelineScopeKey(scope);
+  const surface = state.surfaces[key];
+  const optimistic = surface ? findOptimisticEnvelope(surface, clientRequestId) : null;
+  if (!surface || !optimistic) return state;
+  const envelope = {
+    ...optimistic.envelope,
+    cells: optimistic.envelope.cells.map((cell) => cell.pendingIntent
+      ? {
+        ...cell,
+        pendingIntent: { ...cell.pendingIntent, canRetry: false, canRestore: false },
+      }
+      : cell),
   };
   const mutation = mutationFor(key, "calibrate", surface.watermark, [], [optimistic.messageId], []);
   return putSurface(state, {

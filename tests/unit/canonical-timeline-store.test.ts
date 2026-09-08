@@ -114,6 +114,18 @@ describe("canonical Timeline Store", () => {
       status: "failed",
       detailText: "消息未发送。",
       isError: true,
+      pendingIntent: { clientRequestId: "request-1", canRetry: true, canRestore: true },
+    });
+
+    state = canonicalTimelineReducer(state, {
+      type: "optimistic.actions-consumed",
+      scope: mainScope,
+      clientRequestId: "request-1",
+    });
+    expect(selectCanonicalTimelineEnvelopes(state, mainScope)[0]?.cells[0]?.pendingIntent).toEqual({
+      clientRequestId: "request-1",
+      canRetry: false,
+      canRestore: false,
     });
   });
 

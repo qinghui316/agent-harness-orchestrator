@@ -716,6 +716,7 @@ export function App(): ReactElement {
       calibrate: (projectId, conversationId, agentSurfaceId) => timeline.loadLatest({ projectId, productMode: appMode.productMode, conversationId, agentSurfaceId }),
       showPending: (scope, clientRequestId, text) => timeline.showOptimisticUserIntent({ ...scope, agentSurfaceId: "main-agent" }, clientRequestId, text),
       markPending: (scope, clientRequestId, state, failure) => timeline.updateOptimisticUserIntent({ ...scope, agentSurfaceId: "main-agent" }, clientRequestId, state, failure),
+      consumePending: (scope, clientRequestId) => timeline.consumeOptimisticUserIntentActions({ ...scope, agentSurfaceId: "main-agent" }, clientRequestId),
       rekeyPending: (from, to, clientRequestId) => timeline.rekeyOptimisticUserIntent(
         { ...from, agentSurfaceId: "main-agent" },
         { ...to, agentSurfaceId: "main-agent" },
