@@ -71,6 +71,173 @@ describe("canonical Timeline Store", () => {
     expect(selectCanonicalTimelineEnvelopes(state, mainScope).map((item) => item.messageId)).toEqual(["steer:request-1:user"]);
   });
 
+  it("keeps a scoped optimistic user intent visible and updates its transport state", () => {
+    let state = canonicalTimelineReducer(createCanonicalTimelineState(), {
+      type: "optimistic.received",
+      scope: mainScope,
+      envelope: optimisticUserEnvelope("request-1", "validate the import"),
+    });
+
+    expect(texts(state)).toEqual(["validate the import"]);
+    expect(selectCanonicalTimelineEnvelopes(state, mainScope)[0]?.cells[0]).toMatchObject({
+      id: "pending-user:request-1",
+      title: "正在发送",
+      status: "sending",
+    });
+    expect(selectCanonicalTimelineSurface(state, mainScope)?.watermark).toBe(0);
+
+    state = canonicalTimelineReducer(state, {
+      type: "optimistic.state-changed",
+      scope: mainScope,
+      clientRequestId: "request-1",
+      state: "uncertain",
+      failure: "暂时无法确认是否已经发送。",
+    });
+    expect(selectCanonicalTimelineEnvelopes(state, mainScope)[0]?.cells[0]).toMatchObject({
+      id: "pending-user:request-1",
+      title: "发送状态待确认",
+      status: "uncertain",
+      detailText: "暂时无法确认是否已经发送。",
+      isError: false,
+    });
+
+    state = canonicalTimelineReducer(state, {
+      type: "optimistic.state-changed",
+      scope: mainScope,
+      clientRequestId: "request-1",
+      state: "failed",
+      failure: "消息未发送。",
+    });
+    expect(selectCanonicalTimelineEnvelopes(state, mainScope)[0]?.cells[0]).toMatchObject({
+      id: "pending-user:request-1",
+      title: "发送失败",
+      status: "failed",
+      detailText: "消息未发送。",
+      isError: true,
+    });
+  });
+
+  it("reconciles a canonical user envelope by request id while preserving the visible cell identity", () => {
+    let state = canonicalTimelineReducer(createCanonicalTimelineState(), {
+      type: "optimistic.received",
+      scope: mainScope,
+      envelope: optimisticUserEnvelope("request-1", "same visible message"),
+    });
+    state = receive(state, {
+      ...envelope("canonical-user", 10, 4),
+      clientRequestId: "request-1",
+      cells: [{
+        id: "canonical-cell",
+        kind: "user-message",
+        source: "user",
+        text: "same visible message",
+      }],
+    });
+
+    const envelopes = selectCanonicalTimelineEnvelopes(state, mainScope);
+    expect(envelopes).toHaveLength(1);
+    expect(envelopes[0]).toMatchObject({ messageId: "canonical-user", clientRequestId: "request-1", revision: 4 });
+    expect(envelopes[0]?.cells[0]).toMatchObject({ id: "pending-user:request-1", text: "same visible message" });
+    expect(state.lastMutation).toMatchObject({
+      kind: "append-tail",
+      addedMessageIds: [],
+      updatedMessageIds: ["canonical-user"],
+      removedMessageIds: ["optimistic:request-1"],
+    });
+  });
+
+  it("keeps unrelated optimistic intents during latest-page calibration and removes the correlated one", () => {
+    let state = canonicalTimelineReducer(createCanonicalTimelineState(), {
+      type: "optimistic.received",
+      scope: mainScope,
+      envelope: optimisticUserEnvelope("request-1", "accepted"),
+    });
+    state = canonicalTimelineReducer(state, {
+      type: "optimistic.received",
+      scope: mainScope,
+      envelope: optimisticUserEnvelope("request-2", "still pending"),
+    });
+    const canonical = {
+      ...envelope("canonical-user", 10, 3),
+      clientRequestId: "request-1",
+      cells: [{ id: "canonical-cell", kind: "user-message" as const, source: "user" as const, text: "accepted" }],
+    };
+    state = loadPage(state, "latest", page(3, [canonical]));
+
+    const envelopes = selectCanonicalTimelineEnvelopes(state, mainScope);
+    expect(envelopes.map((item) => item.messageId)).toEqual(["canonical-user", "optimistic:request-2"]);
+    expect(envelopes[0]?.cells[0]?.id).toBe("pending-user:request-1");
+    expect(envelopes[1]?.cells[0]).toMatchObject({ text: "still pending", status: "sending" });
+  });
+
+  it("rekeys only the exact pending Conversation scope and preserves mode isolation", () => {
+    const pendingScope = { ...mainScope, conversationId: "pending:request-1" };
+    const targetScope = { ...mainScope, conversationId: "conversation-created" };
+    const otherModeScope = { ...pendingScope, productMode: "agent" as const };
+    let state = canonicalTimelineReducer(createCanonicalTimelineState(), {
+      type: "optimistic.received",
+      scope: pendingScope,
+      envelope: optimisticUserEnvelope("request-1", "harness pending", pendingScope),
+    });
+    state = canonicalTimelineReducer(state, {
+      type: "optimistic.received",
+      scope: otherModeScope,
+      envelope: optimisticUserEnvelope("request-1", "agent pending", otherModeScope),
+    });
+    state = canonicalTimelineReducer(state, {
+      type: "optimistic.rekeyed",
+      from: pendingScope,
+      to: targetScope,
+      clientRequestId: "request-1",
+    });
+
+    expect(selectCanonicalTimelineEnvelopes(state, pendingScope)).toEqual([]);
+    expect(texts(state, targetScope)).toEqual(["harness pending"]);
+    expect(texts(state, otherModeScope)).toEqual(["agent pending"]);
+    expect(selectCanonicalTimelineEnvelopes(state, targetScope)[0]).toMatchObject({
+      conversationId: "conversation-created",
+      clientRequestId: "request-1",
+    });
+  });
+
+  it("rekeys across a registered project identity without moving a different request or surface", () => {
+    const pendingScope = { ...mainScope, conversationId: "pending:request-1" };
+    const targetScope = { ...pendingScope, projectId: "project-registered", conversationId: "conversation-created" };
+    const childScope = { ...pendingScope, agentSurfaceId: "agent:child" };
+    let state = canonicalTimelineReducer(createCanonicalTimelineState(), {
+      type: "optimistic.received",
+      scope: pendingScope,
+      envelope: optimisticUserEnvelope("request-1", "move exactly this", pendingScope),
+    });
+    state = canonicalTimelineReducer(state, {
+      type: "optimistic.received",
+      scope: pendingScope,
+      envelope: optimisticUserEnvelope("request-2", "stay pending", pendingScope),
+    });
+    state = canonicalTimelineReducer(state, {
+      type: "optimistic.received",
+      scope: childScope,
+      envelope: optimisticUserEnvelope("request-1", "stay on child", childScope),
+    });
+    state = canonicalTimelineReducer(state, {
+      type: "optimistic.rekeyed",
+      from: pendingScope,
+      to: targetScope,
+      clientRequestId: "unknown-request",
+    });
+    expect(texts(state, targetScope)).toEqual([]);
+
+    state = canonicalTimelineReducer(state, {
+      type: "optimistic.rekeyed",
+      from: pendingScope,
+      to: targetScope,
+      clientRequestId: "request-1",
+    });
+    expect(texts(state, targetScope)).toEqual(["move exactly this"]);
+    expect(texts(state, pendingScope)).toEqual(["stay pending"]);
+    expect(texts(state, childScope)).toEqual(["stay on child"]);
+  });
+
   it("orders out-of-order delivery by canonical order and rejects stale revisions", () => {
     let state = createCanonicalTimelineState();
     state = receive(state, envelope("third", 30, 3));
@@ -322,6 +489,30 @@ function envelope(
       kind: "assistant-message",
       source: "provider-runtime",
       text: `${messageId}@${revision}`,
+    }],
+  };
+}
+
+function optimisticUserEnvelope(
+  clientRequestId: string,
+  text: string,
+  scope: CanonicalTimelineScope = mainScope,
+): CanonicalTimelineEnvelope {
+  return {
+    ...scope,
+    messageId: `optimistic:${clientRequestId}`,
+    clientRequestId,
+    position: Number.MAX_SAFE_INTEGER,
+    revision: 1,
+    orderClass: "sequence",
+    cells: [{
+      id: `pending-user:${clientRequestId}`,
+      kind: "user-message",
+      source: "user",
+      text,
+      title: "正在发送",
+      status: "sending",
+      realtime: true,
     }],
   };
 }

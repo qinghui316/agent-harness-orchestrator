@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
-import { ArrowUpRight, Bot, Brain, CheckCircle2, FilePenLine, FileSearch2, FileText, GitFork, LoaderCircle, RotateCcw, Search, Terminal, Wrench } from "lucide-react";
+import { ArrowUpRight, Bot, Brain, CheckCircle2, FilePenLine, FileSearch2, FileText, GitFork, LoaderCircle, RotateCcw, Search, Terminal, Undo2, Wrench } from "lucide-react";
 import { artifactName } from "./RunReplayPanel.js";
 import { formatTime, humanStatus } from "../../formatters.js";
 import { cleanTranscriptText, cleanTranscriptTitle } from "./transcriptDisplay.js";
@@ -33,7 +33,7 @@ export function AgentTranscriptPane({ cells, emptyMessage = "暂无 Agent 消息
   );
 }
 
-export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded, onOpenAgent, canOpenAgent, onOpenDocument, onOpenProjectFile, documentResources, onEnsureDocument, onRetry, onFork }: {
+export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded, onOpenAgent, canOpenAgent, onOpenDocument, onOpenProjectFile, documentResources, onEnsureDocument, onRetry, onFork, onRetryPending, onRestorePending }: {
   cell: ParentAgentTranscriptCell;
   expanded: boolean;
   onToggleExpanded: () => void;
@@ -45,6 +45,8 @@ export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded
   onEnsureDocument?: (document: CanonicalDocumentReference) => void;
   onRetry?: (target: NonNullable<ParentAgentTranscriptCell["retryTarget"]>) => Promise<void>;
   onFork?: (target: NonNullable<ParentAgentTranscriptCell["forkTarget"]>) => void;
+  onRetryPending?: (clientRequestId: string) => Promise<void>;
+  onRestorePending?: (clientRequestId: string) => void;
 }): ReactElement {
   const isUser = cell.kind === "user-message";
   const rowKind = isUser ? "user" : "parent";
@@ -60,7 +62,7 @@ export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded
     >
       <div className={`parent-agent-bubble transcript-cell-surface ${rowKind} ${cell.kind}`}>
         {cell.kind === "user-message" ? (
-          <TranscriptUserMessage cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} />
+          <TranscriptUserMessage cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} onRetryPending={onRetryPending} onRestorePending={onRestorePending} />
         ) : cell.kind === "assistant-message" ? (
           <TranscriptAssistantMessage cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} />
         ) : cell.kind === "review-card" ? (
@@ -112,18 +114,40 @@ export function TranscriptReviewCard({ cell, onFork, onOpenProjectFile }: {
   </section>;
 }
 
-export function TranscriptUserMessage({ cell, expanded, onToggleExpanded }: {
+export function TranscriptUserMessage({ cell, expanded, onToggleExpanded, onRetryPending, onRestorePending }: {
   cell: ParentAgentTranscriptCell;
   expanded: boolean;
   onToggleExpanded: () => void;
+  onRetryPending?: (clientRequestId: string) => Promise<void>;
+  onRestorePending?: (clientRequestId: string) => void;
 }): ReactElement {
+  const [retrying, setRetrying] = useState(false);
+  const pendingLabel = cell.status === "sending"
+    ? "正在发送"
+    : cell.status === "uncertain"
+      ? "发送状态待确认"
+      : cell.status === "failed"
+        ? "发送失败"
+        : null;
   return (
-    <TranscriptMessageProse
-      cell={cell}
-      expanded={expanded}
-      onToggleExpanded={onToggleExpanded}
-      className="transcript-user-message"
-    />
+    <div className="transcript-user-message-wrap">
+      <TranscriptMessageProse
+        cell={cell}
+        expanded={expanded}
+        onToggleExpanded={onToggleExpanded}
+        className="transcript-user-message"
+      />
+      {pendingLabel ? <div className={`transcript-user-delivery-state ${cell.status === "failed" ? "danger" : ""}`} role="status">
+        {cell.status === "sending" ? <LoaderCircle size={13} className="spin" aria-hidden="true" /> : null}
+        <span>{pendingLabel}</span>
+        {cell.detailText ? <small>{cell.detailText}</small> : null}
+        {cell.pendingIntent?.canRetry && onRetryPending ? <button type="button" disabled={retrying} onClick={() => {
+          setRetrying(true);
+          void onRetryPending(cell.pendingIntent!.clientRequestId).finally(() => setRetrying(false));
+        }}>{retrying ? <LoaderCircle size={12} className="spin" aria-hidden="true" /> : <RotateCcw size={12} aria-hidden="true" />}重试</button> : null}
+        {cell.pendingIntent?.canRestore && onRestorePending ? <button type="button" onClick={() => onRestorePending(cell.pendingIntent!.clientRequestId)}><Undo2 size={12} aria-hidden="true" />放回输入框</button> : null}
+      </div> : null}
+    </div>
   );
 }
 

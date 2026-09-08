@@ -20,9 +20,19 @@ export class ComposerDraftApiConflict extends Error {
 
 interface ScopeState {
   updatedAt: string | null;
-  pending: ComposerDraftContent | null;
+  latestContent: ComposerDraftContent | null;
+  pendingContent: ComposerDraftContent | null;
   timer: ReturnType<typeof setTimeout> | null;
   chain: Promise<void>;
+  localRevision: number;
+  conflict: ComposerDraftApiConflict | null;
+}
+
+export interface ComposerDraftSettlementOptions {
+  text?: boolean;
+  contextRefs?: boolean;
+  attachmentIds?: boolean;
+  skillOverrides?: boolean;
 }
 
 export class ComposerDraftSyncOwner {
@@ -35,14 +45,25 @@ export class ComposerDraftSyncOwner {
   ) {}
 
   async load(projectId: string, productMode: ProductMode): Promise<ComposerDraftSnapshot | null> {
-    const snapshot = await this.api.load(projectId, productMode);
-    this.state(projectId, productMode).updatedAt = snapshot?.updatedAt ?? null;
-    return snapshot;
+    const state = this.state(projectId, productMode);
+    const localRevision = state.localRevision;
+    return this.enqueue(projectId, productMode, async () => {
+      const snapshot = await this.api.load(projectId, productMode);
+      state.updatedAt = snapshot?.updatedAt ?? null;
+      state.conflict = null;
+      if (state.localRevision === localRevision) {
+        state.latestContent = snapshot ? contentFromSnapshot(snapshot) : null;
+        state.pendingContent = null;
+      }
+      return snapshot;
+    });
   }
 
   schedule(content: ComposerDraftContent): void {
     const state = this.state(content.projectId, content.productMode);
-    state.pending = cloneContent(content);
+    state.latestContent = cloneContent(content);
+    state.pendingContent = cloneContent(content);
+    state.localRevision += 1;
     if (state.timer) clearTimeout(state.timer);
     state.timer = setTimeout(() => {
       state.timer = null;
@@ -56,56 +77,52 @@ export class ComposerDraftSyncOwner {
       clearTimeout(state.timer);
       state.timer = null;
     }
-    const content = state.pending;
-    state.pending = null;
-    if (content) {
-      await this.enqueue(projectId, productMode, async () => {
-        try {
-          const saved = await this.api.save({ ...content, expectedUpdatedAt: state.updatedAt });
-          state.updatedAt = saved.updatedAt;
-        } catch (cause) {
-          if (cause instanceof ComposerDraftApiConflict) state.updatedAt = cause.current?.updatedAt ?? null;
-          throw cause;
-        }
-      });
-    } else {
-      await state.chain;
+    return this.enqueue(projectId, productMode, async () => {
+      if (state.conflict) throw state.conflict;
+      const content = state.pendingContent;
+      if (!content) return state.updatedAt;
+      state.pendingContent = null;
+      try {
+        const saved = await this.api.save({ ...cloneContent(content), expectedUpdatedAt: state.updatedAt });
+        state.updatedAt = saved.updatedAt;
+        return state.updatedAt;
+      } catch (cause) {
+        this.recordConflict(state, cause);
+        throw cause;
+      }
+    });
+  }
+
+  async settleAccepted(
+    accepted: ComposerDraftContent,
+    options: ComposerDraftSettlementOptions = {
+      text: true,
+      contextRefs: true,
+      attachmentIds: true,
+      skillOverrides: true,
+    },
+  ): Promise<ComposerDraftSnapshot | null> {
+    const state = this.state(accepted.projectId, accepted.productMode);
+    if (state.timer) {
+      clearTimeout(state.timer);
+      state.timer = null;
     }
-    return state.updatedAt;
-  }
-
-  async replaceIfUnchanged(content: ComposerDraftContent, expectedUpdatedAt: string | null): Promise<ComposerDraftSnapshot | null> {
-    const state = this.state(content.projectId, content.productMode);
-    let result: ComposerDraftSnapshot | null = null;
-    await this.enqueue(content.projectId, content.productMode, async () => {
+    return this.enqueue(accepted.projectId, accepted.productMode, async () => {
+      if (state.conflict) throw state.conflict;
+      const current = state.latestContent ?? cloneContent(accepted);
+      const settled = settleContent(current, accepted, options);
+      state.pendingContent = null;
+      state.latestContent = settled;
+      state.localRevision += 1;
       try {
-        result = await this.api.save({ ...cloneContent(content), expectedUpdatedAt });
+        const result = await this.api.save({ ...cloneContent(settled), expectedUpdatedAt: state.updatedAt });
         state.updatedAt = result.updatedAt;
+        return result;
       } catch (cause) {
-        if (cause instanceof ComposerDraftApiConflict) state.updatedAt = cause.current?.updatedAt ?? null;
+        this.recordConflict(state, cause);
         throw cause;
       }
     });
-    return result;
-  }
-
-  async deleteIfUnchanged(
-    projectId: string,
-    productMode: ProductMode,
-    expectedUpdatedAt: string | null,
-  ): Promise<boolean> {
-    const state = this.state(projectId, productMode);
-    let deleted = false;
-    await this.enqueue(projectId, productMode, async () => {
-      try {
-        deleted = await this.api.delete({ projectId, productMode, expectedUpdatedAt });
-        state.updatedAt = null;
-      } catch (cause) {
-        if (cause instanceof ComposerDraftApiConflict) state.updatedAt = cause.current?.updatedAt ?? null;
-        throw cause;
-      }
-    });
-    return deleted;
   }
 
   async flushAll(): Promise<void> {
@@ -123,16 +140,30 @@ export class ComposerDraftSyncOwner {
     const key = scopeKey(projectId, productMode);
     const existing = this.scopes.get(key);
     if (existing) return existing;
-    const created: ScopeState = { updatedAt: null, pending: null, timer: null, chain: Promise.resolve() };
+    const created: ScopeState = {
+      updatedAt: null,
+      latestContent: null,
+      pendingContent: null,
+      timer: null,
+      chain: Promise.resolve(),
+      localRevision: 0,
+      conflict: null,
+    };
     this.scopes.set(key, created);
     return created;
   }
 
-  private enqueue(projectId: string, productMode: ProductMode, task: () => Promise<void>): Promise<void> {
+  private enqueue<T>(projectId: string, productMode: ProductMode, task: () => Promise<T>): Promise<T> {
     const state = this.state(projectId, productMode);
     const result = state.chain.then(task, task);
-    state.chain = result.catch(() => undefined);
+    state.chain = result.then(() => undefined, () => undefined);
     return result;
+  }
+
+  private recordConflict(state: ScopeState, cause: unknown): void {
+    if (!(cause instanceof ComposerDraftApiConflict)) return;
+    state.updatedAt = cause.current?.updatedAt ?? null;
+    state.conflict = cause;
   }
 }
 
@@ -184,4 +215,53 @@ function scopeKey(projectId: string, productMode: ProductMode): string {
 
 function errorMessage(cause: unknown): string {
   return userFacingErrorMessage(cause, "save");
+}
+
+function contentFromSnapshot(snapshot: ComposerDraftSnapshot): ComposerDraftContent {
+  return {
+    projectId: snapshot.projectId,
+    productMode: snapshot.productMode,
+    agentTurnMode: snapshot.agentTurnMode,
+    agentModelId: snapshot.agentModelId,
+    agentReasoningEffort: snapshot.agentReasoningEffort,
+    text: snapshot.text,
+    contextRefs: snapshot.contextRefs.map((item) => ({ ...item })),
+    attachmentIds: snapshot.attachments.map((item) => item.id),
+    skillOverrides: { ...snapshot.skillOverrides },
+    selectedProviderId: snapshot.selectedProviderId,
+  };
+}
+
+function settleContent(
+  current: ComposerDraftContent,
+  accepted: ComposerDraftContent,
+  options: ComposerDraftSettlementOptions,
+): ComposerDraftContent {
+  return {
+    ...cloneContent(current),
+    text: options.text && current.text === accepted.text ? "" : current.text,
+    contextRefs: options.contextRefs && sameReferences(current.contextRefs, accepted.contextRefs)
+      ? []
+      : current.contextRefs.map((item) => ({ ...item })),
+    attachmentIds: options.attachmentIds && sameStrings(current.attachmentIds, accepted.attachmentIds)
+      ? []
+      : [...current.attachmentIds],
+    skillOverrides: options.skillOverrides && sameOverrides(current.skillOverrides, accepted.skillOverrides)
+      ? {}
+      : { ...current.skillOverrides },
+  };
+}
+
+function sameReferences(left: ComposerDraftContent["contextRefs"], right: ComposerDraftContent["contextRefs"]): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function sameStrings(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function sameOverrides(left: Readonly<Record<string, boolean>>, right: Readonly<Record<string, boolean>>): boolean {
+  const entries = (value: Readonly<Record<string, boolean>>) => Object.entries(value)
+    .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey));
+  return JSON.stringify(entries(left)) === JSON.stringify(entries(right));
 }

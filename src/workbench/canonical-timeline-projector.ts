@@ -25,6 +25,7 @@ export function projectCanonicalTimelineEnvelope(row: StoredTopicMessage, produc
     conversationId: row.conversationId,
     agentSurfaceId: row.agentSurfaceId,
     messageId: row.id,
+    clientRequestId: entry.clientRequestId,
     position: row.position,
     revision: row.revision,
     orderClass: row.initialThreadInput ? "thread-start" : "sequence",

@@ -2,15 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchJson, postJson } from "../api.js";
 import { userFacingErrorMessage } from "../presentation/user-facing-language.js";
 import type {
-  ConversationQueuedTurnInput,
   ConversationTurnQueueSnapshot,
   ProductMode,
   WorkbenchLiveEvent,
 } from "../types.js";
-
-export interface ConversationTurnQueueEnqueueInput extends ConversationQueuedTurnInput {
-  expectedDraftUpdatedAt: string | null;
-}
+import type { ConversationTurnQueueEnqueueInput } from "./conversation-turn-queue-contract.js";
 
 export function useConversationTurnQueueController(input: {
   projectId: string | null;
@@ -39,7 +35,7 @@ export function useConversationTurnQueueController(input: {
 
   const load = useCallback(async (): Promise<ConversationTurnQueueSnapshot | null> => {
     const current = inputRef.current;
-    if (!current.projectId || !current.conversationId) {
+    if (!current.projectId || !isCanonicalConversationId(current.conversationId)) {
       setSnapshot(null);
       return null;
     }
@@ -91,7 +87,7 @@ export function useConversationTurnQueueController(input: {
   ): Promise<ConversationTurnQueueSnapshot | null> => {
     const current = inputRef.current;
     const currentSnapshot = snapshotRef.current;
-    if (!current.projectId || !current.conversationId || !currentSnapshot
+    if (!current.projectId || !isCanonicalConversationId(current.conversationId) || !currentSnapshot
       || snapshotCalibrationKeyRef.current !== queueCalibrationKey(current)) return null;
     const requestIdentity = queueIdentity(current);
     const responseGeneration = ++responseGenerationRef.current;
@@ -163,7 +159,7 @@ export function useConversationTurnQueueController(input: {
   const dispatchNext = useCallback(async (): Promise<ConversationTurnQueueSnapshot | null> => {
     const current = inputRef.current;
     const currentSnapshot = snapshotRef.current;
-    if (!current.projectId || !current.conversationId || !currentSnapshot) return null;
+    if (!current.projectId || !isCanonicalConversationId(current.conversationId) || !currentSnapshot) return null;
     const requestIdentity = queueIdentity(current);
     try {
       const result = await postJson<ConversationTurnQueueSnapshot>(
@@ -200,7 +196,7 @@ export function useConversationTurnQueueController(input: {
 
   const handleEvent = useCallback((projectId: string, event: WorkbenchLiveEvent): void => {
     const current = inputRef.current;
-    if (projectId !== current.projectId || !current.conversationId
+    if (projectId !== current.projectId || !isCanonicalConversationId(current.conversationId)
       || !eventInvalidatesSelectedConversation(event, current.conversationId)) return;
     if (invalidationTimerRef.current) clearTimeout(invalidationTimerRef.current);
     invalidationTimerRef.current = setTimeout(() => {
@@ -209,7 +205,7 @@ export function useConversationTurnQueueController(input: {
     }, 80);
   }, [load]);
 
-  const calibrating = Boolean(input.projectId && input.conversationId)
+  const calibrating = Boolean(input.projectId && isCanonicalConversationId(input.conversationId))
     && snapshotCalibrationKey !== currentCalibrationKey;
   return {
     snapshot: currentSnapshot,
@@ -282,4 +278,8 @@ function createRequestId(prefix: string): string {
 
 function errorMessage(cause: unknown): string {
   return userFacingErrorMessage(cause, "queue");
+}
+
+function isCanonicalConversationId(conversationId: string | null): conversationId is string {
+  return Boolean(conversationId && !conversationId.startsWith("pending:"));
 }

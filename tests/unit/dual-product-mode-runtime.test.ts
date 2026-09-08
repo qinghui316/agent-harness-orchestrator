@@ -92,6 +92,65 @@ describe("dual product-mode foundation", () => {
     }, undefined, { runMainAgent: false })).rejects.toMatchObject({ name: "Conflict" });
   });
 
+  it("correlates and replays an exact follow-up without repeating admission or Provider routing", async () => {
+    const conversation = await createWorkbenchConversation(project(), {
+      body: "Initial Agent request.",
+      productMode: "agent",
+      clientRequestId: "followup-replay-create",
+    }, undefined, { runMainAgent: false });
+    const admit = vi.fn(testAdmission);
+    const route = vi.fn(testTurnRouter().route);
+    const router = { ...testTurnRouter(), admit, route };
+    const input = {
+      message: "Repeat-safe follow-up.",
+      productMode: "agent" as const,
+      clientRequestId: "followup-replay-1",
+    };
+
+    await expect(postConversationMessage(project(), conversation.conversationId, input, undefined, { turnRouter: router }))
+      .resolves.toBeDefined();
+    await expect(postConversationMessage(project(), conversation.conversationId, input, undefined, { turnRouter: router }))
+      .resolves.toMatchObject({
+        user: { clientRequestId: "followup-replay-1", text: "Repeat-safe follow-up." },
+        assistant: null,
+      });
+
+    expect(admit).toHaveBeenCalledTimes(1);
+    expect(route).toHaveBeenCalledTimes(1);
+    const database = await openProjectRuntimeWorkbenchDatabase(fixture.resolution.paths);
+    try {
+      const correlated = database.timeline.listConversationMessages(project().id, conversation.conversationId)
+        .map((row) => JSON.parse(row.rawJson) as { clientRequestId?: string; requestHash?: string })
+        .filter((row) => row.clientRequestId === "followup-replay-1");
+      expect(correlated).toHaveLength(1);
+      expect(correlated[0]?.requestHash).toMatch(/^[a-f0-9]{64}$/);
+    } finally {
+      database.close();
+    }
+
+    await expect(postConversationMessage(project(), conversation.conversationId, {
+      ...input,
+      message: "Different content with the same identity.",
+    }, undefined, { turnRouter: router })).rejects.toMatchObject({ name: "Conflict" });
+    expect(admit).toHaveBeenCalledTimes(1);
+    expect(route).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects unbounded or non-contract follow-up request identities", async () => {
+    const conversation = await createWorkbenchConversation(project(), {
+      body: "Request identity validation.",
+      productMode: "agent",
+      clientRequestId: "followup-id-validation-create",
+    }, undefined, { runMainAgent: false });
+    for (const clientRequestId of ["contains.dot", "x".repeat(129), "contains space"]) {
+      await expect(postConversationMessage(project(), conversation.conversationId, {
+        message: "Must be rejected before admission.",
+        productMode: "agent",
+        clientRequestId,
+      }, undefined, { turnRouter: testTurnRouter() })).rejects.toMatchObject({ name: "BadRequest" });
+    }
+  });
+
   it("preserves exact replay for migrated v1 create hashes without admitting a new Turn", async () => {
     const input = {
       body: "Replay a migrated default Agent request.",

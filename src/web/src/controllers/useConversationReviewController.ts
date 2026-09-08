@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchJson, postJson } from "../api.js";
 import { userFacingErrorMessage } from "../presentation/user-facing-language.js";
 import type { ProductMode, ProjectGitReviewOptions, ProviderReviewTarget } from "../types.js";
-import type { ConversationTurnQueueEnqueueInput } from "./useConversationTurnQueueController.js";
+import type { ConversationTurnQueueEnqueueInput } from "./conversation-turn-queue-contract.js";
 
 type ConversationReviewReceipt = {
   projectId: string;

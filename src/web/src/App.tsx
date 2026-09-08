@@ -41,6 +41,7 @@ import {
 } from "./canonicalTimelineStore.js";
 import { canonicalTimelineReconnectScopes, useCanonicalTimelineController } from "./canonicalTimelineController.js";
 import { useWorkbenchProjectionStream } from "./workbenchProjectionStream.js";
+import { projectComposerModelLabel } from "./presentation/conversation-experience.js";
 
 import {
   projectDisplayName,
@@ -80,7 +81,7 @@ import {
   useConversationComposerController,
   type ComposerActionRequest,
 } from "./controllers/useConversationComposerController.js";
-import { removalConfirmationMessage, useProjectConversationSession } from "./controllers/useProjectConversationSession.js";
+import { emptySnapshotForMode, removalConfirmationMessage, useProjectConversationSession } from "./controllers/useProjectConversationSession.js";
 import { useAppModeController } from "./controllers/AppModeController.js";
 import { modePresentationPolicy } from "./presentation/ModePresentationPolicy.js";
 import { sanitizeTechnicalDetail, userFacingErrorMessage } from "./presentation/user-facing-language.js";
@@ -178,6 +179,14 @@ export function App(): ReactElement {
       invalidateProjection: invalidateProjectionCache,
       clearProject: timeline.clearProject,
       clearConversation: timeline.clearConversation,
+      rekeyConversation: (from, toConversationId, clientRequestId) => timeline.rekeyOptimisticUserIntent({
+        ...from,
+        agentSurfaceId: "main-agent",
+      }, {
+        ...from,
+        conversationId: toConversationId,
+        agentSurfaceId: "main-agent",
+      }, clientRequestId),
     },
     resources: {
       cleanupTransition: (kind) => workspaceResources.cleanupTransition(kind),
@@ -555,7 +564,7 @@ export function App(): ReactElement {
     const conversationId = activeTopic?.id;
     if (!conversationId || !selectedProjectId) return;
     openWorkspaceResource({ kind: "agent", conversationId, agentSurfaceId });
-    void timeline.loadLatest({ projectId: selectedProjectId, productMode: snapshot.productMode, conversationId, agentSurfaceId });
+    void timeline.loadLatest({ projectId: selectedProjectId, productMode: activeTopic.productMode, conversationId, agentSurfaceId });
   }
 
   function openWorkspaceResource(target: WorkspaceResourceTarget): void {
@@ -575,15 +584,22 @@ export function App(): ReactElement {
     setProjectionVersion((value) => value + 1);
   }
 
+  const snapshotMatchesCurrentMode = session.productMode === appMode.productMode
+    && snapshot.productMode === appMode.productMode;
+  const activeModeSnapshot = snapshotMatchesCurrentMode
+    ? snapshot
+    : { ...emptySnapshotForMode(appMode.productMode), project: snapshot.project };
+  const selectedTopicForMode = snapshotMatchesCurrentMode ? selectedTopic : null;
   const activePendingConversation = pendingDemandConversation
     && selectedProjectId === pendingDemandConversation.projectId
-    && selectedTopic === pendingDemandConversation.id
+    && pendingDemandConversation.productMode === appMode.productMode
+    && selectedTopicForMode === pendingDemandConversation.id
     ? pendingDemandConversation
     : null;
   const activeTopic = activePendingConversation
     ? {
       id: activePendingConversation.id,
-      productMode: snapshot.productMode,
+      productMode: activePendingConversation.productMode,
       title: activePendingConversation.title,
       state: "active" as const,
       acCount: 0,
@@ -592,15 +608,15 @@ export function App(): ReactElement {
       boundChangeId: null,
       selectedProviderId: activePendingConversation.selectedProviderId,
     }
-    : snapshot.center.selectedTopic;
-  const workspaceResources = useWorkspaceResourceController(workspaceResourceModeHandoff(snapshot, {
+    : activeModeSnapshot.center.selectedTopic;
+  const workspaceResources = useWorkspaceResourceController(workspaceResourceModeHandoff({ productMode: appMode.productMode }, {
     projectId: selectedProjectId,
     conversationId: activeTopic?.id ?? null,
     loadAgentTranscript: (target) => {
       if (!selectedProjectId) return;
       return timeline.loadLatest({
         projectId: selectedProjectId,
-        productMode: snapshot.productMode,
+        productMode: appMode.productMode,
         conversationId: target.conversationId,
         agentSurfaceId: target.agentSurfaceId,
       });
@@ -609,7 +625,7 @@ export function App(): ReactElement {
     routeProjectionEvent: routeProjectionEventForProject,
     calibrateAgentTranscript: (projectId, conversationId, agentSurfaceId) => timeline.loadLatest({
       projectId,
-      productMode: snapshot.productMode,
+      productMode: appMode.productMode,
       conversationId,
       agentSurfaceId,
     }),
@@ -639,14 +655,14 @@ export function App(): ReactElement {
   const providerModelSettingsMessage = providerConfiguration.modelSettingsMessage;
   const composerProviderOptions = providerCapabilities.map((provider) => ({ id: provider.providerId, label: provider.displayName }));
   const isPendingTopic = Boolean(activePendingConversation && !activePendingConversation.canonical);
-  const activeWorkpad = activePendingConversation ? emptyWorkpad(activePendingConversation.title) : snapshot.center.workpad ?? emptyWorkpad(activeTopic?.title ?? projectDisplayName(snapshot.project));
+  const activeWorkpad = activePendingConversation ? emptyWorkpad(activePendingConversation.title) : activeModeSnapshot.center.workpad ?? emptyWorkpad(activeTopic?.title ?? projectDisplayName(snapshot.project));
   const conversationRunControl = activeWorkpad.runControlState;
   const agentRunControl = appMode.productMode === "agent" ? conversationRunControl : undefined;
   const composerRunning = appMode.productMode === "agent"
     ? Boolean(agentRunControl?.attemptId && agentRunControl.providerId && agentRunControl.state !== "idle")
     : activeWorkpad.conversationLifecycle === "running"
       || Boolean(activeWorkpad.runControlState?.canStop)
-      || currentWorkpadSummary(snapshot, activeTopic)?.runtimeStatus === "running";
+      || currentWorkpadSummary(activeModeSnapshot, activeTopic)?.runtimeStatus === "running";
   const conversationTurnQueue = useConversationTurnQueueController({
     projectId: selectedProjectId,
     productMode: appMode.productMode,
@@ -672,7 +688,7 @@ export function App(): ReactElement {
       state: activeTopic.state,
       selectedProviderId: activeTopic.selectedProviderId,
     } : null,
-    managed: Boolean(selectedProjectStatus?.managed),
+    projectRegistered: Boolean(selectedProjectStatus?.project),
     running: composerRunning,
     runControlState: conversationRunControl,
     selectedProviderId: composerProviderId,
@@ -686,6 +702,7 @@ export function App(): ReactElement {
     session: {
       ensureProjectRegistered: session.ensureProjectRegistered,
       createConversation: (request) => session.createDemandConversation(request, routeProjectionEventForProject),
+      beginPendingConversation: (input) => { session.beginPendingDemand(input); },
       restoreDraftProvider: providerConfiguration.restoreDraftProvider,
       selectProvider: providerConfiguration.selectProvider,
     },
@@ -699,6 +716,13 @@ export function App(): ReactElement {
     },
     timeline: {
       calibrate: (projectId, conversationId, agentSurfaceId) => timeline.loadLatest({ projectId, productMode: appMode.productMode, conversationId, agentSurfaceId }),
+      showPending: (scope, clientRequestId, text) => timeline.showOptimisticUserIntent({ ...scope, agentSurfaceId: "main-agent" }, clientRequestId, text),
+      markPending: (scope, clientRequestId, state, failure) => timeline.updateOptimisticUserIntent({ ...scope, agentSurfaceId: "main-agent" }, clientRequestId, state, failure),
+      rekeyPending: (from, to, clientRequestId) => timeline.rekeyOptimisticUserIntent(
+        { ...from, agentSurfaceId: "main-agent" },
+        { ...to, agentSurfaceId: "main-agent" },
+        clientRequestId,
+      ),
     },
     queue: conversationTurnQueue,
     onError: setError,
@@ -707,7 +731,7 @@ export function App(): ReactElement {
     projectId: selectedProjectId,
     productMode: appMode.productMode,
     conversationId: activeTopic?.id ?? null,
-    snapshot: snapshot.center.conversationContext ?? null,
+    snapshot: activeModeSnapshot.center.conversationContext ?? null,
     refreshConversation: async (projectId, conversationId) => { await refresh(projectId, conversationId); },
     onError: setError,
   });
@@ -736,16 +760,21 @@ export function App(): ReactElement {
     selectedProjectId && activeTopic?.id && !isPendingTopic
       ? { projectId: selectedProjectId, productMode: activeTopic.productMode, conversationId: activeTopic.id, agentSurfaceId: "main-agent" }
       : null
-  ), [activeTopic?.id, isPendingTopic, selectedProjectId]);
-  const activeTranscript = useMemo<ParentAgentTranscript>(() => activeTimelineScope
-    ? selectCanonicalTimelineTranscript(timeline.state, activeTimelineScope)
+  ), [activeTopic?.id, activeTopic?.productMode, isPendingTopic, selectedProjectId]);
+  const activeTranscriptScope = useMemo<CanonicalTimelineScope | null>(() => (
+    selectedProjectId && activeTopic?.id
+      ? { projectId: selectedProjectId, productMode: activeTopic.productMode, conversationId: activeTopic.id, agentSurfaceId: "main-agent" }
+      : null
+  ), [activeTopic?.id, activeTopic?.productMode, selectedProjectId]);
+  const activeTranscript = useMemo<ParentAgentTranscript>(() => activeTranscriptScope
+    ? selectCanonicalTimelineTranscript(timeline.state, activeTranscriptScope)
     : {
       conversationId: activeTopic?.id,
       title: activeTopic?.title ?? "需求对话",
       cells: [],
       items: [],
       emptyMessage: activePendingConversation ? "正在等待主 Agent 回复。" : "暂无对话内容。",
-    }, [activePendingConversation, activeTimelineScope, activeTopic?.id, activeTopic?.title, timeline.state]);
+    }, [activePendingConversation, activeTopic?.id, activeTopic?.title, activeTranscriptScope, timeline.state]);
   const activeTimelineSurface = activeTimelineScope
     ? selectCanonicalTimelineSurface(timeline.state, activeTimelineScope)
     : null;
@@ -758,7 +787,7 @@ export function App(): ReactElement {
     loadEarlier: loadEarlierTranscriptPage,
   });
   const activeDecisionInspector = useMemo(() => {
-    const inspector = snapshot.right.decisionInspector ?? { primary: null, related: [], history: [] };
+    const inspector = activeModeSnapshot.right.decisionInspector ?? { primary: null, related: [], history: [] };
     if (!selectedDecisionContextId) return inspector;
     const selected = [inspector.primary, ...inspector.related, ...inspector.history].find((item): item is DecisionContext => Boolean(item && item.id === selectedDecisionContextId));
     if (!selected) return inspector;
@@ -768,18 +797,18 @@ export function App(): ReactElement {
       history: inspector.history.filter((item) => item.id !== selected.id),
       selectedContextId: selected.id,
     };
-  }, [selectedDecisionContextId, snapshot.right.decisionInspector]);
-  const activeConfirmationQueue = snapshot.right.confirmationQueue ?? { primary: null, current: [], otherDemands: [], maintenance: [], history: [] };
+  }, [activeModeSnapshot.right.decisionInspector, selectedDecisionContextId]);
+  const activeConfirmationQueue = activeModeSnapshot.right.confirmationQueue ?? { primary: null, current: [], otherDemands: [], maintenance: [], history: [] };
   const agentSurfaces = useAgentSurfaceController({
     projectId: selectedProjectId,
-    productMode: snapshot.productMode,
+    productMode: appMode.productMode,
     conversationId: activeTopic?.id ?? null,
     officeViewOpen: orchestrationOpen,
     ports: {
       cleanupResources: workspaceResources.cleanupTransition,
       openAgentSurface: ({ conversationId, agentSurfaceId }) => {
         openWorkspaceResource({ kind: "agent", conversationId, agentSurfaceId });
-        if (selectedProjectId) void timeline.loadLatest({ projectId: selectedProjectId, productMode: snapshot.productMode, conversationId, agentSurfaceId });
+        if (selectedProjectId) void timeline.loadLatest({ projectId: selectedProjectId, productMode: appMode.productMode, conversationId, agentSurfaceId });
         if (globalThis.matchMedia?.("(max-width: 720px)").matches) closeOrchestrationOverlay();
       },
       closeOfficeView: closeOrchestrationOverlay,
@@ -827,7 +856,10 @@ export function App(): ReactElement {
     },
     interaction: {
       updated: (projectId, queue) => {
-        if (selectedProjectIdRef.current !== projectId || (activeTopic?.id && queue.conversationId !== activeTopic.id)) return;
+        if (selectedProjectIdRef.current !== projectId
+          || !activeTopic?.id
+          || queue.productMode !== activeTopic.productMode
+          || queue.conversationId !== activeTopic.id) return;
         session.updateSnapshot((current) => ({
           ...current,
           center: { ...current.center, conversationInteractions: queue },
@@ -887,7 +919,7 @@ export function App(): ReactElement {
       if (!conversationId || isPendingTopic) return;
       void refresh(projectId, conversationId);
       agentSurfaces.invalidate({ conversationId, reason: "snapshot" });
-      for (const scope of canonicalTimelineReconnectScopes(projectId, snapshot.productMode, conversationId, workspaceResourceTabs)) {
+      for (const scope of canonicalTimelineReconnectScopes(projectId, appMode.productMode, conversationId, workspaceResourceTabs)) {
         void timeline.loadLatest(scope);
       }
     },
@@ -897,8 +929,8 @@ export function App(): ReactElement {
     session: {
       projectId: selectedProjectId,
       conversationId: activeTopic?.id ?? null,
-      selectedTopicId: selectedTopic,
-      snapshot,
+      selectedTopicId: selectedTopicForMode,
+      snapshot: activeModeSnapshot,
       composerText,
     },
     ports: {
@@ -924,7 +956,7 @@ export function App(): ReactElement {
       },
     },
   });
-  const activeConversationInteraction = snapshot.center.conversationInteractions?.items[0] ?? null;
+  const activeConversationInteraction = activeModeSnapshot.center.conversationInteractions?.items[0] ?? null;
   useEffect(() => {
     if (mobileSidebarModalOpen) {
       mobileSidebarWasOpenRef.current = true;
@@ -1004,9 +1036,12 @@ export function App(): ReactElement {
     + activeConfirmationQueue.maintenance.length;
   const visiblePendingConfirmationCount = presentation.harness["governance-approvals"] ? pendingConfirmationCount : 0;
   const officeSurfaceProjection = agentSurfaces.projection;
-  const providerModelLabel = providerModelSettings?.effectiveModel?.modelId
-    || providerDiagnostics?.models.effectiveModel?.modelId
-    || "默认模型";
+  const providerModelLabel = projectComposerModelLabel({
+    productMode: appMode.productMode,
+    composerModelId: composer.agentModelId,
+    savedConversationModelId: activeTopic?.agentModelId ?? null,
+    modelSettings: providerModelSettings ?? providerDiagnostics?.models ?? null,
+  });
   const providerDisplayName = providerDiagnostics?.displayName
     ?? composerProviderOptions.find((provider) => provider.id === composerProviderId)?.label
     ?? (composerProviderOptions.length === 1 ? composerProviderOptions[0]!.label : "正在加载");
@@ -1148,9 +1183,9 @@ export function App(): ReactElement {
               <ProjectConversationSidebar
                 projects={projects}
           selectedProjectId={selectedProjectId}
-          selectedTopicId={activeTopic?.id ?? selectedTopic}
-          snapshots={projectSnapshots}
-          snapshot={snapshot}
+          selectedTopicId={activeTopic?.id ?? selectedTopicForMode}
+          snapshots={snapshotMatchesCurrentMode ? projectSnapshots : {}}
+          snapshot={activeModeSnapshot}
           search={sidebarSearch}
           onSearch={setSidebarSearch}
           expandedProjects={expandedProjects}
@@ -1279,8 +1314,8 @@ export function App(): ReactElement {
                 <strong>{activeTopic.title}</strong>
                 <span>
                   {activeTopicIsConversation
-                    ? `${projectDisplayName(snapshot.project, "project")} · ${stateLabel(activeTopic.state)}`
-                    : `${projectDisplayName(snapshot.project, "project")} · ${stateLabel(activeTopic.state)} · 验收 ${activeTopic.acCount ?? 0} · 任务 ${activeTopic.taskCount ?? 0}`}
+                    ? `${projectDisplayName(activeModeSnapshot.project, "project")} · ${stateLabel(activeTopic.state)}`
+                    : `${projectDisplayName(activeModeSnapshot.project, "project")} · ${stateLabel(activeTopic.state)} · 验收 ${activeTopic.acCount ?? 0} · 任务 ${activeTopic.taskCount ?? 0}`}
                 </span>
               </div>
             </header>
@@ -1352,9 +1387,11 @@ export function App(): ReactElement {
                           ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`}`,
                       });
                     }}
+                    onRetryPending={composer.retryPendingIntent}
+                    onRestorePending={composer.restorePendingIntent}
                     onFork={appMode.productMode !== "agent"
                       || activeWorkpad.conversationLifecycle === "running"
-                      || !snapshot.center.conversationContext?.contextRevision
+                      || !activeModeSnapshot.center.conversationContext?.contextRevision
                       || activeTopic.timelineRevision === undefined
                       ? undefined
                       : async (target) => {
@@ -1366,7 +1403,7 @@ export function App(): ReactElement {
                             sourceMessageId: target.sourceMessageId,
                             expectedCompletedTurnSequence: target.completedTurnSequence,
                             expectedTimelineRevision: activeTopic.timelineRevision!,
-                            contextRevision: snapshot.center.conversationContext!.contextRevision,
+                            contextRevision: activeModeSnapshot.center.conversationContext!.contextRevision,
                             clientRequestId: `fork-${globalThis.crypto?.randomUUID?.()
                               ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`}`,
                           });
@@ -1417,7 +1454,7 @@ export function App(): ReactElement {
                   onSend={sendTopicMessage}
                   onStopAndContinue={stopAndContinueCurrentRun}
                   actionRunning={actionRunning}
-                  currentWorkpadStatus={composerRunning ? "running" : currentWorkpadSummary(snapshot, activeTopic)?.runtimeStatus}
+                  currentWorkpadStatus={composerRunning ? "running" : currentWorkpadSummary(activeModeSnapshot, activeTopic)?.runtimeStatus}
                   runControlState={activeWorkpad.runControlState}
                   providerOptions={composerProviderOptions}
                   selectedProviderId={composerProviderId ?? activeTopic.selectedProviderId}

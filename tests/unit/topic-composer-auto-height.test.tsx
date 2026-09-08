@@ -107,8 +107,8 @@ describe("Topic Composer height", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "模型与推理设置，当前模型：gpt-test" }));
     expect(screen.getByTestId("agent-turn-model-controls")).toBeTruthy();
-    fireEvent.change(screen.getByRole("combobox", { name: "本次 Turn 模型" }), { target: { value: "" } });
-    fireEvent.change(screen.getByRole("combobox", { name: "本次 Turn 推理强度" }), { target: { value: "" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "下一次发送的模型" }), { target: { value: "" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "下一次发送的推理强度" }), { target: { value: "" } });
     expect(onSelectModel).toHaveBeenCalledWith(null);
     expect(onSelectEffort).toHaveBeenCalledWith(null);
 

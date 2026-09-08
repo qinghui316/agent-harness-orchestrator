@@ -16,7 +16,8 @@ import { createConversationGraphScopeId } from "./conversation-graph-scope.js";
 import type { ConversationContextLifecycleOwner } from "./conversation-context-lifecycle.js";
 import type { AgentTurnModelAdmission } from "./conversation-turn-contract.js";
 import type { ConversationTurnControlOwner, ConversationTurnRegistration } from "./conversation-turn-control.js";
-import { createConversationExecutionRevision } from "./conversation-turn-queue.js";
+import { createConversationExecutionRevision } from "./conversation-execution-revision.js";
+import type { ConversationQueuedReviewDispatchPort, QueuedReviewDispatchRequest, QueuedReviewDispatchResult } from "./conversation-queued-review-dispatch.js";
 import { admitProjectGitReview, sanitizeProjectReviewMarkdown, type ProjectGitReviewAdmission } from "./git-panel.js";
 import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import type { StoredConversationReviewOperation, StoredTopicMessageWrite } from "./persistence/contracts.js";
@@ -57,7 +58,7 @@ type PreparedReview = {
   reasoningEffort: string | null;
 };
 
-export class ConversationReviewLifecycleOwner {
+export class ConversationReviewLifecycleOwner implements ConversationQueuedReviewDispatchPort {
   private readonly modelAdmission: AgentTurnModelAdmissionOwner;
   private readonly settlementRepairs = new Map<string, () => Promise<void>>();
 
@@ -68,6 +69,19 @@ export class ConversationReviewLifecycleOwner {
     contextLifecycle?: ConversationContextLifecycleOwner;
   }) {
     this.modelAdmission = new AgentTurnModelAdmissionOwner(options.providerRegistry);
+  }
+
+  async dispatchQueuedReview(project: ManagedProject, request: QueuedReviewDispatchRequest): Promise<QueuedReviewDispatchResult> {
+    const snapshot = await this.start(project, {
+      productMode: "agent",
+      ...request,
+      source: "queue",
+    });
+    return {
+      conversationId: snapshot.conversationId,
+      clientRequestId: snapshot.clientRequestId,
+      status: snapshot.status,
+    };
   }
 
   async start(project: ManagedProject, rawRequest: ConversationReviewRequest): Promise<ConversationReviewSnapshot> {

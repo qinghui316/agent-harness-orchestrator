@@ -1,19 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { consumeWorkbenchLiveStream, fetchJson, postJson } from "../api.js";
+import { consumeWorkbenchLiveStream, fetchJson, postJson, WorkbenchRequestError } from "../api.js";
+import { createDraftSubmissionSnapshot } from "./conversation-submission-contract.js";
 import { userFacingErrorMessage } from "../presentation/user-facing-language.js";
 import { extractInlineFileMentions } from "../shell/file-mentions.js";
 import { extractInlineSkillMentions } from "../shell/skill-mentions.js";
 import type { AgentTurnMode, ComposerDraftDiagnostic, ComposerDraftSnapshot, ConversationTurnQueueSnapshot, ProductMode, ProviderCapabilitySnapshot, ProviderModelSettingsSnapshot, SkillListItem, TopicAttachment, TopicFileReference, WorkbenchLiveEvent } from "../types.js";
-import type { ConversationTurnQueueEnqueueInput } from "./useConversationTurnQueueController.js";
+import type { ConversationTurnQueueEnqueueInput } from "./conversation-turn-queue-contract.js";
 import type { WorkbenchOperationToken } from "./useGlobalOperationGate.js";
 import type { ConversationSteerOutcome } from "./useConversationActionController.js";
 import {
-  ComposerDraftApiConflict,
   ComposerDraftSyncOwner,
   defaultComposerDraftApi,
   type ComposerDraftApi,
   type ComposerDraftContent,
+  type ComposerDraftSettlementOptions,
 } from "./ComposerDraftSyncOwner.js";
+import {
+  ConversationDraftController,
+  type ConversationDraftViewModel,
+} from "./ConversationDraftController.js";
+import { ConversationTurnSubmissionController } from "./ConversationTurnSubmissionController.js";
 
 export type ComposerTransition = "project-changed" | "conversation-changed" | "new-conversation";
 
@@ -29,7 +35,7 @@ export interface ConversationComposerScope {
     agentReasoningEffort?: string | null;
     selectedProviderId?: string;
   } | null;
-  managed: boolean;
+  projectRegistered: boolean;
   running: boolean;
   runControlState?: {
     state?: "idle" | "running" | "stopping";
@@ -86,6 +92,7 @@ export interface ComposerCreatedConversation {
 }
 
 export interface ComposerMessageRequest {
+  clientRequestId: string;
   projectId: string;
   productMode: ProductMode;
   conversationId: string;
@@ -123,6 +130,15 @@ export interface ConversationComposerPorts {
   session: {
     ensureProjectRegistered(projectId: string): Promise<string | null>;
     createConversation(request: ComposerCreateConversationRequest): Promise<ComposerCreatedConversation>;
+    beginPendingConversation?(input: {
+      id: string;
+      projectId: string;
+      productMode: ProductMode;
+      clientRequestId: string;
+      title: string;
+      body: string;
+      selectedProviderId?: string;
+    }): void;
     restoreDraftProvider?(providerId: string | null): void;
     selectProvider?(providerId: string): void | Promise<void>;
   };
@@ -137,6 +153,9 @@ export interface ConversationComposerPorts {
   };
   timeline: {
     calibrate(projectId: string, conversationId: string, agentSurfaceId: "main-agent"): Promise<void>;
+    showPending?(scope: { projectId: string; productMode: ProductMode; conversationId: string }, clientRequestId: string, text: string): void;
+    markPending?(scope: { projectId: string; productMode: ProductMode; conversationId: string }, clientRequestId: string, state: "sending" | "uncertain" | "failed", failure?: string): void;
+    rekeyPending?(from: { projectId: string; productMode: ProductMode; conversationId: string }, to: { projectId: string; productMode: ProductMode; conversationId: string }, clientRequestId: string): void;
   };
   skills?: {
     load(identity: SkillRequestIdentity): Promise<SkillListItem[]>;
@@ -203,13 +222,41 @@ export function useConversationComposerController(
   stateRef.current = { composerText, skillItems, draftSkillOverrides, fileRefs, attachments, agentTurnMode, agentModelId, agentReasoningEffort };
   scopeRef.current = scope;
   portsRef.current = ports;
+  const writeAgentTurnMode = (value: AgentTurnMode): void => {
+    stateRef.current = { ...stateRef.current, agentTurnMode: value };
+    setAgentTurnMode(value);
+  };
+  const writeAgentModelId = (value: string | null): void => {
+    stateRef.current = { ...stateRef.current, agentModelId: value };
+    setAgentModelId(value);
+  };
+  const writeAgentReasoningEffort = (value: string | null): void => {
+    stateRef.current = { ...stateRef.current, agentReasoningEffort: value };
+    setAgentReasoningEffort(value);
+  };
   const draftSyncOwnerRef = useRef<ComposerDraftSyncOwner | null>(null);
+  const draftControllerRef = useRef<ConversationDraftController | null>(null);
+  const submissionOwnerRef = useRef<ConversationTurnSubmissionController | null>(null);
   if (!draftSyncOwnerRef.current) {
     draftSyncOwnerRef.current = new ComposerDraftSyncOwner(
       ports.drafts ?? defaultComposerDraftApi,
       (message) => portsRef.current.onError(message),
     );
   }
+  if (!draftControllerRef.current) {
+    draftControllerRef.current = new ConversationDraftController({
+      read: () => conversationDraftViewModel(stateRef.current),
+      setText: setComposerText,
+      setContextRefs: setFileRefs,
+      setAttachments,
+      setSkillOverrides: setDraftSkillOverrides,
+      setAgentTurnMode: writeAgentTurnMode,
+      setModelId: writeAgentModelId,
+      setReasoningEffort: writeAgentReasoningEffort,
+      markDirty: markDraftDirty,
+    });
+  }
+  if (!submissionOwnerRef.current) submissionOwnerRef.current = new ConversationTurnSubmissionController();
 
   function markDraftDirty(): void {
     const currentScope = scopeRef.current;
@@ -228,7 +275,7 @@ export function useConversationComposerController(
     capturedIdentity?: SkillRequestIdentity,
   ): Promise<void> => {
     const generation = ++skillRequestGenerationRef.current;
-    if (!projectId || !scopeRef.current.managed) {
+    if (!projectId || !scopeRef.current.projectRegistered) {
       setSkillItems([]);
       setSkillsLoadedIdentity(null);
       return;
@@ -248,7 +295,7 @@ export function useConversationComposerController(
   useEffect(() => {
     void reloadSkills(scope.projectId);
     return () => { skillRequestGenerationRef.current += 1; };
-  }, [reloadSkills, scope.managed, scope.productMode, scope.projectId, scope.conversation?.id, scope.conversation?.productMode, scope.conversation?.selectedProviderId, scope.selectedProviderId]);
+  }, [reloadSkills, scope.projectRegistered, scope.productMode, scope.projectId, scope.conversation?.id, scope.conversation?.productMode, scope.conversation?.selectedProviderId, scope.selectedProviderId]);
 
   useEffect(() => {
     const identity = composerScopeIdentity(scope);
@@ -261,7 +308,7 @@ export function useConversationComposerController(
     const productMode = composerProductMode(scope);
     const ownerIdentity = draftScopeIdentity(scope.projectId, productMode);
     const ownerChanged = ownerIdentity !== turnModeOwnerIdentityRef.current;
-    const loadIdentity = scope.projectId && scope.managed ? ownerIdentity : null;
+    const loadIdentity = scope.projectId && scope.projectRegistered ? ownerIdentity : null;
     if (!ownerChanged && loadIdentity === draftLoadIdentityRef.current) return;
     const previousScope = ownerChanged ? turnModeOwnerIdentityRef.current : null;
     if (ownerChanged) turnModeOwnerIdentityRef.current = ownerIdentity;
@@ -272,13 +319,20 @@ export function useConversationComposerController(
       ? initialAgentTurnMode(scope)
       : null;
     if (storedConversationMode) confirmedTurnModesRef.current.set(ownerIdentity, storedConversationMode);
+    const restoredMode = draftRestoredModesRef.current.get(ownerIdentity);
+    const restoredModelSelection = draftRestoredModelSelectionsRef.current.get(ownerIdentity);
     const immediate = storedConversationMode
+      ?? restoredMode
       ?? confirmedTurnModesRef.current.get(ownerIdentity)
       ?? initialAgentTurnMode(scope);
     if (ownerChanged || !loadIdentity) {
-      setAgentTurnMode(immediate);
-      setAgentModelId(storedConversationMode ? scope.conversation?.agentModelId ?? null : null);
-      setAgentReasoningEffort(storedConversationMode ? scope.conversation?.agentReasoningEffort ?? null : null);
+      writeAgentTurnMode(immediate);
+      writeAgentModelId(restoredModelSelection
+        ? restoredModelSelection.modelId
+        : storedConversationMode ? scope.conversation?.agentModelId ?? null : null);
+      writeAgentReasoningEffort(restoredModelSelection
+        ? restoredModelSelection.reasoningEffort
+        : storedConversationMode ? scope.conversation?.agentReasoningEffort ?? null : null);
       setDraftLoadedScopeKey(null);
       setDraftDirtyRevision(0);
       setComposerText("");
@@ -314,8 +368,6 @@ export function useConversationComposerController(
           };
           draftFingerprintsRef.current.set(ownerIdentity, composerDraftFingerprint(emptyContent));
           draftObservedProvidersRef.current.set(ownerIdentity, emptyContent.selectedProviderId);
-          draftRestoredModesRef.current.set(ownerIdentity, productMode === "agent" ? immediate : "default");
-          draftRestoredModelSelectionsRef.current.set(ownerIdentity, { modelId: null, reasoningEffort: null });
           return;
         }
         const restoredContent = contentFromSnapshot(draft);
@@ -330,15 +382,11 @@ export function useConversationComposerController(
           : { modelId: null, reasoningEffort: null };
         draftRestoredModelSelectionsRef.current.set(ownerIdentity, draftModelSelection);
         const currentConversation = scopeRef.current.conversation;
-        setAgentTurnMode(productMode === "agent" && currentConversation
+        writeAgentTurnMode(productMode === "agent" && currentConversation
           ? currentConversation.agentTurnMode ?? "default"
           : draftMode);
-        setAgentModelId(productMode === "agent" && currentConversation
-          ? currentConversation.agentModelId ?? null
-          : draftModelSelection.modelId);
-        setAgentReasoningEffort(productMode === "agent" && currentConversation
-          ? currentConversation.agentReasoningEffort ?? null
-          : draftModelSelection.reasoningEffort);
+        writeAgentModelId(draftModelSelection.modelId);
+        writeAgentReasoningEffort(draftModelSelection.reasoningEffort);
         setComposerText(draft.text);
         setFileRefs(normalizeComposerRefs(draft.contextRefs));
         setAttachments(draft.attachments);
@@ -355,38 +403,38 @@ export function useConversationComposerController(
           portsRef.current.onError(errorMessage(cause));
         }
       });
-  }, [scope.productMode, scope.projectId, scope.managed]);
+  }, [scope.productMode, scope.projectId, scope.projectRegistered]);
 
   useEffect(() => {
     const productMode = composerProductMode(scope);
     if (productMode !== "agent") {
-      setAgentTurnMode("default");
+      writeAgentTurnMode("default");
       return;
     }
     if (scope.conversation) {
-      setAgentTurnMode(scope.conversation.agentTurnMode ?? "default");
+      writeAgentTurnMode(scope.conversation.agentTurnMode ?? "default");
       return;
     }
     const restored = draftRestoredModesRef.current.get(draftScopeIdentity(scope.projectId, productMode));
-    if (restored) setAgentTurnMode(restored);
+    if (restored) writeAgentTurnMode(restored);
   }, [scope.conversation?.agentTurnMode, scope.conversation?.id, scope.productMode, scope.projectId]);
 
   useEffect(() => {
     const productMode = composerProductMode(scope);
     if (productMode !== "agent") {
-      setAgentModelId(null);
-      setAgentReasoningEffort(null);
-      return;
-    }
-    if (scope.conversation) {
-      setAgentModelId(scope.conversation.agentModelId ?? null);
-      setAgentReasoningEffort(scope.conversation.agentReasoningEffort ?? null);
+      writeAgentModelId(null);
+      writeAgentReasoningEffort(null);
       return;
     }
     const restored = draftRestoredModelSelectionsRef.current.get(draftScopeIdentity(scope.projectId, productMode));
     if (restored) {
-      setAgentModelId(restored.modelId);
-      setAgentReasoningEffort(restored.reasoningEffort);
+      writeAgentModelId(restored.modelId);
+      writeAgentReasoningEffort(restored.reasoningEffort);
+      return;
+    }
+    if (scope.conversation) {
+      writeAgentModelId(scope.conversation.agentModelId ?? null);
+      writeAgentReasoningEffort(scope.conversation.agentReasoningEffort ?? null);
     }
   }, [scope.conversation?.agentModelId, scope.conversation?.agentReasoningEffort, scope.conversation?.id, scope.productMode, scope.projectId]);
 
@@ -397,7 +445,7 @@ export function useConversationComposerController(
     scopeGenerationRef.current += 1;
     confirmedTurnModesRef.current.set(draftScopeIdentity(currentScope.projectId, composerProductMode(currentScope)), nextMode);
     draftRestoredModesRef.current.set(draftScopeIdentity(currentScope.projectId, composerProductMode(currentScope)), nextMode);
-    setAgentTurnMode(nextMode);
+    writeAgentTurnMode(nextMode);
     markDraftDirty();
   }, []);
 
@@ -412,8 +460,8 @@ export function useConversationComposerController(
       ? currentEffort
       : null;
     scopeGenerationRef.current += 1;
-    setAgentModelId(normalized);
-    setAgentReasoningEffort(nextEffort);
+    writeAgentModelId(normalized);
+    writeAgentReasoningEffort(nextEffort);
     draftRestoredModelSelectionsRef.current.set(
       draftScopeIdentity(currentScope.projectId, composerProductMode(currentScope)),
       { modelId: normalized, reasoningEffort: nextEffort },
@@ -427,7 +475,7 @@ export function useConversationComposerController(
     const normalized = normalizeNullableSelection(nextEffort);
     if (stateRef.current.agentReasoningEffort === normalized) return;
     scopeGenerationRef.current += 1;
-    setAgentReasoningEffort(normalized);
+    writeAgentReasoningEffort(normalized);
     draftRestoredModelSelectionsRef.current.set(
       draftScopeIdentity(currentScope.projectId, composerProductMode(currentScope)),
       { modelId: stateRef.current.agentModelId, reasoningEffort: normalized },
@@ -439,8 +487,8 @@ export function useConversationComposerController(
     const currentScope = scopeRef.current;
     if (providerId === effectiveComposerProviderId(currentScope)) return;
     scopeGenerationRef.current += 1;
-    setAgentModelId(null);
-    setAgentReasoningEffort(null);
+    writeAgentModelId(null);
+    writeAgentReasoningEffort(null);
     draftRestoredModelSelectionsRef.current.set(
       draftScopeIdentity(currentScope.projectId, composerProductMode(currentScope)),
       { modelId: null, reasoningEffort: null },
@@ -450,7 +498,7 @@ export function useConversationComposerController(
   }, []);
 
   useEffect(() => {
-    if (!scope.projectId || !scope.managed || !draftLoadedScopeKey) return;
+    if (!scope.projectId || !scope.projectRegistered || !draftLoadedScopeKey) return;
     const productMode = composerProductMode(scope);
     const key = draftScopeIdentity(scope.projectId, productMode);
     if (key !== draftLoadedScopeKey) return;
@@ -486,7 +534,7 @@ export function useConversationComposerController(
     draftLoadedScopeKey,
     draftSkillOverrides,
     fileRefs,
-    scope.managed,
+    scope.projectRegistered,
     scope.productMode,
     scope.projectId,
     scope.selectedProviderId,
@@ -527,7 +575,7 @@ export function useConversationComposerController(
     scopeGenerationRef.current += 1;
     skillRequestGenerationRef.current += 1;
     const currentScope = scopeRef.current;
-    if (currentScope.projectId && currentScope.managed) {
+    if (currentScope.projectId && currentScope.projectRegistered) {
       void draftSyncOwnerRef.current!.flush(currentScope.projectId, composerProductMode(currentScope))
         .catch((cause) => portsRef.current.onError(errorMessage(cause)));
     }
@@ -636,7 +684,8 @@ export function useConversationComposerController(
     const currentScope = scopeRef.current;
     const queue = portsRef.current.queue;
     const generation = scopeGenerationRef.current;
-    const draft = stateRef.current;
+    const currentState = stateRef.current;
+    const draft = draftControllerRef.current!.read();
     const productMode = composerProductMode(currentScope);
     if (!currentScope.projectId || !currentScope.conversation || !queue) return;
     if (queue.loading || !queue.snapshot) {
@@ -649,17 +698,17 @@ export function useConversationComposerController(
     }
     const attachmentIds = draft.attachments.map((attachment) => attachment.id);
     const attachmentGeneration = attachmentSelectionGenerationRef.current;
-    if (!draft.composerText.trim() && attachmentIds.length === 0) return;
+    if (!draft.text.trim() && attachmentIds.length === 0) return;
     const prepared = prepareComposerInput({
-      body: draft.composerText,
-      selectedRefs: draft.fileRefs,
-      skills: draft.skillItems,
+      body: draft.text,
+      selectedRefs: draft.contextRefs,
+      skills: currentState.skillItems,
       conversationId: currentScope.conversation.id,
-      draftSkillOverrides: draft.draftSkillOverrides,
+      draftSkillOverrides: draft.skillOverrides,
     });
     const agentTurnMode = draft.agentTurnMode;
-    const modelId = draft.agentModelId;
-    const reasoningEffort = draft.agentReasoningEffort;
+    const modelId = draft.modelId;
+    const reasoningEffort = draft.reasoningEffort;
     const providerId = effectiveComposerProviderId(currentScope);
     const selectionError = resolveAgentTurnModeDisabledReason(currentScope, agentTurnMode)
       ?? resolveAgentTurnModelDisabledReason(currentScope, agentTurnMode, modelId, reasoningEffort)
@@ -695,12 +744,12 @@ export function useConversationComposerController(
       }
       await draftSyncOwnerRef.current!.load(currentScope.projectId, productMode);
       if (composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) {
-        setComposerText((current) => current === draft.composerText ? "" : current);
-        setFileRefs((current) => composerFileRefsEqual(current, draft.fileRefs) ? [] : current);
-        if (attachmentSelectionGenerationRef.current === attachmentGeneration) {
-          setAttachments((current) => current.map((item) => item.id).join("\0") === attachmentIds.join("\0") ? [] : current);
-        }
-        setDraftSkillOverrides((current) => composerSkillOverridesEqual(current, draft.draftSkillOverrides) ? {} : current);
+        draftControllerRef.current!.clearAcceptedSnapshot(draft, {
+          text: true,
+          contextRefs: true,
+          attachments: attachmentSelectionGenerationRef.current === attachmentGeneration,
+          skillOverrides: true,
+        });
         portsRef.current.onError(null);
       }
     } catch (cause) {
@@ -737,9 +786,15 @@ export function useConversationComposerController(
     setAttachments(restored.attachments);
     setDraftSkillOverrides(restored.skillOverrides);
     if (productMode === "agent") {
-      setAgentTurnMode(restored.agentTurnMode ?? "default");
-      setAgentModelId(restored.agentModelId);
-      setAgentReasoningEffort(restored.agentReasoningEffort);
+      const restoredMode = restored.agentTurnMode ?? "default";
+      writeAgentTurnMode(restoredMode);
+      writeAgentModelId(restored.agentModelId);
+      writeAgentReasoningEffort(restored.agentReasoningEffort);
+      draftRestoredModesRef.current.set(draftScopeIdentity(currentScope.projectId, productMode), restoredMode);
+      draftRestoredModelSelectionsRef.current.set(
+        draftScopeIdentity(currentScope.projectId, productMode),
+        { modelId: restored.agentModelId, reasoningEffort: restored.agentReasoningEffort },
+      );
     }
   }, []);
 
@@ -749,66 +804,88 @@ export function useConversationComposerController(
     return draftSyncOwnerRef.current!.flush(currentScope.projectId, composerProductMode(currentScope));
   }, []);
 
-  const clearAcceptedReviewCommand = useCallback(async (
-    capturedText: string,
-    expectedDraftUpdatedAt: string | null,
+  const settleAcceptedDraft = useCallback(async (
+    accepted: ComposerDraftContent,
+    options?: ComposerDraftSettlementOptions,
   ): Promise<void> => {
-    const currentScope = scopeRef.current;
-    const draft = stateRef.current;
-    if (!currentScope.projectId) return;
-    const productMode = composerProductMode(currentScope);
-    setComposerText((current) => current === capturedText ? "" : current);
-    let content = composerDraftContent({
-      projectId: currentScope.projectId,
-      productMode,
-      agentTurnMode: draft.agentTurnMode,
-      agentModelId: draft.agentModelId,
-      agentReasoningEffort: draft.agentReasoningEffort,
-      text: capturedText,
-      contextRefs: draft.fileRefs,
-      attachments: draft.attachments,
-      skillOverrides: draft.draftSkillOverrides,
-      selectedProviderId: effectiveComposerProviderId(currentScope),
-    });
     try {
-      await draftSyncOwnerRef.current!.replaceIfUnchanged({ ...content, text: "" }, expectedDraftUpdatedAt);
-    } catch (cause) {
-      if (!(cause instanceof ComposerDraftApiConflict)
-        || !cause.current
-        || cause.current.projectId !== currentScope.projectId
-        || cause.current.productMode !== productMode
-        || cause.current.text !== capturedText) {
-        if (cause instanceof ComposerDraftApiConflict) return;
-        throw cause;
-      }
-      content = contentFromSnapshot(cause.current);
+      await draftSyncOwnerRef.current!.settleAccepted(accepted, options);
+      return;
+    } catch {
       try {
-        await draftSyncOwnerRef.current!.replaceIfUnchanged(
-          { ...content, text: "" },
-          cause.current.updatedAt,
-        );
-      } catch (retryCause) {
-        if (retryCause instanceof ComposerDraftApiConflict) return;
-        throw retryCause;
+        await draftSyncOwnerRef.current!.load(accepted.projectId, accepted.productMode);
+        const currentScope = scopeRef.current;
+        if (currentScope.projectId === accepted.projectId
+          && composerProductMode(currentScope) === accepted.productMode
+          && currentScope.projectRegistered) {
+          draftSyncOwnerRef.current!.schedule(composerDraftContent({
+            projectId: accepted.projectId,
+            productMode: accepted.productMode,
+            agentTurnMode: stateRef.current.agentTurnMode,
+            agentModelId: stateRef.current.agentModelId,
+            agentReasoningEffort: stateRef.current.agentReasoningEffort,
+            text: stateRef.current.composerText,
+            contextRefs: stateRef.current.fileRefs,
+            attachments: stateRef.current.attachments,
+            skillOverrides: stateRef.current.draftSkillOverrides,
+            selectedProviderId: effectiveComposerProviderId(currentScope),
+          }));
+        }
+        portsRef.current.onError("消息已发送，草稿已重新同步。");
+      } catch {
+        portsRef.current.onError("消息已发送，草稿暂时无法同步。请刷新后确认输入框内容。");
       }
     }
   }, []);
 
+  const clearAcceptedReviewCommand = useCallback(async (
+    capturedText: string,
+    _expectedDraftUpdatedAt: string | null,
+  ): Promise<void> => {
+    const currentScope = scopeRef.current;
+    const draft = draftControllerRef.current!.read();
+    if (!currentScope.projectId) return;
+    const productMode = composerProductMode(currentScope);
+    draftControllerRef.current!.clearAcceptedSnapshot({ ...draft, text: capturedText }, {
+      text: true,
+    });
+    const content = composerDraftContent({
+      projectId: currentScope.projectId,
+      productMode,
+      agentTurnMode: draft.agentTurnMode,
+      agentModelId: draft.modelId,
+      agentReasoningEffort: draft.reasoningEffort,
+      text: capturedText,
+      contextRefs: draft.contextRefs,
+      attachments: draft.attachments,
+      skillOverrides: draft.skillOverrides,
+      selectedProviderId: effectiveComposerProviderId(currentScope),
+    });
+    await settleAcceptedDraft(content, { text: true });
+  }, [settleAcceptedDraft]);
+
   const createConversation = useCallback(async (input: CreateConversationComposerInput = {}): Promise<ComposerCreatedConversation | null> => {
     const currentScope = scopeRef.current;
     const generation = scopeGenerationRef.current;
+    const capturedDraft = draftControllerRef.current!.read();
     const capturedProjectId = currentScope.projectId;
     const capturedProductMode = composerProductMode(currentScope);
     const capturedProviderId = effectiveComposerProviderId(currentScope);
-    const capturedAgentTurnMode = stateRef.current.agentTurnMode;
-    const capturedAgentModelId = stateRef.current.agentModelId;
-    const capturedAgentReasoningEffort = stateRef.current.agentReasoningEffort;
+    const capturedAgentTurnMode = capturedDraft.agentTurnMode;
+    const capturedAgentModelId = capturedDraft.modelId;
+    const capturedAgentReasoningEffort = capturedDraft.reasoningEffort;
     const clientRequestId = (portsRef.current.ids ?? defaultComposerIds).createClientRequestId();
-    const body = input.body ?? stateRef.current.composerText;
-    const selectedRefs = input.fileRefs ?? stateRef.current.fileRefs;
-    const attachmentIds = input.attachmentIds ?? stateRef.current.attachments.map((attachment) => attachment.id);
+    const body = input.body ?? capturedDraft.text;
+    const selectedRefs = input.fileRefs ?? capturedDraft.contextRefs;
+    const attachmentIds = input.attachmentIds ?? capturedDraft.attachments.map((attachment) => attachment.id);
     const attachmentFiles = input.attachmentFiles ?? [];
-    const capturedDraftSkillOverrides = { ...stateRef.current.draftSkillOverrides };
+    const capturedAttachments = capturedDraft.attachments.filter((attachment) => attachmentIds.includes(attachment.id));
+    const acceptedDraft = {
+      ...capturedDraft,
+      text: body,
+      contextRefs: selectedRefs,
+      attachments: capturedAttachments,
+    };
     if (!capturedProjectId || (!body.trim() && attachmentIds.length === 0 && attachmentFiles.length === 0)) return null;
     const turnModeError = resolveAgentTurnModeDisabledReason(currentScope, capturedAgentTurnMode)
       ?? resolveAgentTurnModelDisabledReason(currentScope, capturedAgentTurnMode, capturedAgentModelId, capturedAgentReasoningEffort);
@@ -818,7 +895,7 @@ export function useConversationComposerController(
       return null;
     }
     const attachmentCapabilityError = resolveAttachmentCapabilityDisabledReason(currentScope, [
-      ...stateRef.current.attachments.filter((attachment) => attachmentIds.includes(attachment.id)),
+      ...capturedAttachments,
       ...attachmentFiles.map(topicAttachmentCapabilityProbe),
     ]);
     if (attachmentCapabilityError) {
@@ -831,17 +908,65 @@ export function useConversationComposerController(
       selectedRefs,
       skills: stateRef.current.skillItems,
       conversationId: null,
-      draftSkillOverrides: stateRef.current.draftSkillOverrides,
+      draftSkillOverrides: capturedDraft.skillOverrides,
+    });
+    const acceptedDraftContent = composerDraftContent({
+      projectId: capturedProjectId,
+      productMode: capturedProductMode,
+      agentTurnMode: capturedAgentTurnMode,
+      agentModelId: capturedAgentModelId,
+      agentReasoningEffort: capturedAgentReasoningEffort,
+      text: acceptedDraft.text,
+      contextRefs: acceptedDraft.contextRefs,
+      attachments: acceptedDraft.attachments,
+      skillOverrides: acceptedDraft.skillOverrides,
+      selectedProviderId: capturedProviderId,
     });
     const demandBody = prepared.text || defaultAttachmentPrompt(attachmentIds.length + attachmentFiles.length);
     if (currentScope.providerCount > 1 && !currentScope.selectedProviderId) {
       portsRef.current.onError("请先选择本次对话使用的 Agent。");
       return null;
     }
+    let pendingScope = { projectId: capturedProjectId, productMode: capturedProductMode, conversationId: `pending:${clientRequestId}` };
+    let submissionSnapshot = createDraftSubmissionSnapshot({
+      projectId: capturedProjectId,
+      productMode: capturedProductMode,
+      conversationId: null,
+      clientRequestId,
+      draftRevision: null,
+      text: demandBody,
+      contextRefs: prepared.contextRefs,
+      attachments: capturedAttachments,
+      skillOverrides: prepared.skillOverrides,
+      providerId: capturedProviderId,
+      agentTurnMode: capturedProductMode === "agent" ? capturedAgentTurnMode : null,
+      modelId: capturedProductMode === "agent" ? capturedAgentModelId : null,
+      reasoningEffort: capturedProductMode === "agent" ? capturedAgentReasoningEffort : null,
+    });
+    submissionOwnerRef.current!.begin({
+      kind: "create",
+      snapshot: submissionSnapshot,
+      attachments: capturedAttachments,
+      attachmentFiles,
+    });
+    portsRef.current.timeline.showPending?.(pendingScope, clientRequestId, demandBody);
+    portsRef.current.session.beginPendingConversation?.({
+      id: pendingScope.conversationId,
+      projectId: capturedProjectId,
+      productMode: capturedProductMode,
+      clientRequestId,
+      title: "新需求",
+      body: demandBody,
+      selectedProviderId: capturedProviderId ?? undefined,
+    });
     let capturedDraftToken: string | null;
     try {
       capturedDraftToken = await draftSyncOwnerRef.current!.flush(capturedProjectId, capturedProductMode);
+      submissionSnapshot = { ...submissionSnapshot, draftRevision: capturedDraftToken };
+      submissionOwnerRef.current!.updateSnapshot(clientRequestId, submissionSnapshot);
     } catch (cause) {
+      submissionOwnerRef.current!.fail(clientRequestId, "failed");
+      portsRef.current.timeline.markPending?.(pendingScope, clientRequestId, "failed", errorMessage(cause));
       portsRef.current.onError(errorMessage(cause));
       return null;
     }
@@ -851,12 +976,32 @@ export function useConversationComposerController(
     let uploadProjectId: string | null = null;
     let effectiveProjectId: string | null = null;
     let created: ComposerCreatedConversation | null = null;
+    let transportStarted = false;
     try {
       portsRef.current.onError(null);
       effectiveProjectId = await portsRef.current.session.ensureProjectRegistered(capturedProjectId);
-      if (!effectiveProjectId) return null;
+      if (!effectiveProjectId) {
+        const message = "项目暂时无法打开，请检查后重试。";
+        submissionOwnerRef.current!.fail(clientRequestId, "failed");
+        portsRef.current.timeline.markPending?.(pendingScope, clientRequestId, "failed", message);
+        return null;
+      }
+      if (effectiveProjectId !== pendingScope.projectId) {
+        const nextPendingScope = { ...pendingScope, projectId: effectiveProjectId };
+        portsRef.current.timeline.rekeyPending?.(pendingScope, nextPendingScope, clientRequestId);
+        pendingScope = nextPendingScope;
+      }
+      submissionSnapshot = { ...submissionSnapshot, projectId: effectiveProjectId };
+      submissionOwnerRef.current!.updateSnapshot(clientRequestId, submissionSnapshot);
       uploadProjectId = effectiveProjectId;
       uploadedDraft = await uploadFilesForProject(effectiveProjectId, attachmentFiles);
+      submissionSnapshot = {
+        ...submissionSnapshot,
+        projectId: effectiveProjectId,
+        attachmentIds: [...attachmentIds, ...uploadedDraft.map((attachment) => attachment.id)],
+      };
+      submissionOwnerRef.current!.updateSnapshot(clientRequestId, submissionSnapshot);
+      transportStarted = true;
       created = await portsRef.current.session.createConversation({
         projectId: effectiveProjectId,
         productMode: capturedProductMode,
@@ -869,25 +1014,15 @@ export function useConversationComposerController(
         agentTurnMode: capturedProductMode === "agent" ? capturedAgentTurnMode : undefined,
         modelId: capturedProductMode === "agent" ? capturedAgentModelId : undefined,
         reasoningEffort: capturedProductMode === "agent" ? capturedAgentReasoningEffort : undefined,
-        showPendingBeforeCreate: attachmentFiles.length === 0,
+        showPendingBeforeCreate: true,
       });
       uploadedDraft = [];
-      try {
-        await draftSyncOwnerRef.current!.deleteIfUnchanged(
-          capturedProjectId,
-          capturedProductMode,
-          capturedDraftToken,
-        );
-      } catch (cause) {
-        if (!(cause instanceof ComposerDraftApiConflict)) throw cause;
-      }
+      submissionOwnerRef.current!.settle(clientRequestId);
+      await settleAcceptedDraft(acceptedDraftContent);
       const requestProjectIds = [capturedProjectId, effectiveProjectId];
       if (attachmentGeneration === attachmentSelectionGenerationRef.current
         && composerRequestOwnsCurrentScope(generation, requestProjectIds, capturedProductMode, capturedProviderId, scopeGenerationRef, scopeRef, created.conversationId)) {
-        setComposerText((current) => current === body ? "" : current);
-        setFileRefs((current) => composerFileRefsEqual(current, selectedRefs) ? [] : current);
-        setAttachments([]);
-        setDraftSkillOverrides((current) => composerSkillOverridesEqual(current, capturedDraftSkillOverrides) ? {} : current);
+        draftControllerRef.current!.clearAcceptedSnapshot(acceptedDraft);
         await reloadSkills(created.projectId);
         if (composerRequestOwnsCurrentScope(generation, requestProjectIds, capturedProductMode, capturedProviderId, scopeGenerationRef, scopeRef, created.conversationId)) {
           await portsRef.current.projection.refreshConversation(created.projectId, created.conversationId);
@@ -895,6 +1030,13 @@ export function useConversationComposerController(
       }
       return created;
     } catch (cause) {
+      if (uploadedDraft.length > 0) {
+        submissionSnapshot = { ...submissionSnapshot, attachmentIds: [...attachmentIds] };
+        submissionOwnerRef.current!.updateSnapshot(clientRequestId, submissionSnapshot);
+      }
+      const failureState = classifySubmissionFailure(cause, transportStarted);
+      submissionOwnerRef.current!.fail(clientRequestId, failureState);
+      portsRef.current.timeline.markPending?.(pendingScope, clientRequestId, failureState, errorMessage(cause));
       if (composerRequestOwnsCurrentScope(generation, [capturedProjectId, ...(effectiveProjectId ? [effectiveProjectId] : [])], capturedProductMode, capturedProviderId, scopeGenerationRef, scopeRef)) {
         portsRef.current.onError(errorMessage(cause));
       }
@@ -921,16 +1063,17 @@ export function useConversationComposerController(
       }
       portsRef.current.operation.release(token);
     }
-  }, [reloadSkills, uploadFilesForProject]);
+  }, [reloadSkills, settleAcceptedDraft, uploadFilesForProject]);
 
   const send = useCallback(async (): Promise<void> => {
     const currentScope = scopeRef.current;
     const generation = scopeGenerationRef.current;
     const capturedProductMode = composerProductMode(currentScope);
-    const capturedAgentTurnMode = stateRef.current.agentTurnMode;
-    const capturedAgentModelId = stateRef.current.agentModelId;
-    const capturedAgentReasoningEffort = stateRef.current.agentReasoningEffort;
-    const draft = stateRef.current;
+    const currentState = stateRef.current;
+    const draft = draftControllerRef.current!.read();
+    const capturedAgentTurnMode = draft.agentTurnMode;
+    const capturedAgentModelId = draft.modelId;
+    const capturedAgentReasoningEffort = draft.reasoningEffort;
     const attachmentIds = draft.attachments.map((attachment) => attachment.id);
     const capturedDraftContent = currentScope.projectId
       ? composerDraftContent({
@@ -939,15 +1082,15 @@ export function useConversationComposerController(
         agentTurnMode: capturedAgentTurnMode,
         agentModelId: capturedAgentModelId,
         agentReasoningEffort: capturedAgentReasoningEffort,
-        text: draft.composerText,
-        contextRefs: draft.fileRefs,
+        text: draft.text,
+        contextRefs: draft.contextRefs,
         attachments: draft.attachments,
-        skillOverrides: draft.draftSkillOverrides,
+        skillOverrides: draft.skillOverrides,
         selectedProviderId: effectiveComposerProviderId(currentScope),
       })
       : null;
     const attachmentGeneration = attachmentSelectionGenerationRef.current;
-    if (!currentScope.projectId || !currentScope.conversation || (!draft.composerText.trim() && attachmentIds.length === 0)) return;
+    if (!currentScope.projectId || !currentScope.conversation || (!draft.text.trim() && attachmentIds.length === 0)) return;
     const capturedSkillIdentity: SkillRequestIdentity = {
       projectId: currentScope.projectId,
       productMode: capturedProductMode,
@@ -964,11 +1107,11 @@ export function useConversationComposerController(
       return;
     }
     const prepared = prepareComposerInput({
-      body: draft.composerText,
-      selectedRefs: draft.fileRefs,
-      skills: draft.skillItems,
+      body: draft.text,
+      selectedRefs: draft.contextRefs,
+      skills: currentState.skillItems,
       conversationId: currentScope.conversation.id,
-      draftSkillOverrides: draft.draftSkillOverrides,
+      draftSkillOverrides: draft.skillOverrides,
     });
     if (currentScope.running) {
       const steerIdentityReady = capturedProductMode === "harness"
@@ -989,9 +1132,8 @@ export function useConversationComposerController(
         ? steerRetryRef.current.clientRequestId
         : (portsRef.current.ids ?? defaultComposerIds).createClientRequestId();
       steerRetryRef.current = { key: retryKey, clientRequestId };
-      let capturedDraftToken: string | null;
       try {
-        capturedDraftToken = await draftSyncOwnerRef.current!.flush(currentScope.projectId, capturedProductMode);
+        await draftSyncOwnerRef.current!.flush(currentScope.projectId, capturedProductMode);
       } catch (cause) {
         portsRef.current.onError(errorMessage(cause));
         return;
@@ -1004,19 +1146,12 @@ export function useConversationComposerController(
           expectedAttemptId: currentScope.runControlState?.attemptId,
           clientRequestId,
           prompt: prepared.text,
-        }), currentScope, draft.composerText, true, (actionGeneration, actionScope) => (
+        }), currentScope, draft.text, true, (actionGeneration, actionScope) => (
           composerActionOwnsCurrentScope(actionGeneration, actionScope, scopeGenerationRef, scopeRef)
           && composerStopIdentity(scopeRef.current) === steerIdentity
         ), (result) => result.status !== "already-terminal");
       if (outcome.status !== "already-terminal" && capturedDraftContent) {
-        try {
-          await draftSyncOwnerRef.current!.replaceIfUnchanged(
-            { ...capturedDraftContent, text: "" },
-            capturedDraftToken,
-          );
-        } catch (cause) {
-          if (!(cause instanceof ComposerDraftApiConflict)) throw cause;
-        }
+        await settleAcceptedDraft(capturedDraftContent, { text: true });
       }
       if (outcome.status === "already-terminal"
         && composerActionOwnsCurrentScope(scopeGenerationRef.current, currentScope, scopeGenerationRef, scopeRef)
@@ -1055,24 +1190,58 @@ export function useConversationComposerController(
       return;
     }
     let capturedDraftToken: string | null;
-    try {
-      capturedDraftToken = await draftSyncOwnerRef.current!.flush(currentScope.projectId, capturedProductMode);
-    } catch (cause) {
-      portsRef.current.onError(errorMessage(cause));
-      return;
-    }
-    await applySkillOverrides(capturedSkillIdentity, prepared.skillOverrides);
-    if (Object.keys(prepared.skillOverrides).length > 0) {
-      await reloadSkills(capturedSkillIdentity.projectId, capturedSkillIdentity);
-    }
-
-    const token = portsRef.current.operation.begin("chat.ask");
+    const clientRequestId = (portsRef.current.ids ?? defaultComposerIds).createClientRequestId();
+    const pendingScope = {
+      projectId: currentScope.projectId,
+      productMode: capturedProductMode,
+      conversationId: currentScope.conversation.id,
+    };
+    let submissionSnapshot = createDraftSubmissionSnapshot({
+      projectId: currentScope.projectId,
+      productMode: capturedProductMode,
+      conversationId: currentScope.conversation.id,
+      clientRequestId,
+      draftRevision: null,
+      text: outboundMessage,
+      contextRefs: prepared.contextRefs,
+      attachments: draft.attachments,
+      skillOverrides: prepared.skillOverrides,
+      providerId: currentScope.selectedProviderId ?? currentScope.conversation.selectedProviderId ?? null,
+      agentTurnMode: capturedProductMode === "agent" ? capturedAgentTurnMode : null,
+      modelId: capturedProductMode === "agent" ? capturedAgentModelId : null,
+      reasoningEffort: capturedProductMode === "agent" ? capturedAgentReasoningEffort : null,
+    });
+    submissionOwnerRef.current!.begin({
+      kind: "message",
+      snapshot: submissionSnapshot,
+      attachments: draft.attachments,
+      attachmentFiles: [],
+    });
+    portsRef.current.timeline.showPending?.(pendingScope, clientRequestId, outboundMessage);
     if (composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) {
-      setComposerText("");
+      draftControllerRef.current!.clearAcceptedSnapshot(draft, { text: true });
       portsRef.current.onError(null);
     }
     try {
+      capturedDraftToken = await draftSyncOwnerRef.current!.flush(currentScope.projectId, capturedProductMode);
+      submissionSnapshot = { ...submissionSnapshot, draftRevision: capturedDraftToken };
+      submissionOwnerRef.current!.updateSnapshot(clientRequestId, submissionSnapshot);
+    } catch (cause) {
+      submissionOwnerRef.current!.fail(clientRequestId, "failed");
+      portsRef.current.timeline.markPending?.(pendingScope, clientRequestId, "failed", errorMessage(cause));
+      portsRef.current.onError(errorMessage(cause));
+      return;
+    }
+
+    const token = portsRef.current.operation.begin("chat.ask");
+    let transportStarted = false;
+    try {
+      await applySkillOverrides(capturedSkillIdentity, prepared.skillOverrides);
+      if (Object.keys(prepared.skillOverrides).length > 0) {
+        await reloadSkills(capturedSkillIdentity.projectId, capturedSkillIdentity);
+      }
       const request: ComposerMessageRequest = {
+        clientRequestId,
         projectId: currentScope.projectId,
         productMode: capturedProductMode,
         conversationId: currentScope.conversation.id,
@@ -1087,6 +1256,7 @@ export function useConversationComposerController(
         modelId: capturedProductMode === "agent" ? capturedAgentModelId : undefined,
         reasoningEffort: capturedProductMode === "agent" ? capturedAgentReasoningEffort : undefined,
       };
+      transportStarted = true;
       await (portsRef.current.actions.sendMessage
         ?? ((input: ComposerMessageRequest) => sendComposerMessage(input, (projectId, event) => {
           const active = scopeRef.current;
@@ -1098,27 +1268,23 @@ export function useConversationComposerController(
             portsRef.current.projection.routeEvent?.(projectId, event);
           }
         })))(request);
+      submissionOwnerRef.current!.settle(clientRequestId);
       if (capturedDraftContent) {
-        try {
-          await draftSyncOwnerRef.current!.replaceIfUnchanged({
-            ...capturedDraftContent,
-            text: "",
-            contextRefs: [],
-            attachmentIds: [],
-            skillOverrides: {},
-          }, capturedDraftToken);
-        } catch (cause) {
-          if (!(cause instanceof ComposerDraftApiConflict)) throw cause;
-        }
+        await settleAcceptedDraft(capturedDraftContent);
       }
       if (attachmentGeneration === attachmentSelectionGenerationRef.current
         && composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) {
-        setFileRefs([]);
-        setAttachments([]);
+        draftControllerRef.current!.clearAcceptedSnapshot(draft, {
+          contextRefs: true,
+          attachments: true,
+          skillOverrides: true,
+        });
       }
     } catch (cause) {
+      const failureState = classifySubmissionFailure(cause, transportStarted);
+      submissionOwnerRef.current!.fail(clientRequestId, failureState);
+      portsRef.current.timeline.markPending?.(pendingScope, clientRequestId, failureState, errorMessage(cause));
       if (composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) {
-        setComposerText((current) => current ? current : draft.composerText);
         portsRef.current.onError(errorMessage(cause));
       }
       throw cause;
@@ -1132,7 +1298,174 @@ export function useConversationComposerController(
       }
       portsRef.current.operation.release(token);
     }
-  }, [reloadSkills]);
+  }, [reloadSkills, settleAcceptedDraft]);
+
+  const retryPendingIntent = useCallback(async (clientRequestId: string): Promise<void> => {
+    const nextClientRequestId = (portsRef.current.ids ?? defaultComposerIds).createClientRequestId();
+    const submission = submissionOwnerRef.current!.retry(clientRequestId, nextClientRequestId);
+    if (!submission) return;
+    const currentScope = scopeRef.current;
+    const snapshot = submission.snapshot;
+    if (currentScope.projectId !== snapshot.projectId
+      || composerProductMode(currentScope) !== snapshot.productMode
+      || (submission.kind === "message" && currentScope.conversation?.id !== snapshot.conversationId)) {
+      submissionOwnerRef.current!.fail(nextClientRequestId, "failed");
+      portsRef.current.onError("这条消息不属于当前会话，请切回原会话后重试。");
+      return;
+    }
+
+    let pendingScope = {
+      projectId: snapshot.projectId,
+      productMode: snapshot.productMode,
+      conversationId: snapshot.conversationId ?? `pending:${nextClientRequestId}`,
+    };
+    portsRef.current.timeline.showPending?.(pendingScope, nextClientRequestId, snapshot.text);
+    if (submission.kind === "create") {
+      portsRef.current.session.beginPendingConversation?.({
+        id: pendingScope.conversationId,
+        projectId: snapshot.projectId,
+        productMode: snapshot.productMode,
+        clientRequestId: nextClientRequestId,
+        title: "新需求",
+        body: snapshot.text,
+        selectedProviderId: snapshot.providerId ?? undefined,
+      });
+    }
+
+    const token = portsRef.current.operation.begin(submission.kind === "create" ? "topic.create.retry" : "chat.ask.retry");
+    let uploadedDraft: TopicAttachment[] = [];
+    let uploadProjectId: string | null = null;
+    let transportStarted = false;
+    try {
+      portsRef.current.onError(null);
+      if (submission.kind === "create") {
+        const effectiveProjectId = await portsRef.current.session.ensureProjectRegistered(snapshot.projectId);
+        if (!effectiveProjectId) throw new Error("项目暂时无法打开，请检查后重试。");
+        if (effectiveProjectId !== pendingScope.projectId) {
+          const nextPendingScope = { ...pendingScope, projectId: effectiveProjectId };
+          portsRef.current.timeline.rekeyPending?.(pendingScope, nextPendingScope, nextClientRequestId);
+          pendingScope = nextPendingScope;
+        }
+        const registeredSnapshot = { ...snapshot, projectId: effectiveProjectId };
+        submissionOwnerRef.current!.updateSnapshot(nextClientRequestId, registeredSnapshot);
+        uploadProjectId = effectiveProjectId;
+        uploadedDraft = await uploadFilesForProject(effectiveProjectId, submission.attachmentFiles);
+        const retrySnapshot = {
+          ...snapshot,
+          projectId: effectiveProjectId,
+          attachmentIds: [...snapshot.attachmentIds, ...uploadedDraft.map((attachment) => attachment.id)],
+        };
+        submissionOwnerRef.current!.updateSnapshot(nextClientRequestId, retrySnapshot);
+        transportStarted = true;
+        const created = await portsRef.current.session.createConversation({
+          projectId: effectiveProjectId,
+          productMode: retrySnapshot.productMode,
+          clientRequestId: nextClientRequestId,
+          body: retrySnapshot.text,
+          contextRefs: retrySnapshot.contextRefs,
+          attachmentIds: retrySnapshot.attachmentIds,
+          providerId: retrySnapshot.providerId ?? undefined,
+          skillOverrides: normalizeSkillOverrideRecord(retrySnapshot.skillOverrides),
+          agentTurnMode: retrySnapshot.productMode === "agent" ? retrySnapshot.agentTurnMode ?? undefined : undefined,
+          modelId: retrySnapshot.productMode === "agent" ? retrySnapshot.modelId : undefined,
+          reasoningEffort: retrySnapshot.productMode === "agent" ? retrySnapshot.reasoningEffort : undefined,
+          showPendingBeforeCreate: true,
+        });
+        uploadedDraft = [];
+        submissionOwnerRef.current!.settle(nextClientRequestId);
+        await portsRef.current.projection.refreshConversation(created.projectId, created.conversationId);
+        await calibrateTimeline(created.projectId, created.conversationId, () => (
+          scopeRef.current.projectId === created.projectId
+          && composerProductMode(scopeRef.current) === retrySnapshot.productMode
+          && scopeRef.current.conversation?.id === created.conversationId
+        ));
+        return;
+      }
+
+      const conversationId = snapshot.conversationId;
+      if (!conversationId) throw new Error("无法确认原会话，请放回输入框后重新发送。");
+      await applySkillOverrides({
+        projectId: snapshot.projectId,
+        productMode: snapshot.productMode,
+        conversationId,
+        providerId: snapshot.providerId,
+      }, snapshot.skillOverrides);
+      const request: ComposerMessageRequest = {
+        clientRequestId: nextClientRequestId,
+        projectId: snapshot.projectId,
+        productMode: snapshot.productMode,
+        conversationId,
+        message: snapshot.text,
+        contextRefs: snapshot.contextRefs,
+        attachmentIds: snapshot.attachmentIds,
+        providerId: snapshot.providerId ?? undefined,
+        providerSwitchIntent: snapshot.providerId && snapshot.providerId !== currentScope.conversation?.selectedProviderId
+          ? "resume-workflow"
+          : undefined,
+        agentTurnMode: snapshot.productMode === "agent" ? snapshot.agentTurnMode ?? undefined : undefined,
+        modelId: snapshot.productMode === "agent" ? snapshot.modelId : undefined,
+        reasoningEffort: snapshot.productMode === "agent" ? snapshot.reasoningEffort : undefined,
+      };
+      transportStarted = true;
+      await (portsRef.current.actions.sendMessage
+        ?? ((input: ComposerMessageRequest) => sendComposerMessage(input, (projectId, event) => {
+          const active = scopeRef.current;
+          if (active.projectId === projectId
+            && composerProductMode(active) === input.productMode
+            && active.conversation?.id === input.conversationId
+            && workbenchEventMatchesConversation(event, input)) {
+            portsRef.current.projection.routeEvent?.(projectId, event);
+          }
+        })))(request);
+      submissionOwnerRef.current!.settle(nextClientRequestId);
+      await calibrateTimeline(snapshot.projectId, conversationId, () => (
+        scopeRef.current.projectId === snapshot.projectId
+        && composerProductMode(scopeRef.current) === snapshot.productMode
+        && scopeRef.current.conversation?.id === conversationId
+      ));
+    } catch (cause) {
+      if (uploadedDraft.length > 0) {
+        submissionOwnerRef.current!.updateSnapshot(nextClientRequestId, {
+          ...snapshot,
+          projectId: pendingScope.projectId,
+        });
+      }
+      const failureState = classifySubmissionFailure(cause, transportStarted);
+      submissionOwnerRef.current!.fail(nextClientRequestId, failureState);
+      portsRef.current.timeline.markPending?.(pendingScope, nextClientRequestId, failureState, errorMessage(cause));
+      portsRef.current.onError(errorMessage(cause));
+    } finally {
+      if (uploadedDraft.length > 0 && uploadProjectId) {
+        await Promise.allSettled(uploadedDraft.map((attachment) => (
+          portsRef.current.attachments ?? defaultAttachmentApi
+        ).remove(uploadProjectId!, attachment.id)));
+      }
+      portsRef.current.operation.release(token);
+    }
+  }, [uploadFilesForProject]);
+
+  const restorePendingIntent = useCallback((clientRequestId: string): void => {
+    const submission = submissionOwnerRef.current!.restore(clientRequestId);
+    if (!submission) return;
+    const currentScope = scopeRef.current;
+    const snapshot = submission.snapshot;
+    if (currentScope.projectId !== snapshot.projectId || composerProductMode(currentScope) !== snapshot.productMode) {
+      portsRef.current.onError("这条消息不属于当前项目或模式，无法放回输入框。");
+      return;
+    }
+    if (submission.kind === "message" && currentScope.conversation?.id !== snapshot.conversationId) {
+      portsRef.current.onError("请切回原会话，再把这条消息放回输入框。");
+      return;
+    }
+    draftControllerRef.current!.restore(snapshot, submission.attachments, {
+      restoreSkillOverrides: submission.kind === "create",
+      restoreConfiguration: true,
+    });
+    if (submission.attachmentFiles.length > 0) {
+      void appendAttachments(submission.attachmentFiles);
+    }
+    portsRef.current.onError(null);
+  }, [appendAttachments]);
 
   const stop = useCallback(async (): Promise<void> => {
     const currentScope = scopeRef.current;
@@ -1223,8 +1556,12 @@ export function useConversationComposerController(
   return {
     composerText,
     setComposerText: (next: string | ((current: string) => string)) => {
-      setComposerText(next);
-      markDraftDirty();
+      if (typeof next === "function") {
+        const current = draftControllerRef.current!.read().text;
+        draftControllerRef.current!.updateText(next(current));
+      } else {
+        draftControllerRef.current!.updateText(next);
+      }
     },
     skillItems,
     activeSkillIds,
@@ -1258,6 +1595,8 @@ export function useConversationComposerController(
     flushDraft,
     clearAcceptedReviewCommand,
     send,
+    retryPendingIntent,
+    restorePendingIntent,
     stop,
     cleanupTransition,
   };
@@ -1317,6 +1656,26 @@ export function normalizeSkillOverrideRecord(overrides: Record<string, boolean>)
     .sort((left, right) => left.skillId.localeCompare(right.skillId));
 }
 
+function conversationDraftViewModel(input: {
+  composerText: string;
+  draftSkillOverrides: Record<string, boolean>;
+  fileRefs: TopicFileReference[];
+  attachments: TopicAttachment[];
+  agentTurnMode: AgentTurnMode;
+  agentModelId: string | null;
+  agentReasoningEffort: string | null;
+}): ConversationDraftViewModel {
+  return {
+    text: input.composerText,
+    contextRefs: input.fileRefs,
+    attachments: input.attachments,
+    skillOverrides: input.draftSkillOverrides,
+    agentTurnMode: input.agentTurnMode,
+    modelId: input.agentModelId,
+    reasoningEffort: input.agentReasoningEffort,
+  };
+}
+
 function composerDraftContent(input: {
   projectId: string;
   productMode: ProductMode;
@@ -1360,15 +1719,6 @@ function contentFromSnapshot(snapshot: ComposerDraftSnapshot): ComposerDraftCont
 
 function composerDraftFingerprint(content: ComposerDraftContent): string {
   return JSON.stringify(content);
-}
-
-function composerFileRefsEqual(left: TopicFileReference[], right: TopicFileReference[]): boolean {
-  return JSON.stringify(normalizeComposerRefs(left)) === JSON.stringify(normalizeComposerRefs(right));
-}
-
-function composerSkillOverridesEqual(left: Record<string, boolean>, right: Record<string, boolean>): boolean {
-  return JSON.stringify(Object.entries(left).sort(([a], [b]) => a.localeCompare(b)))
-    === JSON.stringify(Object.entries(right).sort(([a], [b]) => a.localeCompare(b)));
 }
 
 function draftScopeIdentity(projectId: string | null, productMode: ProductMode): string {
@@ -1448,6 +1798,7 @@ async function sendComposerMessage(
     `/api/projects/${encodeURIComponent(request.projectId)}/workbench/topics/${encodeURIComponent(request.conversationId)}/messages/live`,
     {
       mode: "chat",
+      clientRequestId: request.clientRequestId,
       message: request.message,
       contextRefs: request.contextRefs,
       attachmentIds: request.attachmentIds,
@@ -1690,4 +2041,12 @@ function readFileAsDataUrl(file: File): Promise<string> {
 
 function errorMessage(cause: unknown): string {
   return userFacingErrorMessage(cause, "send");
+}
+
+function classifySubmissionFailure(cause: unknown, transportStarted: boolean): "failed" | "uncertain" {
+  if (!transportStarted) return "failed";
+  if (cause instanceof WorkbenchRequestError) {
+    return cause.status === 408 || cause.status >= 500 ? "uncertain" : "failed";
+  }
+  return "uncertain";
 }

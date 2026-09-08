@@ -138,6 +138,51 @@
   color: var(--text-strong);
 }
 
+.transcript-user-message-wrap {
+  display: grid;
+  gap: 6px;
+}
+
+.transcript-user-delivery-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+
+.transcript-user-delivery-state.danger {
+  color: var(--danger);
+}
+
+.transcript-user-delivery-state small {
+  color: inherit;
+}
+
+.transcript-user-delivery-state button {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--bg-subtle);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.transcript-user-delivery-state button:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.transcript-user-delivery-state button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
 .sent-context-summary {
   display: flex;
   flex-wrap: wrap;

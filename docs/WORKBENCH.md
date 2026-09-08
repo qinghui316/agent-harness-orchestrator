@@ -45,7 +45,11 @@ Agent controls and continue through their existing operation-profile model path.
 The existing-Conversation and empty-Conversation entry points render one shared
 `ConversationComposerSurface`. It owns one bordered input container, selected
 context items, one compact footer, and the responsive placement of Default/Plan,
-context usage, model, and the primary action. The page controllers still own
+context usage, model, and two fixed action slots. The context-action slot and
+primary-action slot remain in the DOM across idle, sending, thinking, replying,
+stopping, and interaction states. Send and Stop reuse the same fixed primary
+slot; Steer, `稍后发送`, or `查看待处理事项` can occupy only the fixed context
+slot. The page controllers still own
 draft CAS, generation fencing, Review, Queue, Steer, Stop, and send commands.
 Product mode projects available controls into this surface; it does not fork the
 layout or grant Agent-only actions to Harness conversations. Attachments, project
@@ -53,6 +57,14 @@ file references, and selected Skills remain individually identifiable and
 removable above the editor. Low-frequency additions live behind the `+` menu,
 while Queue and running-turn actions only appear when their current snapshots
 make them relevant.
+
+The Composer model label means “the model that the next Agent Turn will use.”
+It resolves from the current Composer selection, then the Conversation's saved
+selection, then the selected Provider default. Changing it updates the label
+immediately and does not rewrite the immutable model snapshot of a running Turn.
+The actual model used by the current Turn belongs in Turn detail or diagnostics.
+AHO continues to use its Harness operation profile and exposes no Agent per-Turn
+model override.
 
 Workbench Settings has two user-facing destinations: `模型与服务` and `技能`.
 The normal provider view shows connection state, effective default
@@ -95,12 +107,34 @@ and blocks sending until the user selects a supported configuration. Explicit
 model or effort selections behave the same way. Switching Provider resets both
 to automatic defaults rather than inheriting same-named options across Providers.
 
-Successful ordinary sends compare-and-clear only the submitted text, references,
-attachments, and draft Skill overrides. Accepted Steer clears only its captured
-text, while Stop and failed admission/Provider calls leave the draft unchanged.
-Input added while a send is running wins the CAS race and cannot be removed by
-the older settlement. Conversation navigation keeps the established shared
-project/mode Composer scope rather than creating per-Conversation draft rows.
+An ordinary Web send captures one immutable draft snapshot and bounded
+`clientRequestId`, then inserts the user row into the existing canonical Timeline
+surface immediately as a memory-only optimistic intent. The accepted snapshot is
+cleared by captured value, so input added while the request is running wins the
+CAS race and cannot be removed by the older settlement. A matching canonical
+Timeline envelope replaces the optimistic row by request identity; equal text,
+timestamps, or neighboring rows are never used to guess correlation. First-send
+temporary Conversation scope is rekeyed only after an exact matching create
+receipt. Refresh restores canonical rows only and does not replay an unresolved
+request.
+
+The visible response lifecycle is `正在发送 -> 正在思考 -> 正在回复 -> terminal`.
+`正在思考` begins only from the exact Turn-started fact, its timer survives SSE
+reconnect, and the first real assistant text delta advances the same active row
+to `正在回复`. Completion without a text delta terminalizes that row directly.
+Late deltas, old generations, old Attempts, and events for another Conversation
+cannot reopen or duplicate it.
+
+A failure proven to have no Provider side effect remains as a failed user row
+with explicit `重试` and `放回输入框` actions. Retry uses a new request identity.
+An unknown transport result is shown as awaiting confirmation, is reconciled
+against canonical Snapshot/SSE state, and cannot be automatically or silently
+resent. If the canonical user message already exists and the Provider later
+fails, the message stays canonical and recovery uses the existing Turn recovery
+path rather than returning the message to Composer. Accepted Steer still clears
+only its captured text, and Stop clears nothing. Conversation navigation keeps
+the established shared project/mode Composer scope rather than creating
+per-Conversation draft rows.
 
 The `Agent / AHO` selector shows one compact icon on the inactive mode when the
 selected project has running work, needs user attention, or has a current

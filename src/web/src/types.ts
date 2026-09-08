@@ -448,6 +448,11 @@ export type ParentAgentTranscriptCell = {
     realtime?: boolean;
     activityKind?: "turn" | "reasoning" | "command" | "file" | "search" | "tool" | "agent" | "status";
     detailText?: string;
+  pendingIntent?: {
+    clientRequestId: string;
+    canRetry: boolean;
+    canRestore: boolean;
+  };
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
   interactionHistory?: InteractionHistoryRecord;
@@ -1657,6 +1662,7 @@ export type CanonicalTimelineEnvelope = {
   graphScopeId?: string;
   agentSurfaceId: string;
   messageId: string;
+  clientRequestId?: string;
   position: number;
   revision: number;
   orderClass: "sequence" | "thread-start";

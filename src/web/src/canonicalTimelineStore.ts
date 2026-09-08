@@ -66,6 +66,8 @@ export type CanonicalTimelineState = {
 export type CanonicalTimelineAction =
   | { type: "envelope.received"; projectId: string; envelope: CanonicalTimelineEnvelope }
   | { type: "optimistic.received"; scope: CanonicalTimelineScope; envelope: CanonicalTimelineEnvelope }
+  | { type: "optimistic.state-changed"; scope: CanonicalTimelineScope; clientRequestId: string; state: PendingUserIntentState; failure?: string }
+  | { type: "optimistic.rekeyed"; from: CanonicalTimelineScope; to: CanonicalTimelineScope; clientRequestId: string }
   | { type: "optimistic.discarded"; scope: CanonicalTimelineScope; messageId: string }
   | { type: "request.started"; scope: CanonicalTimelineScope; requestKind: CanonicalTimelineRequestKind; generation: number }
   | {
@@ -89,6 +91,8 @@ export type CanonicalTimelineAction =
 
 const DEFAULT_TITLE = "需求对话";
 const DEFAULT_EMPTY_MESSAGE = "暂无对话内容。输入需求后，主 agent 会在这里持续回复。";
+
+export type PendingUserIntentState = "sending" | "uncertain" | "failed";
 
 export function createCanonicalTimelineState(): CanonicalTimelineState {
   return { surfaces: {}, lastMutation: null };
@@ -126,6 +130,10 @@ export function canonicalTimelineReducer(
       return receiveEnvelope(state, action.projectId, action.envelope);
     case "optimistic.received":
       return receiveOptimisticEnvelope(state, action.scope, action.envelope);
+    case "optimistic.state-changed":
+      return changeOptimisticState(state, action.scope, action.clientRequestId, action.state, action.failure);
+    case "optimistic.rekeyed":
+      return rekeyOptimisticEnvelope(state, action.from, action.to, action.clientRequestId);
     case "optimistic.discarded":
       return discardOptimisticEnvelope(state, action.scope, action.messageId);
     case "request.started":
@@ -257,19 +265,24 @@ function receiveEnvelope(
     return withIgnoredMutation(state, surface, "identity-conflict");
   }
 
+  const correlatedOptimistic = envelope.clientRequestId
+    ? findOptimisticEnvelope(surface, envelope.clientRequestId)
+    : null;
+  const nextEnvelopes = { ...surface.envelopes };
+  if (correlatedOptimistic) delete nextEnvelopes[correlatedOptimistic.messageId];
+  nextEnvelopes[envelope.messageId] = {
+    envelope: correlatedOptimistic
+      ? preserveOptimisticCellIdentity(envelope, correlatedOptimistic.envelope)
+      : cloneEnvelope(envelope),
+    lane: current?.lane ?? (isPinnedOrderClass(envelope.orderClass) ? "pinned" : "realtime"),
+  };
   const nextSurface: CanonicalTimelineSurfaceState = {
     ...surface,
     watermark: Math.max(surface.watermark, envelope.revision),
     paging: surface.paging && !current
       ? { ...surface.paging, totalCount: surface.paging.totalCount + 1 }
       : surface.paging,
-    envelopes: {
-      ...surface.envelopes,
-      [envelope.messageId]: {
-        envelope: cloneEnvelope(envelope),
-        lane: current?.lane ?? (isPinnedOrderClass(envelope.orderClass) ? "pinned" : "realtime"),
-      },
-    },
+    envelopes: nextEnvelopes,
   };
   const orderedIds = orderedMessageIds(nextSurface);
   const mutationKind: CanonicalTimelineMutationKind = current
@@ -285,9 +298,9 @@ function receiveEnvelope(
     key,
     mutationKind,
     nextSurface.watermark,
-    current ? [] : [envelope.messageId],
-    current ? [envelope.messageId] : [],
-    [],
+    current || correlatedOptimistic ? [] : [envelope.messageId],
+    current || correlatedOptimistic ? [envelope.messageId] : [],
+    correlatedOptimistic ? [correlatedOptimistic.messageId] : [],
   );
   return putSurface(state, { ...nextSurface, lastMutation: mutation }, mutation);
 }
@@ -325,14 +338,18 @@ function receiveLatestPage(
   }
 
   const nextEnvelopes: Record<string, StoredEnvelope> = Object.fromEntries(
-    Object.entries(surface.envelopes).filter(([, stored]) => stored.lane === "history"),
+    Object.entries(surface.envelopes).filter(([, stored]) => stored.lane === "history" || isPendingUserIntentEnvelope(stored.envelope)),
   );
   for (const [lane, envelopes] of [["pinned", page.pinned], ["latest", page.entries]] as const) {
     for (const envelope of envelopes) {
+      const correlatedOptimistic = envelope.clientRequestId
+        ? findOptimisticEnvelope({ ...surface, envelopes: nextEnvelopes }, envelope.clientRequestId)
+        : null;
+      if (correlatedOptimistic) delete nextEnvelopes[correlatedOptimistic.messageId];
       const current = surface.envelopes[envelope.messageId];
       const accepted = current && current.envelope.revision > envelope.revision
         ? current.envelope
-        : envelope;
+        : correlatedOptimistic ? preserveOptimisticCellIdentity(envelope, correlatedOptimistic.envelope) : envelope;
       nextEnvelopes[envelope.messageId] = { envelope: cloneEnvelope(accepted), lane };
     }
   }
@@ -363,6 +380,113 @@ function receiveLatestPage(
     lastMutation: mutation,
   };
   return putSurface(state, next, mutation);
+}
+
+function changeOptimisticState(
+  state: CanonicalTimelineState,
+  scope: CanonicalTimelineScope,
+  clientRequestId: string,
+  pendingState: PendingUserIntentState,
+  failure?: string,
+): CanonicalTimelineState {
+  const key = canonicalTimelineScopeKey(scope);
+  const surface = state.surfaces[key];
+  const optimistic = surface ? findOptimisticEnvelope(surface, clientRequestId) : null;
+  if (!surface || !optimistic) return state;
+  const envelope = {
+    ...optimistic.envelope,
+    cells: optimistic.envelope.cells.map((cell) => ({
+      ...cell,
+      status: pendingState,
+      isError: pendingState === "failed",
+      title: pendingState === "failed" ? "发送失败" : pendingState === "uncertain" ? "发送状态待确认" : cell.title,
+      detailText: failure,
+      pendingIntent: {
+        clientRequestId,
+        canRetry: pendingState === "failed",
+        canRestore: pendingState !== "sending",
+      },
+    })),
+  };
+  const mutation = mutationFor(key, "calibrate", surface.watermark, [], [optimistic.messageId], []);
+  return putSurface(state, {
+    ...surface,
+    envelopes: { ...surface.envelopes, [optimistic.messageId]: { envelope, lane: optimistic.lane } },
+    lastMutation: mutation,
+  }, mutation);
+}
+
+function rekeyOptimisticEnvelope(
+  state: CanonicalTimelineState,
+  from: CanonicalTimelineScope,
+  to: CanonicalTimelineScope,
+  clientRequestId: string,
+): CanonicalTimelineState {
+  if (from.productMode !== to.productMode || from.agentSurfaceId !== to.agentSurfaceId) return state;
+  const fromKey = canonicalTimelineScopeKey(from);
+  const source = state.surfaces[fromKey];
+  const optimistic = source ? findOptimisticEnvelope(source, clientRequestId) : null;
+  if (!source || !optimistic) return state;
+  const toKey = canonicalTimelineScopeKey(to);
+  const target = state.surfaces[toKey] ?? emptySurface(to);
+  const sourceEnvelopes = { ...source.envelopes };
+  delete sourceEnvelopes[optimistic.messageId];
+  const movedEnvelope = {
+    ...optimistic.envelope,
+    projectId: to.projectId,
+    productMode: to.productMode,
+    conversationId: to.conversationId,
+    agentSurfaceId: to.agentSurfaceId,
+    cells: optimistic.envelope.cells.map((cell) => ({ ...cell, agentSurfaceId: to.agentSurfaceId })),
+  };
+  const surfaces = { ...state.surfaces };
+  if (Object.keys(sourceEnvelopes).length === 0) delete surfaces[fromKey];
+  else surfaces[fromKey] = { ...source, envelopes: sourceEnvelopes };
+  const existingTarget = findOptimisticEnvelope(target, clientRequestId);
+  const targetEnvelopes = { ...target.envelopes };
+  if (existingTarget) delete targetEnvelopes[existingTarget.messageId];
+  surfaces[toKey] = {
+    ...target,
+    envelopes: { ...targetEnvelopes, [optimistic.messageId]: { envelope: movedEnvelope, lane: "realtime" } },
+  };
+  return {
+    surfaces,
+    lastMutation: mutationFor(toKey, "calibrate", target.watermark, [], [optimistic.messageId], []),
+  };
+}
+
+function findOptimisticEnvelope(
+  surface: Pick<CanonicalTimelineSurfaceState, "envelopes">,
+  clientRequestId: string,
+): (StoredEnvelope & { messageId: string }) | null {
+  for (const [messageId, stored] of Object.entries(surface.envelopes)) {
+    if (stored.envelope.clientRequestId === clientRequestId && isOptimisticEnvelope(stored.envelope)) {
+      return { ...stored, messageId };
+    }
+  }
+  return null;
+}
+
+function isOptimisticEnvelope(envelope: CanonicalTimelineEnvelope): boolean {
+  return envelope.messageId.startsWith("optimistic:") || envelope.messageId.startsWith("optimistic-steer:");
+}
+
+function isPendingUserIntentEnvelope(envelope: CanonicalTimelineEnvelope): boolean {
+  return envelope.messageId.startsWith("optimistic:");
+}
+
+function preserveOptimisticCellIdentity(
+  canonical: CanonicalTimelineEnvelope,
+  optimistic: CanonicalTimelineEnvelope,
+): CanonicalTimelineEnvelope {
+  const optimisticUserCell = optimistic.cells.find((cell) => cell.kind === "user-message");
+  if (!optimisticUserCell) return cloneEnvelope(canonical);
+  return {
+    ...canonical,
+    cells: canonical.cells.map((cell) => cell.kind === "user-message"
+      ? { ...cell, id: optimisticUserCell.id }
+      : { ...cell }),
+  };
 }
 
 function receiveEarlierPage(

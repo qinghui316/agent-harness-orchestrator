@@ -91,7 +91,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
   const conversationTurnQueue = options.conversationTurnQueue ?? new ConversationTurnQueueOwner({
     projectRuntimeCoordinator,
     turnRouter,
-    reviewOwner: conversationReview,
+    reviewDispatch: conversationReview,
   });
   const conversationLifecycle = options.conversationLifecycle ?? new ConversationLifecycleOwner({
     providerRegistry,

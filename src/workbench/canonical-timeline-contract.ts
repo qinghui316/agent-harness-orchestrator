@@ -13,6 +13,7 @@ export interface CanonicalTimelineEnvelope {
   conversationId: string;
   agentSurfaceId: string;
   messageId: string;
+  clientRequestId?: string;
   position: number;
   revision: number;
   orderClass: "sequence" | "thread-start";

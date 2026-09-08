@@ -307,6 +307,48 @@ describe("Workbench App owner composition", () => {
     expect(requestUrls("/timeline?").every((url) => url.includes("productMode=agent"))).toBe(true);
   });
 
+  it("withholds the previous Conversation identity while a product-mode Snapshot is calibrating", async () => {
+    window.localStorage.setItem("aho.workbench.productMode.v1", "agent");
+    let resolveHarnessSnapshot!: (value: Snapshot) => void;
+    const harnessSnapshot = new Promise<Snapshot>((resolve) => { resolveHarnessSnapshot = resolve; });
+    installApiFixture(createSnapshot(undefined, "agent"), {
+      loadSnapshot: (_projectId, productMode) => productMode === "harness"
+        ? harnessSnapshot
+        : createSnapshot(undefined, "agent"),
+    });
+    render(<App />);
+    await screen.findByText("Canonical Main reply");
+
+    const requestStart = vi.mocked(fetch).mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: /^AHO/ }));
+    await waitFor(() => expect(requestUrls("/providers/capabilities?")).toContain(
+      "/api/projects/repo/providers/capabilities?productMode=harness",
+    ));
+
+    const duringCalibration = vi.mocked(fetch).mock.calls.slice(requestStart).map(([input]) => String(input));
+    expect(duringCalibration.some((url) => url.includes("/workbench/conversations/conv-1/") && url.includes("productMode=harness"))).toBe(false);
+    expect(duringCalibration.some((url) => url.includes("/agent-surfaces/conv-1") && url.includes("productMode=harness"))).toBe(false);
+    expect(screen.queryByText("Owner convergence")).toBeNull();
+
+    resolveHarnessSnapshot(snapshotWithConversationId(createSnapshot(undefined, "harness"), "harness-conversation"));
+    await waitFor(() => expect(screen.getAllByText("harness-conversation").length).toBeGreaterThan(0));
+    await waitFor(() => expect(requestUrls("/workbench/conversations/harness-conversation/turn-queue").some((url) => (
+      url.includes("productMode=harness")
+    ))).toBe(true));
+  });
+
+  it("loads the Agent Composer draft for a registered project without a ready Harness", async () => {
+    window.localStorage.setItem("aho.workbench.productMode.v1", "agent");
+    installApiFixture(createSnapshot(undefined, "agent"), { projectManaged: false });
+
+    render(<App />);
+
+    await screen.findByText("Canonical Main reply");
+    await waitFor(() => expect(requestUrls("/workbench/composer-draft")).toContain(
+      "/api/projects/repo/workbench/composer-draft?productMode=agent",
+    ));
+  });
+
   it("creates an Agent conversation from the empty shell with the captured mode", async () => {
     window.history.replaceState({}, "", "/?project=repo");
     window.localStorage.setItem("aho.workbench.productMode.v1", "agent");
@@ -394,6 +436,28 @@ function createEmptySnapshot(productMode: "agent" | "harness"): Snapshot {
   };
 }
 
+function snapshotWithConversationId(snapshot: Snapshot, conversationId: string): Snapshot {
+  const topic = snapshot.center.selectedTopic
+    ? { ...snapshot.center.selectedTopic, id: conversationId, title: conversationId }
+    : null;
+  return {
+    ...snapshot,
+    left: {
+      ...snapshot.left,
+      topics: topic ? [topic] : [],
+    },
+    center: {
+      ...snapshot.center,
+      selectedTopic: topic,
+      workpad: snapshot.center.workpad ? { ...snapshot.center.workpad, title: conversationId } : snapshot.center.workpad,
+      conversationInteractions: {
+        ...snapshot.center.conversationInteractions,
+        conversationId,
+      },
+    },
+  };
+}
+
 function createRunningAgentSnapshot(): Snapshot {
   const snapshot = createSnapshot(undefined, "agent");
   return {
@@ -435,19 +499,19 @@ function createInteraction(): ConversationInteraction {
   } as ConversationInteraction;
 }
 
-function timelinePage(agentSurfaceId: string, productMode: "agent" | "harness" = "harness"): CanonicalTimelinePage {
+function timelinePage(agentSurfaceId: string, productMode: "agent" | "harness" = "harness", conversationId = "conv-1"): CanonicalTimelinePage {
   const text = agentSurfaceId === "main-agent" ? "Canonical Main reply" : "Canonical child reply";
   return {
     projectId: "repo",
     productMode,
-    conversationId: "conv-1",
+    conversationId,
     agentSurfaceId,
     watermark: 1,
     pinned: [],
     entries: [{
       projectId: "repo",
       productMode,
-      conversationId: "conv-1",
+      conversationId,
       agentSurfaceId,
       messageId: `message:${agentSurfaceId}`,
       position: 1,
@@ -465,30 +529,41 @@ function timelinePage(agentSurfaceId: string, productMode: "agent" | "harness" =
   };
 }
 
-function installApiFixture(snapshot: Snapshot): void {
+function installApiFixture(snapshot: Snapshot, options: {
+  loadSnapshot?: (projectId: string, productMode: "agent" | "harness", conversationId: string | null) => Snapshot | Promise<Snapshot>;
+  projectManaged?: boolean;
+} = {}): void {
   const productMode = snapshot.center.selectedTopic?.productMode ?? "harness";
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
+    const parsed = new URL(url, "http://localhost");
+    const requestedProductMode = parsed.searchParams.get("productMode") === "agent" ? "agent" : parsed.searchParams.get("productMode") === "harness" ? "harness" : productMode;
     if (url === "/agent-office/config/office-calibration.json") return json(officeCalibration);
     if (url === "/api/app/status") return json({ mode: "project", directProjectId: "repo" });
     if (url === "/api/projects") {
+      const projectManaged = options.projectManaged ?? true;
       return json({ projects: [{
         project: snapshot.project,
         path: snapshot.project?.path,
         pathExists: true,
         isGitRepo: true,
-        managed: true,
+        managed: projectManaged,
         harness: {
           projectPath: snapshot.project?.path ?? "E:/repo",
-          managed: true,
-          readiness: "ready",
+          managed: projectManaged,
+          readiness: projectManaged ? "ready" : "missing",
           activeChanges: [],
           pendingEvolution: false,
           components: [],
         },
       }] });
     }
-    if (url.includes("/workbench/snapshot")) return json(snapshot);
+    if (url.includes("/workbench/snapshot")) {
+      const next = options.loadSnapshot
+        ? await options.loadSnapshot("repo", requestedProductMode, parsed.searchParams.get("topic"))
+        : snapshot;
+      return json(next);
+    }
     if (url.includes("/workbench/mode-activity")) return json({
       projectId: "repo",
       generatedAt: "2026-08-23T00:00:00.000Z",
@@ -512,8 +587,8 @@ function installApiFixture(snapshot: Snapshot): void {
     }
     if (url.includes("/workbench/projections/agent-surfaces/")) return json({
       projectId: "repo",
-      productMode,
-      conversationId: "conv-1",
+      productMode: requestedProductMode,
+      conversationId: decodeURIComponent(url.match(/agent-surfaces\/([^?]+)/)?.[1] ?? "conv-1"),
       graphScopeId: "scope-1",
       scopeStatus: "active",
       projectionHash: "surface-hash-1",
@@ -552,18 +627,18 @@ function installApiFixture(snapshot: Snapshot): void {
       ],
     });
     if (url.includes("/workbench/conversations/") && url.includes("/timeline?")) {
-      const parsed = new URL(url, "http://localhost");
-      return json(timelinePage(parsed.searchParams.get("agentSurfaceId") ?? "main-agent", productMode));
+      const conversationId = decodeURIComponent(url.match(/conversations\/([^/]+)\/timeline/)?.[1] ?? "conv-1");
+      return json(timelinePage(parsed.searchParams.get("agentSurfaceId") ?? "main-agent", requestedProductMode, conversationId));
     }
     if (url.includes("/providers/capabilities?")) {
       return json({ providers: [{
         providerId: "codex",
         displayName: "Codex",
-        productMode,
+        productMode: requestedProductMode,
         status: "ready",
         runnable: true,
         checkedAt: "2026-08-13T00:00:00.000Z",
-        snapshotHash: `codex-${productMode}`,
+        snapshotHash: `codex-${requestedProductMode}`,
         snapshotVersion: 1,
         effectiveModel: null,
         effectiveModelSource: "provider-default",

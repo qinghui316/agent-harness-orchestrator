@@ -11,7 +11,8 @@ import { ComposerDraftConflictError } from "./persistence/repositories/composer-
 import { publishConversationTurnQueueInvalidated } from "./project-live-events.js";
 import type { TopicFileReference, TopicMessageInput } from "./types.js";
 import { deleteUnreferencedTopicAttachments } from "./attachments.js";
-import type { ConversationReviewLifecycleOwner } from "./conversation-review-lifecycle.js";
+import { createConversationExecutionRevision } from "./conversation-execution-revision.js";
+import type { ConversationQueuedReviewDispatchPort } from "./conversation-queued-review-dispatch.js";
 
 export interface ConversationQueuedTurnInput {
   itemKind?: "conversation-turn" | "review";
@@ -67,7 +68,7 @@ export class ConversationTurnQueueOwner {
     turnRouter: ConversationTurnRoutingPort;
     prepareConversationMessage?: typeof prepareConversationMessage;
     postConversationMessage?: typeof postConversationMessage;
-    reviewOwner?: ConversationReviewLifecycleOwner;
+    reviewDispatch?: ConversationQueuedReviewDispatchPort;
   }) {}
 
   async read(project: ManagedProject, productMode: ProductMode, conversationId: string): Promise<ConversationTurnQueueSnapshot> {
@@ -267,22 +268,20 @@ export class ConversationTurnQueueOwner {
     publishConversationTurnQueueInvalidated(project.id, { conversationId });
     try {
       if (item.itemKind === "review") {
-        if (!this.options.reviewOwner) throw conflict("Conversation Review queue dispatch is not composed.");
+        if (!this.options.reviewDispatch) throw conflict("Conversation Review queue dispatch is not composed.");
         const current = await this.read(project, productMode, conversationId);
         const database = await openProjectRuntimeWorkbenchDatabase(await this.resolvePaths(project));
         let timelineRevision: number;
         try {
           timelineRevision = database.conversations.readConversation(project.id, conversationId)?.timelineRevision ?? -1;
         } finally { database.close(); }
-        await this.options.reviewOwner.start(project, {
-          productMode: "agent",
+        await this.options.reviewDispatch.dispatchQueuedReview(project, {
           conversationId,
           providerId: item.providerId,
           target: parseReviewTarget(item.reviewTargetJson),
           expectedTimelineRevision: timelineRevision,
           expectedExecutionRevision: current.executionRevision,
           clientRequestId: item.dispatchRequestId,
-          source: "queue",
         });
         await this.settleDispatch(project, item, "dispatched");
         return;
@@ -568,9 +567,6 @@ function toPublicItem(item: StoredConversationQueuedTurn): ConversationQueuedTur
   };
 }
 
-export function createConversationExecutionRevision(graphScopeId: string | null, completedTurnSequence: number, attemptIds: string[]): string {
-  return `execution:${digest(JSON.stringify({ graphScopeId, completedTurnSequence, attemptIds: [...attemptIds].sort() }))}`;
-}
 function encodeRevision(value: number): string { return `queue:${value}`; }
 function decodeRevision(value: string): number {
   const match = /^queue:(\d+)$/.exec(value);

@@ -7,7 +7,7 @@ describe("Workbench shell layout contract", () => {
       readFile("src/web/src/App.tsx", "utf8"),
       readFile("src/web/src/controllers/workspaceResourceModeHandoff.ts", "utf8"),
     ]);
-    expect(appSource).toMatch(/useWorkspaceResourceController\(workspaceResourceModeHandoff\(snapshot, \{/);
+    expect(appSource).toMatch(/useWorkspaceResourceController\(workspaceResourceModeHandoff\(\{ productMode: appMode\.productMode \}, \{/);
     expect(handoffSource).toMatch(/productMode: snapshot\.productMode/);
     expect(appSource).not.toMatch(/native-child-agent[\s\S]{0,160}productMode/);
     expect(appSource).not.toMatch(/Parameters<typeof useWorkspaceResourceController>/);

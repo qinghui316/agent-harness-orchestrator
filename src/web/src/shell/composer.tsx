@@ -7,6 +7,14 @@ import { ComposerControls } from "./ComposerControls.js";
 import { FileMentionPicker } from "./FileMentionPicker.js";
 import { SkillMentionPicker } from "./SkillMentionPicker.js";
 import { ComposerFrame } from "./ComposerFrame.js";
+import {
+  buildComposerActionProjection,
+  type ComposerActionProjection,
+  type ComposerPrimaryIntent,
+} from "../presentation/conversation-experience.js";
+
+export { buildComposerActionProjection } from "../presentation/conversation-experience.js";
+export type { ComposerActionProjection, ComposerPrimaryIntent } from "../presentation/conversation-experience.js";
 
 export function TopicComposer({
   value,
@@ -231,7 +239,7 @@ export function TopicComposer({
       trailingControls={
         <ComposerActionButtons
           projection={actionProjection}
-          busy={Boolean(actionRunning || queueBusy)}
+          mutationBusy={Boolean(queueBusy)}
           onSend={submit}
           onQueue={() => void onEnqueue?.()}
           onStop={() => void onStopAndContinue?.()}
@@ -239,77 +247,6 @@ export function TopicComposer({
       }
     />
   );
-}
-
-export type ComposerPrimaryIntent = "send" | "steer" | "queue" | "stop" | "jump-to-request" | "wait";
-
-export interface ComposerActionProjection {
-  primaryIntent: ComposerPrimaryIntent;
-  canSubmitDraft: boolean;
-  canStop: boolean;
-  disabledReason: string | null;
-  alternativeIntent?: "queue";
-}
-
-export function buildComposerActionProjection(input: {
-  running: boolean;
-  queueBusy?: boolean;
-  stopping?: boolean;
-  steerSubmitting?: boolean;
-  hasDraft: boolean;
-  hasNextTurnContext?: boolean;
-  canSteer?: boolean;
-  canQueue?: boolean;
-  canStop?: boolean;
-  queueHasItems?: boolean;
-  queueReady?: boolean;
-  disabledReason?: string | null;
-}): ComposerActionProjection {
-  if (input.disabledReason) {
-    return { primaryIntent: "wait", canSubmitDraft: false, canStop: Boolean(input.canStop), disabledReason: input.disabledReason };
-  }
-  if (input.running) {
-    if (input.stopping) {
-      return { primaryIntent: "wait", canSubmitDraft: false, canStop: false, disabledReason: "当前执行正在停止" };
-    }
-    if (input.queueBusy) {
-      return { primaryIntent: "wait", canSubmitDraft: false, canStop: Boolean(input.canStop), disabledReason: "正在更新会话队列" };
-    }
-    if (input.steerSubmitting) {
-      return { primaryIntent: "wait", canSubmitDraft: false, canStop: Boolean(input.canStop), disabledReason: "正在发送给当前执行" };
-    }
-    if (input.hasDraft && input.canSteer && !input.hasNextTurnContext) {
-      return {
-        primaryIntent: "steer",
-        canSubmitDraft: true,
-        canStop: Boolean(input.canStop),
-        disabledReason: null,
-        alternativeIntent: input.canQueue ? "queue" : undefined,
-      };
-    }
-    if (input.hasDraft && input.canQueue) {
-      return { primaryIntent: "queue", canSubmitDraft: true, canStop: Boolean(input.canStop), disabledReason: null };
-    }
-    if (input.canStop) {
-      return { primaryIntent: "stop", canSubmitDraft: false, canStop: true, disabledReason: null };
-    }
-    return { primaryIntent: "wait", canSubmitDraft: false, canStop: false, disabledReason: "等待当前执行完成" };
-  }
-  if (input.queueBusy) {
-    return { primaryIntent: "wait", canSubmitDraft: false, canStop: false, disabledReason: "正在更新会话队列" };
-  }
-  if (input.queueReady === false) {
-    return { primaryIntent: "wait", canSubmitDraft: false, canStop: false, disabledReason: "正在校准会话队列" };
-  }
-  if (!input.hasDraft) {
-    return { primaryIntent: "send", canSubmitDraft: false, canStop: false, disabledReason: "输入内容后发送" };
-  }
-  if (input.queueHasItems) {
-    return input.canQueue
-      ? { primaryIntent: "queue", canSubmitDraft: true, canStop: false, disabledReason: null }
-      : { primaryIntent: "wait", canSubmitDraft: false, canStop: false, disabledReason: "队列暂时不可用" };
-  }
-  return { primaryIntent: "send", canSubmitDraft: true, canStop: false, disabledReason: null };
 }
 
 export function ConversationComposerSurface({
@@ -550,32 +487,47 @@ function ComposerSelectedContextItems({ skills, activeSkillIds, fileRefs, onTogg
   </div>;
 }
 
-function ComposerActionButtons({ projection, busy, onSend, onQueue, onStop }: {
+function ComposerActionButtons({ projection, mutationBusy, onSend, onQueue, onStop }: {
   projection: ComposerActionProjection;
-  busy: boolean;
+  mutationBusy: boolean;
   onSend: () => void;
   onQueue: () => void;
   onStop: () => void;
 }): ReactElement {
   const [menuOpen, setMenuOpen] = useState(false);
   const intent = projection.primaryIntent;
-  const label = composerActionLabel(intent, projection.disabledReason);
-  const submitDisabled = busy || !projection.canSubmitDraft;
+  const contextIntent = projection.canStop && (intent === "steer" || intent === "queue" || intent === "jump-to-request" || intent === "wait")
+    ? intent
+    : null;
+  const primaryIntent: ComposerPrimaryIntent = projection.canStop ? "stop" : intent;
+  const primaryLabel = composerActionLabel(primaryIntent, projection.canStop ? null : projection.disabledReason);
+  const contextLabel = contextIntent ? composerActionLabel(contextIntent, projection.disabledReason) : "";
   const invokePrimary = () => {
-    if (intent === "send" || intent === "steer") onSend();
-    else if (intent === "queue") onQueue();
-    else if (intent === "stop") onStop();
+    if (primaryIntent === "send") onSend();
+    else if (primaryIntent === "queue") onQueue();
+    else if (primaryIntent === "stop") onStop();
   };
-  return <div className="composer-action-group">
-    {projection.canStop && intent !== "stop" ? <button type="button" className="composer-stop" title="停止当前执行" aria-label="停止当前执行" onClick={onStop}><Square size={14} fill="currentColor" /></button> : null}
-    <div className={`composer-primary-action ${projection.alternativeIntent ? "has-alternative" : ""}`}>
-      <button type="button" className="composer-send" disabled={intent === "stop" ? busy : submitDisabled} title={label} aria-label={label} onClick={invokePrimary}>
-        {intent === "stop" ? <Square size={14} fill="currentColor" /> : intent === "queue" ? <ListPlus size={16} /> : intent === "wait" ? <LoaderCircle size={16} className={busy ? "spin" : undefined} /> : <ArrowUp size={17} />}
+  const invokeContext = () => {
+    if (contextIntent === "steer") onSend();
+    else if (contextIntent === "queue") onQueue();
+  };
+  return <div className="composer-action-group" data-primary-intent={primaryIntent}>
+    <div className={`composer-context-action-slot ${contextIntent ? "is-visible" : ""}`} aria-hidden={contextIntent ? undefined : "true"}>
+      <div className={`composer-context-action-wrap ${projection.alternativeIntent ? "has-alternative" : ""}`}>
+        <button type="button" className="composer-context-action" tabIndex={contextIntent ? undefined : -1} disabled={!contextIntent || mutationBusy || !projection.canSubmitDraft} title={contextLabel} aria-label={contextLabel || "当前没有其他操作"} onClick={invokeContext}>
+          {contextIntent === "wait" ? <LoaderCircle size={14} className="spin" /> : contextIntent === "queue" ? <ListPlus size={14} /> : <ArrowUp size={14} />}
+          <span>{contextLabel}</span>
+        </button>
+        {contextIntent === "steer" && projection.alternativeIntent === "queue" ? <>
+          <button type="button" className="composer-action-alternative-trigger" aria-label="其他发送方式" aria-expanded={menuOpen} onClick={() => setMenuOpen((current) => !current)}><ChevronDown size={13} /></button>
+          {menuOpen ? <div className="composer-action-menu" role="menu"><button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onQueue(); }}><ListPlus size={14} />稍后发送</button></div> : null}
+        </> : null}
+      </div>
+    </div>
+    <div className="composer-primary-action">
+      <button type="button" className="composer-send" disabled={primaryIntent === "stop" ? false : mutationBusy || !projection.canSubmitDraft} title={primaryLabel} aria-label={primaryLabel} onClick={invokePrimary}>
+        {primaryIntent === "stop" ? <Square size={14} fill="currentColor" /> : primaryIntent === "queue" ? <ListPlus size={16} /> : primaryIntent === "wait" ? <LoaderCircle size={16} className={mutationBusy ? "spin" : undefined} /> : <ArrowUp size={17} />}
       </button>
-      {projection.alternativeIntent === "queue" ? <>
-        <button type="button" className="composer-action-alternative-trigger" aria-label="其他发送方式" aria-expanded={menuOpen} onClick={() => setMenuOpen((current) => !current)}><ChevronDown size={13} /></button>
-        {menuOpen ? <div className="composer-action-menu" role="menu"><button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onQueue(); }}><ListPlus size={14} />稍后发送</button></div> : null}
-      </> : null}
     </div>
   </div>;
 }
@@ -866,9 +818,9 @@ export function AgentTurnModelControls({
   return (
     <div className="agent-turn-model-controls" data-testid="agent-turn-model-controls">
       <label>
-        <span className="sr-only">本次 Turn 模型</span>
+        <span className="sr-only">下一次发送的模型</span>
         <select
-          aria-label="本次 Turn 模型"
+          aria-label="下一次发送的模型"
           value={modelId ?? ""}
           onChange={(event) => void onSelectModel(event.target.value || null)}
         >
@@ -878,9 +830,9 @@ export function AgentTurnModelControls({
         </select>
       </label>
       <label>
-        <span className="sr-only">本次 Turn 推理强度</span>
+        <span className="sr-only">下一次发送的推理强度</span>
         <select
-          aria-label="本次 Turn 推理强度"
+          aria-label="下一次发送的推理强度"
           value={reasoningEffort ?? ""}
           onChange={(event) => void onSelectReasoningEffort(event.target.value || null)}
         >

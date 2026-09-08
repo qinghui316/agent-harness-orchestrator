@@ -1687,22 +1687,74 @@
 }
 
 .composer-action-group,
-.composer-primary-action {
+.composer-primary-action,
+.composer-context-action-wrap {
   display: inline-flex;
   align-items: center;
 }
 
 .composer-action-group {
+  display: grid;
+  grid-template-columns: 126px 34px;
   gap: 5px;
 }
 
-.composer-primary-action.has-alternative {
+.composer-context-action-slot {
+  position: relative;
+  display: flex;
+  width: 126px;
+  justify-content: flex-end;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.composer-context-action-slot.is-visible {
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.composer-context-action-wrap {
+  min-width: 0;
+  height: 34px;
+}
+
+.composer-context-action-wrap.has-alternative {
   border-radius: var(--radius-pill);
   background: var(--text-strong);
 }
 
-.composer-primary-action.has-alternative .composer-send {
+.composer-context-action {
+  display: inline-flex;
+  min-width: 0;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.composer-context-action-wrap.has-alternative .composer-context-action {
   border-radius: var(--radius-pill) 0 0 var(--radius-pill);
+  background: var(--text-strong);
+  color: var(--on-accent);
+}
+
+.composer-context-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.composer-context-action span {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .composer-action-alternative-trigger {
@@ -1784,6 +1836,23 @@
 
   .composer-model-trigger {
     max-width: 92px;
+  }
+
+  .composer-action-group {
+    grid-template-columns: 34px 34px;
+  }
+
+  .composer-context-action-slot {
+    width: 34px;
+  }
+
+  .composer-context-action {
+    width: 34px;
+    padding: 0;
+  }
+
+  .composer-context-action span {
+    display: none;
   }
 
   .composer-model-control {

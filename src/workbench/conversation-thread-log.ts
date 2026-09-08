@@ -63,6 +63,8 @@ export function fromStoredThreadMessage(row: StoredTopicMessage): TopicThreadEnt
   const raw = parseStoredRawJson(row.rawJson);
   return {
     id: row.id,
+    clientRequestId: typeof raw.clientRequestId === "string" ? raw.clientRequestId : undefined,
+    requestHash: typeof raw.requestHash === "string" ? raw.requestHash : undefined,
     type: row.type as TopicThreadEventType,
     timestamp: row.timestamp,
     conversationId: row.conversationId,

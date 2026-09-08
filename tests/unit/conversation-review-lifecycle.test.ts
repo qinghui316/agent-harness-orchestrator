@@ -10,7 +10,7 @@ import type { ManagedProject } from "../../src/types/index.js";
 import { projectCanonicalTimelineEnvelope } from "../../src/workbench/canonical-timeline-projector.js";
 import { reconcileStaleAgentMainAttempts } from "../../src/workbench/agent-main-attempt-recovery.js";
 import { ConversationReviewLifecycleOwner, type ConversationReviewRequest } from "../../src/workbench/conversation-review-lifecycle.js";
-import { createConversationExecutionRevision } from "../../src/workbench/conversation-turn-queue.js";
+import { createConversationExecutionRevision } from "../../src/workbench/conversation-execution-revision.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 
 const execFile = promisify(execFileCallback);

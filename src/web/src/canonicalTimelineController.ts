@@ -6,6 +6,7 @@ import {
   canonicalTimelineScopeKey,
   createCanonicalTimelineState,
   type CanonicalTimelineRequestKind,
+  type PendingUserIntentState,
 } from "./canonicalTimelineStore.js";
 import type { CanonicalTimelineEnvelope, CanonicalTimelinePage, CanonicalTimelineScope } from "./types.js";
 
@@ -68,6 +69,52 @@ export function useCanonicalTimelineController(onError: (message: string) => voi
   const ingestEnvelope = useCallback((projectId: string, envelope: CanonicalTimelineEnvelope): void => {
     dispatch({ type: "envelope.received", projectId, envelope });
   }, []);
+  const showOptimisticUserIntent = useCallback((scope: CanonicalTimelineScope, clientRequestId: string, text: string): void => {
+    const messageId = `optimistic:${clientRequestId}`;
+    const timestamp = new Date().toISOString();
+    dispatch({
+      type: "optimistic.received",
+      scope,
+      envelope: {
+        ...scope,
+        messageId,
+        clientRequestId,
+        position: Number.MAX_SAFE_INTEGER,
+        revision: 1,
+        orderClass: "sequence",
+        cells: [{
+          id: `pending-user:${clientRequestId}`,
+          kind: "user-message",
+          source: "user",
+          agentSurfaceId: scope.agentSurfaceId,
+          timestamp,
+          text,
+          title: "正在发送",
+          status: "sending",
+          realtime: true,
+          pendingIntent: { clientRequestId, canRetry: false, canRestore: false },
+        }],
+      },
+    });
+  }, []);
+  const updateOptimisticUserIntent = useCallback((
+    scope: CanonicalTimelineScope,
+    clientRequestId: string,
+    pendingState: PendingUserIntentState,
+    failure?: string,
+  ): void => {
+    dispatch({ type: "optimistic.state-changed", scope, clientRequestId, state: pendingState, failure });
+  }, []);
+  const rekeyOptimisticUserIntent = useCallback((
+    from: CanonicalTimelineScope,
+    to: CanonicalTimelineScope,
+    clientRequestId: string,
+  ): void => {
+    dispatch({ type: "optimistic.rekeyed", from, to, clientRequestId });
+  }, []);
+  const discardOptimisticUserIntent = useCallback((scope: CanonicalTimelineScope, clientRequestId: string): void => {
+    dispatch({ type: "optimistic.discarded", scope, messageId: `optimistic:${clientRequestId}` });
+  }, []);
   const showOptimisticSteer = useCallback((scope: CanonicalTimelineScope, clientRequestId: string, text: string): void => {
     const messageId = `optimistic-steer:${clientRequestId}`;
     const timestamp = new Date().toISOString();
@@ -108,6 +155,10 @@ export function useCanonicalTimelineController(onError: (message: string) => voi
     loadLatest,
     loadEarlier,
     ingestEnvelope,
+    showOptimisticUserIntent,
+    updateOptimisticUserIntent,
+    rekeyOptimisticUserIntent,
+    discardOptimisticUserIntent,
     showOptimisticSteer,
     discardOptimisticSteer,
     clearProject,

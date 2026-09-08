@@ -12,6 +12,23 @@ afterEach(() => {
 });
 
 describe("Conversation Turn queue controller", () => {
+  it("does not request queue state for a Renderer-only pending Conversation scope", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useConversationTurnQueueController({
+      projectId: "project-1",
+      productMode: "agent",
+      conversationId: "pending:request-1",
+      onError: vi.fn(),
+    }));
+
+    await act(async () => { await Promise.resolve(); });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.current.snapshot).toBeNull();
+    expect(result.current.loading).toBe(false);
+  });
+
   it("fences stale Conversation loads and sends exact queue CAS identity", async () => {
     const first = deferred<Response>();
     const fetchMock = vi.fn((url: string | URL | Request, init?: RequestInit) => {

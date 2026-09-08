@@ -67,6 +67,8 @@ export interface PreparedWorkbenchConversation {
 }
 
 type NormalizedTopicMessageInput = Required<Pick<TopicMessageInput, "mode" | "message">> & {
+  clientRequestId?: string;
+  requestHash?: string;
   contextRefs?: TopicMessageInput["contextRefs"];
   attachments?: TopicAttachment[];
   planHandoffIntent?: TopicMessageInput["planHandoffIntent"];
@@ -90,8 +92,10 @@ export interface PreparedConversationMessage {
   agentTurnMode: AgentTurnMode | null;
   modelId: string | null;
   reasoningEffort: string | null;
-  admission: Awaited<ReturnType<ConversationTurnRoutingPort["admit"]>>;
+  admission: Awaited<ReturnType<ConversationTurnRoutingPort["admit"]>> | null;
   requestSignature: string;
+  requestHash: string | null;
+  replay: TopicMessageResult | null;
 }
 
 export async function createWorkbenchConversation(
@@ -175,6 +179,8 @@ export async function createWorkbenchConversation(
         },
         message: toCanonicalTimelineMessage(persistence.projectId, conversationId, {
           id: `user:${conversationId}:1`,
+          clientRequestId,
+          requestHash,
           type: "user.message",
           timestamp: now,
           conversationId,
@@ -494,7 +500,6 @@ export async function postConversationMessage(
     error.name = "Conflict";
     throw error;
   }
-  await assertConversationQueueAdmission(identity, parsed);
   if (parsed.agentSurfaceId) {
     if (identity.conversation.productMode === "agent") {
       if (parsed.contextRefs?.length || parsed.attachments?.length || parsed.planHandoffIntent || parsed.providerId) {
@@ -536,6 +541,26 @@ export async function postConversationMessage(
   if (identity.conversation.productMode === "harness" && runtimeState.state === "repair-required") {
     throw new Error("Project Harness requires repair before planning or source execution.");
   }
+  const agentTurnMode = options.prepared?.agentTurnMode ?? normalizeRequestedAgentTurnMode(
+    identity.conversation.productMode,
+    parsed.agentTurnMode ?? identity.conversation.agentTurnMode ?? undefined,
+  );
+  const modelId = options.prepared
+    ? options.prepared.modelId
+    : parsed.modelId === undefined ? identity.conversation.agentModelId : parsed.modelId;
+  const reasoningEffort = options.prepared
+    ? options.prepared.reasoningEffort
+    : parsed.reasoningEffort === undefined ? identity.conversation.agentReasoningEffort : parsed.reasoningEffort;
+  const requestHash = options.prepared?.requestHash ?? conversationMessageRequestHash(
+    identity.conversation,
+    parsed,
+    agentTurnMode,
+    modelId,
+    reasoningEffort,
+  );
+  const replay = options.prepared?.replay ?? await readConversationMessageReplay(identity, parsed.clientRequestId, requestHash);
+  if (replay) return replay;
+  await assertConversationQueueAdmission(identity, parsed);
   let providerSwitch: ProviderSwitchResult | null = null;
   if (parsed.providerId && identity.conversation.productMode === "harness" && runtimeState.state === "ready") {
     if (!turnRouter.switchProviderAtSafePoint) {
@@ -555,16 +580,6 @@ export async function postConversationMessage(
       throw error;
     }
   }
-  const agentTurnMode = options.prepared?.agentTurnMode ?? normalizeRequestedAgentTurnMode(
-    identity.conversation.productMode,
-    parsed.agentTurnMode ?? identity.conversation.agentTurnMode ?? undefined,
-  );
-  const modelId = options.prepared
-    ? options.prepared.modelId
-    : parsed.modelId === undefined ? identity.conversation.agentModelId : parsed.modelId;
-  const reasoningEffort = options.prepared
-    ? options.prepared.reasoningEffort
-    : parsed.reasoningEffort === undefined ? identity.conversation.agentReasoningEffort : parsed.reasoningEffort;
   const admission = options.prepared?.admission ?? await turnRouter.admit({
     project,
     productMode: identity.conversation.productMode,
@@ -575,8 +590,10 @@ export async function postConversationMessage(
     reasoningEffort: identity.conversation.productMode === "agent" ? reasoningEffort : null,
     attachments: parsed.attachments ?? [],
   });
+  if (!admission) throw new Error("Prepared Conversation Turn is missing admission evidence.");
   const committed = await commitTopLevelConversationMessage(identity, {
     ...parsed,
+    requestHash: requestHash ?? undefined,
     agentTurnMode: agentTurnMode ?? undefined,
     modelId: identity.conversation.productMode === "agent" ? modelId : undefined,
     reasoningEffort: identity.conversation.productMode === "agent" ? reasoningEffort : undefined,
@@ -686,6 +703,11 @@ async function normalizeTopicMessageInput(
   const resolvedMessage = resolved.text.trim() || defaultAttachmentMessage(attachments);
   if (!resolvedMessage.trim()) throw new Error("Message text is required.");
   return {
+    clientRequestId: typeof input === "string" || input.clientRequestId === undefined
+      ? (typeof input === "string" || !input.queuedTurnDispatch?.dispatchRequestId
+        ? undefined
+        : normalizeConversationClientRequestId(input.queuedTurnDispatch.dispatchRequestId))
+      : normalizeConversationClientRequestId(input.clientRequestId),
     mode,
     message: resolvedMessage,
     contextRefs: resolved.contextRefs.length > 0 ? resolved.contextRefs : undefined,
@@ -806,7 +828,11 @@ async function commitTopLevelConversationMessage(
     }
     const graphScopeChanged = graphScopeId !== conversation.currentGraphScopeId;
     const user: TopicThreadEntry = {
-      id: `user:${conversationId}:${Date.now().toString(36)}`,
+      id: parsed.clientRequestId
+        ? `user:${conversationId}:request:${createHash("sha256").update(parsed.clientRequestId).digest("hex").slice(0, 24)}`
+        : `user:${conversationId}:${Date.now().toString(36)}`,
+      clientRequestId: parsed.clientRequestId,
+      requestHash: parsed.requestHash,
       type: "user.message",
       timestamp: now,
       conversationId,
@@ -881,15 +907,17 @@ async function commitTopLevelConversationMessage(
   }
 }
 
-function normalizeClientRequestId(value: string): string {
+export function normalizeConversationClientRequestId(value: unknown): string {
   const normalized = typeof value === "string" ? value.trim() : "";
-  if (!normalized || normalized.length > 128 || !/^[A-Za-z0-9._:-]+$/.test(normalized)) {
+  if (!normalized || normalized.length > 128 || !/^[A-Za-z0-9_:-]+$/.test(normalized)) {
     const error = new Error("clientRequestId must be 1 to 128 URL-safe characters.");
     error.name = "BadRequest";
     throw error;
   }
   return normalized;
 }
+
+const normalizeClientRequestId = normalizeConversationClientRequestId;
 
 function normalizeSkillOverrides(value: NewConversationSkillOverride[] | undefined): NewConversationSkillOverride[] {
   if (value === undefined) return [];
@@ -988,7 +1016,6 @@ export async function prepareConversationMessage(
     }
     throw conflict("Native child follow-up does not use top-level prepared Turn admission.");
   }
-  await assertConversationQueueAdmission(identity, parsed);
   if (parsed.providerId && parsed.providerId !== identity.conversation.selectedProviderId) {
     throw conflict("Direct Agent provider switching is not supported in this increment.");
   }
@@ -1000,7 +1027,10 @@ export async function prepareConversationMessage(
   const reasoningEffort = parsed.reasoningEffort === undefined
     ? identity.conversation.agentReasoningEffort
     : parsed.reasoningEffort;
-  const admission = await turnRouter.admit({
+  const requestHash = conversationMessageRequestHash(identity.conversation, parsed, agentTurnMode, modelId, reasoningEffort);
+  const replay = await readConversationMessageReplay(identity, parsed.clientRequestId, requestHash);
+  if (!replay) await assertConversationQueueAdmission(identity, parsed);
+  const admission = replay ? null : await turnRouter.admit({
     project,
     productMode: "agent",
     conversationId: identity.conversationId,
@@ -1022,6 +1052,8 @@ export async function prepareConversationMessage(
     reasoningEffort,
     admission,
     requestSignature: stableMessagePreparationSignature(input),
+    requestHash,
+    replay,
   });
 }
 
@@ -1203,6 +1235,7 @@ function assertPreparedMessageIdentity(
 
 function stableMessagePreparationSignature(input: string | TopicMessageInput): string {
   return createHash("sha256").update(JSON.stringify(typeof input === "string" ? { message: input } : {
+    clientRequestId: input.clientRequestId ?? null,
     message: input.message ?? input.text ?? "",
     mode: input.mode ?? "chat",
     productMode: input.productMode ?? null,
@@ -1218,6 +1251,79 @@ function stableMessagePreparationSignature(input: string | TopicMessageInput): s
     planHandoffIntent: input.planHandoffIntent ?? null,
     queuedTurnDispatch: input.queuedTurnDispatch ?? null,
   })).digest("hex");
+}
+
+function conversationMessageRequestHash(
+  conversation: StoredConversation,
+  input: NormalizedTopicMessageInput,
+  agentTurnMode: AgentTurnMode | null,
+  modelId: string | null,
+  reasoningEffort: string | null,
+): string | null {
+  if (!input.clientRequestId) return null;
+  return createHash("sha256").update(JSON.stringify({
+    version: 1,
+    conversationId: conversation.conversationId,
+    productMode: conversation.productMode,
+    message: input.message,
+    contextRefs: input.contextRefs ?? [],
+    attachments: (input.attachments ?? []).map((attachment) => ({
+      id: attachment.id,
+      kind: attachment.kind,
+      mediaType: attachment.mediaType,
+      size: attachment.size,
+      hash: attachment.hash,
+      runtimeMode: attachment.runtimeMode,
+    })).sort((left, right) => left.id.localeCompare(right.id)),
+    planHandoffIntent: input.planHandoffIntent ?? null,
+    providerId: input.providerId ?? conversation.selectedProviderId,
+    providerSwitchIntent: input.providerSwitchIntent,
+    agentSurfaceId: input.agentSurfaceId ?? null,
+    agentTurnMode,
+    modelId,
+    reasoningEffort,
+    skillOverrides: input.skillOverrides,
+    queuedTurnDispatch: input.queuedTurnDispatch ?? null,
+  })).digest("hex");
+}
+
+async function readConversationMessageReplay(
+  identity: Awaited<ReturnType<typeof resolveStoredConversationIdentity>>,
+  clientRequestId: string | undefined,
+  requestHash: string | null,
+): Promise<TopicMessageResult | null> {
+  if (!clientRequestId || !requestHash) return null;
+  const paths = identity.runtimeState.state === "onboarding"
+    ? identity.runtimeState.paths
+    : identity.runtimeState.resolution.paths;
+  const database = await openProjectRuntimeWorkbenchDatabase(paths);
+  try {
+    const matching = database.timeline.listConversationMessages(
+      identity.conversation.projectId,
+      identity.conversationId,
+    ).find((row) => {
+      try {
+        const raw = JSON.parse(row.rawJson) as { clientRequestId?: unknown };
+        return raw.clientRequestId === clientRequestId;
+      } catch {
+        return false;
+      }
+    });
+    if (!matching) return null;
+    const entry = fromStoredThreadMessage(matching);
+    if (entry.requestHash !== requestHash) {
+      throw conflict("clientRequestId was already used for a different Conversation message.");
+    }
+    return {
+      user: entry,
+      assistant: null,
+      run: null,
+      providerSessionId: null,
+      mode: "chat",
+    };
+  } finally {
+    database.close();
+  }
 }
 
 async function assertConversationQueueAdmission(

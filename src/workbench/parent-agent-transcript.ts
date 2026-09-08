@@ -166,7 +166,7 @@ export function canonicalTranscriptCellsFromThreadItem(
   }
   const activityCells = activityCellsFromThreadItem(item, agentRoleId);
   cells.push(...activityCells);
-  if (item.status === "failed" && item.retryTarget
+  if (item.status === "failed" && (item.retryTarget || item.forkTarget?.recovery)
     && !activityCells.some((cell) => cell.activityKind === "turn")) {
     cells.push({
       id: `cell:turn-retry:${item.id}`,
@@ -191,7 +191,10 @@ export function canonicalTranscriptCellsFromThreadItem(
       forkTarget: item.forkTarget?.recovery ? item.forkTarget : undefined,
     });
   }
-  return normalizeCellEvidenceRefs(cells.filter((cell) => Boolean(cell.text.trim() || cell.detailText?.trim())));
+  return normalizeCellEvidenceRefs(cells.filter((cell) => (
+    cell.activityKind === "turn"
+    || Boolean(cell.text.trim() || cell.detailText?.trim())
+  )));
 }
 
 function reviewTargetTitle(target: import("../provider-runtime/index.js").ProviderReviewTarget): string {
@@ -219,9 +222,9 @@ function activityCellsFromThreadItem(item: TranscriptThreadItemInput, agentRoleI
   if (item.source === "workflow") return [];
   const activities = item.activity ?? [];
   if (activities.length === 0) return [];
-  const startedAt = activities.find((activity) => activity.kind === "status" && ["started", "connecting", "thinking", "running"].includes(activity.label))?.timestamp;
+  const startedAt = activities.find((activity) => activity.kind === "status" && activity.label === "thinking")?.timestamp;
   const observedTerminal = [...activities].reverse().find((activity): activity is Extract<AssistantTurnActivity, { kind: "status" }> =>
-    activity.kind === "status" && ["completed", "failed", "blocked", "cancelled"].includes(activity.label));
+    activity.kind === "status" && ["completed", "failed", "blocked", "cancelled", "interrupted", "stopped"].includes(activity.label));
   if (!startedAt) return [];
   if (!observedTerminal) {
     const latest = [...activities].reverse().find((activity): activity is Extract<AssistantTurnActivity, { kind: "status" }> => activity.kind === "status");
@@ -230,7 +233,7 @@ function activityCellsFromThreadItem(item: TranscriptThreadItemInput, agentRoleI
       id: `cell:turn:${canonicalTurnIdentity(item)}`,
       kind: "process-row",
       source: "provider-runtime",
-      timestamp: item.timestamp,
+      timestamp: startedAt,
       agentRoleId,
       agentTaskId: item.agentTaskId,
       runId: item.runId,
@@ -441,15 +444,16 @@ function transcriptCellFromAssistantBlock(
   }
 
   if (block.kind === "error") {
-    const errorText = text || cleanPrimaryText(block.preview ?? "运行出错");
-    if (!errorText) return null;
+    const title = cleanToolTitle(block.title) || "运行出错";
     return {
       id: transcriptCellIdForBlock(block, "error"),
       kind: "process-row",
       source: "aho-orchestration",
       timestamp,
-      title: cleanToolTitle(block.title) || "运行出错",
-      text: errorText,
+      title,
+      text: title === "连接失败"
+        ? "暂时无法连接到当前 Agent，请稍后重试。"
+        : "当前 Agent 未能完成本轮，请稍后重试。",
       status: block.status,
       isError: true,
       activityKind: "status",

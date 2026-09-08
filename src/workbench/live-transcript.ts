@@ -10,6 +10,9 @@ export function createAssistantTranscriptCapture(
   const blocks: AssistantTurnBlock[] = [];
   const mainCaptures = new Map<string, MainTranscriptCapture>();
   const childCaptures = new Map<string, ChildTranscriptCapture>();
+  const thinkingTurns = new Set<string>();
+  const terminalTurns = new Set<string>();
+  const terminalAttemptThreads = new Set<string>();
   let sequence = 0;
 
   function nextSequence(): number {
@@ -43,6 +46,22 @@ export function createAssistantTranscriptCapture(
 
   function appendProse(delta: string, identity: WorkbenchLiveIdentity): void {
     appendProseTo(blocks, delta, identity);
+  }
+
+  function existingMainCaptureFor(identity: WorkbenchLiveIdentity): MainTranscriptCapture | null {
+    if (!hasCanonicalTurnIdentity(identity)) return null;
+    return mainCaptures.get(canonicalTurnKey(identity)) ?? null;
+  }
+
+  function existingChildCaptureFor(identity: WorkbenchLiveIdentity): ChildTranscriptCapture | null {
+    if (!hasCanonicalTurnIdentity(identity) || !identity.agentRoleId || identity.agentRoleId === "main-agent") return null;
+    return childCaptures.get(canonicalTurnKey(identity)) ?? null;
+  }
+
+  function appendTurnStatus(target: AssistantTurnActivity[], label: string, detail: string | undefined, timestamp: string): AssistantTurnActivity {
+    const status: AssistantTurnActivity = { kind: "status", label, detail, timestamp };
+    target.push(status);
+    return status;
   }
 
   function mainCaptureFor(identity: WorkbenchLiveIdentity): MainTranscriptCapture | null {
@@ -135,37 +154,47 @@ export function createAssistantTranscriptCapture(
       emit(event: WorkbenchLiveEvent): void {
         const timestamp = new Date().toISOString();
         if (event.event === "run.started") {
-          const child = childCaptureFor(event.data);
-          const main = child ? null : mainCaptureFor(event.data);
-          const target = child?.activity ?? main?.activity;
-          if (!target) return;
-          target.push({
-            kind: "status",
-            label: "started",
-            detail: event.data.runtime ?? event.data.actionType,
-            timestamp,
-          });
-          if (!child) activity.push(target.at(-1)!);
+          // Transport acknowledgement is not a user-visible thinking phase. The exact provider
+          // turn/started notification arrives as run.status=thinking and owns the timer.
         } else if (event.event === "run.status") {
-          const child = childCaptureFor(event.data);
-          const main = child ? null : mainCaptureFor(event.data);
+          if (!hasCanonicalTurnIdentity(event.data)) return;
+          const turnKey = canonicalTurnKey(event.data);
+          const isThinking = event.data.status === "thinking";
+          const isTerminal = isTerminalTurnStatus(event.data.status);
+          if (!isThinking && !isTerminal && !thinkingTurns.has(turnKey)) return;
+          if (terminalTurns.has(turnKey)) return;
+          const child = isThinking ? childCaptureFor(event.data) : existingChildCaptureFor(event.data);
+          const main = child ? null : isThinking ? mainCaptureFor(event.data) : existingMainCaptureFor(event.data);
           const target = child?.activity ?? main?.activity;
           if (!target) return;
-          target.push({
-            kind: "status",
-            label: event.data.status,
-            detail: event.data.label,
-            timestamp,
-          });
-          if (!child) activity.push(target.at(-1)!);
+          if (isThinking) {
+            if (thinkingTurns.has(turnKey)) return;
+            thinkingTurns.add(turnKey);
+          }
+          const status = appendTurnStatus(target, event.data.status, event.data.label, timestamp);
+          if (isTerminal) {
+            terminalTurns.add(turnKey);
+            terminalAttemptThreads.add(canonicalAttemptThreadKey(event.data));
+          }
+          if (!child) activity.push(status);
         } else if (event.event === "assistant.delta") {
           if (!hasCanonicalItemIdentity(event.data)) return;
-          const child = childCaptureFor(event.data);
+          const turnKey = canonicalTurnKey(event.data);
+          if (terminalTurns.has(turnKey)
+            || (terminalAttemptThreads.has(canonicalAttemptThreadKey(event.data)) && !thinkingTurns.has(turnKey))) return;
+          const child = existingChildCaptureFor(event.data) ?? childCaptureFor(event.data);
           if (child) {
+            if (thinkingTurns.has(turnKey) && latestStatus(child.activity) !== "replying") {
+              appendTurnStatus(child.activity, "replying", "正在回复", timestamp);
+            }
             appendProseTo(child.blocks, event.data.delta, event.data);
           } else {
-            const main = mainCaptureFor(event.data);
+            const main = existingMainCaptureFor(event.data) ?? mainCaptureFor(event.data);
             if (!main) return;
+            if (thinkingTurns.has(turnKey) && latestStatus(main.activity) !== "replying") {
+              const replying = appendTurnStatus(main.activity, "replying", "正在回复", timestamp);
+              activity.push(replying);
+            }
             main.text += event.data.delta;
             appendProseTo(main.blocks, event.data.delta, event.data);
             capture.text += event.data.delta;
@@ -330,6 +359,19 @@ function childCaptureTimestamp(capture: ChildTranscriptCapture): string {
   return capture.blocks[0]?.timestamp ?? capture.activity[0]?.timestamp ?? "";
 }
 
+function latestStatus(activity: AssistantTurnActivity[]): string | undefined {
+  return [...activity].reverse().find((item): item is Extract<AssistantTurnActivity, { kind: "status" }> => item.kind === "status")?.label;
+}
+
+function isTerminalTurnStatus(status: string): boolean {
+  return status === "completed"
+    || status === "failed"
+    || status === "blocked"
+    || status === "cancelled"
+    || status === "interrupted"
+    || status === "stopped";
+}
+
 function hasCanonicalTurnIdentity<T extends WorkbenchLiveIdentity>(identity: T): identity is T & Required<Pick<WorkbenchLiveIdentity, "providerId" | "attemptId" | "threadId" | "turnId">> {
   return Boolean(identity.providerId && identity.attemptId && identity.threadId && identity.turnId);
 }
@@ -340,6 +382,10 @@ function hasCanonicalItemIdentity<T extends WorkbenchLiveIdentity>(identity: T):
 
 function canonicalTurnKey(identity: WorkbenchLiveIdentity & Required<Pick<WorkbenchLiveIdentity, "providerId" | "attemptId" | "threadId" | "turnId">>): string {
   return `${identity.providerId}:${identity.attemptId}:${identity.threadId}:${identity.turnId}`;
+}
+
+function canonicalAttemptThreadKey(identity: WorkbenchLiveIdentity & Required<Pick<WorkbenchLiveIdentity, "providerId" | "attemptId" | "threadId">>): string {
+  return `${identity.providerId}:${identity.attemptId}:${identity.threadId}`;
 }
 
 function canonicalItemKey(kind: AssistantTurnBlockKind, identity: WorkbenchLiveIdentity & Required<Pick<WorkbenchLiveIdentity, "providerId" | "attemptId" | "threadId" | "turnId" | "itemId">>): string {

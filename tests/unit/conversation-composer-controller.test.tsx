@@ -2,6 +2,8 @@
 
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { WorkbenchRequestError } from "../../src/web/src/api.js";
+import { ComposerDraftApiConflict } from "../../src/web/src/controllers/ComposerDraftSyncOwner.js";
 import {
   activeComposerSkillIds,
   prepareComposerInput,
@@ -10,7 +12,6 @@ import {
   type ConversationComposerPorts,
   type ConversationComposerScope,
 } from "../../src/web/src/controllers/useConversationComposerController.js";
-import { ComposerDraftApiConflict } from "../../src/web/src/controllers/ComposerDraftSyncOwner.js";
 import type { ComposerDraftSnapshot, ConversationTurnQueueSnapshot, ProviderCapabilitySnapshot, ProviderModelSettingsSnapshot, SkillListItem, TopicAttachment, TopicFileReference } from "../../src/web/src/types.js";
 
 afterEach(() => {
@@ -158,7 +159,121 @@ describe("Conversation composer controller", () => {
     expect(result.current.draftSkillOverrides).toEqual({ reviewer: true });
   });
 
-  it("settles an accepted Review command after Conversation navigation advances the draft revision", async () => {
+  it("settles a first send without deleting a model selected for the next Turn", async () => {
+    const ports = composerPorts();
+    const creation = deferred<{ projectId: string; conversationId: string }>();
+    let revision = 0;
+    ports.session.createConversation.mockImplementation(() => creation.promise);
+    ports.drafts.save.mockImplementation(async (input) => draftSnapshot({
+      projectId: input.projectId,
+      productMode: input.productMode,
+      agentTurnMode: input.agentTurnMode,
+      agentModelId: input.agentModelId,
+      agentReasoningEffort: input.agentReasoningEffort,
+      text: input.text,
+      contextRefs: input.contextRefs,
+      attachments: input.attachmentIds.map(attachment),
+      skillOverrides: input.skillOverrides,
+      selectedProviderId: input.selectedProviderId,
+      updatedAt: `draft-${++revision}`,
+    }));
+    const scope = homeScope({
+      productMode: "agent",
+      providerCapabilities: [providerCapability("codex", true)],
+      providerModelSettings: {
+        ...providerModelSettings("codex"),
+        candidates: [
+          {
+            providerId: "codex",
+            modelId: "model-old",
+            label: "Old",
+            source: "runtime",
+            supportedReasoningEfforts: [{ value: "medium", label: "中" }],
+            defaultReasoningEffort: "medium",
+          },
+          {
+            providerId: "codex",
+            modelId: "model-next",
+            label: "Next",
+            source: "runtime",
+            supportedReasoningEfforts: [{ value: "high", label: "高" }],
+            defaultReasoningEffort: "high",
+          },
+        ],
+      },
+    });
+    const { result } = renderHook(() => useConversationComposerController(scope, ports));
+    await waitFor(() => expect(ports.drafts.load).toHaveBeenCalled());
+    act(() => {
+      result.current.selectAgentModel("model-old");
+      result.current.setComposerText("first request");
+    });
+
+    let pending!: Promise<unknown>;
+    act(() => { pending = result.current.createConversation(); });
+    await waitFor(() => expect(ports.session.createConversation).toHaveBeenCalledOnce());
+    act(() => result.current.selectAgentModel("model-next"));
+    await act(async () => {
+      creation.resolve({ projectId: "repo", conversationId: "conversation-new" });
+      await pending;
+    });
+
+    expect(ports.drafts.delete).not.toHaveBeenCalled();
+    expect(ports.drafts.save).toHaveBeenLastCalledWith(expect.objectContaining({
+      text: "",
+      agentModelId: "model-next",
+      expectedUpdatedAt: "draft-1",
+    }));
+    expect(result.current.agentModelId).toBe("model-next");
+  });
+
+  it("persists a follow-up drafted during the active request and restores it after remount", async () => {
+    const ports = composerPorts();
+    const sending = deferred<void>();
+    let stored: ComposerDraftSnapshot | null = null;
+    let revision = 0;
+    ports.actions.sendMessage.mockImplementation(() => sending.promise);
+    ports.drafts.load.mockImplementation(async () => stored);
+    ports.drafts.save.mockImplementation(async (input) => {
+      stored = draftSnapshot({
+        projectId: input.projectId,
+        productMode: input.productMode,
+        agentTurnMode: input.agentTurnMode,
+        agentModelId: input.agentModelId,
+        agentReasoningEffort: input.agentReasoningEffort,
+        text: input.text,
+        contextRefs: input.contextRefs,
+        attachments: input.attachmentIds.map(attachment),
+        skillOverrides: input.skillOverrides,
+        selectedProviderId: input.selectedProviderId,
+        updatedAt: `draft-${++revision}`,
+      });
+      return stored;
+    });
+    const scope = conversationScope();
+    const first = renderHook(() => useConversationComposerController(scope, ports));
+    await waitFor(() => expect(ports.drafts.load).toHaveBeenCalledOnce());
+    act(() => first.result.current.setComposerText("submitted request"));
+
+    let pending!: Promise<void>;
+    act(() => { pending = first.result.current.send(); });
+    await waitFor(() => expect(ports.actions.sendMessage).toHaveBeenCalledOnce());
+    act(() => first.result.current.setComposerText("next request"));
+    await act(async () => {
+      sending.resolve();
+      await pending;
+    });
+
+    expect(stored?.text).toBe("next request");
+    expect(ports.drafts.delete).not.toHaveBeenCalled();
+    first.unmount();
+
+    const restored = renderHook(() => useConversationComposerController(scope, ports));
+    await waitFor(() => expect(restored.result.current.composerText).toBe("next request"));
+    restored.unmount();
+  });
+
+  it("settles an accepted Review command through the shared draft owner after navigation", async () => {
     const command = "/review custom inspect the boundary";
     const ports = composerPorts();
     ports.drafts.load.mockResolvedValue(draftSnapshot({ text: command }));
@@ -178,26 +293,21 @@ describe("Conversation composer controller", () => {
         selectedProviderId: "codex",
       },
     }) });
-    ports.drafts.save
-      .mockRejectedValueOnce(new ComposerDraftApiConflict(draftSnapshot({
-        text: command,
-        updatedAt: "2026-09-01T01:00:00.000Z",
-      })))
-      .mockResolvedValueOnce(draftSnapshot({
-        text: "",
-        updatedAt: "2026-09-01T01:00:01.000Z",
-      }));
+    ports.drafts.save.mockResolvedValueOnce(draftSnapshot({
+      text: "",
+      updatedAt: "2026-09-01T01:00:01.000Z",
+    }));
 
     await act(async () => {
       await result.current.clearAcceptedReviewCommand(command, "2026-08-20T00:00:00.000Z");
     });
 
-    expect(ports.drafts.save).toHaveBeenCalledTimes(2);
-    expect(ports.drafts.save).toHaveBeenLastCalledWith(expect.objectContaining({
+    expect(ports.drafts.save).toHaveBeenCalledTimes(1);
+    expect(ports.drafts.save).toHaveBeenCalledWith(expect.objectContaining({
       projectId: "repo",
       productMode: "agent",
       text: "",
-      expectedUpdatedAt: "2026-09-01T01:00:00.000Z",
+      expectedUpdatedAt: "2026-08-20T00:00:00.000Z",
     }));
     expect(result.current.composerText).toBe("");
   });
@@ -317,6 +427,129 @@ describe("Conversation composer controller", () => {
       providerSwitchIntent: "resume-workflow",
     }));
     expect(ports.timeline.calibrate).toHaveBeenCalledWith("repo", "conversation-1", "main-agent");
+  });
+
+  it("publishes the optimistic user row before draft persistence and network dispatch", async () => {
+    const persisted = deferred<ComposerDraftSnapshot>();
+    const ports = composerPorts();
+    ports.drafts.save.mockImplementationOnce(() => persisted.promise);
+    const { result } = renderHook(() => useConversationComposerController(conversationScope(), ports));
+    act(() => result.current.setComposerText("visible immediately"));
+
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.send(); });
+
+    expect(ports.timeline.showPending).toHaveBeenCalledWith(
+      { projectId: "repo", productMode: "harness", conversationId: "conversation-1" },
+      "request-1",
+      "visible immediately",
+    );
+    expect(result.current.composerText).toBe("");
+    expect(ports.actions.sendMessage).not.toHaveBeenCalled();
+
+    await act(async () => {
+      persisted.resolve(draftSnapshot({ productMode: "harness", agentTurnMode: null, text: "visible immediately" }));
+      await pending;
+    });
+    expect(ports.actions.sendMessage).toHaveBeenCalledOnce();
+  });
+
+  it("loads the draft for a registered Agent project independently of Harness management", async () => {
+    const ports = composerPorts();
+    ports.drafts.load.mockResolvedValue(draftSnapshot({
+      productMode: "agent",
+      text: "registered project draft",
+      updatedAt: "registered-token",
+    }));
+
+    const { result } = renderHook(() => useConversationComposerController(homeScope({
+      productMode: "agent",
+      projectRegistered: true,
+      providerCapabilities: [providerCapability("codex", true)],
+    }), ports));
+
+    await waitFor(() => expect(result.current.composerText).toBe("registered project draft"));
+    expect(ports.drafts.load).toHaveBeenCalledWith("repo", "agent");
+  });
+
+  it("keeps a canonical send successful when accepted-draft settlement conflicts", async () => {
+    const ports = composerPorts();
+    let savedRevision = 2;
+    ports.ids.createClientRequestId
+      .mockReturnValueOnce("request-1")
+      .mockReturnValueOnce("request-2");
+    ports.drafts.load
+      .mockResolvedValueOnce(draftSnapshot({ updatedAt: "draft-0" }))
+      .mockResolvedValueOnce(draftSnapshot({ text: "other window", updatedAt: "draft-2" }));
+    ports.drafts.save
+      .mockResolvedValueOnce(draftSnapshot({ text: "first request", updatedAt: "draft-1" }))
+      .mockRejectedValueOnce(new ComposerDraftApiConflict(draftSnapshot({
+        text: "other window",
+        updatedAt: "draft-2",
+      })))
+      .mockImplementation(async (input) => draftSnapshot({
+        productMode: input.productMode,
+        agentTurnMode: input.agentTurnMode,
+        agentModelId: input.agentModelId,
+        agentReasoningEffort: input.agentReasoningEffort,
+        text: input.text,
+        contextRefs: input.contextRefs,
+        attachments: input.attachmentIds.map(attachment),
+        skillOverrides: input.skillOverrides,
+        selectedProviderId: input.selectedProviderId,
+        updatedAt: `draft-${++savedRevision}`,
+      }));
+    const { result } = renderHook(() => useConversationComposerController(conversationScope({
+      productMode: "agent",
+      selectedProviderId: "codex",
+      providerCapabilities: [providerCapability("codex", true)],
+      conversation: {
+        id: "conversation-1",
+        productMode: "agent",
+        state: "active",
+        selectedProviderId: "codex",
+      },
+    }), ports));
+    await waitFor(() => expect(ports.drafts.load).toHaveBeenCalledOnce());
+
+    act(() => result.current.setComposerText("first request"));
+    await act(async () => { await result.current.send(); });
+
+    expect(ports.actions.sendMessage).toHaveBeenCalledTimes(1);
+    expect(ports.timeline.markPending).not.toHaveBeenCalled();
+    expect(ports.onError).toHaveBeenLastCalledWith("消息已发送，草稿已重新同步。");
+
+    act(() => result.current.setComposerText("second request"));
+    await act(async () => { await result.current.send(); });
+
+    expect(ports.actions.sendMessage).toHaveBeenCalledTimes(2);
+    expect(ports.actions.sendMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+      clientRequestId: "request-2",
+      message: "second request",
+    }));
+    expect(ports.timeline.markPending).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { status: 400, expected: "failed" },
+    { status: 408, expected: "uncertain" },
+    { status: 503, expected: "uncertain" },
+  ] as const)("classifies an HTTP $status submission failure as $expected", async ({ status, expected }) => {
+    const ports = composerPorts();
+    ports.actions.sendMessage.mockRejectedValue(new WorkbenchRequestError(status, "bounded failure"));
+    const { result } = renderHook(() => useConversationComposerController(conversationScope(), ports));
+    act(() => result.current.setComposerText(`request ${status}`));
+
+    await act(async () => {
+      await expect(result.current.send()).rejects.toBeInstanceOf(WorkbenchRequestError);
+    });
+
+    expect(ports.timeline.markPending).toHaveBeenCalledWith(
+      { projectId: "repo", productMode: "harness", conversationId: "conversation-1" },
+      "request-1",
+      expected,
+      expect.any(String),
+    );
   });
 
   it("keeps a captured first send running after a mode switch without overwriting the new draft", async () => {
@@ -589,20 +822,20 @@ describe("Conversation composer controller", () => {
     })));
   });
 
-  it("loads and persists a draft when a selected project becomes managed", async () => {
+  it("loads and persists a draft when a selected project becomes registered", async () => {
     const ports = composerPorts();
-    const unmanagedScope = homeScope({
-      managed: false,
+    const unregisteredScope = homeScope({
+      projectRegistered: false,
       productMode: "harness",
       providerCapabilities: [],
     });
     const { result, rerender } = renderHook(
       ({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
-      { initialProps: { scope: unmanagedScope } },
+      { initialProps: { scope: unregisteredScope } },
     );
 
     expect(ports.drafts.load).not.toHaveBeenCalled();
-    rerender({ scope: { ...unmanagedScope, managed: true } });
+    rerender({ scope: { ...unregisteredScope, projectRegistered: true } });
     await waitFor(() => expect(ports.drafts.load).toHaveBeenCalledWith("repo", "harness"));
 
     act(() => result.current.setComposerText("managed transition draft"));
@@ -614,21 +847,21 @@ describe("Conversation composer controller", () => {
     })));
   });
 
-  it("preserves and persists an edit made while managed draft recovery is pending", async () => {
+  it("preserves and persists an edit made while registered-project draft recovery is pending", async () => {
     const ports = composerPorts();
     const pendingDraft = deferred<ComposerDraftSnapshot | null>();
     ports.drafts.load.mockImplementationOnce(() => pendingDraft.promise);
-    const unmanagedScope = homeScope({
-      managed: false,
+    const unregisteredScope = homeScope({
+      projectRegistered: false,
       productMode: "harness",
       providerCapabilities: [],
     });
     const { result, rerender } = renderHook(
       ({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
-      { initialProps: { scope: unmanagedScope } },
+      { initialProps: { scope: unregisteredScope } },
     );
 
-    rerender({ scope: { ...unmanagedScope, managed: true } });
+    rerender({ scope: { ...unregisteredScope, projectRegistered: true } });
     await waitFor(() => expect(ports.drafts.load).toHaveBeenCalledWith("repo", "harness"));
     act(() => result.current.setComposerText("typed during recovery"));
     await act(async () => { pendingDraft.resolve(draftSnapshot({ productMode: "harness", agentTurnMode: null })); });
@@ -748,7 +981,7 @@ describe("Conversation composer controller", () => {
       providerId: "codex",
     }));
     expect(result.current.composerText).toBe("new scope draft");
-    expect(ports.onError).not.toHaveBeenCalled();
+    expect(ports.onError).not.toHaveBeenCalledWith(expect.any(String));
   });
 
   it("uses the stored Conversation Provider for Skill overrides before a Provider switch", async () => {
@@ -948,7 +1181,7 @@ describe("Conversation composer controller", () => {
     expect(result.current.composerText).toBe("must not send");
   });
 
-  it("restores an unchanged failed draft and clears message context only after success", async () => {
+  it("keeps a failed optimistic message outside the Composer and clears message context only after success", async () => {
     const failedPorts = composerPorts();
     failedPorts.actions.sendMessage.mockRejectedValue(new Error("offline"));
     const failed = renderHook(() => useConversationComposerController(conversationScope(), failedPorts));
@@ -956,7 +1189,7 @@ describe("Conversation composer controller", () => {
     await act(async () => {
       await expect(failed.result.current.send()).rejects.toThrow("offline");
     });
-    expect(failed.result.current.composerText).toBe("retry this");
+    expect(failed.result.current.composerText).toBe("");
     failed.unmount();
 
     const successPorts = composerPorts();
@@ -1421,7 +1654,30 @@ describe("Conversation composer controller", () => {
     }));
   });
 
-  it("restores Agent model selection from a draft and prefers Conversation selection", async () => {
+  it("captures a model and effort selected immediately before the first send", async () => {
+    const ports = composerPorts();
+    const { result } = renderHook(() => useConversationComposerController(homeScope({
+      productMode: "agent",
+      providerCapabilities: [providerCapability("codex", true)],
+    }), ports));
+    act(() => result.current.setComposerText("capture without waiting for a configuration rerender"));
+
+    let pending!: Promise<unknown>;
+    act(() => {
+      result.current.selectAgentModel("gpt-test");
+      result.current.selectAgentReasoningEffort("high");
+      pending = result.current.createConversation();
+    });
+    await act(async () => { await pending; });
+
+    expect(ports.session.createConversation).toHaveBeenCalledWith(expect.objectContaining({
+      productMode: "agent",
+      modelId: "gpt-test",
+      reasoningEffort: "high",
+    }));
+  });
+
+  it("restores Agent model selection from a draft and keeps the draft as Composer truth", async () => {
     const ports = composerPorts();
     ports.drafts.load.mockResolvedValue(draftSnapshot({
       agentModelId: "gpt-test",
@@ -1447,8 +1703,79 @@ describe("Conversation composer controller", () => {
         agentReasoningEffort: null,
       },
     }) });
-    await waitFor(() => expect(result.current.agentModelId).toBeNull());
-    expect(result.current.agentReasoningEffort).toBeNull();
+    await waitFor(() => expect(result.current.agentModelId).toBe("gpt-test"));
+    expect(result.current.agentReasoningEffort).toBe("high");
+  });
+
+  it("does not let a canonical Conversation refresh overwrite the next-Turn model selection", async () => {
+    const ports = composerPorts();
+    const modelSettings: ProviderModelSettingsSnapshot = {
+      ...providerModelSettings("codex"),
+      candidates: [
+        {
+          providerId: "codex",
+          modelId: "model-current",
+          label: "Current",
+          source: "runtime",
+          supportedReasoningEfforts: [{ value: "low", label: "低" }],
+          defaultReasoningEffort: "low",
+        },
+        {
+          providerId: "codex",
+          modelId: "model-next",
+          label: "Next",
+          source: "runtime",
+          supportedReasoningEfforts: [{ value: "high", label: "高" }],
+          defaultReasoningEffort: "high",
+        },
+        {
+          providerId: "codex",
+          modelId: "model-observed",
+          label: "Observed",
+          source: "runtime",
+          supportedReasoningEfforts: [{ value: "low", label: "低" }],
+          defaultReasoningEffort: "low",
+        },
+      ],
+    };
+    const initialScope = conversationScope({
+      productMode: "agent",
+      selectedProviderId: "codex",
+      providerCapabilities: [providerCapability("codex", true)],
+      providerModelSettings: modelSettings,
+      conversation: {
+        id: "conversation-model",
+        productMode: "agent",
+        state: "active",
+        selectedProviderId: "codex",
+        agentModelId: "model-current",
+        agentReasoningEffort: "low",
+      },
+    });
+    const { result, rerender } = renderHook(
+      ({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
+      { initialProps: { scope: initialScope } },
+    );
+    await waitFor(() => expect(result.current.agentModelId).toBe("model-current"));
+
+    act(() => {
+      result.current.selectAgentModel("model-next");
+      result.current.selectAgentReasoningEffort("high");
+    });
+    expect(result.current.agentModelId).toBe("model-next");
+    expect(result.current.agentReasoningEffort).toBe("high");
+
+    rerender({ scope: {
+      ...initialScope,
+      conversation: {
+        ...initialScope.conversation!,
+        agentModelId: "model-observed",
+        agentReasoningEffort: "low",
+      },
+    } });
+
+    await waitFor(() => expect(result.current.agentModelId).toBe("model-next"));
+    expect(result.current.agentReasoningEffort).toBe("high");
   });
 
   it("resets model and effort atomically on an explicit Provider switch", async () => {
@@ -1500,7 +1827,7 @@ function composerPorts(): ConversationComposerPorts & {
   session: { ensureProjectRegistered: ReturnType<typeof vi.fn>; createConversation: ReturnType<typeof vi.fn>; restoreDraftProvider: ReturnType<typeof vi.fn>; selectProvider: ReturnType<typeof vi.fn> };
   actions: { sendMessage: ReturnType<typeof vi.fn>; steer: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> };
   projection: { refreshConversation: ReturnType<typeof vi.fn> };
-  timeline: { calibrate: ReturnType<typeof vi.fn> };
+  timeline: { calibrate: ReturnType<typeof vi.fn>; showPending: ReturnType<typeof vi.fn>; markPending: ReturnType<typeof vi.fn>; rekeyPending: ReturnType<typeof vi.fn> };
   skills: { load: ReturnType<typeof vi.fn>; setEnabled: ReturnType<typeof vi.fn> };
   attachments: { upload: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn> };
   drafts: { load: ReturnType<typeof vi.fn>; save: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn> };
@@ -1526,7 +1853,12 @@ function composerPorts(): ConversationComposerPorts & {
       stop: vi.fn(async () => undefined),
     },
     projection: { refreshConversation: vi.fn(async () => undefined) },
-    timeline: { calibrate: vi.fn(async () => undefined) },
+    timeline: {
+      calibrate: vi.fn(async () => undefined),
+      showPending: vi.fn(),
+      markPending: vi.fn(),
+      rekeyPending: vi.fn(),
+    },
     skills: {
       load: vi.fn(async () => []),
       setEnabled: vi.fn(async () => undefined),
@@ -1592,7 +1924,7 @@ function homeScope(overrides: Partial<ConversationComposerScope> = {}): Conversa
   const scope: ConversationComposerScope = {
     projectId: "repo",
     conversation: null,
-    managed: true,
+    projectRegistered: true,
     running: false,
     selectedProviderId: "codex",
     providerCount: 1,

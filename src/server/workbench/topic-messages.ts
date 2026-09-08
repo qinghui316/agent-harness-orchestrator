@@ -3,6 +3,7 @@ import { createSseResponse } from "../sse.js";
 import {
   createWorkbenchConversation,
   postConversationMessage,
+  normalizeConversationClientRequestId,
   prepareConversationMessage,
   prepareWorkbenchConversation,
 } from "../../workbench/conversation-service.js";
@@ -64,6 +65,9 @@ export async function readCreateTopicBody(request: IncomingMessage): Promise<{
 export async function readTopicMessageBody(request: IncomingMessage): Promise<TopicMessageRequest> {
   const raw = await readJsonBody<TopicMessageRequest>(request);
   const message: TopicMessageRequest = {
+    clientRequestId: raw.clientRequestId === undefined
+      ? undefined
+      : normalizeConversationClientRequestId(raw.clientRequestId),
     text: raw.text,
     message: raw.message,
     mode: raw.mode,

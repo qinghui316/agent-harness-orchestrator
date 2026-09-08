@@ -237,6 +237,7 @@ export interface UpdateConversationTitleRequest {
 }
 
 export interface TopicMessageRequest {
+  clientRequestId?: string;
   text?: string;
   message?: string;
   mode?: TopicMessageInput["mode"];

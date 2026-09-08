@@ -620,6 +620,26 @@ retired semantic-thread and raw-provider history paths do not participate in
 the default conversation, and schema mismatch rebuilds bounded Workbench
 conversation/runtime data behind quiescence instead of importing old history.
 
+Conversation experience follows one dependency direction. Workbench canonical
+Conversation, Timeline, Draft, Session, and Provider-neutral contracts feed Web
+application controllers; pure experience projections then derive display state
+for Composer and Transcript presentation. `ConversationDraftController` owns
+in-memory draft reads, edits, captured-value clearing, and explicit restoration,
+while `ComposerDraftSyncOwner` remains the only Web persistence/CAS owner.
+`ConversationTurnSubmissionController` owns Renderer-local submission identity,
+optimistic intent state, retry eligibility, and restoration metadata. It does
+not create Timeline rows or call a Provider directly. `App.tsx` composes these
+owners and their narrow ports but does not implement sending phases, request
+correlation, draft settlement, or model-label precedence.
+
+Web-originated ordinary sends carry a bounded provider-neutral
+`clientRequestId`. Workbench uses that identity with the canonical request hash
+for idempotency and stores it in existing Timeline raw JSON; no schema column is
+added. Renderer optimistic rows are transient overlays over the canonical
+Timeline store. A matching canonical envelope replaces the optimistic row by
+identity, while refresh restores only canonical data and never resends an
+unproven in-memory request.
+
 Direct Agent turn admission is composed through `ConversationTurnRouter` before
 new Conversation or user-message persistence. One immutable admission captures
 Provider capability evidence, effective model, `default | plan`, and the
@@ -648,6 +668,14 @@ route and Harness action bridge both delegate to this Owner, while Codex-private
 `threadId` and `turnId` remain behind the adapter. Startup recovery runs before
 HTTP listen and fails stale Agent Main Attempts that lack exact current-process
 active-turn proof; it does not add a schema or a durable control table.
+
+Conversation Queue and Review remain separate owners without a mutual import.
+Queue depends only on `ConversationQueuedReviewDispatchPort`; the server
+composition root injects the Review implementation. The execution revision
+helper lives in a neutral service consumed by both owners. A deterministic
+source import-graph gate requires zero Web Client cycles and exact membership
+for the three separately registered root cycles, so a new cycle or expansion of
+an existing cycle fails lint with a concrete path.
 
 Plan-document and workspace-resource projection follows the same read-only
 direction. The exact provider-qualified final Planning-child item owns the

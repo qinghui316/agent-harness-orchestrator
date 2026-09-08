@@ -82,6 +82,7 @@ describe("canonical Timeline server contract", () => {
     )).resolves.toMatchObject({
       productMode: "agent",
       conversationId: created.conversationId,
+      entries: [expect.objectContaining({ clientRequestId: "agent-onboarding-timeline" })],
     });
     await expect(getWorkbenchSnapshot(input, {
       topicId: created.conversationId,

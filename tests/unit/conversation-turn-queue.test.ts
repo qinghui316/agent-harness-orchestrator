@@ -204,10 +204,10 @@ describe("ConversationTurnQueueOwner", () => {
     const order: string[] = [];
     const reviewStart = vi.fn(async () => {
       order.push("review");
-      return { status: "completed" };
+      return { conversationId, clientRequestId: "queue-dispatch", status: "completed" as const };
     });
     const post = vi.fn(async () => { order.push("turn"); });
-    const owner = createOwner(post, { start: reviewStart } as never);
+    const owner = createOwner(post, { dispatchQueuedReview: reviewStart });
     const initial = await owner.read(project, "agent", conversationId);
     const withReview = await owner.enqueue(project, {
       projectId,
@@ -236,8 +236,6 @@ describe("ConversationTurnQueueOwner", () => {
     const afterReview = await owner.dispatchNext(project, "agent", conversationId, withTurn.revision);
     expect(order).toEqual(["review"]);
     expect(reviewStart).toHaveBeenCalledWith(project, expect.objectContaining({
-      source: "queue",
-      productMode: "agent",
       conversationId,
       target: { type: "uncommitted-changes" },
       clientRequestId: expect.stringMatching(/^queue-dispatch-/),
@@ -253,7 +251,7 @@ describe("ConversationTurnQueueOwner", () => {
     const reviewStart = vi.fn()
       .mockRejectedValueOnce(namedError("Conflict", "first Review admission rejection"))
       .mockRejectedValueOnce(namedError("BadRequest", "second Review admission rejection"));
-    const owner = createOwner(undefined, { start: reviewStart } as never);
+    const owner = createOwner(undefined, { dispatchQueuedReview: reviewStart });
     const initial = await owner.read(project, "agent", conversationId);
     const queued = await owner.enqueue(project, {
       ...queueRequest(initial.revision, initial.executionRevision!),
@@ -758,14 +756,14 @@ type QueueOwnerOptions = ConstructorParameters<typeof ConversationTurnQueueOwner
 
 function createOwner(
   postConversationMessage?: QueueOwnerOptions["postConversationMessage"],
-  reviewOwner?: QueueOwnerOptions["reviewOwner"],
+  reviewDispatch?: QueueOwnerOptions["reviewDispatch"],
 ): ConversationTurnQueueOwner {
   return new ConversationTurnQueueOwner({
     projectRuntimeCoordinator: { resolve: async () => ({ state: "onboarding", paths }) } as never,
     turnRouter: {} as never,
     prepareConversationMessage: async () => ({}) as never,
     ...(postConversationMessage ? { postConversationMessage } : {}),
-    ...(reviewOwner ? { reviewOwner } : {}),
+    ...(reviewDispatch ? { reviewDispatch } : {}),
   });
 }
 

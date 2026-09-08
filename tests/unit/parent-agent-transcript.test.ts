@@ -94,11 +94,85 @@ describe("canonical parent agent transcript cells", () => {
     }]);
 
     expect(cells).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "cell:turn:codex:attempt-turn-1:thread-1:turn-1", kind: "process-row", title: "已完成 · 24 秒", status: "completed" }),
+      expect.objectContaining({ id: "cell:turn:codex:attempt-turn-1:thread-1:turn-1", kind: "process-row", title: "已完成 · 21 秒", status: "completed" }),
       expect.objectContaining({ kind: "process-row", title: "思考摘要 · Checked the implementation boundary.", text: "", detailText: "Checked the implementation boundary." }),
     ]));
     expect(cells[0]?.id).toBe("cell:reasoning:codex:attempt-turn-1:thread-1:turn-1:reasoning-1");
     expect(cells.at(-1)?.id).toBe("cell:turn:codex:attempt-turn-1:thread-1:turn-1");
+  });
+
+  it("keeps one visible realtime Turn row while thinking and replying, then terminalizes the same identity", () => {
+    const base = {
+      id: "assistant-live",
+      kind: "assistant-turn",
+      label: "AI",
+      source: "chat",
+      providerId: "codex",
+      attemptId: "attempt-live",
+      threadId: "thread-live",
+      turnId: "turn-live",
+    } satisfies ThreadItem;
+    const thinking = renderThreadItems([{
+      ...base,
+      activity: [
+        { kind: "status", label: "thinking", timestamp: "2026-09-08T01:00:00.000Z" },
+      ],
+    }]);
+    const replying = renderThreadItems([{
+      ...base,
+      activity: [
+        { kind: "status", label: "thinking", timestamp: "2026-09-08T01:00:00.000Z" },
+        { kind: "status", label: "replying", timestamp: "2026-09-08T01:00:03.000Z" },
+      ],
+    }]);
+    const completed = renderThreadItems([{
+      ...base,
+      activity: [
+        { kind: "status", label: "thinking", timestamp: "2026-09-08T01:00:00.000Z" },
+        { kind: "status", label: "replying", timestamp: "2026-09-08T01:00:03.000Z" },
+        { kind: "status", label: "completed", timestamp: "2026-09-08T01:00:08.000Z" },
+      ],
+    }]);
+
+    expect(thinking).toEqual([expect.objectContaining({
+      id: "cell:turn:codex:attempt-live:thread-live:turn-live",
+      title: "正在思考",
+      text: "",
+      timestamp: "2026-09-08T01:00:00.000Z",
+      realtime: true,
+      activityKind: "turn",
+    })]);
+    expect(replying).toEqual([expect.objectContaining({
+      id: thinking[0]?.id,
+      title: "正在回复",
+      text: "",
+      realtime: true,
+      activityKind: "turn",
+    })]);
+    expect(completed).toEqual([expect.objectContaining({
+      id: thinking[0]?.id,
+      title: "已完成 · 8 秒",
+      activityKind: "turn",
+    })]);
+    expect(completed[0]).not.toHaveProperty("realtime");
+  });
+
+  it("does not preserve unrelated empty process rows", () => {
+    const cells = renderThreadItems([{
+      id: "assistant-empty",
+      kind: "assistant-turn",
+      label: "AI",
+      blocks: [{
+        id: "empty-reasoning",
+        ...providerBlockIdentity("empty-reasoning"),
+        sequence: 1,
+        kind: "reasoning-summary",
+        source: "provider",
+        text: "",
+      }],
+    }]);
+
+    expect(cells).toEqual([]);
   });
 
   it("uses the canonical failed turn status when legacy activity ends with completed", () => {
@@ -155,6 +229,38 @@ describe("canonical parent agent transcript cells", () => {
     }]);
 
     expect(cells).toEqual([expect.objectContaining({ status: "failed", forkTarget })]);
+  });
+
+  it("keeps Provider-private failure payloads out of the ordinary transcript", () => {
+    const rawFailure = '{"threadId":"private-thread","turn":{"id":"private-turn","status":"failed","error":{"message":"429 Too Many Requests, request id: private-request"}}}';
+    const cells = renderThreadItems([{
+      id: "assistant-private-failure",
+      kind: "assistant-turn",
+      label: "AI",
+      providerId: "codex",
+      attemptId: "attempt-private",
+      threadId: "thread-private",
+      turnId: "turn-private",
+      status: "failed",
+      blocks: [{
+        id: "private-error",
+        ...providerBlockIdentity("private-error", { attemptId: "attempt-private", threadId: "thread-private", turnId: "turn-private" }),
+        sequence: 1,
+        kind: "error",
+        source: "provider",
+        title: "运行出错",
+        text: rawFailure,
+        isError: true,
+      }],
+    }]);
+
+    expect(cells).toEqual([expect.objectContaining({
+      title: "运行出错",
+      text: "当前 Agent 未能完成本轮，请稍后重试。",
+      isError: true,
+    })]);
+    expect(JSON.stringify(cells)).not.toContain("private-thread");
+    expect(JSON.stringify(cells)).not.toContain("private-request");
   });
 
   it("projects a provider child lifecycle as one navigable canonical process row", () => {

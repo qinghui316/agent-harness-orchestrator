@@ -35,19 +35,25 @@ describe("ComposerDraftSyncOwner", () => {
     expect(saved[1]).toEqual({ text: "next", expectedUpdatedAt: "2026-08-21T00:00:01.000Z" });
   });
 
-  it("keeps local content after a CAS conflict and bases the next user edit on the returned token", async () => {
+  it("does not overwrite a conflicting server draft until an explicit reload", async () => {
     const api = draftApi();
     api.save = vi.fn()
       .mockRejectedValueOnce(new ComposerDraftApiConflict(snapshot({ text: "other", updatedAt: "server-token" })))
-      .mockResolvedValueOnce(snapshot({ text: "after conflict", updatedAt: "next-token" }));
+      .mockResolvedValueOnce(snapshot({ text: "after reload", updatedAt: "next-token" }));
+    api.load = vi.fn(async () => snapshot({ text: "other", updatedAt: "server-token" }));
     const owner = new ComposerDraftSyncOwner(api, () => undefined, 0);
     owner.schedule(content("local"));
     await expect(owner.flush("repo", "agent")).rejects.toBeInstanceOf(ComposerDraftApiConflict);
     owner.schedule(content("after conflict"));
+    await expect(owner.flush("repo", "agent")).rejects.toBeInstanceOf(ComposerDraftApiConflict);
+    expect(api.save).toHaveBeenCalledOnce();
+
+    await owner.load("repo", "agent");
+    owner.schedule(content("after reload"));
     await owner.flush("repo", "agent");
 
     expect(api.save).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      text: "after conflict",
+      text: "after reload",
       expectedUpdatedAt: "server-token",
     }));
   });
@@ -59,16 +65,80 @@ describe("ComposerDraftSyncOwner", () => {
     expect(userFacingErrorMessage(conflict, "save")).toBe("当前状态已经变化。刷新后再试一次。");
   });
 
-  it("does not let an old send settlement delete a newer saved draft", async () => {
-    const api = draftApi({ load: vi.fn(async () => snapshot({ updatedAt: "captured-token" })) });
-    api.delete = vi.fn(async () => {
-      throw new ComposerDraftApiConflict(snapshot({ text: "new input", updatedAt: "new-token" }));
-    });
+  it("serializes load with a draft entered before the load response", async () => {
+    const pendingLoad = deferred<ComposerDraftSnapshot | null>();
+    const api = draftApi({ load: vi.fn(() => pendingLoad.promise) });
     const owner = new ComposerDraftSyncOwner(api, () => undefined, 0);
+    const loading = owner.load("repo", "agent");
+    owner.schedule(content("typed while loading"));
+    const flushing = owner.flush("repo", "agent");
+    expect(api.save).not.toHaveBeenCalled();
+
+    pendingLoad.resolve(snapshot({ text: "server draft", updatedAt: "loaded-token" }));
+    await loading;
+    await flushing;
+
+    expect(api.save).toHaveBeenCalledWith(expect.objectContaining({
+      text: "typed while loading",
+      expectedUpdatedAt: "loaded-token",
+    }));
+  });
+
+  it("settles against the latest local value and preserves a newer pending draft", async () => {
+    const api = draftApi({ load: vi.fn(async () => snapshot({ text: "submitted", updatedAt: "captured-token" })) });
+    const owner = new ComposerDraftSyncOwner(api, () => undefined, 10_000);
     await owner.load("repo", "agent");
-    await expect(owner.deleteIfUnchanged("repo", "agent", "captured-token"))
-      .rejects.toBeInstanceOf(ComposerDraftApiConflict);
-    expect(owner.token("repo", "agent")).toBe("new-token");
+    owner.schedule(content("next message"));
+
+    await owner.settleAccepted(content("submitted"));
+
+    expect(api.save).toHaveBeenCalledTimes(1);
+    expect(api.save).toHaveBeenCalledWith(expect.objectContaining({
+      text: "next message",
+      expectedUpdatedAt: "captured-token",
+    }));
+    expect(api.delete).not.toHaveBeenCalled();
+  });
+
+  it("clears submitted text while preserving a newer model selection", async () => {
+    const api = draftApi({ load: vi.fn(async () => snapshot({
+      text: "submitted",
+      agentModelId: "model-old",
+      updatedAt: "captured-token",
+    })) });
+    const owner = new ComposerDraftSyncOwner(api, () => undefined, 10_000);
+    await owner.load("repo", "agent");
+    owner.schedule(content("submitted", { agentModelId: "model-new" }));
+
+    await owner.settleAccepted(content("submitted", { agentModelId: "model-old" }));
+
+    expect(api.save).toHaveBeenCalledWith(expect.objectContaining({
+      text: "",
+      agentModelId: "model-new",
+      expectedUpdatedAt: "captured-token",
+    }));
+  });
+
+  it("uses the settlement token for an edit made while settlement is in flight", async () => {
+    const settlement = deferred<ComposerDraftSnapshot>();
+    const api = draftApi({ load: vi.fn(async () => snapshot({ text: "submitted", updatedAt: "captured-token" })) });
+    api.save = vi.fn()
+      .mockImplementationOnce(() => settlement.promise)
+      .mockResolvedValueOnce(snapshot({ text: "next message", updatedAt: "next-token" }));
+    const owner = new ComposerDraftSyncOwner(api, () => undefined, 10_000);
+    await owner.load("repo", "agent");
+
+    const settling = owner.settleAccepted(content("submitted"));
+    await vi.waitFor(() => expect(api.save).toHaveBeenCalledOnce());
+    owner.schedule(content("next message"));
+    settlement.resolve(snapshot({ text: "", updatedAt: "settled-token" }));
+    await settling;
+    await owner.flush("repo", "agent");
+
+    expect(api.save).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      text: "next message",
+      expectedUpdatedAt: "settled-token",
+    }));
   });
 });
 
@@ -81,7 +151,7 @@ function draftApi(overrides: Partial<ComposerDraftApi> = {}): ComposerDraftApi {
   };
 }
 
-function content(text: string): ComposerDraftContent {
+function content(text: string, overrides: Partial<ComposerDraftContent> = {}): ComposerDraftContent {
   return {
     projectId: "repo",
     productMode: "agent",
@@ -91,7 +161,18 @@ function content(text: string): ComposerDraftContent {
     attachmentIds: [],
     skillOverrides: {},
     selectedProviderId: "codex",
+    ...overrides,
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (cause: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }
 
 function snapshot(overrides: Partial<ComposerDraftSnapshot> = {}): ComposerDraftSnapshot {

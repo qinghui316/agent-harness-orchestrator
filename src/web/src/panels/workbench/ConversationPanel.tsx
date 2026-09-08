@@ -31,6 +31,8 @@ export function MainConversationView({
   onEnsureDocument,
   onRetry,
   onFork,
+  onRetryPending,
+  onRestorePending,
 }: {
   transcript: ParentAgentTranscript;
   scrollContainerRef: RefObject<HTMLDivElement | null>;
@@ -43,6 +45,8 @@ export function MainConversationView({
   onEnsureDocument: (document: import("../../types.js").CanonicalDocumentReference) => void;
   onRetry?: (target: NonNullable<import("../../types.js").ParentAgentTranscriptCell["retryTarget"]>) => Promise<void>;
   onFork?: (target: NonNullable<import("../../types.js").ParentAgentTranscriptCell["forkTarget"]>) => Promise<void>;
+  onRetryPending?: (clientRequestId: string) => Promise<void>;
+  onRestorePending?: (clientRequestId: string) => void;
 }): ReactElement {
   return (
     <div className="main-conversation-view" data-testid="main-conversation-view">
@@ -58,6 +62,8 @@ export function MainConversationView({
         onEnsureDocument={onEnsureDocument}
         onRetry={onRetry}
         onFork={onFork}
+        onRetryPending={onRetryPending}
+        onRestorePending={onRestorePending}
       />
     </div>
   );
@@ -75,6 +81,8 @@ function ParentAgentTranscriptView({
   onEnsureDocument,
   onRetry,
   onFork,
+  onRetryPending,
+  onRestorePending,
 }: {
   transcript: ParentAgentTranscript;
   scrollContainerRef: RefObject<HTMLDivElement | null>;
@@ -87,6 +95,8 @@ function ParentAgentTranscriptView({
   onEnsureDocument: (document: import("../../types.js").CanonicalDocumentReference) => void;
   onRetry?: (target: NonNullable<import("../../types.js").ParentAgentTranscriptCell["retryTarget"]>) => Promise<void>;
   onFork?: (target: NonNullable<import("../../types.js").ParentAgentTranscriptCell["forkTarget"]>) => Promise<void>;
+  onRetryPending?: (clientRequestId: string) => Promise<void>;
+  onRestorePending?: (clientRequestId: string) => void;
 }): ReactElement {
   const [forkTarget, setForkTarget] = useState<NonNullable<import("../../types.js").ParentAgentTranscriptCell["forkTarget"]> | null>(null);
   const [forking, setForking] = useState(false);
@@ -122,6 +132,8 @@ function ParentAgentTranscriptView({
             documentResources={documentResources}
             onEnsureDocument={onEnsureDocument}
             onRetry={cell.id === retryCellId ? onRetry : undefined}
+            onRetryPending={onRetryPending}
+            onRestorePending={onRestorePending}
             onFork={cell.forkTarget && onFork ? (target) => {
               setForkError(null);
               setForkTarget(target);

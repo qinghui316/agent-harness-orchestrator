@@ -24,6 +24,8 @@ export type WorkbenchWorkflowActionType = WorkflowActionType;
 
 export interface TopicThreadEntry {
   id: string;
+  clientRequestId?: string;
+  requestHash?: string;
   type: TopicThreadEventType;
   timestamp: string;
   conversationId?: string;
@@ -387,6 +389,7 @@ export interface WorkbenchAssistantEvent extends Omit<ProviderReadableEvent, "it
 }
 
 export interface TopicMessageInput {
+  clientRequestId?: string;
   mode?: WorkbenchMessageMode;
   message?: string;
   text?: string;

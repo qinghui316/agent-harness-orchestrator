@@ -193,6 +193,13 @@ service and mode router. The Owner cannot call a Provider or create Harness work
 authorization, Change, AgentTask, Lane, or worktree state. Historical pending-feedback
 Timeline rows are read-only history, and the Harness Workflow TaskQueue is unrelated.
 
+Queue dispatches a queued Code Review only through the neutral
+`ConversationQueuedReviewDispatchPort` injected by the Workbench composition
+root. Queue must not import `ConversationReviewLifecycleOwner`; Review must not
+import Queue for shared helpers. Execution revision calculation belongs to the
+neutral `conversation-execution-revision` service and does not grant either
+owner authority over the other lifecycle.
+
 `ConversationReviewLifecycleOwner` is the sole native Code Review mutation owner.
 The optional `turn.review` capability is Agent-only and does not change minimum
 Provider readiness. Public contracts carry a neutral Git target, opaque Session
@@ -672,6 +679,17 @@ Default/Plan, model override, Review, Steer, or other direct-Agent behavior
 through presentation reuse. Primary-action projection is advisory UI state;
 server admission and Conflict responses remain authoritative.
 
+Ordinary Web Turn submission has one application path. A bounded
+`clientRequestId` plus request hash provides server idempotency and is projected
+through the canonical Timeline envelope. The Renderer may show a scoped
+`PendingUserIntent` immediately, but that overlay is memory-only and cannot
+advance canonical sequence, persist a message, authorize a Provider call, or
+become Harness evidence. Reconciliation uses exact project, ProductMode,
+Conversation scope, generation, and request identity; text, timestamp, array
+position, and neighboring messages are not correlation mechanisms. Refresh or
+Renderer reload discards unresolved overlays and never automatically resends an
+uncertain request.
+
 Settings presentation separates normal configuration from diagnostics. The
 ordinary surface may expose only actionable provider/model settings and the
 searchable Skill catalog. Provider capability keys, runtime/spec detail, bounded
@@ -697,8 +715,12 @@ Composer draft persistence has one owner per layer. The schema-14
 full-snapshot compare-and-swap; the Workbench recovery service owns structured
 parsing and revalidation of project-relative references and managed attachment
 evidence; the Web `ComposerDraftSyncOwner` owns debounce, per-scope serialization,
-CAS tokens, and send/Steer settlement. Routes and `App.tsx` only compose these
-owners. Draft reads and writes must not call Provider runtime or Harness readiness,
+and CAS tokens. `ConversationDraftController` owns only the in-memory draft,
+captured-value clearing, and explicit restore/merge behavior, while
+`ConversationTurnSubmissionController` retains immutable submission snapshots
+and transport outcome classification. Controllers consume a neutral submission
+contract rather than importing presentation. Routes and `App.tsx` only compose
+these owners. Draft reads and writes must not call Provider runtime or Harness readiness,
 and must not create Conversation, Timeline, Attempt, Change, WorkflowGraph,
 AgentTask, Lane, worktree, Apply, Close, Integration, I2, or E1 facts. Harness
 drafts carry no Agent turn mode, model, or reasoning effort, and neither product
@@ -707,6 +729,13 @@ and effort preferences remain provider-neutral, use the same CAS settlement as
 the rest of the draft, and reset to Auto on explicit Provider switches. SQLite
 and public APIs retain attachment ids and safe relative metadata only, never
 bodies, base64, preview URLs, or managed absolute paths.
+
+Source dependency lint is a required architecture boundary. Every Web Client
+strongly connected component is forbidden. At repository scope only the exact
+three explicitly registered legacy components may remain; adding a member,
+merging components, creating a new component, or silently changing the allowlist
+fails with the concrete cycle path. The allowlist records debt and is not an
+extension point for feature work.
 
 `ProductModeActivityProjectionOwner` is the sole cross-mode activity summary
 owner. It reads current Agent Surface, interaction, Workpad, Run, queue, and

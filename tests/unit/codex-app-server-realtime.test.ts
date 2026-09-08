@@ -237,6 +237,19 @@ describe("Codex app-server realtime normalization", () => {
     const capture = createAssistantTranscriptCapture(undefined);
     for (const turnId of ["turn-1", "turn-2"]) {
       capture.sink.emit({
+        event: "run.status",
+        data: {
+          runId: "run-1",
+          providerId: "codex",
+          attemptId: "attempt-1",
+          threadId: "thread-child",
+          parentThreadId: "thread-main",
+          turnId,
+          agentRoleId: "planning-agent",
+          status: "thinking",
+        },
+      });
+      capture.sink.emit({
         event: "assistant.delta",
         data: {
           runId: "run-1",
@@ -280,6 +293,18 @@ describe("Codex app-server realtime normalization", () => {
     capture.sink.emit({
       event: "run.started",
       data: { runId: "run-1", providerId: "codex", attemptId: "attempt-1", actionType: "chat.ask" },
+    });
+    capture.sink.emit({
+      event: "run.status",
+      data: {
+        runId: "run-1",
+        providerId: "codex",
+        attemptId: "attempt-1",
+        threadId: "thread-main",
+        turnId: "turn-1",
+        agentRoleId: "main-agent",
+        status: "thinking",
+      },
     });
     capture.sink.emit({
       event: "assistant.delta",
@@ -327,8 +352,63 @@ describe("Codex app-server realtime normalization", () => {
       text: main.text,
     }))).toEqual([
       { canonicalId: "main:codex:attempt-1:thread-main:turn-1", threadId: "thread-main", turnId: "turn-1", text: "first" },
-      { canonicalId: "main:codex:attempt-1:thread-main:turn-2", threadId: "thread-main", turnId: "turn-2", text: "second" },
     ]);
+  });
+
+  it("creates no activity row for transport acknowledgement and completes one thinking row without text deltas", () => {
+    const capture = createAssistantTranscriptCapture(undefined);
+    const identity = {
+      runId: "run-no-delta",
+      providerId: "codex" as const,
+      attemptId: "attempt-no-delta",
+      threadId: "thread-no-delta",
+      turnId: "turn-no-delta",
+      agentRoleId: "main-agent",
+    };
+    capture.sink.emit({
+      event: "run.started",
+      data: { runId: identity.runId, providerId: identity.providerId, attemptId: identity.attemptId, actionType: "chat.ask" },
+    });
+    expect(capture.mainCaptures.size).toBe(0);
+
+    capture.sink.emit({ event: "run.status", data: { ...identity, status: "thinking" } });
+    capture.sink.emit({ event: "run.status", data: { ...identity, status: "completed" } });
+
+    expect([...capture.mainCaptures.values()]).toEqual([
+      expect.objectContaining({
+        text: "",
+        activity: [
+          expect.objectContaining({ kind: "status", label: "thinking" }),
+          expect.objectContaining({ kind: "status", label: "completed" }),
+        ],
+      }),
+    ]);
+  });
+
+  it("persists an identified text delta without inventing a thinking or replying phase", () => {
+    const capture = createAssistantTranscriptCapture(undefined);
+    capture.sink.emit({
+      event: "assistant.delta",
+      data: {
+        runId: "run-before-status",
+        providerId: "codex",
+        attemptId: "attempt-before-status",
+        threadId: "thread-before-status",
+        turnId: "turn-before-status",
+        itemId: "message-before-status",
+        agentRoleId: "main-agent",
+        delta: "provider text",
+      },
+    });
+
+    expect([...capture.mainCaptures.values()]).toEqual([
+      expect.objectContaining({
+        text: "provider text",
+        activity: [],
+        blocks: [expect.objectContaining({ kind: "prose", text: "provider text" })],
+      }),
+    ]);
+    expect(capture.activity).toEqual([]);
   });
 
   it("fails closed for an unscoped late child event", () => {
@@ -343,6 +423,7 @@ describe("Codex app-server realtime normalization", () => {
       itemId: "message-complete",
       agentRoleId: "planning-agent",
     };
+    capture.sink.emit({ event: "run.status", data: { ...childIdentity, status: "thinking" } });
     capture.sink.emit({ event: "assistant.delta", data: { ...childIdentity, delta: "first" } });
     capture.sink.emit({ event: "run.status", data: { ...childIdentity, status: "completed" } });
     capture.sink.emit({

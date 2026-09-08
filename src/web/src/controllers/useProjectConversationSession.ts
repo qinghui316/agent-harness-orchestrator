@@ -118,6 +118,7 @@ export interface ProjectConversationSessionPorts {
     invalidateProjection(): void;
     clearProject(projectId: string): void;
     clearConversation(projectId: string, conversationId: string): void;
+    rekeyConversation?(from: { projectId: string; productMode: ProductMode; conversationId: string }, toConversationId: string, clientRequestId: string): void;
   };
   resources?: {
     cleanupTransition(kind: SessionTransitionKind): void;
@@ -515,6 +516,13 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     }
     if (stateRef.current.selectedProjectId === projectId && saved.project.id !== projectId) {
       const selectedConversationId = stateRef.current.selectedTopic;
+      const pending = pendingDemandRef.current;
+      if (pending?.projectId === projectId) {
+        const rekeyedPending = { ...pending, projectId: saved.project.id };
+        pendingDemandRef.current = rekeyedPending;
+        setPendingDemandConversation(rekeyedPending);
+        stateRef.current = { ...stateRef.current, pendingDemandConversation: rekeyedPending };
+      }
       setSelectedProjectId(saved.project.id);
       stateRef.current = { ...stateRef.current, selectedProjectId: saved.project.id };
       navigation(portsRef.current).persistProjectId(saved.project.id);
@@ -540,6 +548,11 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     if (pending.canonical) {
       return pending.id === input.conversationId ? "already-canonical" : "rejected";
     }
+    portsRef.current.timeline?.rekeyConversation?.({
+      projectId: input.projectId,
+      productMode: input.productMode,
+      conversationId: pending.id,
+    }, input.conversationId, input.clientRequestId);
     ++requestGenerationRef.current;
     setSelectedProjectId(input.projectId);
     setSelectedTopic(input.conversationId);
@@ -569,6 +582,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     if (request.showPendingBeforeCreate && requestOwnsCurrentSelection) {
       portsRef.current.ui?.restoreView({ orchestrationOpen: false, settingsOpen: false });
       beginPendingDemand({
+        id: `pending:${request.clientRequestId}`,
         projectId: request.projectId,
         productMode: request.productMode,
         clientRequestId: request.clientRequestId,
@@ -656,10 +670,18 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
       }
       if (!canApplyToCurrentSelection()) throw cause;
       ++requestGenerationRef.current;
-      setPendingDemandConversation(null);
-      pendingDemandRef.current = null;
-      setSelectedTopic(previousConversationId);
-      navigation(portsRef.current).syncLocation(stateRef.current.selectedProjectId, previousConversationId);
+      const pending = pendingDemandRef.current;
+      const keepFailedPendingConversation = request.showPendingBeforeCreate
+        && pending?.projectId === request.projectId
+        && pending.productMode === request.productMode
+        && pending.clientRequestId === request.clientRequestId
+        && pending.id === `pending:${request.clientRequestId}`;
+      if (!keepFailedPendingConversation) {
+        setPendingDemandConversation(null);
+        pendingDemandRef.current = null;
+        setSelectedTopic(previousConversationId);
+        navigation(portsRef.current).syncLocation(stateRef.current.selectedProjectId, previousConversationId);
+      }
       throw cause;
     }
   }, [beginPendingDemand, refreshAtGeneration, rekeyPendingDemand, reportError]);
