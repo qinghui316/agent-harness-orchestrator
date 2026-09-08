@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { consumeWorkbenchLiveStream, fetchJson, postJson, WorkbenchRequestError } from "../api.js";
-import { createDraftSubmissionSnapshot } from "./conversation-submission-contract.js";
+import { fetchJson, postJson } from "../api.js";
+import {
+  createDraftSubmissionSnapshot,
+  type ComposerAttachmentUpload,
+  type ComposerCreateConversationRequest,
+  type ComposerCreatedConversation,
+  type ComposerMessageRequest,
+  type ComposerSkillOverride,
+} from "./conversation-submission-contract.js";
 import { userFacingErrorMessage } from "../presentation/user-facing-language.js";
 import { extractInlineFileMentions } from "../shell/file-mentions.js";
 import { extractInlineSkillMentions } from "../shell/skill-mentions.js";
@@ -19,7 +26,20 @@ import {
   ConversationDraftController,
   type ConversationDraftViewModel,
 } from "./ConversationDraftController.js";
-import { ConversationTurnSubmissionController } from "./ConversationTurnSubmissionController.js";
+import {
+  ConversationTurnSubmissionController,
+  type PendingConversationSubmission,
+} from "./ConversationTurnSubmissionController.js";
+import { projectComposerModelLabel } from "./ComposerExperienceProjection.js";
+import { createConversationSubmissionPorts } from "./ConversationSubmissionComposition.js";
+
+export type {
+  ComposerAttachmentUpload,
+  ComposerCreateConversationRequest,
+  ComposerCreatedConversation,
+  ComposerMessageRequest,
+  ComposerSkillOverride,
+} from "./conversation-submission-contract.js";
 
 export type ComposerTransition = "project-changed" | "conversation-changed" | "new-conversation";
 
@@ -59,51 +79,11 @@ export interface PreparedComposerInput {
   skillOverrides: Record<string, boolean>;
 }
 
-export interface ComposerCreateConversationRequest {
-  projectId: string;
-  productMode: ProductMode;
-  clientRequestId: string;
-  body: string;
-  contextRefs: TopicFileReference[];
-  attachmentIds: string[];
-  providerId?: string;
-  skillOverrides: ComposerSkillOverride[];
-  agentTurnMode?: AgentTurnMode;
-  modelId?: string | null;
-  reasoningEffort?: string | null;
-  showPendingBeforeCreate: boolean;
-}
-
-export interface ComposerSkillOverride {
-  skillId: string;
-  enabled: boolean;
-}
-
 export interface SkillRequestIdentity {
   projectId: string;
   productMode: ProductMode;
   conversationId: string | null;
   providerId: string | null;
-}
-
-export interface ComposerCreatedConversation {
-  projectId: string;
-  conversationId: string;
-}
-
-export interface ComposerMessageRequest {
-  clientRequestId: string;
-  projectId: string;
-  productMode: ProductMode;
-  conversationId: string;
-  message: string;
-  contextRefs: TopicFileReference[];
-  attachmentIds: string[];
-  providerId?: string;
-  providerSwitchIntent?: "resume-workflow";
-  agentTurnMode?: AgentTurnMode;
-  modelId?: string | null;
-  reasoningEffort?: string | null;
 }
 
 export interface ComposerActionRequest {
@@ -114,12 +94,6 @@ export interface ComposerActionRequest {
   expectedAttemptId?: string;
   clientRequestId?: string;
   prompt?: string;
-}
-
-export interface ComposerAttachmentUpload {
-  fileName: string;
-  mediaType: string;
-  data: string;
 }
 
 export interface ConversationComposerPorts {
@@ -256,7 +230,6 @@ export function useConversationComposerController(
       markDirty: markDraftDirty,
     });
   }
-  if (!submissionOwnerRef.current) submissionOwnerRef.current = new ConversationTurnSubmissionController();
 
   function markDraftDirty(): void {
     const currentScope = scopeRef.current;
@@ -570,6 +543,12 @@ export function useConversationComposerController(
     ?? resolveAgentTurnModeDisabledReason(scope, agentTurnMode)
     ?? resolveAgentTurnModelDisabledReason(scope, agentTurnMode, agentModelId, agentReasoningEffort)
     ?? resolveAttachmentCapabilityDisabledReason(scope, attachments);
+  const modelLabel = projectComposerModelLabel({
+    productMode: composerProductMode(scope),
+    composerModelId: agentModelId,
+    savedConversationModelId: scope.conversation?.agentModelId ?? null,
+    modelSettings: scope.providerModelSettings ?? null,
+  });
 
   const cleanupTransition = useCallback((transition: ComposerTransition): void => {
     scopeGenerationRef.current += 1;
@@ -838,6 +817,30 @@ export function useConversationComposerController(
     }
   }, []);
 
+  function submissionOwner(): ConversationTurnSubmissionController {
+    if (!submissionOwnerRef.current) {
+      submissionOwnerRef.current = new ConversationTurnSubmissionController(createConversationSubmissionPorts({
+        operation: () => portsRef.current.operation,
+        ids: () => portsRef.current.ids ?? defaultComposerIds,
+        session: () => portsRef.current.session,
+        actions: () => portsRef.current.actions,
+        timeline: () => portsRef.current.timeline,
+        projection: () => portsRef.current.projection,
+        attachments: () => portsRef.current.attachments ?? defaultAttachmentApi,
+        drafts: () => ({
+          flush: (projectId, productMode) => draftSyncOwnerRef.current!.flush(projectId, productMode),
+          settleAccepted: settleAcceptedDraft,
+        }),
+        skills: () => ({
+          apply: applySkillOverrides,
+          reload: (identity) => reloadSkills(identity.projectId, identity),
+        }),
+        onError: (message) => portsRef.current.onError(message),
+      }));
+    }
+    return submissionOwnerRef.current;
+  }
+
   const clearAcceptedReviewCommand = useCallback(async (
     capturedText: string,
     _expectedDraftUpdatedAt: string | null,
@@ -927,8 +930,7 @@ export function useConversationComposerController(
       portsRef.current.onError("请先选择本次对话使用的 Agent。");
       return null;
     }
-    let pendingScope = { projectId: capturedProjectId, productMode: capturedProductMode, conversationId: `pending:${clientRequestId}` };
-    let submissionSnapshot = createDraftSubmissionSnapshot({
+    const submissionSnapshot = createDraftSubmissionSnapshot({
       projectId: capturedProjectId,
       productMode: capturedProductMode,
       conversationId: null,
@@ -943,127 +945,27 @@ export function useConversationComposerController(
       modelId: capturedProductMode === "agent" ? capturedAgentModelId : null,
       reasoningEffort: capturedProductMode === "agent" ? capturedAgentReasoningEffort : null,
     });
-    submissionOwnerRef.current!.begin({
-      kind: "create",
+    return submissionOwner().submitCreate({
       snapshot: submissionSnapshot,
       attachments: capturedAttachments,
       attachmentFiles,
-    });
-    portsRef.current.timeline.showPending?.(pendingScope, clientRequestId, demandBody);
-    portsRef.current.session.beginPendingConversation?.({
-      id: pendingScope.conversationId,
-      projectId: capturedProjectId,
-      productMode: capturedProductMode,
-      clientRequestId,
-      title: "新需求",
-      body: demandBody,
-      selectedProviderId: capturedProviderId ?? undefined,
-    });
-    let capturedDraftToken: string | null;
-    try {
-      capturedDraftToken = await draftSyncOwnerRef.current!.flush(capturedProjectId, capturedProductMode);
-      submissionSnapshot = { ...submissionSnapshot, draftRevision: capturedDraftToken };
-      submissionOwnerRef.current!.updateSnapshot(clientRequestId, submissionSnapshot);
-    } catch (cause) {
-      submissionOwnerRef.current!.fail(clientRequestId, "failed");
-      portsRef.current.timeline.markPending?.(pendingScope, clientRequestId, "failed", errorMessage(cause));
-      portsRef.current.onError(errorMessage(cause));
-      return null;
-    }
-
-    const token = portsRef.current.operation.begin("topic.create");
-    let uploadedDraft: TopicAttachment[] = [];
-    let uploadProjectId: string | null = null;
-    let effectiveProjectId: string | null = null;
-    let created: ComposerCreatedConversation | null = null;
-    let transportStarted = false;
-    try {
-      portsRef.current.onError(null);
-      effectiveProjectId = await portsRef.current.session.ensureProjectRegistered(capturedProjectId);
-      if (!effectiveProjectId) {
-        const message = "项目暂时无法打开，请检查后重试。";
-        submissionOwnerRef.current!.fail(clientRequestId, "failed");
-        portsRef.current.timeline.markPending?.(pendingScope, clientRequestId, "failed", message);
-        return null;
-      }
-      if (effectiveProjectId !== pendingScope.projectId) {
-        const nextPendingScope = { ...pendingScope, projectId: effectiveProjectId };
-        portsRef.current.timeline.rekeyPending?.(pendingScope, nextPendingScope, clientRequestId);
-        pendingScope = nextPendingScope;
-      }
-      submissionSnapshot = { ...submissionSnapshot, projectId: effectiveProjectId };
-      submissionOwnerRef.current!.updateSnapshot(clientRequestId, submissionSnapshot);
-      uploadProjectId = effectiveProjectId;
-      uploadedDraft = await uploadFilesForProject(effectiveProjectId, attachmentFiles);
-      submissionSnapshot = {
-        ...submissionSnapshot,
-        projectId: effectiveProjectId,
-        attachmentIds: [...attachmentIds, ...uploadedDraft.map((attachment) => attachment.id)],
-      };
-      submissionOwnerRef.current!.updateSnapshot(clientRequestId, submissionSnapshot);
-      transportStarted = true;
-      created = await portsRef.current.session.createConversation({
-        projectId: effectiveProjectId,
-        productMode: capturedProductMode,
-        clientRequestId,
-        body: demandBody,
-        contextRefs: prepared.contextRefs,
-        attachmentIds: [...attachmentIds, ...uploadedDraft.map((attachment) => attachment.id)],
-        providerId: capturedProviderId ?? undefined,
-        skillOverrides: normalizeSkillOverrideRecord(prepared.skillOverrides),
-        agentTurnMode: capturedProductMode === "agent" ? capturedAgentTurnMode : undefined,
-        modelId: capturedProductMode === "agent" ? capturedAgentModelId : undefined,
-        reasoningEffort: capturedProductMode === "agent" ? capturedAgentReasoningEffort : undefined,
-        showPendingBeforeCreate: true,
-      });
-      uploadedDraft = [];
-      submissionOwnerRef.current!.settle(clientRequestId);
-      await settleAcceptedDraft(acceptedDraftContent);
-      const requestProjectIds = [capturedProjectId, effectiveProjectId];
-      if (attachmentGeneration === attachmentSelectionGenerationRef.current
-        && composerRequestOwnsCurrentScope(generation, requestProjectIds, capturedProductMode, capturedProviderId, scopeGenerationRef, scopeRef, created.conversationId)) {
+      acceptedDraft: acceptedDraftContent,
+      isCurrent: (created) => composerRequestOwnsCurrentScope(
+        generation,
+        [capturedProjectId, ...(created ? [created.projectId] : [])],
+        capturedProductMode,
+        capturedProviderId,
+        scopeGenerationRef,
+        scopeRef,
+        created?.conversationId,
+      ),
+      onAccepted: async (created) => {
+        if (attachmentGeneration !== attachmentSelectionGenerationRef.current) return;
         draftControllerRef.current!.clearAcceptedSnapshot(acceptedDraft);
         await reloadSkills(created.projectId);
-        if (composerRequestOwnsCurrentScope(generation, requestProjectIds, capturedProductMode, capturedProviderId, scopeGenerationRef, scopeRef, created.conversationId)) {
-          await portsRef.current.projection.refreshConversation(created.projectId, created.conversationId);
-        }
-      }
-      return created;
-    } catch (cause) {
-      if (uploadedDraft.length > 0) {
-        submissionSnapshot = { ...submissionSnapshot, attachmentIds: [...attachmentIds] };
-        submissionOwnerRef.current!.updateSnapshot(clientRequestId, submissionSnapshot);
-      }
-      const failureState = classifySubmissionFailure(cause, transportStarted);
-      submissionOwnerRef.current!.fail(clientRequestId, failureState);
-      portsRef.current.timeline.markPending?.(pendingScope, clientRequestId, failureState, errorMessage(cause));
-      if (composerRequestOwnsCurrentScope(generation, [capturedProjectId, ...(effectiveProjectId ? [effectiveProjectId] : [])], capturedProductMode, capturedProviderId, scopeGenerationRef, scopeRef)) {
-        portsRef.current.onError(errorMessage(cause));
-      }
-      throw cause;
-    } finally {
-      if (uploadedDraft.length > 0 && uploadProjectId) {
-        await Promise.allSettled(uploadedDraft.map((attachment) => (portsRef.current.attachments ?? defaultAttachmentApi).remove(uploadProjectId!, attachment.id)));
-      }
-      const completedCreation = created;
-      if (completedCreation && composerRequestOwnsCurrentScope(generation, [capturedProjectId, completedCreation.projectId], capturedProductMode, capturedProviderId, scopeGenerationRef, scopeRef, completedCreation.conversationId)) {
-        await calibrateTimeline(
-          completedCreation.projectId,
-          completedCreation.conversationId,
-          () => composerRequestOwnsCurrentScope(
-            generation,
-            [capturedProjectId, completedCreation.projectId],
-            capturedProductMode,
-            capturedProviderId,
-            scopeGenerationRef,
-            scopeRef,
-            completedCreation.conversationId,
-          ),
-        );
-      }
-      portsRef.current.operation.release(token);
-    }
-  }, [reloadSkills, settleAcceptedDraft, uploadFilesForProject]);
+      },
+    });
+  }, [reloadSkills]);
 
   const send = useCallback(async (): Promise<void> => {
     const currentScope = scopeRef.current;
@@ -1091,12 +993,6 @@ export function useConversationComposerController(
       : null;
     const attachmentGeneration = attachmentSelectionGenerationRef.current;
     if (!currentScope.projectId || !currentScope.conversation || (!draft.text.trim() && attachmentIds.length === 0)) return;
-    const capturedSkillIdentity: SkillRequestIdentity = {
-      projectId: currentScope.projectId,
-      productMode: capturedProductMode,
-      conversationId: currentScope.conversation.id,
-      providerId: currentScope.conversation.selectedProviderId ?? null,
-    };
     if (currentScope.conversation.productMode
       && currentScope.conversation.productMode !== capturedProductMode) {
       portsRef.current.onError("Conversation productMode does not match the selected application mode.");
@@ -1189,14 +1085,8 @@ export function useConversationComposerController(
       portsRef.current.onError(attachmentCapabilityError);
       return;
     }
-    let capturedDraftToken: string | null;
     const clientRequestId = (portsRef.current.ids ?? defaultComposerIds).createClientRequestId();
-    const pendingScope = {
-      projectId: currentScope.projectId,
-      productMode: capturedProductMode,
-      conversationId: currentScope.conversation.id,
-    };
-    let submissionSnapshot = createDraftSubmissionSnapshot({
+    const submissionSnapshot = createDraftSubmissionSnapshot({
       projectId: currentScope.projectId,
       productMode: capturedProductMode,
       conversationId: currentScope.conversation.id,
@@ -1211,241 +1101,69 @@ export function useConversationComposerController(
       modelId: capturedProductMode === "agent" ? capturedAgentModelId : null,
       reasoningEffort: capturedProductMode === "agent" ? capturedAgentReasoningEffort : null,
     });
-    submissionOwnerRef.current!.begin({
-      kind: "message",
+    await submissionOwner().submitMessage({
       snapshot: submissionSnapshot,
       attachments: draft.attachments,
-      attachmentFiles: [],
-    });
-    portsRef.current.timeline.showPending?.(pendingScope, clientRequestId, outboundMessage);
-    if (composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) {
-      draftControllerRef.current!.clearAcceptedSnapshot(draft, { text: true });
-      portsRef.current.onError(null);
-    }
-    try {
-      capturedDraftToken = await draftSyncOwnerRef.current!.flush(currentScope.projectId, capturedProductMode);
-      submissionSnapshot = { ...submissionSnapshot, draftRevision: capturedDraftToken };
-      submissionOwnerRef.current!.updateSnapshot(clientRequestId, submissionSnapshot);
-    } catch (cause) {
-      submissionOwnerRef.current!.fail(clientRequestId, "failed");
-      portsRef.current.timeline.markPending?.(pendingScope, clientRequestId, "failed", errorMessage(cause));
-      portsRef.current.onError(errorMessage(cause));
-      return;
-    }
-
-    const token = portsRef.current.operation.begin("chat.ask");
-    let transportStarted = false;
-    try {
-      await applySkillOverrides(capturedSkillIdentity, prepared.skillOverrides);
-      if (Object.keys(prepared.skillOverrides).length > 0) {
-        await reloadSkills(capturedSkillIdentity.projectId, capturedSkillIdentity);
-      }
-      const request: ComposerMessageRequest = {
-        clientRequestId,
+      acceptedDraft: capturedDraftContent,
+      skillIdentity: {
         projectId: currentScope.projectId,
         productMode: capturedProductMode,
         conversationId: currentScope.conversation.id,
-        message: outboundMessage,
-        contextRefs: prepared.contextRefs,
-        attachmentIds,
-        providerId: currentScope.selectedProviderId ?? currentScope.conversation.selectedProviderId,
-        providerSwitchIntent: currentScope.selectedProviderId && currentScope.selectedProviderId !== currentScope.conversation.selectedProviderId
-          ? "resume-workflow"
-          : undefined,
-        agentTurnMode: capturedProductMode === "agent" ? capturedAgentTurnMode : undefined,
-        modelId: capturedProductMode === "agent" ? capturedAgentModelId : undefined,
-        reasoningEffort: capturedProductMode === "agent" ? capturedAgentReasoningEffort : undefined,
-      };
-      transportStarted = true;
-      await (portsRef.current.actions.sendMessage
-        ?? ((input: ComposerMessageRequest) => sendComposerMessage(input, (projectId, event) => {
-          const active = scopeRef.current;
-          if (active.projectId === projectId
-            && composerProductMode(active) === input.productMode
-            && active.conversation?.id === input.conversationId
-            && generation === scopeGenerationRef.current
-            && workbenchEventMatchesConversation(event, input)) {
-            portsRef.current.projection.routeEvent?.(projectId, event);
-          }
-        })))(request);
-      submissionOwnerRef.current!.settle(clientRequestId);
-      if (capturedDraftContent) {
-        await settleAcceptedDraft(capturedDraftContent);
-      }
-      if (attachmentGeneration === attachmentSelectionGenerationRef.current
-        && composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) {
+        providerId: currentScope.conversation.selectedProviderId ?? null,
+      },
+      providerSwitchIntent: currentScope.selectedProviderId && currentScope.selectedProviderId !== currentScope.conversation.selectedProviderId
+        ? "resume-workflow"
+        : undefined,
+      isCurrent: () => composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef),
+      acceptsEvent: (event) => workbenchEventMatchesConversation(event, {
+        projectId: submissionSnapshot.projectId,
+        productMode: submissionSnapshot.productMode,
+        conversationId: submissionSnapshot.conversationId!,
+      }),
+      onPending: () => {
+        if (!composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) return;
+        draftControllerRef.current!.clearAcceptedSnapshot(draft, { text: true });
+        portsRef.current.onError(null);
+      },
+      onAccepted: () => {
+        if (attachmentGeneration !== attachmentSelectionGenerationRef.current) return;
         draftControllerRef.current!.clearAcceptedSnapshot(draft, {
           contextRefs: true,
           attachments: true,
           skillOverrides: true,
         });
-      }
-    } catch (cause) {
-      const failureState = classifySubmissionFailure(cause, transportStarted);
-      submissionOwnerRef.current!.fail(clientRequestId, failureState);
-      portsRef.current.timeline.markPending?.(pendingScope, clientRequestId, failureState, errorMessage(cause));
-      if (composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) {
-        portsRef.current.onError(errorMessage(cause));
-      }
-      throw cause;
-    } finally {
-      if (composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) {
-        await calibrateTimeline(
-          currentScope.projectId,
-          currentScope.conversation.id,
-          () => composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef),
-        );
-      }
-      portsRef.current.operation.release(token);
-    }
-  }, [reloadSkills, settleAcceptedDraft]);
+      },
+    });
+  }, [settleAcceptedDraft]);
 
   const retryPendingIntent = useCallback(async (clientRequestId: string): Promise<void> => {
-    const nextClientRequestId = (portsRef.current.ids ?? defaultComposerIds).createClientRequestId();
-    const submission = submissionOwnerRef.current!.retry(clientRequestId, nextClientRequestId);
-    if (!submission) return;
     const currentScope = scopeRef.current;
-    const snapshot = submission.snapshot;
-    if (currentScope.projectId !== snapshot.projectId
-      || composerProductMode(currentScope) !== snapshot.productMode
-      || (submission.kind === "message" && currentScope.conversation?.id !== snapshot.conversationId)) {
-      submissionOwnerRef.current!.fail(nextClientRequestId, "failed");
-      portsRef.current.onError("这条消息不属于当前会话，请切回原会话后重试。");
-      return;
-    }
-
-    let pendingScope = {
-      projectId: snapshot.projectId,
-      productMode: snapshot.productMode,
-      conversationId: snapshot.conversationId ?? `pending:${nextClientRequestId}`,
-    };
-    portsRef.current.timeline.showPending?.(pendingScope, nextClientRequestId, snapshot.text);
-    if (submission.kind === "create") {
-      portsRef.current.session.beginPendingConversation?.({
-        id: pendingScope.conversationId,
+    const generation = scopeGenerationRef.current;
+    await submissionOwner().retryPendingIntent(clientRequestId, {
+      matchesCurrent: (submission: PendingConversationSubmission) => (
+        generation === scopeGenerationRef.current
+        && currentScope.projectId === submission.snapshot.projectId
+        && composerProductMode(currentScope) === submission.snapshot.productMode
+        && (submission.kind === "create" || currentScope.conversation?.id === submission.snapshot.conversationId)
+      ),
+      selectedConversationProviderId: currentScope.conversation?.selectedProviderId ?? null,
+      isCurrent: (snapshot, created) => {
+        const active = scopeRef.current;
+        return generation === scopeGenerationRef.current
+          && active.projectId === (created?.projectId ?? snapshot.projectId)
+          && composerProductMode(active) === snapshot.productMode
+          && active.conversation?.id === (created?.conversationId ?? snapshot.conversationId);
+      },
+      acceptsEvent: (snapshot, event) => workbenchEventMatchesConversation(event, {
         projectId: snapshot.projectId,
         productMode: snapshot.productMode,
-        clientRequestId: nextClientRequestId,
-        title: "新需求",
-        body: snapshot.text,
-        selectedProviderId: snapshot.providerId ?? undefined,
-      });
-    }
-
-    const token = portsRef.current.operation.begin(submission.kind === "create" ? "topic.create.retry" : "chat.ask.retry");
-    let uploadedDraft: TopicAttachment[] = [];
-    let uploadProjectId: string | null = null;
-    let transportStarted = false;
-    try {
-      portsRef.current.onError(null);
-      if (submission.kind === "create") {
-        const effectiveProjectId = await portsRef.current.session.ensureProjectRegistered(snapshot.projectId);
-        if (!effectiveProjectId) throw new Error("项目暂时无法打开，请检查后重试。");
-        if (effectiveProjectId !== pendingScope.projectId) {
-          const nextPendingScope = { ...pendingScope, projectId: effectiveProjectId };
-          portsRef.current.timeline.rekeyPending?.(pendingScope, nextPendingScope, nextClientRequestId);
-          pendingScope = nextPendingScope;
-        }
-        const registeredSnapshot = { ...snapshot, projectId: effectiveProjectId };
-        submissionOwnerRef.current!.updateSnapshot(nextClientRequestId, registeredSnapshot);
-        uploadProjectId = effectiveProjectId;
-        uploadedDraft = await uploadFilesForProject(effectiveProjectId, submission.attachmentFiles);
-        const retrySnapshot = {
-          ...snapshot,
-          projectId: effectiveProjectId,
-          attachmentIds: [...snapshot.attachmentIds, ...uploadedDraft.map((attachment) => attachment.id)],
-        };
-        submissionOwnerRef.current!.updateSnapshot(nextClientRequestId, retrySnapshot);
-        transportStarted = true;
-        const created = await portsRef.current.session.createConversation({
-          projectId: effectiveProjectId,
-          productMode: retrySnapshot.productMode,
-          clientRequestId: nextClientRequestId,
-          body: retrySnapshot.text,
-          contextRefs: retrySnapshot.contextRefs,
-          attachmentIds: retrySnapshot.attachmentIds,
-          providerId: retrySnapshot.providerId ?? undefined,
-          skillOverrides: normalizeSkillOverrideRecord(retrySnapshot.skillOverrides),
-          agentTurnMode: retrySnapshot.productMode === "agent" ? retrySnapshot.agentTurnMode ?? undefined : undefined,
-          modelId: retrySnapshot.productMode === "agent" ? retrySnapshot.modelId : undefined,
-          reasoningEffort: retrySnapshot.productMode === "agent" ? retrySnapshot.reasoningEffort : undefined,
-          showPendingBeforeCreate: true,
-        });
-        uploadedDraft = [];
-        submissionOwnerRef.current!.settle(nextClientRequestId);
-        await portsRef.current.projection.refreshConversation(created.projectId, created.conversationId);
-        await calibrateTimeline(created.projectId, created.conversationId, () => (
-          scopeRef.current.projectId === created.projectId
-          && composerProductMode(scopeRef.current) === retrySnapshot.productMode
-          && scopeRef.current.conversation?.id === created.conversationId
-        ));
-        return;
-      }
-
-      const conversationId = snapshot.conversationId;
-      if (!conversationId) throw new Error("无法确认原会话，请放回输入框后重新发送。");
-      await applySkillOverrides({
-        projectId: snapshot.projectId,
-        productMode: snapshot.productMode,
-        conversationId,
-        providerId: snapshot.providerId,
-      }, snapshot.skillOverrides);
-      const request: ComposerMessageRequest = {
-        clientRequestId: nextClientRequestId,
-        projectId: snapshot.projectId,
-        productMode: snapshot.productMode,
-        conversationId,
-        message: snapshot.text,
-        contextRefs: snapshot.contextRefs,
-        attachmentIds: snapshot.attachmentIds,
-        providerId: snapshot.providerId ?? undefined,
-        providerSwitchIntent: snapshot.providerId && snapshot.providerId !== currentScope.conversation?.selectedProviderId
-          ? "resume-workflow"
-          : undefined,
-        agentTurnMode: snapshot.productMode === "agent" ? snapshot.agentTurnMode ?? undefined : undefined,
-        modelId: snapshot.productMode === "agent" ? snapshot.modelId : undefined,
-        reasoningEffort: snapshot.productMode === "agent" ? snapshot.reasoningEffort : undefined,
-      };
-      transportStarted = true;
-      await (portsRef.current.actions.sendMessage
-        ?? ((input: ComposerMessageRequest) => sendComposerMessage(input, (projectId, event) => {
-          const active = scopeRef.current;
-          if (active.projectId === projectId
-            && composerProductMode(active) === input.productMode
-            && active.conversation?.id === input.conversationId
-            && workbenchEventMatchesConversation(event, input)) {
-            portsRef.current.projection.routeEvent?.(projectId, event);
-          }
-        })))(request);
-      submissionOwnerRef.current!.settle(nextClientRequestId);
-      await calibrateTimeline(snapshot.projectId, conversationId, () => (
-        scopeRef.current.projectId === snapshot.projectId
-        && composerProductMode(scopeRef.current) === snapshot.productMode
-        && scopeRef.current.conversation?.id === conversationId
-      ));
-    } catch (cause) {
-      if (uploadedDraft.length > 0) {
-        submissionOwnerRef.current!.updateSnapshot(nextClientRequestId, {
-          ...snapshot,
-          projectId: pendingScope.projectId,
-        });
-      }
-      const failureState = classifySubmissionFailure(cause, transportStarted);
-      submissionOwnerRef.current!.fail(nextClientRequestId, failureState);
-      portsRef.current.timeline.markPending?.(pendingScope, nextClientRequestId, failureState, errorMessage(cause));
-      portsRef.current.onError(errorMessage(cause));
-    } finally {
-      if (uploadedDraft.length > 0 && uploadProjectId) {
-        await Promise.allSettled(uploadedDraft.map((attachment) => (
-          portsRef.current.attachments ?? defaultAttachmentApi
-        ).remove(uploadProjectId!, attachment.id)));
-      }
-      portsRef.current.operation.release(token);
-    }
-  }, [uploadFilesForProject]);
+        conversationId: snapshot.conversationId!,
+      }),
+    });
+  }, []);
 
   const restorePendingIntent = useCallback((clientRequestId: string): void => {
-    const submission = submissionOwnerRef.current!.restore(clientRequestId);
+    const submission = submissionOwner().restore(clientRequestId);
     if (!submission) return;
     const currentScope = scopeRef.current;
     const snapshot = submission.snapshot;
@@ -1575,6 +1293,7 @@ export function useConversationComposerController(
     agentTurnMode,
     agentModelId,
     agentReasoningEffort,
+    modelLabel,
     selectAgentTurnMode,
     selectAgentModel,
     selectAgentReasoningEffort,
@@ -1789,29 +1508,6 @@ const defaultAttachmentApi = {
     if (!response.ok) throw new Error(await response.text());
   },
 };
-
-async function sendComposerMessage(
-  request: ComposerMessageRequest,
-  routeEvent?: (projectId: string, event: WorkbenchLiveEvent) => void,
-): Promise<void> {
-  await consumeWorkbenchLiveStream<WorkbenchLiveEvent>(
-    `/api/projects/${encodeURIComponent(request.projectId)}/workbench/topics/${encodeURIComponent(request.conversationId)}/messages/live`,
-    {
-      mode: "chat",
-      clientRequestId: request.clientRequestId,
-      message: request.message,
-      contextRefs: request.contextRefs,
-      attachmentIds: request.attachmentIds,
-      providerId: request.providerId,
-      providerSwitchIntent: request.providerSwitchIntent,
-      productMode: request.productMode,
-      agentTurnMode: request.agentTurnMode,
-      modelId: request.modelId,
-      reasoningEffort: request.reasoningEffort,
-    },
-    (event) => routeEvent?.(request.projectId, event),
-  );
-}
 
 function composerProductMode(scope: ConversationComposerScope): ProductMode {
   return scope.productMode ?? scope.conversation?.productMode ?? "harness";
@@ -2041,12 +1737,4 @@ function readFileAsDataUrl(file: File): Promise<string> {
 
 function errorMessage(cause: unknown): string {
   return userFacingErrorMessage(cause, "send");
-}
-
-function classifySubmissionFailure(cause: unknown, transportStarted: boolean): "failed" | "uncertain" {
-  if (!transportStarted) return "failed";
-  if (cause instanceof WorkbenchRequestError) {
-    return cause.status === 408 || cause.status >= 500 ? "uncertain" : "failed";
-  }
-  return "uncertain";
 }

@@ -1177,8 +1177,7 @@ function assertExistingCreateReplay(
     || existing.clientCreateRequestHash === attachmentRequestHash
     || existing.clientCreateRequestHash === previousRequestHash
     || (existing.agentTurnMode === prepared.agentTurnMode && existing.clientCreateRequestHash === legacyRequestHash);
-  if (existing.conversationId !== prepared.conversationId
-    || existing.productMode !== prepared.productMode
+  if (existing.productMode !== prepared.productMode
     || !requestMatches) {
     throw conflict("clientRequestId was already used for a different Conversation request.");
   }

@@ -11,6 +11,7 @@ export function createAssistantTranscriptCapture(
   const mainCaptures = new Map<string, MainTranscriptCapture>();
   const childCaptures = new Map<string, ChildTranscriptCapture>();
   const thinkingTurns = new Set<string>();
+  const observedDeltaTurns = new Set<string>();
   const terminalTurns = new Set<string>();
   const terminalAttemptThreads = new Set<string>();
   let sequence = 0;
@@ -163,6 +164,7 @@ export function createAssistantTranscriptCapture(
           const isTerminal = isTerminalTurnStatus(event.data.status);
           if (!isThinking && !isTerminal && !thinkingTurns.has(turnKey)) return;
           if (terminalTurns.has(turnKey)) return;
+          if (isThinking && observedDeltaTurns.has(turnKey)) return;
           const child = isThinking ? childCaptureFor(event.data) : existingChildCaptureFor(event.data);
           const main = child ? null : isThinking ? mainCaptureFor(event.data) : existingMainCaptureFor(event.data);
           const target = child?.activity ?? main?.activity;
@@ -182,6 +184,7 @@ export function createAssistantTranscriptCapture(
           const turnKey = canonicalTurnKey(event.data);
           if (terminalTurns.has(turnKey)
             || (terminalAttemptThreads.has(canonicalAttemptThreadKey(event.data)) && !thinkingTurns.has(turnKey))) return;
+          observedDeltaTurns.add(turnKey);
           const child = existingChildCaptureFor(event.data) ?? childCaptureFor(event.data);
           if (child) {
             if (thinkingTurns.has(turnKey) && latestStatus(child.activity) !== "replying") {

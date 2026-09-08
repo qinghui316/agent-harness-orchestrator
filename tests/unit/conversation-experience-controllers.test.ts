@@ -1,12 +1,18 @@
 // @vitest-environment jsdom
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { WorkbenchRequestError } from "../../src/web/src/api.js";
 import {
   ConversationDraftController,
   type ConversationDraftViewModel,
 } from "../../src/web/src/controllers/ConversationDraftController.js";
 import { ConversationTurnSubmissionController } from "../../src/web/src/controllers/ConversationTurnSubmissionController.js";
-import { createDraftSubmissionSnapshot } from "../../src/web/src/controllers/conversation-submission-contract.js";
+import {
+  createDraftSubmissionSnapshot,
+  type ConversationSubmissionPorts,
+  type ConversationSubmissionSkillIdentity,
+} from "../../src/web/src/controllers/conversation-submission-contract.js";
+import type { ComposerDraftContent } from "../../src/web/src/controllers/ComposerDraftSyncOwner.js";
 import type { TopicAttachment, TopicFileReference } from "../../src/web/src/types.js";
 
 describe("Conversation experience application owners", () => {
@@ -74,34 +80,269 @@ describe("Conversation experience application owners", () => {
     expect(ahoHarness.state).toMatchObject({ agentTurnMode: "default", modelId: null, reasoningEffort: null });
   });
 
-  it("deep-clones submissions, retries only proven failures with a new request id, and retains original files", () => {
-    const owner = new ConversationTurnSubmissionController();
+  it("shows the optimistic row before transport and sends one immutable follow-up snapshot", async () => {
+    const order: string[] = [];
+    const ports = submissionPorts(order);
+    const owner = new ConversationTurnSubmissionController(ports);
+    const snapshot = submissionSnapshot({ conversationId: "conversation-1" });
+
+    await owner.submitMessage({
+      snapshot,
+      attachments: [attachment("existing")],
+      acceptedDraft: acceptedDraft(snapshot),
+      skillIdentity: skillIdentity(snapshot),
+      isCurrent: () => true,
+      acceptsEvent: () => true,
+      onPending: () => { order.push("draft-pending"); },
+      onAccepted: () => { order.push("draft-accepted"); },
+    });
+
+    expect(order.indexOf("optimistic")).toBeLessThan(order.indexOf("transport"));
+    expect(ports.transport.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      clientRequestId: "request-original",
+      conversationId: "conversation-1",
+      modelId: "gpt-next",
+      reasoningEffort: "high",
+    }), expect.any(Function));
+    expect(ports.skills.apply).toHaveBeenCalledWith(skillIdentity(snapshot), { restored: true });
+    expect(ports.drafts.settleAccepted).toHaveBeenCalledOnce();
+    expect(ports.timeline.calibrate).toHaveBeenCalledWith("repo", "conversation-1", "main-agent");
+    expect(owner.restore(snapshot.clientRequestId)).toBeNull();
+  });
+
+  it("classifies explicit rejection as failed and retries with a new request identity", async () => {
+    const ports = submissionPorts();
+    ports.transport.sendMessage
+      .mockRejectedValueOnce(new WorkbenchRequestError(400, "rejected"))
+      .mockResolvedValueOnce(undefined);
+    ports.ids.createClientRequestId.mockReturnValue("request-retry");
+    const owner = new ConversationTurnSubmissionController(ports);
+    const snapshot = submissionSnapshot({ conversationId: "conversation-1" });
+    const input = messageInput(snapshot);
+
+    await expect(owner.submitMessage(input)).rejects.toBeInstanceOf(WorkbenchRequestError);
+    expect(owner.restore(snapshot.clientRequestId)).toMatchObject({ state: "failed" });
+    expect(ports.timeline.markPending).toHaveBeenCalledWith(
+      expect.any(Object),
+      snapshot.clientRequestId,
+      "failed",
+      expect.any(String),
+    );
+
+    await owner.retryPendingIntent(snapshot.clientRequestId, retryInput());
+    expect(ports.transport.sendMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({ clientRequestId: "request-retry" }),
+      expect.any(Function),
+    );
+    expect(owner.restore("request-retry")).toBeNull();
+  });
+
+  it("keeps an uncertain transport result non-retryable", async () => {
+    const ports = submissionPorts();
+    ports.transport.sendMessage.mockRejectedValue(new WorkbenchRequestError(503, "unknown outcome"));
+    const owner = new ConversationTurnSubmissionController(ports);
+    const snapshot = submissionSnapshot({ conversationId: "conversation-1" });
+
+    await expect(owner.submitMessage(messageInput(snapshot))).rejects.toBeInstanceOf(WorkbenchRequestError);
+    expect(owner.restore(snapshot.clientRequestId)).toMatchObject({ state: "uncertain" });
+    const before = ports.transport.sendMessage.mock.calls.length;
+    await owner.retryPendingIntent(snapshot.clientRequestId, retryInput());
+    expect(ports.transport.sendMessage).toHaveBeenCalledTimes(before);
+  });
+
+  it("keeps a late retry failure out of a scope that no longer owns the request", async () => {
+    const ports = submissionPorts();
+    ports.transport.sendMessage
+      .mockRejectedValueOnce(new WorkbenchRequestError(400, "rejected"))
+      .mockRejectedValueOnce(new WorkbenchRequestError(400, "late retry rejection"));
+    const owner = new ConversationTurnSubmissionController(ports);
+    const snapshot = submissionSnapshot({ conversationId: "conversation-1" });
+
+    await expect(owner.submitMessage(messageInput(snapshot))).rejects.toBeInstanceOf(WorkbenchRequestError);
+    ports.onError.mockClear();
+    await owner.retryPendingIntent(snapshot.clientRequestId, {
+      ...retryInput(),
+      isCurrent: () => false,
+    });
+
+    expect(ports.onError).not.toHaveBeenCalledWith(
+      expect.stringContaining("late retry rejection"),
+    );
+    expect(owner.restore("request-retry")).toMatchObject({ state: "failed" });
+  });
+
+  it("rekeys a first-send scope after registration and calibrates the created Conversation", async () => {
+    const ports = submissionPorts();
+    ports.session.ensureProjectRegistered.mockResolvedValue("registered-repo");
+    ports.session.createConversation.mockResolvedValue({ projectId: "registered-repo", conversationId: "conversation-new" });
+    const owner = new ConversationTurnSubmissionController(ports);
+    const snapshot = submissionSnapshot({ conversationId: null });
+    const accepted = vi.fn(async () => undefined);
+
+    await owner.submitCreate({
+      snapshot,
+      attachments: [attachment("existing")],
+      attachmentFiles: [],
+      acceptedDraft: acceptedDraft(snapshot),
+      isCurrent: () => true,
+      onAccepted: accepted,
+    });
+
+    expect(ports.timeline.rekeyPending).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: "repo", conversationId: "pending:request-original" }),
+      expect.objectContaining({ projectId: "registered-repo", conversationId: "pending:request-original" }),
+      "request-original",
+    );
+    expect(ports.session.createConversation).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: "registered-repo",
+      clientRequestId: "request-original",
+    }));
+    expect(accepted).toHaveBeenCalledWith({ projectId: "registered-repo", conversationId: "conversation-new" });
+    expect(ports.timeline.calibrate).toHaveBeenCalledWith("registered-repo", "conversation-new", "main-agent");
+  });
+
+  it("removes temporary first-send uploads after a rejected create and restores original attachment identity", async () => {
+    const ports = submissionPorts();
+    ports.attachments.upload.mockResolvedValue(attachment("temporary"));
+    ports.session.createConversation.mockRejectedValue(new WorkbenchRequestError(400, "rejected"));
+    const owner = new ConversationTurnSubmissionController(ports);
+    const snapshot = submissionSnapshot({ conversationId: null });
     const file = new File(["hello"], "note.txt", { type: "text/plain" });
-    const snapshot = submissionSnapshot();
-    const begun = owner.begin({
-      kind: "create",
+
+    await expect(owner.submitCreate({
       snapshot,
       attachments: [attachment("existing")],
       attachmentFiles: [file],
-    });
-    begun.snapshot.contextRefs[0]!.relativePath = "mutated.ts";
-    begun.attachments[0]!.fileName = "mutated.txt";
+      acceptedDraft: acceptedDraft(snapshot),
+      isCurrent: () => true,
+      onAccepted: async () => undefined,
+    })).rejects.toBeInstanceOf(WorkbenchRequestError);
 
-    const failed = owner.fail(snapshot.clientRequestId, "failed");
-    expect(failed?.snapshot.contextRefs[0]?.relativePath).toBe("src/restored.ts");
-    expect(failed?.attachments[0]?.fileName).toBe("existing.txt");
-    const retry = owner.retry(snapshot.clientRequestId, "request-retry");
-    expect(retry).toMatchObject({
-      state: "sending",
-      snapshot: { clientRequestId: "request-retry" },
+    expect(ports.attachments.remove).toHaveBeenCalledWith("repo", "temporary");
+    expect(owner.restore(snapshot.clientRequestId)).toMatchObject({
+      state: "failed",
+      snapshot: { attachmentIds: ["existing"] },
       attachmentFiles: [file],
     });
-
-    owner.fail("request-retry", "uncertain");
-    expect(owner.retry("request-retry", "request-must-not-run")).toBeNull();
-    expect(owner.restore("request-retry")?.attachmentFiles).toEqual([file]);
   });
 });
+
+function messageInput(snapshot: ReturnType<typeof submissionSnapshot>) {
+  return {
+    snapshot,
+    attachments: [attachment("existing")],
+    acceptedDraft: acceptedDraft(snapshot),
+    skillIdentity: skillIdentity(snapshot),
+    isCurrent: () => true,
+    acceptsEvent: () => true,
+    onPending: () => undefined,
+    onAccepted: () => undefined,
+  };
+}
+
+function retryInput() {
+  return {
+    matchesCurrent: () => true,
+    selectedConversationProviderId: "codex",
+    isCurrent: () => true,
+    acceptsEvent: () => true,
+  };
+}
+
+function skillIdentity(snapshot: ReturnType<typeof submissionSnapshot>): ConversationSubmissionSkillIdentity {
+  return {
+    projectId: snapshot.projectId,
+    productMode: snapshot.productMode,
+    conversationId: snapshot.conversationId,
+    providerId: snapshot.providerId,
+  };
+}
+
+function acceptedDraft(snapshot: ReturnType<typeof submissionSnapshot>): ComposerDraftContent {
+  return {
+    projectId: snapshot.projectId,
+    productMode: snapshot.productMode,
+    agentTurnMode: snapshot.agentTurnMode,
+    agentModelId: snapshot.modelId,
+    agentReasoningEffort: snapshot.reasoningEffort,
+    text: snapshot.text,
+    contextRefs: snapshot.contextRefs,
+    attachmentIds: snapshot.attachmentIds,
+    skillOverrides: snapshot.skillOverrides,
+    selectedProviderId: snapshot.providerId,
+  };
+}
+
+function submissionPorts(order: string[] = []): ConversationSubmissionPorts & {
+  operation: { begin: ReturnType<typeof vi.fn>; release: ReturnType<typeof vi.fn> };
+  ids: { createClientRequestId: ReturnType<typeof vi.fn> };
+  session: {
+    ensureProjectRegistered: ReturnType<typeof vi.fn>;
+    createConversation: ReturnType<typeof vi.fn>;
+    beginPendingConversation: ReturnType<typeof vi.fn>;
+  };
+  transport: { sendMessage: ReturnType<typeof vi.fn> };
+  timeline: {
+    showPending: ReturnType<typeof vi.fn>;
+    markPending: ReturnType<typeof vi.fn>;
+    rekeyPending: ReturnType<typeof vi.fn>;
+    calibrate: ReturnType<typeof vi.fn>;
+  };
+  projection: { refreshConversation: ReturnType<typeof vi.fn>; routeEvent: ReturnType<typeof vi.fn> };
+  attachments: { upload: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn> };
+  drafts: { flush: ReturnType<typeof vi.fn>; settleAccepted: ReturnType<typeof vi.fn> };
+  skills: { apply: ReturnType<typeof vi.fn>; reload: ReturnType<typeof vi.fn> };
+  onError: ReturnType<typeof vi.fn>;
+} {
+  return {
+    operation: {
+      begin: vi.fn((key: string) => ({ id: 1, key })),
+      release: vi.fn(),
+    },
+    ids: { createClientRequestId: vi.fn(() => "request-retry") },
+    session: {
+      ensureProjectRegistered: vi.fn(async (projectId: string) => projectId),
+      createConversation: vi.fn(async () => ({ projectId: "repo", conversationId: "conversation-new" })),
+      beginPendingConversation: vi.fn(),
+    },
+    transport: {
+      sendMessage: vi.fn(async () => { order.push("transport"); }),
+    },
+    timeline: {
+      showPending: vi.fn(() => { order.push("optimistic"); }),
+      markPending: vi.fn(),
+      rekeyPending: vi.fn(),
+      calibrate: vi.fn(async () => undefined),
+    },
+    projection: {
+      refreshConversation: vi.fn(async () => undefined),
+      routeEvent: vi.fn(),
+    },
+    attachments: {
+      upload: vi.fn(async () => attachment("uploaded")),
+      remove: vi.fn(async () => undefined),
+    },
+    drafts: {
+      flush: vi.fn(async () => { order.push("flush"); return "draft-next"; }),
+      settleAccepted: vi.fn(async () => { order.push("settle-draft"); }),
+    },
+    skills: {
+      apply: vi.fn(async () => { order.push("skills"); }),
+      reload: vi.fn(async () => undefined),
+    },
+    errors: {
+      describe: vi.fn((cause: unknown) => cause instanceof Error ? cause.message : "发送失败"),
+      classify: vi.fn((cause: unknown, transportStarted: boolean) => {
+        if (!transportStarted) return "failed";
+        if (cause instanceof WorkbenchRequestError) {
+          return cause.status === 408 || cause.status >= 500 ? "uncertain" : "failed";
+        }
+        return "uncertain";
+      }),
+    },
+    onError: vi.fn(),
+  };
+}
 
 function draft(overrides: Partial<ConversationDraftViewModel> = {}): ConversationDraftViewModel {
   return {

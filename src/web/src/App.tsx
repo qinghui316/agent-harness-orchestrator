@@ -41,8 +41,6 @@ import {
 } from "./canonicalTimelineStore.js";
 import { canonicalTimelineReconnectScopes, useCanonicalTimelineController } from "./canonicalTimelineController.js";
 import { useWorkbenchProjectionStream } from "./workbenchProjectionStream.js";
-import { projectComposerModelLabel } from "./presentation/conversation-experience.js";
-
 import {
   projectDisplayName,
   stateLabel,
@@ -696,7 +694,7 @@ export function App(): ReactElement {
     providerCapabilities,
     providerCapabilitiesLoading: providerConfiguration.capabilitiesLoading,
     providerCapabilitiesError: providerConfiguration.capabilitiesError,
-    providerModelSettings,
+    providerModelSettings: providerModelSettings ?? providerDiagnostics?.models ?? null,
   }, {
     operation: operationGate,
     session: {
@@ -1036,12 +1034,7 @@ export function App(): ReactElement {
     + activeConfirmationQueue.maintenance.length;
   const visiblePendingConfirmationCount = presentation.harness["governance-approvals"] ? pendingConfirmationCount : 0;
   const officeSurfaceProjection = agentSurfaces.projection;
-  const providerModelLabel = projectComposerModelLabel({
-    productMode: appMode.productMode,
-    composerModelId: composer.agentModelId,
-    savedConversationModelId: activeTopic?.agentModelId ?? null,
-    modelSettings: providerModelSettings ?? providerDiagnostics?.models ?? null,
-  });
+  const providerModelLabel = composer.modelLabel;
   const providerDisplayName = providerDiagnostics?.displayName
     ?? composerProviderOptions.find((provider) => provider.id === composerProviderId)?.label
     ?? (composerProviderOptions.length === 1 ? composerProviderOptions[0]!.label : "正在加载");

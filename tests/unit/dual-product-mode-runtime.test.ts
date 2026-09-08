@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createWorkbenchConversation,
   postConversationMessage,
+  prepareWorkbenchConversation,
   prepareConversationMessage,
 } from "../../src/workbench/conversation-service.js";
 import type { ConversationTurnRoutingPort } from "../../src/workbench/conversation-turn-contract.js";
@@ -223,6 +224,28 @@ describe("dual product-mode foundation", () => {
     } finally {
       database.close();
     }
+  });
+
+  it("replays an interleaved first-send preparation with the committed Conversation identity", async () => {
+    const input = {
+      body: "Create one concurrent-safe conversation.",
+      productMode: "harness" as const,
+      clientRequestId: "first-send-interleaved-idempotency",
+    };
+    const firstPrepared = await prepareWorkbenchConversation(project(), input, { runMainAgent: false });
+    const secondPrepared = await prepareWorkbenchConversation(project(), input, { runMainAgent: false });
+
+    expect(secondPrepared.conversationId).not.toBe(firstPrepared.conversationId);
+    const first = await createWorkbenchConversation(project(), input, undefined, {
+      runMainAgent: false,
+      prepared: firstPrepared,
+    });
+    const replay = await createWorkbenchConversation(project(), input, undefined, {
+      runMainAgent: false,
+      prepared: secondPrepared,
+    });
+
+    expect(replay).toMatchObject({ conversationId: first.conversationId, replayed: true });
   });
 
   it("isolates topics, latest snapshots, details, and Timeline pages by mode", async () => {

@@ -712,12 +712,26 @@ function receiveStaleLatestPage(
   const envelopes = { ...surface.envelopes };
   const added: string[] = [];
   const updated: string[] = [];
+  const removed: string[] = [];
   for (const [lane, incoming] of [["pinned", page.pinned], ["latest", page.entries]] as const) {
     for (const envelope of incoming) {
+      const correlatedOptimistic = envelope.clientRequestId
+        ? findOptimisticEnvelope({ ...surface, envelopes }, envelope.clientRequestId)
+        : null;
+      if (correlatedOptimistic) {
+        delete envelopes[correlatedOptimistic.messageId];
+        removed.push(correlatedOptimistic.messageId);
+      }
       const current = envelopes[envelope.messageId];
       if (!current) {
-        envelopes[envelope.messageId] = { envelope: cloneEnvelope(envelope), lane };
-        added.push(envelope.messageId);
+        envelopes[envelope.messageId] = {
+          envelope: correlatedOptimistic
+            ? preserveOptimisticCellIdentity(envelope, correlatedOptimistic.envelope)
+            : cloneEnvelope(envelope),
+          lane,
+        };
+        if (correlatedOptimistic) updated.push(envelope.messageId);
+        else added.push(envelope.messageId);
       } else if (envelope.revision > current.envelope.revision && sameOrderIdentity(current.envelope, envelope)) {
         envelopes[envelope.messageId] = { envelope: cloneEnvelope(envelope), lane: current.lane };
         updated.push(envelope.messageId);
@@ -727,11 +741,11 @@ function receiveStaleLatestPage(
   const mutation = {
     ...mutationFor(
       canonicalTimelineScopeKey(surface.scope),
-      added.length || updated.length ? "calibrate" : "none",
+      added.length || updated.length || removed.length ? "calibrate" : "none",
       surface.watermark,
       added,
       updated,
-      [],
+      removed,
     ),
     ignored: "stale" as const,
   };

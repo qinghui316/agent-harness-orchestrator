@@ -13,10 +13,10 @@ describe("Conversation experience boundaries", () => {
     }
   });
 
-  it("keeps presentation projection-only and out of application and domain owners", () => {
-    const presentation = read("src/web/src/presentation/conversation-experience.ts");
-    expect(presentation).not.toMatch(/controllers|\.\.\/\.\.\/workbench|provider-runtime|\.\.\/api/);
-    expect(presentation).not.toMatch(/fetch\(|postJson|fetchJson|useState|useEffect/);
+  it("keeps the experience projection pure and out of domain owners", () => {
+    const projection = read("src/web/src/controllers/ComposerExperienceProjection.ts");
+    expect(projection).not.toMatch(/\.\.\/\.\.\/workbench|provider-runtime|\.\.\/api/);
+    expect(projection).not.toMatch(/fetch\(|postJson|fetchJson|useState|useEffect/);
   });
 
   it("keeps Draft ownership away from transport, Timeline, Provider, and persistence", () => {
@@ -37,9 +37,24 @@ describe("Conversation experience boundaries", () => {
   it("keeps App and Electron hosts out of Conversation implementation owners", () => {
     const app = read("src/web/src/App.tsx");
     expect(app).not.toMatch(/ConversationDraftController|ConversationTurnSubmissionController/);
+    expect(app).not.toMatch(/projectComposerModelLabel/);
     for (const path of ["src/desktop/main.ts", "src/desktop/utility.ts"]) {
-      expect(read(path), path).not.toMatch(/ConversationDraftController|ConversationTurnSubmissionController|conversation-experience/);
+      expect(read(path), path).not.toMatch(/ConversationDraftController|ConversationTurnSubmissionController|ComposerExperienceProjection/);
     }
+  });
+
+  it("keeps submission lifecycle transport and optimistic mutations in the submission owner", () => {
+    const hook = read("src/web/src/controllers/useConversationComposerController.ts");
+    const owner = read("src/web/src/controllers/ConversationTurnSubmissionController.ts");
+    const composition = read("src/web/src/controllers/ConversationSubmissionComposition.ts");
+    expect(hook).not.toMatch(/consumeWorkbenchLiveStream/);
+    expect(hook).not.toMatch(/await\s+portsRef\.current\.session\.createConversation/);
+    expect(hook).not.toMatch(/portsRef\.current\.timeline\.(showPending|markPending)\?\.\(/);
+    expect(owner).not.toMatch(/from\s+["']react["']|useState|useEffect|useMemo/);
+    expect(owner).not.toMatch(/consumeWorkbenchLiveStream|WorkbenchRequestError|userFacingErrorMessage/);
+    expect(composition).toMatch(/consumeWorkbenchLiveStream/);
+    expect(owner).toMatch(/\.session\.createConversation\(/);
+    expect(owner).toMatch(/\.timeline\.showPending\?\./);
   });
 });
 

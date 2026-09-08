@@ -411,6 +411,32 @@ describe("Codex app-server realtime normalization", () => {
     expect(capture.activity).toEqual([]);
   });
 
+  it("does not regress from delta-first reply content to a late thinking status", () => {
+    const capture = createAssistantTranscriptCapture(undefined);
+    const identity = {
+      runId: "run-delta-first",
+      providerId: "codex" as const,
+      attemptId: "attempt-delta-first",
+      threadId: "thread-delta-first",
+      turnId: "turn-delta-first",
+      agentRoleId: "main-agent",
+    };
+    capture.sink.emit({
+      event: "assistant.delta",
+      data: { ...identity, itemId: "message-delta-first", delta: "provider text" },
+    });
+    capture.sink.emit({ event: "run.status", data: { ...identity, status: "thinking" } });
+    capture.sink.emit({ event: "run.status", data: { ...identity, status: "completed" } });
+
+    expect([...capture.mainCaptures.values()]).toEqual([
+      expect.objectContaining({
+        text: "provider text",
+        activity: [expect.objectContaining({ kind: "status", label: "completed" })],
+      }),
+    ]);
+    expect(capture.activity).toEqual([expect.objectContaining({ kind: "status", label: "completed" })]);
+  });
+
   it("fails closed for an unscoped late child event", () => {
     const capture = createAssistantTranscriptCapture(undefined);
     const childIdentity = {

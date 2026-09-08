@@ -11,10 +11,10 @@ import {
   buildComposerActionProjection,
   type ComposerActionProjection,
   type ComposerPrimaryIntent,
-} from "../presentation/conversation-experience.js";
+} from "../controllers/ComposerExperienceProjection.js";
 
-export { buildComposerActionProjection } from "../presentation/conversation-experience.js";
-export type { ComposerActionProjection, ComposerPrimaryIntent } from "../presentation/conversation-experience.js";
+export { buildComposerActionProjection } from "../controllers/ComposerExperienceProjection.js";
+export type { ComposerActionProjection, ComposerPrimaryIntent } from "../controllers/ComposerExperienceProjection.js";
 
 export function TopicComposer({
   value,

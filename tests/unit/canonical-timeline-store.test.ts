@@ -323,6 +323,31 @@ describe("canonical Timeline Store", () => {
     });
   });
 
+  it("uses a stale latest response to reconcile a correlated optimistic user row", () => {
+    let state = canonicalTimelineReducer(createCanonicalTimelineState(), {
+      type: "optimistic.received",
+      scope: mainScope,
+      envelope: optimisticUserEnvelope("request-stale", "accepted after realtime"),
+    });
+    state = receive(state, envelope("live", 30, 5));
+    const canonical = {
+      ...envelope("canonical-user", 10, 4),
+      clientRequestId: "request-stale",
+      cells: [{ id: "canonical-cell", kind: "user-message" as const, source: "user" as const, text: "accepted after realtime" }],
+    };
+    state = loadPage(state, "latest", page(4, [canonical]));
+
+    const envelopes = selectCanonicalTimelineEnvelopes(state, mainScope);
+    expect(envelopes.map((item) => item.messageId)).toEqual(["canonical-user", "live"]);
+    expect(envelopes[0]?.cells[0]?.id).toBe("pending-user:request-stale");
+    expect(state.lastMutation).toMatchObject({
+      kind: "calibrate",
+      ignored: "stale",
+      updatedMessageIds: ["canonical-user"],
+      removedMessageIds: ["optimistic:request-stale"],
+    });
+  });
+
   it("calibrates a fresh latest page without discarding loaded earlier pages", () => {
     let state = loadPage(createCanonicalTimelineState(), "latest", page(10, [
       envelope("old-latest", 30, 8),
