@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 const api = vi.hoisted(() => ({ fetchJson: vi.fn(), postJson: vi.fn() }));
@@ -63,11 +63,66 @@ describe("Conversation Review frontend owners", () => {
     expect(captureDraftMutationToken).toHaveBeenCalledOnce();
     expect(clearAcceptedCommand).toHaveBeenCalledWith("/review", "draft-revision", "review-mutation:7");
     expect(navigateConversation).toHaveBeenCalledWith("project-a", "conversation-created");
-    expect(navigateConversation.mock.invocationCallOrder[0]).toBeLessThan(clearAcceptedCommand.mock.invocationCallOrder[0]!);
+    expect(clearAcceptedCommand.mock.invocationCallOrder[0]).toBeLessThan(navigateConversation.mock.invocationCallOrder[0]!);
 
     api.postJson.mockResolvedValueOnce({ projectId: "project-a", conversationId: "conversation-created-2" });
     await act(async () => result.current.start({ type: "uncommitted-changes" }));
     expect(clearAcceptedCommand).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not settle an accepted Review command into a different project scope", async () => {
+    let resolvePost!: (value: { projectId: string; conversationId: string }) => void;
+    api.postJson.mockImplementation(() => new Promise<{ projectId: string; conversationId: string }>((resolve) => {
+      resolvePost = resolve;
+    }));
+    const clearAcceptedCommand = vi.fn(async () => undefined);
+    const navigateConversation = vi.fn(async () => undefined);
+    const { result, rerender } = renderHook(
+      ({ projectId }) => useConversationReviewController({
+        ...controllerInput(projectId),
+        clearAcceptedCommand,
+        navigateConversation,
+      }),
+      { initialProps: { projectId: "project-a" } },
+    );
+
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.start({ type: "uncommitted-changes" }, "/review"); });
+    await act(async () => { await Promise.resolve(); });
+    rerender({ projectId: "project-b" });
+    await act(async () => {
+      resolvePost({ projectId: "project-a", conversationId: "conversation-created" });
+      await pending;
+    });
+
+    expect(clearAcceptedCommand).not.toHaveBeenCalled();
+    expect(navigateConversation).not.toHaveBeenCalled();
+  });
+
+  it("does not navigate an accepted Review after its draft settlement loses project ownership", async () => {
+    api.postJson.mockResolvedValue({ projectId: "project-a", conversationId: "conversation-created" });
+    const settlement = deferred<void>();
+    const clearAcceptedCommand = vi.fn(() => settlement.promise);
+    const navigateConversation = vi.fn(async () => undefined);
+    const { result, rerender } = renderHook(
+      ({ projectId }) => useConversationReviewController({
+        ...controllerInput(projectId),
+        clearAcceptedCommand,
+        navigateConversation,
+      }),
+      { initialProps: { projectId: "project-a" } },
+    );
+
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.start({ type: "uncommitted-changes" }, "/review"); });
+    await waitFor(() => expect(clearAcceptedCommand).toHaveBeenCalledOnce());
+    rerender({ projectId: "project-b" });
+    await act(async () => {
+      settlement.resolve();
+      await pending;
+    });
+
+    expect(navigateConversation).not.toHaveBeenCalled();
   });
 
   it("releases the same-identity submission lock after the selector closes", async () => {
@@ -157,4 +212,14 @@ function reviewOptions(projectId: string): ProjectGitReviewOptions {
     branches: [{ name: "origin/main", sha: "c".repeat(40) }],
     commits: [{ sha: "b".repeat(40), shortSha: "bbbbbbb", summary: "Review me", timestamp: "2026-09-01T00:00:00.000Z" }],
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }

@@ -132,13 +132,13 @@ export function useConversationReviewController(input: {
           createdConversation = receipt;
         }
       }
-      if (createdConversation
-        && requestIdentity === identityRef.current
-        && generation === generationRef.current) {
-        await current.navigateConversation(createdConversation.projectId, createdConversation.conversationId);
-      }
-      if (capturedCommand) {
+      const ownsRequest = (): boolean => requestIdentity === identityRef.current
+        && generation === generationRef.current;
+      if (capturedCommand && ownsRequest()) {
         await current.clearAcceptedCommand(capturedCommand, draftToken, capturedMutationToken);
+      }
+      if (createdConversation && ownsRequest()) {
+        await current.navigateConversation(createdConversation.projectId, createdConversation.conversationId);
       }
       if (requestIdentity === identityRef.current && generation === generationRef.current) {
         setOpen(false);
