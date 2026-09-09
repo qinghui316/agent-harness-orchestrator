@@ -39,7 +39,6 @@ interface ConversationExecutionDraftPort {
     guard?: ComposerDraftSettlementGuard,
   ): Promise<void>;
   applyRestoredSnapshot(snapshot: ComposerDraftSnapshot): void;
-  setComposerText(next: string | ((current: string) => string)): void;
   cleanupTransition(transition: ComposerTransition): void;
 }
 
@@ -252,13 +251,14 @@ export function useConversationExecutionActions(
         prompt: prepared.text,
       }),
       currentScope,
-      captured.text,
-      true,
       (actionGeneration, actionScope) => ownsAction(actionGeneration, actionScope)
         && composerStopIdentity(scopeRef.current) === stopIdentity,
-      (result) => result.status !== "already-terminal",
     );
     if (outcome.status !== "already-terminal") {
+      if (ownsAction(generation, currentScope)
+        && composerStopIdentity(scopeRef.current) === stopIdentity) {
+        draft.controller.clearAcceptedSnapshot(captured, { text: true });
+      }
       await draft.settleAcceptedDraft(
         accepted,
         { text: true },
@@ -276,8 +276,10 @@ export function useConversationExecutionActions(
 
   const stop = useCallback(async (): Promise<void> => {
     const currentScope = scopeRef.current;
+    const generation = scopeGenerationRef.current;
     if (!currentScope.projectId || !currentScope.conversation) return;
-    const submittedText = draft.controller.read().text;
+    const captured = draft.controller.read();
+    const submittedText = captured.text;
     const productMode = composerProductMode(currentScope);
     if (productMode === "agent"
       && (!currentScope.runControlState?.canStop
@@ -299,11 +301,14 @@ export function useConversationExecutionActions(
         } : { prompt: submittedText.trim() || undefined }),
       }),
       currentScope,
-      submittedText,
-      productMode !== "agent",
       (actionGeneration, actionScope) => ownsAction(actionGeneration, actionScope)
         && composerStopIdentity(scopeRef.current) === stopIdentity,
     );
+    if (productMode !== "agent"
+      && ownsAction(generation, currentScope)
+      && composerStopIdentity(scopeRef.current) === stopIdentity) {
+      draft.controller.clearAcceptedSnapshot(captured, { text: true });
+    }
   }, [draft]);
 
   const cleanupTransition = useCallback((transition: ComposerTransition): void => {
@@ -327,19 +332,13 @@ export function useConversationExecutionActions(
     key: string,
     action: () => Promise<TResult>,
     actionScope: ConversationComposerScope,
-    submittedText: string,
-    clearSubmittedText: boolean,
     ownsCurrentScope: (generation: number, actionScope: ConversationComposerScope) => boolean = ownsAction,
-    shouldClearSubmittedText: (result: TResult) => boolean = () => true,
   ): Promise<TResult> {
     const token = portsRef.current.operation.begin(key);
     const generation = scopeGenerationRef.current;
     if (ownsCurrentScope(generation, actionScope)) portsRef.current.onError(null);
     try {
       const result = await action();
-      if (clearSubmittedText && shouldClearSubmittedText(result) && ownsCurrentScope(generation, actionScope)) {
-        draft.setComposerText((current) => current === submittedText ? "" : current);
-      }
       return result;
     } catch (cause) {
       if (ownsCurrentScope(generation, actionScope)) portsRef.current.onError(composerErrorMessage(cause));

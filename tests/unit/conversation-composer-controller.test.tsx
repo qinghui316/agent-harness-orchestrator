@@ -1650,7 +1650,36 @@ describe("Conversation composer controller", () => {
       productMode: "harness",
       prompt: "stop context",
     });
+    expect(result.current.composerText).toBe("");
     expect(ports.projection.refreshConversation).not.toHaveBeenCalled();
+  });
+
+  it("preserves text re-entered with the same value while an accepted steer is pending", async () => {
+    const steer = deferred<{ status: "accepted" }>();
+    const ports = composerPorts();
+    ports.actions.steer.mockImplementation(() => steer.promise);
+    const runningScope = conversationScope({
+      running: true,
+      selectedProviderId: "codex",
+      runControlState: { state: "running", canStop: true, canSteer: true },
+    });
+    const { result } = renderHook(() => useConversationComposerController(runningScope, ports));
+    act(() => result.current.setComposerText("steer text"));
+
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.send(); });
+    await waitFor(() => expect(ports.actions.steer).toHaveBeenCalledOnce());
+    act(() => {
+      result.current.setComposerText("changed while steering");
+      result.current.setComposerText("steer text");
+    });
+    await act(async () => {
+      steer.resolve({ status: "accepted" });
+      await pending;
+    });
+
+    expect(result.current.composerText).toBe("steer text");
+    expect(ports.drafts.save).toHaveBeenLastCalledWith(expect.objectContaining({ text: "steer text" }));
   });
 
   it("queues the complete next Turn when a running Conversation cannot steer", async () => {
