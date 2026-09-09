@@ -203,13 +203,13 @@ export interface ConversationExecutionActionPorts {
   readonly queue?: Readonly<{
     snapshot: DeepReadonly<ConversationTurnQueueSnapshot> | null;
     loading: boolean;
-    enqueue(input: ConversationTurnQueueEnqueueInput): Promise<ConversationTurnQueueSnapshot | null>;
-    reclaim(queueItemId: string, expectedDraftUpdatedAt: string | null): Promise<ConversationTurnQueueSnapshot | null>;
+    enqueue(input: ConversationTurnQueueEnqueueInput): Promise<DeepReadonly<ConversationTurnQueueSnapshot> | null>;
+    reclaim(queueItemId: string, expectedDraftUpdatedAt: string | null): Promise<DeepReadonly<ConversationTurnQueueSnapshot> | null>;
   }>;
   readonly onError: ConversationComposerPorts["onError"];
 }
 
-type DeepReadonly<T> = T extends (...args: infer TArgs) => infer TResult
+export type DeepReadonly<T> = T extends (...args: infer TArgs) => infer TResult
   ? (...args: TArgs) => TResult
   : T extends readonly (infer TItem)[]
     ? readonly DeepReadonly<TItem>[]

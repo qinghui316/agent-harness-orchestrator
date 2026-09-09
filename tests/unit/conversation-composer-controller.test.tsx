@@ -4,6 +4,7 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WorkbenchRequestError } from "../../src/web/src/api.js";
 import { ComposerDraftApiConflict } from "../../src/web/src/controllers/ComposerDraftSyncOwner.js";
+import { createConversationComposerPortViews } from "../../src/web/src/controllers/conversation-composer-port-views.js";
 import {
   activeComposerSkillIds,
   prepareComposerInput,
@@ -20,6 +21,49 @@ afterEach(() => {
 });
 
 describe("Conversation composer controller", () => {
+  it("passes each owner a frozen runtime view containing only its declared capabilities", async () => {
+    const ports = composerPorts();
+    ports.queue = {
+      snapshot: queueSnapshot("queue:0"),
+      loading: false,
+      enqueue: vi.fn(async () => queueSnapshot("queue:1")),
+      reclaim: vi.fn(async () => queueSnapshot("queue:1")),
+    };
+
+    const views = createConversationComposerPortViews(ports);
+
+    expect(Object.keys(views.draft).sort()).toEqual(["drafts", "onError", "session"]);
+    expect(Object.keys(views.resources).sort()).toEqual(["attachments", "onError", "skills"]);
+    expect(Object.keys(views.submission).sort()).toEqual([
+      "actions", "attachments", "ids", "onError", "operation", "projection", "session", "timeline",
+    ]);
+    expect(Object.keys(views.execution).sort()).toEqual([
+      "actions", "ids", "onError", "operation", "queue", "timeline",
+    ]);
+    expect((views.draft as unknown as Record<string, unknown>).actions).toBeUndefined();
+    expect((views.resources as unknown as Record<string, unknown>).session).toBeUndefined();
+    expect((views.submission as unknown as Record<string, unknown>).queue).toBeUndefined();
+    expect((views.execution as unknown as Record<string, unknown>).attachments).toBeUndefined();
+    expect(Object.isFrozen(views)).toBe(true);
+    expect(Object.isFrozen(views.draft)).toBe(true);
+    expect(Object.isFrozen(views.execution.queue?.snapshot)).toBe(true);
+    expect(Object.isFrozen(views.execution.queue?.snapshot?.items)).toBe(true);
+
+    const returned = await views.execution.queue!.enqueue({
+      text: "queue me",
+      contextRefs: [],
+      attachmentIds: [],
+      skillOverrides: {},
+      providerId: "codex",
+      agentTurnMode: "default",
+      modelId: null,
+      reasoningEffort: null,
+      expectedDraftUpdatedAt: null,
+    });
+    expect(Object.isFrozen(returned)).toBe(true);
+    expect(Object.isFrozen(returned?.items)).toBe(true);
+  });
+
   it("accepts realtime callbacks only for the captured project, mode, and Conversation", () => {
     const event = {
       event: "done",

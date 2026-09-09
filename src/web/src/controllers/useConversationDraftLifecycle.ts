@@ -101,6 +101,26 @@ export function useConversationDraftLifecycle(
     modelId: agentModelId,
     reasoningEffort: agentReasoningEffort,
   };
+  const writeText = (update: (current: string) => string): void => {
+    const value = update(stateRef.current.text);
+    stateRef.current = { ...stateRef.current, text: value };
+    setComposerTextState(value);
+  };
+  const writeContextRefs = (update: (current: TopicFileReference[]) => TopicFileReference[]): void => {
+    const value = update(stateRef.current.contextRefs);
+    stateRef.current = { ...stateRef.current, contextRefs: value };
+    setFileRefsState(value);
+  };
+  const writeAttachments = (update: (current: TopicAttachment[]) => TopicAttachment[]): void => {
+    const value = update(stateRef.current.attachments);
+    stateRef.current = { ...stateRef.current, attachments: value };
+    setAttachments(value);
+  };
+  const writeSkillOverrides = (update: (current: Record<string, boolean>) => Record<string, boolean>): void => {
+    const value = update(stateRef.current.skillOverrides);
+    stateRef.current = { ...stateRef.current, skillOverrides: value };
+    setDraftSkillOverrides(value);
+  };
 
   const writeAgentTurnMode = (value: AgentTurnMode): void => {
     stateRef.current = { ...stateRef.current, agentTurnMode: value };
@@ -133,10 +153,10 @@ export function useConversationDraftLifecycle(
   if (!controllerRef.current) {
     controllerRef.current = new ConversationDraftController({
       read: () => stateRef.current,
-      setText: setComposerTextState,
-      setContextRefs: setFileRefsState,
-      setAttachments,
-      setSkillOverrides: setDraftSkillOverrides,
+      setText: writeText,
+      setContextRefs: writeContextRefs,
+      setAttachments: writeAttachments,
+      setSkillOverrides: writeSkillOverrides,
       setAgentTurnMode: writeAgentTurnMode,
       setModelId: writeAgentModelId,
       setReasoningEffort: writeAgentReasoningEffort,
@@ -435,10 +455,14 @@ export function useConversationDraftLifecycle(
       const value = typeof next === "function" ? next(controllerRef.current!.read().text) : next;
       controllerRef.current!.updateText(value);
     },
-    setFileRefs: (next) => { setFileRefsState(normalizeComposerRefs(next)); markDirty(); },
-    addFileReference: (ref) => { setFileRefsState((current) => normalizeComposerRefs([...current, ref])); markDirty(); },
-    setAttachmentsRaw: setAttachments,
-    setSkillOverridesRaw: setDraftSkillOverrides,
+    setFileRefs: (next) => { controllerRef.current!.updateContextRefs(() => normalizeComposerRefs(next)); markDirty(); },
+    addFileReference: (ref) => { controllerRef.current!.updateContextRefs((current) => normalizeComposerRefs([...current, ref])); markDirty(); },
+    setAttachmentsRaw: (next) => controllerRef.current!.updateAttachments(
+      typeof next === "function" ? next : () => next,
+    ),
+    setSkillOverridesRaw: (next) => controllerRef.current!.updateSkillOverrides(
+      typeof next === "function" ? next : () => next,
+    ),
     setDiagnosticsRaw: setDraftDiagnostics,
     selectAgentTurnMode, selectAgentModel, selectAgentReasoningEffort, selectProvider, cleanupTransition,
     flushDraft, settleAcceptedDraft, clearAcceptedReviewCommand, applyRestoredSnapshot,

@@ -11,6 +11,7 @@ import {
   type ConversationComposerScope,
 } from "./conversation-composer-contract.js";
 import { useConversationComposerResources } from "./useConversationComposerResources.js";
+import { createConversationComposerPortViews } from "./conversation-composer-port-views.js";
 import { useConversationDraftLifecycle } from "./useConversationDraftLifecycle.js";
 import { useConversationExecutionActions } from "./useConversationExecutionActions.js";
 import { useConversationSubmissionCoordinator } from "./useConversationSubmissionCoordinator.js";
@@ -29,11 +30,18 @@ export function useConversationComposerController(
   ports: ConversationComposerPorts,
 ) {
   const scopeRef = useRef(scope);
-  const portsRef = useRef(ports);
+  const portViews = createConversationComposerPortViews(ports);
+  const draftPortsRef = useRef(portViews.draft);
+  const resourcePortsRef = useRef(portViews.resources);
+  const submissionPortsRef = useRef(portViews.submission);
+  const executionPortsRef = useRef(portViews.execution);
   const scopeGenerationRef = useRef(0);
   const scopeIdentityRef = useRef(composerScopeIdentity(scope));
   scopeRef.current = scope;
-  portsRef.current = ports;
+  draftPortsRef.current = portViews.draft;
+  resourcePortsRef.current = portViews.resources;
+  submissionPortsRef.current = portViews.submission;
+  executionPortsRef.current = portViews.execution;
 
   useEffect(() => {
     const identity = composerScopeIdentity(scope);
@@ -49,17 +57,17 @@ export function useConversationComposerController(
     scope.selectedProviderId,
   ]);
 
-  const draft = useConversationDraftLifecycle(scope, portsRef, scopeRef, scopeGenerationRef);
-  const resources = useConversationComposerResources(scope, portsRef, scopeRef, scopeGenerationRef, draft);
+  const draft = useConversationDraftLifecycle(scope, draftPortsRef, scopeRef, scopeGenerationRef);
+  const resources = useConversationComposerResources(scope, resourcePortsRef, scopeRef, scopeGenerationRef, draft);
   const submission = useConversationSubmissionCoordinator(
-    portsRef,
+    submissionPortsRef,
     scopeRef,
     scopeGenerationRef,
     draft,
     resources,
   );
   const execution = useConversationExecutionActions(
-    portsRef,
+    executionPortsRef,
     scopeRef,
     scopeGenerationRef,
     draft,

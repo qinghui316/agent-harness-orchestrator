@@ -183,6 +183,46 @@ describe("dual product-mode foundation", () => {
     }
   });
 
+  it("single-flights the real Agent prepare-to-post path before admission", async () => {
+    const conversation = await createWorkbenchConversation(project(), {
+      body: "Initial Agent request.",
+      productMode: "agent",
+      clientRequestId: "prepared-concurrent-create",
+    }, undefined, { runMainAgent: false });
+    const admitted = deferred<void>();
+    const release = deferred<void>();
+    const admit = vi.fn(async (input: Parameters<ConversationTurnRoutingPort["admit"]>[0]) => {
+      admitted.resolve();
+      await release.promise;
+      return testAdmission(input);
+    });
+    const route = vi.fn(testTurnRouter().route);
+    const router: ConversationTurnRoutingPort = { ...testTurnRouter(), admit, route };
+    const input = {
+      message: "Prepare this exact follow-up once.",
+      productMode: "agent" as const,
+      clientRequestId: "prepared-concurrent-request",
+    };
+
+    const firstPreparation = prepareConversationMessage(project(), conversation.conversationId, input, { turnRouter: router });
+    await admitted.promise;
+    const duplicatePreparation = prepareConversationMessage(project(), conversation.conversationId, input, { turnRouter: router });
+    await Promise.resolve();
+    expect(admit).toHaveBeenCalledOnce();
+    release.resolve();
+    const [firstPrepared, duplicatePrepared] = await Promise.all([firstPreparation, duplicatePreparation]);
+    expect(firstPrepared).toBe(duplicatePrepared);
+
+    const results = await Promise.all([
+      postConversationMessage(project(), conversation.conversationId, input, undefined, { turnRouter: router, prepared: firstPrepared }),
+      postConversationMessage(project(), conversation.conversationId, input, undefined, { turnRouter: router, prepared: duplicatePrepared }),
+    ]);
+
+    expect(results).toHaveLength(2);
+    expect(admit).toHaveBeenCalledOnce();
+    expect(route).toHaveBeenCalledOnce();
+  });
+
   it("rejects unbounded or non-contract follow-up request identities", async () => {
     const conversation = await createWorkbenchConversation(project(), {
       body: "Request identity validation.",
@@ -653,6 +693,18 @@ describe("dual product-mode foundation", () => {
     const switchProviderAtSafePoint = vi.fn(async () => {
       started.resolve();
       await release.promise;
+      const database = await openProjectRuntimeWorkbenchDatabase(fixture.resolution.paths);
+      try {
+        database.conversations.switchSelectedProvider(
+          project().id,
+          conversation.conversationId,
+          conversation.selectedProviderId,
+          "other-provider",
+          new Date().toISOString(),
+        );
+      } finally {
+        database.close();
+      }
       return {
         conversationId: conversation.conversationId,
         previousProviderId: conversation.selectedProviderId,
@@ -665,7 +717,11 @@ describe("dual product-mode foundation", () => {
       };
     });
     const admit = vi.fn(testAdmission);
-    const route = vi.fn(testTurnRouter().route);
+    const route = vi.fn(async (request: Parameters<ConversationTurnRoutingPort["route"]>[0]) => {
+      expect(request.providerId).toBe("other-provider");
+      expect(request.admission.providerId).toBe("other-provider");
+      return testTurnRouter().route(request);
+    });
     const router: ConversationTurnRoutingPort = {
       ...testTurnRouter(),
       switchProviderAtSafePoint,
@@ -689,6 +745,7 @@ describe("dual product-mode foundation", () => {
 
     expect(switchProviderAtSafePoint).toHaveBeenCalledOnce();
     expect(admit).toHaveBeenCalledOnce();
+    expect(admit).toHaveBeenCalledWith(expect.objectContaining({ providerId: "other-provider" }));
     expect(route).toHaveBeenCalledOnce();
   });
 

@@ -218,6 +218,49 @@ describe("ComposerDraftSyncOwner", () => {
       expectedUpdatedAt: "external-token",
     }));
   });
+
+  it("keeps same-value edits and same-identity resources re-added after an external checkpoint", async () => {
+    const submitted = content("submitted", {
+      contextRefs: [{ relativePath: "src/a.ts", name: "a.ts", kind: "file", source: "composer" }],
+      attachmentIds: ["attachment-a"],
+      skillOverrides: { reviewer: true },
+    });
+    const api = draftApi({
+      load: vi.fn()
+        .mockResolvedValueOnce(snapshot({
+          text: submitted.text,
+          contextRefs: submitted.contextRefs,
+          attachments: submitted.attachmentIds.map((id) => ({ id } as ComposerDraftSnapshot["attachments"][number])),
+          skillOverrides: submitted.skillOverrides,
+          updatedAt: "captured-token",
+        }))
+        .mockResolvedValueOnce(snapshot({ text: "", updatedAt: "external-token" })),
+      save: vi.fn(async (input) => snapshot({
+        text: input.text,
+        contextRefs: input.contextRefs,
+        attachments: input.attachmentIds.map((id) => ({ id } as ComposerDraftSnapshot["attachments"][number])),
+        skillOverrides: input.skillOverrides,
+        updatedAt: "rebased-token",
+      })),
+    });
+    const owner = new ComposerDraftSyncOwner(api, () => undefined, 10_000);
+    await owner.load("repo", "agent");
+    owner.schedule(submitted);
+    const checkpoint = owner.checkpoint("repo", "agent");
+    await owner.flush("repo", "agent");
+    owner.schedule(content("temporary", { contextRefs: [], attachmentIds: [], skillOverrides: {} }));
+    owner.schedule(submitted);
+
+    await owner.rebaseAcceptedExternal(checkpoint, submitted);
+
+    expect(api.save).toHaveBeenLastCalledWith(expect.objectContaining({
+      text: "submitted",
+      contextRefs: [expect.objectContaining({ relativePath: "src/a.ts" })],
+      attachmentIds: ["attachment-a"],
+      skillOverrides: { reviewer: true },
+      expectedUpdatedAt: "external-token",
+    }));
+  });
 });
 
 function draftApi(overrides: Partial<ComposerDraftApi> = {}): ComposerDraftApi {

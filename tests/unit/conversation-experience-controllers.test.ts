@@ -46,6 +46,34 @@ describe("Conversation experience application owners", () => {
     expect(harness.dirtyCount).toBe(0);
   });
 
+  it("preserves same-value edits and same-identity resources re-added after capture", () => {
+    const harness = draftHarness(draft({
+      text: "same text",
+      contextRefs: [fileRef("src/same.ts")],
+      attachments: [attachment("same")],
+      skillOverrides: { reviewer: true },
+    }));
+    const owner = new ConversationDraftController(harness.port);
+    const accepted = owner.read();
+
+    owner.updateText("temporary text");
+    owner.updateText("same text");
+    owner.updateContextRefs(() => []);
+    owner.updateContextRefs(() => [fileRef("src/same.ts")]);
+    owner.updateAttachments(() => []);
+    owner.updateAttachments(() => [attachment("same")]);
+    owner.updateSkillOverrides(() => ({}));
+    owner.updateSkillOverrides(() => ({ reviewer: true }));
+    owner.clearAcceptedSnapshot(accepted);
+
+    expect(harness.state).toMatchObject({
+      text: "same text",
+      contextRefs: [expect.objectContaining({ relativePath: "src/same.ts" })],
+      attachments: [expect.objectContaining({ id: "same" })],
+      skillOverrides: { reviewer: true },
+    });
+  });
+
   it("merges restored content without overwriting current work and restores Agent-only configuration only into an empty draft", () => {
     const harness = draftHarness(draft({
       text: "current",

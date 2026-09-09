@@ -118,7 +118,10 @@ describe("Conversation experience boundaries", () => {
 
   it("gives each extracted Composer owner only its declared capability ports", () => {
     const contract = read("src/web/src/controllers/conversation-composer-contract.ts");
+    const hook = read("src/web/src/controllers/useConversationComposerController.ts");
     expect(contract).not.toMatch(/Conversation(?:DraftLifecycle|ComposerResource|SubmissionCoordinator|ExecutionAction)Ports\s*=\s*Pick</);
+    expect(hook).toMatch(/createConversationComposerPortViews/);
+    expect(hook).not.toMatch(/useConversation(?:DraftLifecycle|ComposerResources|SubmissionCoordinator|ExecutionActions)\([^\n]*portsRef/);
 
     const draft = read("src/web/src/controllers/useConversationDraftLifecycle.ts");
     expect(draft).toMatch(/CurrentValueRef<ConversationDraftLifecyclePorts>/);

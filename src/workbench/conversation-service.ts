@@ -103,7 +103,14 @@ interface ConversationMessageFlight {
   promise: Promise<TopicMessageResult>;
 }
 
+interface ConversationMessagePreparationFlight {
+  requestHash: string;
+  promise: Promise<PreparedConversationMessage>;
+  expiry: ReturnType<typeof setTimeout> | null;
+}
+
 const conversationMessageFlights = new Map<string, ConversationMessageFlight>();
+const conversationMessagePreparationFlights = new Map<string, ConversationMessagePreparationFlight>();
 
 export async function createWorkbenchConversation(
   project: ManagedProject,
@@ -565,7 +572,7 @@ export async function postConversationMessage(
     modelId,
     reasoningEffort,
   );
-  return runConversationMessageSingleFlight(identity, parsed.clientRequestId, requestHash, async () => {
+  const result = runConversationMessageSingleFlight(identity, parsed.clientRequestId, requestHash, async () => {
     const replay = options.prepared?.replay ?? await readConversationMessageReplay(identity, parsed.clientRequestId, requestHash);
     if (replay) return replay;
     await assertConversationQueueAdmission(identity, parsed);
@@ -581,67 +588,76 @@ export async function postConversationMessage(
         targetProviderId: parsed.providerId,
       });
     }
-  if (parsed.providerId && identity.conversation.productMode === "agent") {
-    if (parsed.providerId !== identity.conversation.selectedProviderId) {
-      const error = new Error("Direct Agent provider switching is not supported in this increment.");
-      error.name = "Conflict";
-      throw error;
+    if (parsed.providerId && identity.conversation.productMode === "agent") {
+      if (parsed.providerId !== identity.conversation.selectedProviderId) {
+        const error = new Error("Direct Agent provider switching is not supported in this increment.");
+        error.name = "Conflict";
+        throw error;
+      }
     }
-  }
-  const admission = options.prepared?.admission ?? await turnRouter.admit({
-    project,
-    productMode: identity.conversation.productMode,
-    conversationId,
-    providerId: identity.conversation.selectedProviderId,
-    agentTurnMode,
-    modelId: identity.conversation.productMode === "agent" ? modelId : null,
-    reasoningEffort: identity.conversation.productMode === "agent" ? reasoningEffort : null,
-    attachments: parsed.attachments ?? [],
-  });
-  if (!admission) throw new Error("Prepared Conversation Turn is missing admission evidence.");
-  const committed = await commitTopLevelConversationMessage(identity, {
-    ...parsed,
-    requestHash: requestHash ?? undefined,
-    agentTurnMode: agentTurnMode ?? undefined,
-    modelId: identity.conversation.productMode === "agent" ? modelId : undefined,
-    reasoningEffort: identity.conversation.productMode === "agent" ? reasoningEffort : undefined,
-  }, turnRouter, live);
-  if (committed.replayed) return replayedConversationMessageResult(committed.message);
-  const result = await turnRouter.route({
-    project,
-    conversation: committed.conversation,
-    committedMessage: committed.message,
-    attachments: parsed.attachments ?? [],
-    providerId: committed.conversation.selectedProviderId,
-    live,
-    harnessHandoff: committed.planHandoff,
-    admission,
-  }, requestedMode);
-  if (providerSwitch && parsed.providerSwitchIntent === "resume-workflow") {
-    if (runtimeState.state !== "ready") {
-      throw new Error("Provider workflow continuation requires a ready project Harness.");
-    }
-    const request = await resolveProviderSwitchWorkflowResumeRequest({
+    const admissionProviderId = providerSwitch?.selectedProviderId ?? identity.conversation.selectedProviderId;
+    const admission = options.prepared?.admission ?? await turnRouter.admit({
       project,
-      resolution: runtimeState.resolution,
+      productMode: identity.conversation.productMode,
       conversationId,
-      switchResult: providerSwitch,
+      providerId: admissionProviderId,
+      agentTurnMode,
+      modelId: identity.conversation.productMode === "agent" ? modelId : null,
+      reasoningEffort: identity.conversation.productMode === "agent" ? reasoningEffort : null,
+      attachments: parsed.attachments ?? [],
     });
-    if (request) {
-      await runWorkbenchWorkflowAction(project, request, live, {
-        postConversationMessage: (ownerProject, ownerConversationId, ownerInput, ownerLive) => postConversationMessage(
-          ownerProject,
-          ownerConversationId,
-          ownerInput,
-          ownerLive,
-          { turnRouter },
-        ),
-        continueMainAgentTurn: turnRouter.continueMainAgentTurn,
+    if (!admission) throw new Error("Prepared Conversation Turn is missing admission evidence.");
+    const committed = await commitTopLevelConversationMessage(identity, {
+      ...parsed,
+      requestHash: requestHash ?? undefined,
+      agentTurnMode: agentTurnMode ?? undefined,
+      modelId: identity.conversation.productMode === "agent" ? modelId : undefined,
+      reasoningEffort: identity.conversation.productMode === "agent" ? reasoningEffort : undefined,
+    }, turnRouter, live);
+    if (committed.replayed) return replayedConversationMessageResult(committed.message);
+    const result = await turnRouter.route({
+      project,
+      conversation: committed.conversation,
+      committedMessage: committed.message,
+      attachments: parsed.attachments ?? [],
+      providerId: committed.conversation.selectedProviderId,
+      live,
+      harnessHandoff: committed.planHandoff,
+      admission,
+    }, requestedMode);
+    if (providerSwitch && parsed.providerSwitchIntent === "resume-workflow") {
+      if (runtimeState.state !== "ready") {
+        throw new Error("Provider workflow continuation requires a ready project Harness.");
+      }
+      const request = await resolveProviderSwitchWorkflowResumeRequest({
+        project,
+        resolution: runtimeState.resolution,
+        conversationId,
+        switchResult: providerSwitch,
       });
+      if (request) {
+        await runWorkbenchWorkflowAction(project, request, live, {
+          postConversationMessage: (ownerProject, ownerConversationId, ownerInput, ownerLive) => postConversationMessage(
+            ownerProject,
+            ownerConversationId,
+            ownerInput,
+            ownerLive,
+            { turnRouter },
+          ),
+          continueMainAgentTurn: turnRouter.continueMainAgentTurn,
+        });
+      }
     }
-  }
     return result;
   });
+  if (options.prepared) {
+    return result.finally(() => clearConversationMessagePreparationFlight(
+      options.prepared!.identity,
+      options.prepared!.parsed.clientRequestId,
+      options.prepared!.requestHash,
+    ));
+  }
+  return result;
 }
 
 export async function listConversationMessages(project: ManagedProject, conversationId: string): Promise<TopicThreadEntry[]> {
@@ -1054,32 +1070,34 @@ export async function prepareConversationMessage(
     ? identity.conversation.agentReasoningEffort
     : parsed.reasoningEffort;
   const requestHash = conversationMessageRequestHash(identity.conversation, parsed, agentTurnMode, modelId, reasoningEffort);
-  const replay = await readConversationMessageReplay(identity, parsed.clientRequestId, requestHash);
-  if (!replay) await assertConversationQueueAdmission(identity, parsed);
-  const admission = replay ? null : await turnRouter.admit({
-    project,
-    productMode: "agent",
-    conversationId: identity.conversationId,
-    providerId: identity.conversation.selectedProviderId,
-    agentTurnMode,
-    modelId,
-    reasoningEffort,
-    attachments: parsed.attachments ?? [],
-  });
-  return Object.freeze({
-    projectId: project.id,
-    requestedConversationId: conversationId,
-    conversationId: identity.conversationId,
-    requestedMode,
-    identity,
-    parsed: Object.freeze({ ...parsed, attachments: parsed.attachments ? Object.freeze([...parsed.attachments]) as unknown as TopicAttachment[] : undefined }),
-    agentTurnMode,
-    modelId,
-    reasoningEffort,
-    admission,
-    requestSignature: stableMessagePreparationSignature(input),
-    requestHash,
-    replay,
+  return runConversationMessagePreparationSingleFlight(identity, parsed.clientRequestId, requestHash, async () => {
+    const replay = await readConversationMessageReplay(identity, parsed.clientRequestId, requestHash);
+    if (!replay) await assertConversationQueueAdmission(identity, parsed);
+    const admission = replay ? null : await turnRouter.admit({
+      project,
+      productMode: "agent",
+      conversationId: identity.conversationId,
+      providerId: identity.conversation.selectedProviderId,
+      agentTurnMode,
+      modelId,
+      reasoningEffort,
+      attachments: parsed.attachments ?? [],
+    });
+    return Object.freeze({
+      projectId: project.id,
+      requestedConversationId: conversationId,
+      conversationId: identity.conversationId,
+      requestedMode,
+      identity,
+      parsed: Object.freeze({ ...parsed, attachments: parsed.attachments ? Object.freeze([...parsed.attachments]) as unknown as TopicAttachment[] : undefined }),
+      agentTurnMode,
+      modelId,
+      reasoningEffort,
+      admission,
+      requestSignature: stableMessagePreparationSignature(input),
+      requestHash,
+      replay,
+    });
   });
 }
 
@@ -1358,7 +1376,7 @@ function runConversationMessageSingleFlight(
   execute: () => Promise<TopicMessageResult>,
 ): Promise<TopicMessageResult> {
   if (!clientRequestId || !requestHash) return execute();
-  const key = [identity.conversation.projectId, identity.conversation.productMode, identity.conversationId, clientRequestId].join("\0");
+  const key = conversationMessageFlightKey(identity, clientRequestId);
   const existing = conversationMessageFlights.get(key);
   if (existing) {
     if (existing.requestHash !== requestHash) {
@@ -1373,6 +1391,58 @@ function runConversationMessageSingleFlight(
     () => clearConversationMessageFlight(key, promise),
   );
   return promise;
+}
+
+function runConversationMessagePreparationSingleFlight(
+  identity: Awaited<ReturnType<typeof resolveStoredConversationIdentity>>,
+  clientRequestId: string | undefined,
+  requestHash: string | null,
+  execute: () => Promise<PreparedConversationMessage>,
+): Promise<PreparedConversationMessage> {
+  if (!clientRequestId || !requestHash) return execute();
+  const key = conversationMessageFlightKey(identity, clientRequestId);
+  const existing = conversationMessagePreparationFlights.get(key);
+  if (existing) {
+    if (existing.requestHash !== requestHash) {
+      return Promise.reject(conflict("clientRequestId was already used for a different Conversation message."));
+    }
+    return existing.promise;
+  }
+  const promise = Promise.resolve().then(execute);
+  const flight: ConversationMessagePreparationFlight = { requestHash, promise, expiry: null };
+  conversationMessagePreparationFlights.set(key, flight);
+  void promise.then(
+    () => {
+      if (conversationMessagePreparationFlights.get(key)?.promise !== promise) return;
+      flight.expiry = setTimeout(
+        () => clearConversationMessagePreparationFlight(identity, clientRequestId, requestHash),
+        30_000,
+      );
+      flight.expiry.unref?.();
+    },
+    () => clearConversationMessagePreparationFlight(identity, clientRequestId, requestHash),
+  );
+  return promise;
+}
+
+function clearConversationMessagePreparationFlight(
+  identity: Awaited<ReturnType<typeof resolveStoredConversationIdentity>>,
+  clientRequestId: string | undefined,
+  requestHash: string | null,
+): void {
+  if (!clientRequestId || !requestHash) return;
+  const key = conversationMessageFlightKey(identity, clientRequestId);
+  const flight = conversationMessagePreparationFlights.get(key);
+  if (!flight || flight.requestHash !== requestHash) return;
+  if (flight.expiry) clearTimeout(flight.expiry);
+  conversationMessagePreparationFlights.delete(key);
+}
+
+function conversationMessageFlightKey(
+  identity: Awaited<ReturnType<typeof resolveStoredConversationIdentity>>,
+  clientRequestId: string,
+): string {
+  return [identity.conversation.projectId, identity.conversation.productMode, identity.conversationId, clientRequestId].join("\0");
 }
 
 function clearConversationMessageFlight(key: string, promise: Promise<TopicMessageResult>): void {

@@ -25,6 +25,10 @@ interface ScopeState {
   timer: ReturnType<typeof setTimeout> | null;
   chain: Promise<void>;
   localRevision: number;
+  textMutationRevision: number;
+  contextMutationRevisions: Map<string, number>;
+  attachmentMutationRevisions: Map<string, number>;
+  skillMutationRevisions: Map<string, number>;
   conflict: ComposerDraftApiConflict | null;
 }
 
@@ -67,9 +71,11 @@ export class ComposerDraftSyncOwner {
 
   schedule(content: ComposerDraftContent): void {
     const state = this.state(content.projectId, content.productMode);
+    const nextRevision = state.localRevision + 1;
+    recordContentMutations(state, state.latestContent, content, nextRevision);
     state.latestContent = cloneContent(content);
     state.pendingContent = cloneContent(content);
-    state.localRevision += 1;
+    state.localRevision = nextRevision;
     if (state.timer) clearTimeout(state.timer);
     state.timer = setTimeout(() => {
       state.timer = null;
@@ -164,7 +170,13 @@ export class ComposerDraftSyncOwner {
       }
       const current = state.latestContent
         ?? (remote ? contentFromSnapshot(remote) : cloneContent(accepted));
-      const settled = settleContent(current, accepted, options);
+      const settled = settleContent(current, accepted, options, {
+        checkpointRevision: checkpoint.localRevision,
+        textMutationRevision: state.textMutationRevision,
+        contextMutationRevisions: state.contextMutationRevisions,
+        attachmentMutationRevisions: state.attachmentMutationRevisions,
+        skillMutationRevisions: state.skillMutationRevisions,
+      });
       state.latestContent = settled;
       state.pendingContent = null;
       state.localRevision += 1;
@@ -201,6 +213,10 @@ export class ComposerDraftSyncOwner {
       timer: null,
       chain: Promise.resolve(),
       localRevision: 0,
+      textMutationRevision: 0,
+      contextMutationRevisions: new Map(),
+      attachmentMutationRevisions: new Map(),
+      skillMutationRevisions: new Map(),
       conflict: null,
     };
     this.scopes.set(key, created);
@@ -290,18 +306,36 @@ function settleContent(
   current: ComposerDraftContent,
   accepted: ComposerDraftContent,
   options: ComposerDraftSettlementOptions,
+  mutationGuard?: {
+    checkpointRevision: number;
+    textMutationRevision: number;
+    contextMutationRevisions: ReadonlyMap<string, number>;
+    attachmentMutationRevisions: ReadonlyMap<string, number>;
+    skillMutationRevisions: ReadonlyMap<string, number>;
+  },
 ): ComposerDraftContent {
+  const mayRemove = (revisions: ReadonlyMap<string, number>, identity: string): boolean => (
+    !mutationGuard || (revisions.get(identity) ?? 0) <= mutationGuard.checkpointRevision
+  );
   return {
     ...cloneContent(current),
-    text: options.text && current.text === accepted.text ? "" : current.text,
+    text: options.text && current.text === accepted.text
+      && (!mutationGuard || mutationGuard.textMutationRevision <= mutationGuard.checkpointRevision)
+      ? "" : current.text,
     contextRefs: options.contextRefs
-      ? removeAcceptedReferences(current.contextRefs, accepted.contextRefs)
+      ? removeAcceptedReferences(current.contextRefs, accepted.contextRefs, (identity) => (
+        mayRemove(mutationGuard?.contextMutationRevisions ?? new Map(), identity)
+      ))
       : current.contextRefs.map((item) => ({ ...item })),
     attachmentIds: options.attachmentIds
-      ? removeAcceptedStrings(current.attachmentIds, accepted.attachmentIds)
+      ? removeAcceptedStrings(current.attachmentIds, accepted.attachmentIds, (identity) => (
+        mayRemove(mutationGuard?.attachmentMutationRevisions ?? new Map(), identity)
+      ))
       : [...current.attachmentIds],
     skillOverrides: options.skillOverrides
-      ? removeAcceptedOverrides(current.skillOverrides, accepted.skillOverrides)
+      ? removeAcceptedOverrides(current.skillOverrides, accepted.skillOverrides, (identity) => (
+        mayRemove(mutationGuard?.skillMutationRevisions ?? new Map(), identity)
+      ))
       : { ...current.skillOverrides },
   };
 }
@@ -309,25 +343,77 @@ function settleContent(
 function removeAcceptedReferences(
   current: ComposerDraftContent["contextRefs"],
   accepted: ComposerDraftContent["contextRefs"],
+  mayRemove: (identity: string) => boolean = () => true,
 ): ComposerDraftContent["contextRefs"] {
   const acceptedKeys = new Set(accepted.map((reference) => `${reference.kind}:${reference.relativePath}`));
   return current
-    .filter((reference) => !acceptedKeys.has(`${reference.kind}:${reference.relativePath}`))
+    .filter((reference) => {
+      const identity = `${reference.kind}:${reference.relativePath}`;
+      return !acceptedKeys.has(identity) || !mayRemove(identity);
+    })
     .map((reference) => ({ ...reference }));
 }
 
-function removeAcceptedStrings(current: readonly string[], accepted: readonly string[]): string[] {
+function removeAcceptedStrings(
+  current: readonly string[],
+  accepted: readonly string[],
+  mayRemove: (identity: string) => boolean = () => true,
+): string[] {
   const acceptedValues = new Set(accepted);
-  return current.filter((value) => !acceptedValues.has(value));
+  return current.filter((value) => !acceptedValues.has(value) || !mayRemove(value));
 }
 
 function removeAcceptedOverrides(
   current: Readonly<Record<string, boolean>>,
   accepted: Readonly<Record<string, boolean>>,
+  mayRemove: (identity: string) => boolean = () => true,
 ): Record<string, boolean> {
   const next = { ...current };
   for (const [skillId, acceptedValue] of Object.entries(accepted)) {
-    if (next[skillId] === acceptedValue) delete next[skillId];
+    if (next[skillId] === acceptedValue && mayRemove(skillId)) delete next[skillId];
   }
   return next;
+}
+
+function recordContentMutations(
+  state: ScopeState,
+  current: ComposerDraftContent | null,
+  next: ComposerDraftContent,
+  revision: number,
+): void {
+  if (!current || current.text !== next.text) state.textMutationRevision = revision;
+  recordIdentityMembershipMutations(
+    current?.contextRefs ?? [],
+    next.contextRefs,
+    (reference) => `${reference.kind}:${reference.relativePath}`,
+    state.contextMutationRevisions,
+    revision,
+  );
+  recordIdentityMembershipMutations(
+    current?.attachmentIds ?? [],
+    next.attachmentIds,
+    (identity) => identity,
+    state.attachmentMutationRevisions,
+    revision,
+  );
+  const currentSkills = current?.skillOverrides ?? {};
+  for (const skillId of new Set([...Object.keys(currentSkills), ...Object.keys(next.skillOverrides)])) {
+    if (currentSkills[skillId] === next.skillOverrides[skillId]
+      && Object.hasOwn(currentSkills, skillId) === Object.hasOwn(next.skillOverrides, skillId)) continue;
+    state.skillMutationRevisions.set(skillId, revision);
+  }
+}
+
+function recordIdentityMembershipMutations<T>(
+  current: readonly T[],
+  next: readonly T[],
+  identityOf: (item: T) => string,
+  revisions: Map<string, number>,
+  revision: number,
+): void {
+  const currentIds = new Set(current.map(identityOf));
+  const nextIds = new Set(next.map(identityOf));
+  for (const identity of new Set([...currentIds, ...nextIds])) {
+    if (currentIds.has(identity) !== nextIds.has(identity)) revisions.set(identity, revision);
+  }
 }

@@ -11,6 +11,8 @@ export interface ConversationDraftViewModel {
   agentTurnMode: AgentTurnMode;
   modelId: string | null;
   reasoningEffort: string | null;
+  /** Opaque, Renderer-local settlement identity. It is never persisted as canonical evidence. */
+  mutationToken?: string;
 }
 
 export interface ConversationDraftStatePort {
@@ -42,15 +44,54 @@ export interface RestoreSubmissionOptions {
  * ComposerDraftSyncOwner; this owner never performs network or canonical Timeline writes.
  */
 export class ConversationDraftController {
+  private static nextInstanceId = 0;
+  private readonly instanceId = `draft-${++ConversationDraftController.nextInstanceId}`;
+  private mutationRevision = 0;
+  private textMutationRevision = 0;
+  private readonly contextMutationRevisions = new Map<string, number>();
+  private readonly attachmentMutationRevisions = new Map<string, number>();
+  private readonly skillMutationRevisions = new Map<string, number>();
+
   constructor(private readonly port: ConversationDraftStatePort) {}
 
   read(): ConversationDraftViewModel {
-    return cloneDraft(this.port.read());
+    return { ...cloneDraft(this.port.read()), mutationToken: `${this.instanceId}:${this.mutationRevision}` };
   }
 
   updateText(text: string): void {
+    if (this.port.read().text === text) return;
+    this.textMutationRevision = this.nextMutationRevision();
     this.port.setText(() => text);
     this.port.markDirty();
+  }
+
+  updateContextRefs(update: StateUpdater<TopicFileReference[]>): void {
+    const current = this.port.read().contextRefs;
+    const next = update(current).map((reference) => ({ ...reference }));
+    this.recordIdentityMutations(current, next, referenceIdentity, this.contextMutationRevisions);
+    this.port.setContextRefs(() => next);
+  }
+
+  updateAttachments(update: StateUpdater<TopicAttachment[]>): void {
+    const current = this.port.read().attachments;
+    const next = update(current).map((attachment) => ({ ...attachment }));
+    this.recordIdentityMutations(current, next, (attachment) => attachment.id, this.attachmentMutationRevisions);
+    this.port.setAttachments(() => next);
+  }
+
+  updateSkillOverrides(update: StateUpdater<Record<string, boolean>>): void {
+    const current = this.port.read().skillOverrides;
+    const next = { ...update(current) };
+    const changed = new Set([...Object.keys(current), ...Object.keys(next)]);
+    const revision = this.mutationRevision + 1;
+    let mutated = false;
+    for (const skillId of changed) {
+      if (current[skillId] === next[skillId] && Object.hasOwn(current, skillId) === Object.hasOwn(next, skillId)) continue;
+      this.skillMutationRevisions.set(skillId, revision);
+      mutated = true;
+    }
+    if (mutated) this.mutationRevision = revision;
+    this.port.setSkillOverrides(() => next);
   }
 
   updateConfiguration(input: {
@@ -68,15 +109,30 @@ export class ConversationDraftController {
     snapshot: ConversationDraftViewModel,
     options: ClearAcceptedDraftOptions = { text: true, contextRefs: true, attachments: true, skillOverrides: true },
   ): void {
-    if (options.text) this.port.setText((current) => current === snapshot.text ? "" : current);
+    const checkpointRevision = this.checkpointRevision(snapshot);
+    if (options.text) {
+      this.port.setText((current) => current === snapshot.text && this.textMutationRevision <= checkpointRevision ? "" : current);
+    }
     if (options.contextRefs) {
-      this.port.setContextRefs((current) => removeAcceptedReferences(current, snapshot.contextRefs));
+      this.port.setContextRefs((current) => removeAcceptedReferences(
+        current,
+        snapshot.contextRefs,
+        (identity) => (this.contextMutationRevisions.get(identity) ?? 0) <= checkpointRevision,
+      ));
     }
     if (options.attachments) {
-      this.port.setAttachments((current) => removeAcceptedAttachments(current, snapshot.attachments));
+      this.port.setAttachments((current) => removeAcceptedAttachments(
+        current,
+        snapshot.attachments,
+        (identity) => (this.attachmentMutationRevisions.get(identity) ?? 0) <= checkpointRevision,
+      ));
     }
     if (options.skillOverrides) {
-      this.port.setSkillOverrides((current) => removeAcceptedOverrides(current, snapshot.skillOverrides));
+      this.port.setSkillOverrides((current) => removeAcceptedOverrides(
+        current,
+        snapshot.skillOverrides,
+        (identity) => (this.skillMutationRevisions.get(identity) ?? 0) <= checkpointRevision,
+      ));
     }
   }
 
@@ -102,6 +158,33 @@ export class ConversationDraftController {
       this.port.setReasoningEffort(snapshot.reasoningEffort);
     }
     this.port.markDirty();
+  }
+
+  private nextMutationRevision(): number {
+    this.mutationRevision += 1;
+    return this.mutationRevision;
+  }
+
+  private checkpointRevision(snapshot: ConversationDraftViewModel): number {
+    const prefix = `${this.instanceId}:`;
+    if (!snapshot.mutationToken?.startsWith(prefix)) return this.mutationRevision;
+    const revision = Number.parseInt(snapshot.mutationToken.slice(prefix.length), 10);
+    return Number.isSafeInteger(revision) && revision >= 0 ? revision : this.mutationRevision;
+  }
+
+  private recordIdentityMutations<T>(
+    current: readonly T[],
+    next: readonly T[],
+    identityOf: (item: T) => string,
+    revisions: Map<string, number>,
+  ): void {
+    const currentIds = new Set(current.map(identityOf));
+    const nextIds = new Set(next.map(identityOf));
+    const identities = new Set([...currentIds, ...nextIds]);
+    const changed = [...identities].filter((identity) => currentIds.has(identity) !== nextIds.has(identity));
+    if (changed.length === 0) return;
+    const revision = this.nextMutationRevision();
+    for (const identity of changed) revisions.set(identity, revision);
   }
 }
 
@@ -153,10 +236,14 @@ function mergeAttachments(
 function removeAcceptedReferences(
   current: readonly TopicFileReference[],
   accepted: readonly TopicFileReference[],
+  mayRemove: (identity: string) => boolean = () => true,
 ): TopicFileReference[] {
   const acceptedKeys = new Set(accepted.map(referenceIdentity));
   return current
-    .filter((reference) => !acceptedKeys.has(referenceIdentity(reference)))
+    .filter((reference) => {
+      const identity = referenceIdentity(reference);
+      return !acceptedKeys.has(identity) || !mayRemove(identity);
+    })
     .map((reference) => ({ ...reference }));
 }
 
@@ -167,20 +254,22 @@ function referenceIdentity(reference: TopicFileReference): string {
 function removeAcceptedAttachments(
   current: readonly TopicAttachment[],
   accepted: readonly TopicAttachment[],
+  mayRemove: (identity: string) => boolean = () => true,
 ): TopicAttachment[] {
   const acceptedIds = new Set(accepted.map((attachment) => attachment.id));
   return current
-    .filter((attachment) => !acceptedIds.has(attachment.id))
+    .filter((attachment) => !acceptedIds.has(attachment.id) || !mayRemove(attachment.id))
     .map((attachment) => ({ ...attachment }));
 }
 
 function removeAcceptedOverrides(
   current: Readonly<Record<string, boolean>>,
   accepted: Readonly<Record<string, boolean>>,
+  mayRemove: (identity: string) => boolean = () => true,
 ): Record<string, boolean> {
   const next = { ...current };
   for (const [skillId, acceptedValue] of Object.entries(accepted)) {
-    if (next[skillId] === acceptedValue) delete next[skillId];
+    if (next[skillId] === acceptedValue && mayRemove(skillId)) delete next[skillId];
   }
   return next;
 }
