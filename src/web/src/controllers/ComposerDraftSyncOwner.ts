@@ -1,5 +1,7 @@
 import type { ComposerDraftSnapshot, ComposerDraftWrite, ProductMode } from "../types.js";
 import { userFacingErrorMessage } from "../presentation/user-facing-language.js";
+import type { ComposerDraftSettlementGuard } from "./conversation-draft-settlement-contract.js";
+export type { ComposerDraftSettlementGuard } from "./conversation-draft-settlement-contract.js";
 
 export interface ComposerDraftApi {
   load(projectId: string, productMode: ProductMode): Promise<ComposerDraftSnapshot | null>;
@@ -113,7 +115,13 @@ export class ComposerDraftSyncOwner {
       attachmentIds: true,
       skillOverrides: true,
     },
+    checkpoint?: ComposerDraftCheckpoint,
+    externalGuard?: ComposerDraftSettlementGuard,
   ): Promise<ComposerDraftSnapshot | null> {
+    if (checkpoint
+      && (checkpoint.projectId !== accepted.projectId || checkpoint.productMode !== accepted.productMode)) {
+      throw new Error("Composer draft checkpoint does not match the accepted draft scope.");
+    }
     const state = this.state(accepted.projectId, accepted.productMode);
     if (state.timer) {
       clearTimeout(state.timer);
@@ -122,7 +130,13 @@ export class ComposerDraftSyncOwner {
     return this.enqueue(accepted.projectId, accepted.productMode, async () => {
       if (state.conflict) throw state.conflict;
       const current = state.latestContent ?? cloneContent(accepted);
-      const settled = settleContent(current, accepted, options);
+      const settled = settleContent(current, accepted, options, checkpoint ? {
+        checkpointRevision: checkpoint.localRevision,
+        textMutationRevision: state.textMutationRevision,
+        contextMutationRevisions: state.contextMutationRevisions,
+        attachmentMutationRevisions: state.attachmentMutationRevisions,
+        skillMutationRevisions: state.skillMutationRevisions,
+      } : undefined, externalGuard);
       state.pendingContent = null;
       state.latestContent = settled;
       state.localRevision += 1;
@@ -150,6 +164,7 @@ export class ComposerDraftSyncOwner {
       attachmentIds: true,
       skillOverrides: true,
     },
+    externalGuard?: ComposerDraftSettlementGuard,
   ): Promise<ComposerDraftSnapshot | null> {
     if (checkpoint.projectId !== accepted.projectId || checkpoint.productMode !== accepted.productMode) {
       throw new Error("Composer draft checkpoint does not match the accepted draft scope.");
@@ -176,7 +191,7 @@ export class ComposerDraftSyncOwner {
         contextMutationRevisions: state.contextMutationRevisions,
         attachmentMutationRevisions: state.attachmentMutationRevisions,
         skillMutationRevisions: state.skillMutationRevisions,
-      });
+      }, externalGuard);
       state.latestContent = settled;
       state.pendingContent = null;
       state.localRevision += 1;
@@ -313,7 +328,11 @@ function settleContent(
     attachmentMutationRevisions: ReadonlyMap<string, number>;
     skillMutationRevisions: ReadonlyMap<string, number>;
   },
+  externalGuard?: ComposerDraftSettlementGuard,
 ): ComposerDraftContent {
+  const preservedContextRefs = new Set(externalGuard?.preserveContextRefIdentities ?? []);
+  const preservedAttachments = new Set(externalGuard?.preserveAttachmentIds ?? []);
+  const preservedSkills = new Set(externalGuard?.preserveSkillIds ?? []);
   const mayRemove = (revisions: ReadonlyMap<string, number>, identity: string): boolean => (
     !mutationGuard || (revisions.get(identity) ?? 0) <= mutationGuard.checkpointRevision
   );
@@ -321,20 +340,24 @@ function settleContent(
     ...cloneContent(current),
     text: options.text && current.text === accepted.text
       && (!mutationGuard || mutationGuard.textMutationRevision <= mutationGuard.checkpointRevision)
+      && !externalGuard?.preserveText
       ? "" : current.text,
     contextRefs: options.contextRefs
       ? removeAcceptedReferences(current.contextRefs, accepted.contextRefs, (identity) => (
         mayRemove(mutationGuard?.contextMutationRevisions ?? new Map(), identity)
+          && !preservedContextRefs.has(identity)
       ))
       : current.contextRefs.map((item) => ({ ...item })),
     attachmentIds: options.attachmentIds
       ? removeAcceptedStrings(current.attachmentIds, accepted.attachmentIds, (identity) => (
         mayRemove(mutationGuard?.attachmentMutationRevisions ?? new Map(), identity)
+          && !preservedAttachments.has(identity)
       ))
       : [...current.attachmentIds],
     skillOverrides: options.skillOverrides
       ? removeAcceptedOverrides(current.skillOverrides, accepted.skillOverrides, (identity) => (
         mayRemove(mutationGuard?.skillMutationRevisions ?? new Map(), identity)
+          && !preservedSkills.has(identity)
       ))
       : { ...current.skillOverrides },
   };

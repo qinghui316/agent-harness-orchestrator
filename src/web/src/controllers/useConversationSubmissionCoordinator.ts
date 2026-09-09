@@ -1,6 +1,7 @@
 import { useCallback, useRef, type MutableRefObject } from "react";
 import type { SkillListItem, TopicAttachment, TopicFileReference } from "../types.js";
 import type {
+  ComposerDraftCheckpoint,
   ComposerDraftContent,
   ComposerDraftSettlementOptions,
   ComposerDraftSyncOwner,
@@ -36,9 +37,14 @@ import {
 import { defaultComposerAttachmentApi } from "./conversation-composer-http-adapters.js";
 
 interface ConversationSubmissionDraftPort {
-  controller: Pick<ConversationDraftController, "read" | "clearAcceptedSnapshot" | "restore">;
-  syncOwner: Pick<ComposerDraftSyncOwner, "flush">;
-  settleAcceptedDraft(accepted: ComposerDraftContent, options?: ComposerDraftSettlementOptions): Promise<void>;
+  controller: Pick<ConversationDraftController, "read" | "clearAcceptedSnapshot" | "restore" | "settlementGuard">;
+  syncOwner: Pick<ComposerDraftSyncOwner, "checkpoint" | "flush">;
+  settleAcceptedDraft(
+    accepted: ComposerDraftContent,
+    options?: ComposerDraftSettlementOptions,
+    checkpoint?: ComposerDraftCheckpoint,
+    guard?: ReturnType<ConversationDraftController["settlementGuard"]>,
+  ): Promise<void>;
   setComposerText(next: string | ((current: string) => string)): void;
   setFileRefs(next: TopicFileReference[]): void;
 }
@@ -77,8 +83,14 @@ export function useConversationSubmissionCoordinator(
         projection: () => portsRef.current.projection,
         attachments: () => portsRef.current.attachments ?? defaultComposerAttachmentApi,
         drafts: () => ({
+          checkpoint: (projectId, productMode) => draft.syncOwner.checkpoint(projectId, productMode),
           flush: (projectId, productMode) => draft.syncOwner.flush(projectId, productMode),
-          settleAccepted: draft.settleAcceptedDraft,
+          settleAccepted: (accepted, checkpoint, mutationToken) => draft.settleAcceptedDraft(
+            accepted,
+            undefined,
+            checkpoint,
+            draft.controller.settlementGuard(mutationToken, accepted),
+          ),
         }),
         skills: () => ({
           apply: resources.applySkillOverrides,
@@ -171,6 +183,7 @@ export function useConversationSubmissionCoordinator(
       attachments: capturedAttachments,
       attachmentFiles,
       acceptedDraft: acceptedDraftContent,
+      acceptedDraftMutationToken: acceptedDraft.mutationToken ?? null,
       isCurrent: (created) => composerRequestOwnsCurrentScope(
         generation,
         [capturedProjectId, ...(created ? [created.projectId] : [])],
@@ -268,6 +281,7 @@ export function useConversationSubmissionCoordinator(
       snapshot,
       attachments: captured.attachments,
       acceptedDraft: acceptedDraftContent,
+      acceptedDraftMutationToken: captured.mutationToken ?? null,
       skillIdentity: {
         projectId: currentScope.projectId,
         productMode,
@@ -369,5 +383,6 @@ function pendingSubmissionDraftViewModel(submission: PendingConversationSubmissi
     agentTurnMode: accepted.agentTurnMode ?? "default",
     modelId: accepted.agentModelId,
     reasoningEffort: accepted.agentReasoningEffort,
+    mutationToken: submission.acceptedDraftMutationToken ?? undefined,
   };
 }

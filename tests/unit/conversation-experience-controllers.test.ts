@@ -370,7 +370,11 @@ function submissionPorts(order: string[] = []): ConversationSubmissionPorts & {
   };
   projection: { refreshConversation: ReturnType<typeof vi.fn>; routeEvent: ReturnType<typeof vi.fn> };
   attachments: { upload: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn> };
-  drafts: { flush: ReturnType<typeof vi.fn>; settleAccepted: ReturnType<typeof vi.fn> };
+  drafts: {
+    checkpoint: ReturnType<typeof vi.fn>;
+    flush: ReturnType<typeof vi.fn>;
+    settleAccepted: ReturnType<typeof vi.fn>;
+  };
   skills: { apply: ReturnType<typeof vi.fn>; reload: ReturnType<typeof vi.fn> };
   onError: ReturnType<typeof vi.fn>;
 } {
@@ -404,6 +408,11 @@ function submissionPorts(order: string[] = []): ConversationSubmissionPorts & {
       remove: vi.fn(async () => undefined),
     },
     drafts: {
+      checkpoint: vi.fn((projectId: string, productMode: "agent" | "harness") => ({
+        projectId,
+        productMode,
+        localRevision: 7,
+      })),
       flush: vi.fn(async () => { order.push("flush"); return "draft-next"; }),
       settleAccepted: vi.fn(async () => { order.push("settle-draft"); }),
     },

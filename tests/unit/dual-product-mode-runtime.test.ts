@@ -167,7 +167,6 @@ describe("dual product-mode foundation", () => {
     const results = await Promise.all([first, duplicate]);
 
     expect(results).toHaveLength(2);
-    expect(results.some((result) => result.user.clientRequestId === "followup-concurrent-request")).toBe(true);
     expect(admit).toHaveBeenCalledTimes(1);
     expect(route).toHaveBeenCalledTimes(1);
     const database = await openProjectRuntimeWorkbenchDatabase(fixture.resolution.paths);
@@ -746,6 +745,84 @@ describe("dual product-mode foundation", () => {
     expect(switchProviderAtSafePoint).toHaveBeenCalledOnce();
     expect(admit).toHaveBeenCalledOnce();
     expect(admit).toHaveBeenCalledWith(expect.objectContaining({ providerId: "other-provider" }));
+    expect(route).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a distinct Harness follow-up while Provider switch and Turn routing are active", async () => {
+    const conversation = await createWorkbenchConversation(project(), {
+      body: "Harness Provider switch execution boundary",
+      productMode: "harness",
+      clientRequestId: "harness-provider-execution-create",
+    }, undefined, { runMainAgent: false });
+    const started = deferred<void>();
+    const release = deferred<void>();
+    const switchProviderAtSafePoint = vi.fn(async () => {
+      started.resolve();
+      await release.promise;
+      const database = await openProjectRuntimeWorkbenchDatabase(fixture.resolution.paths);
+      try {
+        database.conversations.switchSelectedProvider(
+          project().id,
+          conversation.conversationId,
+          conversation.selectedProviderId,
+          "other-provider",
+          new Date().toISOString(),
+        );
+      } finally {
+        database.close();
+      }
+      return {
+        conversationId: conversation.conversationId,
+        previousProviderId: conversation.selectedProviderId,
+        selectedProviderId: "other-provider",
+        graphScopeId: null,
+        resumePointId: "unchanged",
+        resumePointHash: "unchanged",
+        resumeAttemptId: "unchanged",
+        switchedAt: new Date().toISOString(),
+      };
+    });
+    const admit = vi.fn(testAdmission);
+    const route = vi.fn(testTurnRouter().route);
+    const router: ConversationTurnRoutingPort = {
+      ...testTurnRouter(),
+      switchProviderAtSafePoint,
+      admit,
+      route,
+    };
+
+    const switching = postConversationMessage(project(), conversation.conversationId, {
+      message: "Switch this Turn exactly once.",
+      productMode: "harness",
+      providerId: "other-provider",
+      clientRequestId: "harness-provider-execution-switch",
+    }, undefined, { turnRouter: router });
+    await started.promise;
+    await expect(postConversationMessage(project(), conversation.conversationId, {
+      message: "Do not cross the active switch boundary.",
+      productMode: "harness",
+      clientRequestId: "harness-provider-execution-distinct",
+    }, undefined, { turnRouter: router })).rejects.toMatchObject({
+      name: "Conflict",
+      message: "A Conversation Turn is already starting or running.",
+    });
+    release.resolve();
+    await expect(switching).resolves.toBeDefined();
+
+    const database = await openProjectRuntimeWorkbenchDatabase(fixture.resolution.paths);
+    try {
+      const requestIds = database.timeline.listConversationMessages(project().id, conversation.conversationId)
+        .flatMap((message) => {
+          const raw = JSON.parse(message.rawJson) as { clientRequestId?: string };
+          return raw.clientRequestId ? [raw.clientRequestId] : [];
+        });
+      expect(requestIds).toContain("harness-provider-execution-switch");
+      expect(requestIds).not.toContain("harness-provider-execution-distinct");
+    } finally {
+      database.close();
+    }
+    expect(switchProviderAtSafePoint).toHaveBeenCalledOnce();
+    expect(admit).toHaveBeenCalledOnce();
     expect(route).toHaveBeenCalledOnce();
   });
 

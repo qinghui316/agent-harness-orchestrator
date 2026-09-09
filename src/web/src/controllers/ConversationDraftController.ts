@@ -1,4 +1,8 @@
 import type { AgentTurnMode, TopicAttachment, TopicFileReference } from "../types.js";
+import type {
+  ComposerDraftSettlementGuard,
+  ConversationDraftSettlementIdentity,
+} from "./conversation-draft-settlement-contract.js";
 import type { DraftSubmissionSnapshot } from "./conversation-submission-contract.js";
 
 type StateUpdater<T> = (current: T) => T;
@@ -136,6 +140,23 @@ export class ConversationDraftController {
     }
   }
 
+  settlementGuard(
+    mutationToken: string | null | undefined,
+    accepted: ConversationDraftSettlementIdentity,
+  ): ComposerDraftSettlementGuard {
+    const checkpointRevision = this.checkpointRevisionFromToken(mutationToken);
+    return {
+      preserveText: this.textMutationRevision > checkpointRevision,
+      preserveContextRefIdentities: accepted.contextRefs
+        .map(referenceIdentity)
+        .filter((identity) => (this.contextMutationRevisions.get(identity) ?? 0) > checkpointRevision),
+      preserveAttachmentIds: accepted.attachmentIds
+        .filter((identity) => (this.attachmentMutationRevisions.get(identity) ?? 0) > checkpointRevision),
+      preserveSkillIds: Object.keys(accepted.skillOverrides)
+        .filter((identity) => (this.skillMutationRevisions.get(identity) ?? 0) > checkpointRevision),
+    };
+  }
+
   restore(
     snapshot: DraftSubmissionSnapshot,
     attachments: readonly TopicAttachment[],
@@ -166,9 +187,13 @@ export class ConversationDraftController {
   }
 
   private checkpointRevision(snapshot: ConversationDraftViewModel): number {
+    return this.checkpointRevisionFromToken(snapshot.mutationToken);
+  }
+
+  private checkpointRevisionFromToken(mutationToken: string | null | undefined): number {
     const prefix = `${this.instanceId}:`;
-    if (!snapshot.mutationToken?.startsWith(prefix)) return this.mutationRevision;
-    const revision = Number.parseInt(snapshot.mutationToken.slice(prefix.length), 10);
+    if (!mutationToken?.startsWith(prefix)) return this.mutationRevision;
+    const revision = Number.parseInt(mutationToken.slice(prefix.length), 10);
     return Number.isSafeInteger(revision) && revision >= 0 ? revision : this.mutationRevision;
   }
 

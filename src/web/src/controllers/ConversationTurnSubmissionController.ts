@@ -1,5 +1,5 @@
 import type { TopicAttachment, WorkbenchLiveEvent } from "../types.js";
-import type { ComposerDraftContent } from "./ComposerDraftSyncOwner.js";
+import type { ComposerDraftCheckpoint, ComposerDraftContent } from "./ComposerDraftSyncOwner.js";
 import type {
   ComposerCreateConversationRequest,
   ComposerCreatedConversation,
@@ -18,6 +18,8 @@ export interface PendingConversationSubmission {
   attachments: TopicAttachment[];
   attachmentFiles: File[];
   acceptedDraft: ComposerDraftContent | null;
+  acceptedDraftMutationToken: string | null;
+  draftCheckpoint: ComposerDraftCheckpoint;
   skillIdentity: ConversationSubmissionSkillIdentity;
   state: PendingSubmissionState;
 }
@@ -27,6 +29,7 @@ export interface CreateConversationSubmissionInput {
   attachments: TopicAttachment[];
   attachmentFiles: File[];
   acceptedDraft: ComposerDraftContent;
+  acceptedDraftMutationToken?: string | null;
   isCurrent(created?: ComposerCreatedConversation): boolean;
   onPending(): void;
   onAccepted(created: ComposerCreatedConversation): Promise<void>;
@@ -36,6 +39,7 @@ export interface MessageSubmissionInput {
   snapshot: DraftSubmissionSnapshot;
   attachments: TopicAttachment[];
   acceptedDraft: ComposerDraftContent | null;
+  acceptedDraftMutationToken?: string | null;
   skillIdentity: ConversationSubmissionSkillIdentity;
   providerSwitchIntent?: "resume-workflow";
   isCurrent(): boolean;
@@ -60,12 +64,15 @@ export class ConversationTurnSubmissionController {
   async submitCreate(input: CreateConversationSubmissionInput): Promise<ComposerCreatedConversation | null> {
     let pendingScope = pendingScopeFor(input.snapshot);
     let snapshot = cloneSnapshot(input.snapshot);
+    const draftCheckpoint = this.ports.drafts.checkpoint(snapshot.projectId, snapshot.productMode);
     this.begin({
       kind: "create",
       snapshot,
       attachments: input.attachments,
       attachmentFiles: input.attachmentFiles,
       acceptedDraft: input.acceptedDraft,
+      acceptedDraftMutationToken: input.acceptedDraftMutationToken ?? null,
+      draftCheckpoint,
       skillIdentity: skillIdentityFromSnapshot(snapshot),
     });
     this.showPending(pendingScope, snapshot);
@@ -122,7 +129,11 @@ export class ConversationTurnSubmissionController {
       created = await this.ports.session.createConversation(createRequest(snapshot));
       uploadedDraft = [];
       this.settle(snapshot.clientRequestId);
-      await this.ports.drafts.settleAccepted(input.acceptedDraft);
+      await this.ports.drafts.settleAccepted(
+        input.acceptedDraft,
+        draftCheckpoint,
+        input.acceptedDraftMutationToken ?? null,
+      );
       if (input.isCurrent(created)) {
         await input.onAccepted(created);
         if (input.isCurrent(created)) {
@@ -149,12 +160,15 @@ export class ConversationTurnSubmissionController {
   async submitMessage(input: MessageSubmissionInput): Promise<void> {
     const snapshot = cloneSnapshot(input.snapshot);
     const pendingScope = pendingScopeFor(snapshot);
+    const draftCheckpoint = this.ports.drafts.checkpoint(snapshot.projectId, snapshot.productMode);
     this.begin({
       kind: "message",
       snapshot,
       attachments: input.attachments,
       attachmentFiles: [],
       acceptedDraft: input.acceptedDraft,
+      acceptedDraftMutationToken: input.acceptedDraftMutationToken ?? null,
+      draftCheckpoint,
       skillIdentity: input.skillIdentity,
     });
     this.showPending(pendingScope, snapshot);
@@ -179,7 +193,13 @@ export class ConversationTurnSubmissionController {
         if (input.isCurrent() && input.acceptsEvent(event)) this.ports.projection.routeEvent?.(projectId, event);
       });
       this.settle(snapshot.clientRequestId);
-      if (input.acceptedDraft) await this.ports.drafts.settleAccepted(input.acceptedDraft);
+      if (input.acceptedDraft) {
+        await this.ports.drafts.settleAccepted(
+          input.acceptedDraft,
+          draftCheckpoint,
+          input.acceptedDraftMutationToken ?? null,
+        );
+      }
       if (input.isCurrent()) input.onAccepted();
     } catch (cause) {
       this.markFailure(pendingScope, snapshot.clientRequestId, cause, transportStarted, input.isCurrent());
@@ -248,7 +268,13 @@ export class ConversationTurnSubmissionController {
         const created = await this.ports.session.createConversation(createRequest(snapshot));
         uploadedDraft = [];
         this.settle(nextClientRequestId);
-        if (submission.acceptedDraft) await this.ports.drafts.settleAccepted(submission.acceptedDraft);
+        if (submission.acceptedDraft) {
+          await this.ports.drafts.settleAccepted(
+            submission.acceptedDraft,
+            submission.draftCheckpoint,
+            submission.acceptedDraftMutationToken ?? null,
+          );
+        }
         if (input.isCurrent(snapshot, created)) {
           await input.onAccepted(submission, created);
           await this.ports.projection.refreshConversation(created.projectId, created.conversationId);
@@ -269,7 +295,13 @@ export class ConversationTurnSubmissionController {
         }
       });
       this.settle(nextClientRequestId);
-      if (submission.acceptedDraft) await this.ports.drafts.settleAccepted(submission.acceptedDraft);
+      if (submission.acceptedDraft) {
+        await this.ports.drafts.settleAccepted(
+          submission.acceptedDraft,
+          submission.draftCheckpoint,
+          submission.acceptedDraftMutationToken ?? null,
+        );
+      }
       if (input.isCurrent(snapshot)) {
         await input.onAccepted(submission);
         await this.calibrate(snapshot.projectId, snapshot.conversationId, () => input.isCurrent(snapshot));
@@ -455,6 +487,8 @@ function cloneSubmission(submission: PendingConversationSubmission): PendingConv
     attachments: submission.attachments.map((attachment) => ({ ...attachment })),
     attachmentFiles: [...submission.attachmentFiles],
     acceptedDraft: submission.acceptedDraft ? cloneDraftContent(submission.acceptedDraft) : null,
+    acceptedDraftMutationToken: submission.acceptedDraftMutationToken,
+    draftCheckpoint: { ...submission.draftCheckpoint },
     skillIdentity: { ...submission.skillIdentity },
   };
 }

@@ -1,5 +1,5 @@
 import type { AgentTurnMode, ProductMode, TopicAttachment, TopicFileReference, WorkbenchLiveEvent } from "../types.js";
-import type { ComposerDraftContent } from "./ComposerDraftSyncOwner.js";
+import type { ComposerDraftCheckpoint, ComposerDraftContent } from "./ComposerDraftSyncOwner.js";
 import type { WorkbenchOperationToken } from "./useGlobalOperationGate.js";
 
 export interface DraftSubmissionSnapshot {
@@ -115,8 +115,13 @@ export interface ConversationSubmissionPorts {
     remove(projectId: string, attachmentId: string): Promise<void>;
   };
   drafts: {
+    checkpoint(projectId: string, productMode: ProductMode): ComposerDraftCheckpoint;
     flush(projectId: string, productMode: ProductMode): Promise<string | null>;
-    settleAccepted(accepted: ComposerDraftContent): Promise<void>;
+    settleAccepted(
+      accepted: ComposerDraftContent,
+      checkpoint: ComposerDraftCheckpoint,
+      mutationToken: string | null,
+    ): Promise<void>;
   };
   skills: {
     apply(identity: ConversationSubmissionSkillIdentity, overrides: Record<string, boolean>): Promise<void>;

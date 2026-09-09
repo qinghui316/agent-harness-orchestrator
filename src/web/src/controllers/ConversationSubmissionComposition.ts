@@ -1,7 +1,7 @@
 import { consumeWorkbenchLiveStream, WorkbenchRequestError } from "../api.js";
 import { userFacingErrorMessage } from "../presentation/user-facing-language.js";
 import type { TopicAttachment, WorkbenchLiveEvent } from "../types.js";
-import type { ComposerDraftContent } from "./ComposerDraftSyncOwner.js";
+import type { ComposerDraftCheckpoint, ComposerDraftContent } from "./ComposerDraftSyncOwner.js";
 import type {
   ComposerAttachmentUpload,
   ComposerCreateConversationRequest,
@@ -37,8 +37,13 @@ export interface ConversationSubmissionCompositionInput {
     remove(projectId: string, attachmentId: string): Promise<void>;
   };
   drafts(): {
+    checkpoint(projectId: string, productMode: ConversationSubmissionScope["productMode"]): ComposerDraftCheckpoint;
     flush(projectId: string, productMode: ConversationSubmissionScope["productMode"]): Promise<string | null>;
-    settleAccepted(accepted: ComposerDraftContent): Promise<void>;
+    settleAccepted(
+      accepted: ComposerDraftContent,
+      checkpoint: ComposerDraftCheckpoint,
+      mutationToken: string | null,
+    ): Promise<void>;
   };
   skills(): {
     apply(identity: ConversationSubmissionSkillIdentity, overrides: Record<string, boolean>): Promise<void>;
@@ -85,8 +90,11 @@ export function createConversationSubmissionPorts(
       remove: (projectId, attachmentId) => input.attachments().remove(projectId, attachmentId),
     },
     drafts: {
+      checkpoint: (projectId, productMode) => input.drafts().checkpoint(projectId, productMode),
       flush: (projectId, productMode) => input.drafts().flush(projectId, productMode),
-      settleAccepted: (accepted) => input.drafts().settleAccepted(accepted),
+      settleAccepted: (accepted, checkpoint, mutationToken) => (
+        input.drafts().settleAccepted(accepted, checkpoint, mutationToken)
+      ),
     },
     skills: {
       apply: (identity, overrides) => input.skills().apply(identity, overrides),

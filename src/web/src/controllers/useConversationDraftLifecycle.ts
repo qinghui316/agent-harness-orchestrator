@@ -3,7 +3,9 @@ import type { AgentTurnMode, ComposerDraftDiagnostic, ComposerDraftSnapshot, Top
 import {
   ComposerDraftSyncOwner,
   defaultComposerDraftApi,
+  type ComposerDraftCheckpoint,
   type ComposerDraftContent,
+  type ComposerDraftSettlementGuard,
   type ComposerDraftSettlementOptions,
 } from "./ComposerDraftSyncOwner.js";
 import { ConversationDraftController, type ConversationDraftViewModel } from "./ConversationDraftController.js";
@@ -52,7 +54,12 @@ export interface ConversationDraftLifecycle {
   selectProvider(providerId: string): Promise<void>;
   cleanupTransition(transition: ComposerTransition): void;
   flushDraft(): Promise<string | null>;
-  settleAcceptedDraft(accepted: ComposerDraftContent, options?: ComposerDraftSettlementOptions): Promise<void>;
+  settleAcceptedDraft(
+    accepted: ComposerDraftContent,
+    options?: ComposerDraftSettlementOptions,
+    checkpoint?: ComposerDraftCheckpoint,
+    guard?: ComposerDraftSettlementGuard,
+  ): Promise<void>;
   clearAcceptedReviewCommand(capturedText: string, expectedDraftUpdatedAt: string | null): Promise<void>;
   applyRestoredSnapshot(snapshot: ComposerDraftSnapshot): void;
 }
@@ -390,9 +397,11 @@ export function useConversationDraftLifecycle(
   const settleAcceptedDraft = useCallback(async (
     accepted: ComposerDraftContent,
     options?: ComposerDraftSettlementOptions,
+    checkpoint?: ComposerDraftCheckpoint,
+    guard?: ComposerDraftSettlementGuard,
   ): Promise<void> => {
     try {
-      await syncOwnerRef.current!.settleAccepted(accepted, options);
+      await syncOwnerRef.current!.settleAccepted(accepted, options, checkpoint, guard);
     } catch {
       try {
         await syncOwnerRef.current!.load(accepted.projectId, accepted.productMode);
@@ -420,13 +429,14 @@ export function useConversationDraftLifecycle(
     const draft = controllerRef.current!.read();
     if (!currentScope.projectId) return;
     const productMode = composerProductMode(currentScope);
+    const checkpoint = syncOwnerRef.current!.checkpoint(currentScope.projectId, productMode);
     controllerRef.current!.clearAcceptedSnapshot({ ...draft, text: capturedText }, { text: true });
     await settleAcceptedDraft(composerDraftContent({
       projectId: currentScope.projectId, productMode, agentTurnMode: draft.agentTurnMode,
       agentModelId: draft.modelId, agentReasoningEffort: draft.reasoningEffort, text: capturedText,
       contextRefs: draft.contextRefs, attachments: draft.attachments, skillOverrides: draft.skillOverrides,
       selectedProviderId: effectiveComposerProviderId(currentScope),
-    }), { text: true });
+    }), { text: true }, checkpoint);
   }, [settleAcceptedDraft]);
 
   const applyRestoredSnapshot = useCallback((restored: ComposerDraftSnapshot): void => {

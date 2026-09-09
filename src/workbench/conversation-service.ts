@@ -103,6 +103,10 @@ interface ConversationMessageFlight {
   promise: Promise<TopicMessageResult>;
 }
 
+interface ConversationMessageExecutionFlight {
+  promise: Promise<TopicMessageResult>;
+}
+
 interface ConversationMessagePreparationFlight {
   requestHash: string;
   promise: Promise<PreparedConversationMessage>;
@@ -110,6 +114,7 @@ interface ConversationMessagePreparationFlight {
 }
 
 const conversationMessageFlights = new Map<string, ConversationMessageFlight>();
+const conversationMessageExecutionFlights = new Map<string, ConversationMessageExecutionFlight>();
 const conversationMessagePreparationFlights = new Map<string, ConversationMessagePreparationFlight>();
 
 export async function createWorkbenchConversation(
@@ -573,8 +578,12 @@ export async function postConversationMessage(
     reasoningEffort,
   );
   const result = runConversationMessageSingleFlight(identity, parsed.clientRequestId, requestHash, async () => {
-    const replay = options.prepared?.replay ?? await readConversationMessageReplay(identity, parsed.clientRequestId, requestHash);
+    const replay = options.prepared?.replay
+      ?? await readConversationMessageReplay(identity, parsed.clientRequestId, requestHash);
     if (replay) return replay;
+    return runConversationMessageExecutionExclusive(identity, async () => {
+    const concurrentReplay = await readConversationMessageReplay(identity, parsed.clientRequestId, requestHash);
+    if (concurrentReplay) return concurrentReplay;
     await assertConversationQueueAdmission(identity, parsed);
     let providerSwitch: ProviderSwitchResult | null = null;
     if (parsed.providerId && identity.conversation.productMode === "harness" && runtimeState.state === "ready") {
@@ -648,7 +657,8 @@ export async function postConversationMessage(
         });
       }
     }
-    return result;
+      return result;
+    });
   });
   if (options.prepared) {
     return result.finally(() => clearConversationMessagePreparationFlight(
@@ -1393,6 +1403,24 @@ function runConversationMessageSingleFlight(
   return promise;
 }
 
+function runConversationMessageExecutionExclusive(
+  identity: Awaited<ReturnType<typeof resolveStoredConversationIdentity>>,
+  execute: () => Promise<TopicMessageResult>,
+): Promise<TopicMessageResult> {
+  const key = conversationMessageExecutionFlightKey(identity);
+  const existing = conversationMessageExecutionFlights.get(key);
+  if (existing) {
+    return Promise.reject(conflict("A Conversation Turn is already starting or running."));
+  }
+  const promise = Promise.resolve().then(execute);
+  conversationMessageExecutionFlights.set(key, { promise });
+  void promise.then(
+    () => clearConversationMessageExecutionFlight(key, promise),
+    () => clearConversationMessageExecutionFlight(key, promise),
+  );
+  return promise;
+}
+
 function runConversationMessagePreparationSingleFlight(
   identity: Awaited<ReturnType<typeof resolveStoredConversationIdentity>>,
   clientRequestId: string | undefined,
@@ -1445,8 +1473,18 @@ function conversationMessageFlightKey(
   return [identity.conversation.projectId, identity.conversation.productMode, identity.conversationId, clientRequestId].join("\0");
 }
 
+function conversationMessageExecutionFlightKey(
+  identity: Awaited<ReturnType<typeof resolveStoredConversationIdentity>>,
+): string {
+  return [identity.conversation.projectId, identity.conversation.productMode, identity.conversationId].join("\0");
+}
+
 function clearConversationMessageFlight(key: string, promise: Promise<TopicMessageResult>): void {
   if (conversationMessageFlights.get(key)?.promise === promise) conversationMessageFlights.delete(key);
+}
+
+function clearConversationMessageExecutionFlight(key: string, promise: Promise<TopicMessageResult>): void {
+  if (conversationMessageExecutionFlights.get(key)?.promise === promise) conversationMessageExecutionFlights.delete(key);
 }
 
 function replayedConversationMessageResult(message: StoredTopicMessage): TopicMessageResult {

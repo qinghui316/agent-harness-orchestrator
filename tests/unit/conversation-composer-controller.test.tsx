@@ -501,6 +501,52 @@ describe("Conversation composer controller", () => {
     expect(ports.timeline.calibrate).toHaveBeenCalledWith("repo", "conversation-retried", "main-agent");
   });
 
+  it("keeps resources deliberately removed and re-added before a first-send retry settles", async () => {
+    const ports = composerPorts();
+    ports.ids.createClientRequestId
+      .mockReturnValueOnce("request-first")
+      .mockReturnValueOnce("request-retry");
+    ports.skills.load.mockResolvedValue([skill("reviewer")]);
+    ports.session.createConversation
+      .mockRejectedValueOnce(new WorkbenchRequestError(400, "create rejected"))
+      .mockResolvedValueOnce({ projectId: "repo", conversationId: "conversation-retried" });
+    const { result } = renderHook(() => useConversationComposerController(homeScope({
+      productMode: "agent",
+      providerCapabilities: [providerCapability("codex", true)],
+    }), ports));
+    await waitFor(() => expect(result.current.skillItems).toHaveLength(1));
+    act(() => {
+      result.current.setComposerText("retry preserved resources");
+      result.current.setFileRefs([fileRef("src/retry.ts")]);
+      result.current.setAttachments([attachment("attachment-retry")]);
+    });
+    await act(async () => result.current.toggleSkill("reviewer"));
+    await act(async () => {
+      await expect(result.current.createConversation()).rejects.toBeInstanceOf(WorkbenchRequestError);
+    });
+
+    act(() => {
+      result.current.setFileRefs([]);
+      result.current.setAttachments([]);
+    });
+    await act(async () => result.current.toggleSkill("reviewer"));
+    act(() => {
+      result.current.setFileRefs([fileRef("src/retry.ts")]);
+      result.current.setAttachments([attachment("attachment-retry")]);
+    });
+    await act(async () => result.current.toggleSkill("reviewer"));
+    await act(async () => result.current.retryPendingIntent("request-first"));
+
+    expect(result.current.fileRefs).toEqual([expect.objectContaining({ relativePath: "src/retry.ts" })]);
+    expect(result.current.attachments).toEqual([expect.objectContaining({ id: "attachment-retry" })]);
+    expect(result.current.draftSkillOverrides).toEqual({ reviewer: true });
+    expect(ports.drafts.save).toHaveBeenLastCalledWith(expect.objectContaining({
+      contextRefs: [expect.objectContaining({ relativePath: "src/retry.ts" })],
+      attachmentIds: ["attachment-retry"],
+      skillOverrides: { reviewer: true },
+    }));
+  });
+
   it("sends ordinary messages through the action port and restores failed text without overwriting newer edits", async () => {
     let rejectSend!: (cause: Error) => void;
     const ports = composerPorts();
@@ -1427,6 +1473,57 @@ describe("Conversation composer controller", () => {
     expect(result.current.fileRefs).toEqual([expect.objectContaining({ relativePath: "src/b.ts" })]);
     expect(result.current.attachments).toEqual([expect.objectContaining({ id: "attachment-b" })]);
     expect(result.current.draftSkillOverrides).toEqual({ "next-skill": true });
+  });
+
+  it("preserves same-value text and same-identity resources re-added during an ordinary send", async () => {
+    const send = deferred<void>();
+    const ports = composerPorts();
+    ports.actions.sendMessage.mockImplementation(() => send.promise);
+    const { result } = renderHook(() => useConversationComposerController(conversationScope({
+      productMode: "agent",
+      selectedProviderId: "codex",
+      providerCount: 1,
+      providerCapabilities: [providerCapability("codex", true)],
+      conversation: {
+        id: "conversation-1",
+        productMode: "agent",
+        state: "active",
+        selectedProviderId: "codex",
+      },
+    }), ports));
+    await waitFor(() => expect(ports.drafts.load).toHaveBeenCalled());
+    act(() => {
+      result.current.setComposerText("same message");
+      result.current.setFileRefs([fileRef("src/same.ts")]);
+      result.current.setAttachments([attachment("attachment-same")]);
+    });
+
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.send(); });
+    await waitFor(() => expect(ports.actions.sendMessage).toHaveBeenCalledOnce());
+    act(() => {
+      result.current.setComposerText("temporary message");
+      result.current.setComposerText("same message");
+      result.current.setFileRefs([]);
+      result.current.setAttachments([]);
+    });
+    act(() => {
+      result.current.setFileRefs([fileRef("src/same.ts")]);
+      result.current.setAttachments([attachment("attachment-same")]);
+    });
+    await act(async () => {
+      send.resolve();
+      await pending;
+    });
+
+    expect(result.current.composerText).toBe("same message");
+    expect(result.current.fileRefs).toEqual([expect.objectContaining({ relativePath: "src/same.ts" })]);
+    expect(result.current.attachments).toEqual([expect.objectContaining({ id: "attachment-same" })]);
+    expect(ports.drafts.save).toHaveBeenLastCalledWith(expect.objectContaining({
+      text: "same message",
+      contextRefs: [expect.objectContaining({ relativePath: "src/same.ts" })],
+      attachmentIds: ["attachment-same"],
+    }));
   });
 
   it("keeps a captured first send running after a Provider switch without overwriting the new draft", async () => {

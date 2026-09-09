@@ -3,6 +3,7 @@ import type { ComposerDraftSnapshot, SkillListItem } from "../types.js";
 import type {
   ComposerDraftCheckpoint,
   ComposerDraftContent,
+  ComposerDraftSettlementGuard,
   ComposerDraftSettlementOptions,
   ComposerDraftSyncOwner,
 } from "./ComposerDraftSyncOwner.js";
@@ -28,10 +29,15 @@ import {
 } from "./conversation-composer-contract.js";
 
 interface ConversationExecutionDraftPort {
-  controller: Pick<ConversationDraftController, "read" | "clearAcceptedSnapshot">;
+  controller: Pick<ConversationDraftController, "read" | "clearAcceptedSnapshot" | "settlementGuard">;
   syncOwner: Pick<ComposerDraftSyncOwner, "checkpoint" | "load" | "rebaseAcceptedExternal">;
   flushDraft(): Promise<string | null>;
-  settleAcceptedDraft(accepted: ComposerDraftContent, options?: ComposerDraftSettlementOptions): Promise<void>;
+  settleAcceptedDraft(
+    accepted: ComposerDraftContent,
+    options?: ComposerDraftSettlementOptions,
+    checkpoint?: ComposerDraftCheckpoint,
+    guard?: ComposerDraftSettlementGuard,
+  ): Promise<void>;
   applyRestoredSnapshot(snapshot: ComposerDraftSnapshot): void;
   setComposerText(next: string | ((current: string) => string)): void;
   cleanupTransition(transition: ComposerTransition): void;
@@ -133,7 +139,12 @@ export function useConversationExecutionActions(
       }
       let draftSyncFailed = false;
       try {
-        await draft.syncOwner.rebaseAcceptedExternal(draftCheckpoint, acceptedDraft);
+        await draft.syncOwner.rebaseAcceptedExternal(
+          draftCheckpoint,
+          acceptedDraft,
+          undefined,
+          draft.controller.settlementGuard(captured.mutationToken, acceptedDraft),
+        );
       } catch {
         draftSyncFailed = true;
       }
@@ -222,6 +233,7 @@ export function useConversationExecutionActions(
       skillOverrides: captured.skillOverrides,
       selectedProviderId: effectiveComposerProviderId(currentScope),
     });
+    const draftCheckpoint = draft.syncOwner.checkpoint(currentScope.projectId, productMode);
     try {
       await draft.flushDraft();
     } catch (cause) {
@@ -246,7 +258,14 @@ export function useConversationExecutionActions(
         && composerStopIdentity(scopeRef.current) === stopIdentity,
       (result) => result.status !== "already-terminal",
     );
-    if (outcome.status !== "already-terminal") await draft.settleAcceptedDraft(accepted, { text: true });
+    if (outcome.status !== "already-terminal") {
+      await draft.settleAcceptedDraft(
+        accepted,
+        { text: true },
+        draftCheckpoint,
+        draft.controller.settlementGuard(captured.mutationToken, accepted),
+      );
+    }
     if (outcome.status === "already-terminal"
       && ownsAction(generation, currentScope)
       && composerStopIdentity(scopeRef.current) === stopIdentity) {
