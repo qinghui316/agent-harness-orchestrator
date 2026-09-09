@@ -1,6 +1,7 @@
 import { useCallback, useRef, type MutableRefObject } from "react";
 import type { ComposerDraftSnapshot, SkillListItem } from "../types.js";
 import type {
+  ComposerDraftCheckpoint,
   ComposerDraftContent,
   ComposerDraftSettlementOptions,
   ComposerDraftSyncOwner,
@@ -28,7 +29,7 @@ import {
 
 interface ConversationExecutionDraftPort {
   controller: Pick<ConversationDraftController, "read" | "clearAcceptedSnapshot">;
-  syncOwner: Pick<ComposerDraftSyncOwner, "load">;
+  syncOwner: Pick<ComposerDraftSyncOwner, "checkpoint" | "load" | "rebaseAcceptedExternal">;
   flushDraft(): Promise<string | null>;
   settleAcceptedDraft(accepted: ComposerDraftContent, options?: ComposerDraftSettlementOptions): Promise<void>;
   applyRestoredSnapshot(snapshot: ComposerDraftSnapshot): void;
@@ -101,6 +102,19 @@ export function useConversationExecutionActions(
       return;
     }
     try {
+      const draftCheckpoint: ComposerDraftCheckpoint = draft.syncOwner.checkpoint(currentScope.projectId, productMode);
+      const acceptedDraft = composerDraftContent({
+        projectId: currentScope.projectId,
+        productMode,
+        agentTurnMode: captured.agentTurnMode,
+        agentModelId: captured.modelId,
+        agentReasoningEffort: captured.reasoningEffort,
+        text: captured.text,
+        contextRefs: captured.contextRefs,
+        attachments: captured.attachments,
+        skillOverrides: captured.skillOverrides,
+        selectedProviderId: providerId,
+      });
       const expectedDraftUpdatedAt = await draft.flushDraft();
       const queued = await queue.enqueue({
         text: prepared.text || defaultAttachmentPrompt(attachmentIds.length),
@@ -117,7 +131,12 @@ export function useConversationExecutionActions(
         if (ownsAction(generation, currentScope)) portsRef.current.onError("当前会话队列已变化，请等待校准后重试。");
         return;
       }
-      await draft.syncOwner.load(currentScope.projectId, productMode);
+      let draftSyncFailed = false;
+      try {
+        await draft.syncOwner.rebaseAcceptedExternal(draftCheckpoint, acceptedDraft);
+      } catch {
+        draftSyncFailed = true;
+      }
       if (!ownsAction(generation, currentScope)) return;
       draft.controller.clearAcceptedSnapshot(captured, {
         text: true,
@@ -125,7 +144,9 @@ export function useConversationExecutionActions(
         attachments: true,
         skillOverrides: true,
       });
-      portsRef.current.onError(null);
+      portsRef.current.onError(draftSyncFailed
+        ? "已加入待发送，草稿暂时无法同步。请刷新后确认输入框内容。"
+        : null);
     } catch (cause) {
       if (ownsAction(generation, currentScope)) portsRef.current.onError(composerErrorMessage(cause));
       throw cause;

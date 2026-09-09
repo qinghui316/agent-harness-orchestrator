@@ -98,6 +98,13 @@ export interface PreparedConversationMessage {
   replay: TopicMessageResult | null;
 }
 
+interface ConversationMessageFlight {
+  requestHash: string;
+  promise: Promise<TopicMessageResult>;
+}
+
+const conversationMessageFlights = new Map<string, ConversationMessageFlight>();
+
 export async function createWorkbenchConversation(
   project: ManagedProject,
   input: CreateWorkbenchConversationInput,
@@ -558,21 +565,22 @@ export async function postConversationMessage(
     modelId,
     reasoningEffort,
   );
-  const replay = options.prepared?.replay ?? await readConversationMessageReplay(identity, parsed.clientRequestId, requestHash);
-  if (replay) return replay;
-  await assertConversationQueueAdmission(identity, parsed);
-  let providerSwitch: ProviderSwitchResult | null = null;
-  if (parsed.providerId && identity.conversation.productMode === "harness" && runtimeState.state === "ready") {
-    if (!turnRouter.switchProviderAtSafePoint) {
-      throw new Error("Workbench Provider switching is not composed.");
+  return runConversationMessageSingleFlight(identity, parsed.clientRequestId, requestHash, async () => {
+    const replay = options.prepared?.replay ?? await readConversationMessageReplay(identity, parsed.clientRequestId, requestHash);
+    if (replay) return replay;
+    await assertConversationQueueAdmission(identity, parsed);
+    let providerSwitch: ProviderSwitchResult | null = null;
+    if (parsed.providerId && identity.conversation.productMode === "harness" && runtimeState.state === "ready") {
+      if (!turnRouter.switchProviderAtSafePoint) {
+        throw new Error("Workbench Provider switching is not composed.");
+      }
+      providerSwitch = await turnRouter.switchProviderAtSafePoint({
+        project,
+        resolution: runtimeState.resolution,
+        conversationId,
+        targetProviderId: parsed.providerId,
+      });
     }
-    providerSwitch = await turnRouter.switchProviderAtSafePoint({
-      project,
-      resolution: runtimeState.resolution,
-      conversationId,
-      targetProviderId: parsed.providerId,
-    });
-  }
   if (parsed.providerId && identity.conversation.productMode === "agent") {
     if (parsed.providerId !== identity.conversation.selectedProviderId) {
       const error = new Error("Direct Agent provider switching is not supported in this increment.");
@@ -632,7 +640,8 @@ export async function postConversationMessage(
       });
     }
   }
-  return result;
+    return result;
+  });
 }
 
 export async function listConversationMessages(project: ManagedProject, conversationId: string): Promise<TopicThreadEntry[]> {
@@ -1340,6 +1349,34 @@ async function readConversationMessageReplay(
   } finally {
     database.close();
   }
+}
+
+function runConversationMessageSingleFlight(
+  identity: Awaited<ReturnType<typeof resolveStoredConversationIdentity>>,
+  clientRequestId: string | undefined,
+  requestHash: string | null,
+  execute: () => Promise<TopicMessageResult>,
+): Promise<TopicMessageResult> {
+  if (!clientRequestId || !requestHash) return execute();
+  const key = [identity.conversation.projectId, identity.conversation.productMode, identity.conversationId, clientRequestId].join("\0");
+  const existing = conversationMessageFlights.get(key);
+  if (existing) {
+    if (existing.requestHash !== requestHash) {
+      return Promise.reject(conflict("clientRequestId was already used for a different Conversation message."));
+    }
+    return existing.promise;
+  }
+  const promise = Promise.resolve().then(execute);
+  conversationMessageFlights.set(key, { requestHash, promise });
+  void promise.then(
+    () => clearConversationMessageFlight(key, promise),
+    () => clearConversationMessageFlight(key, promise),
+  );
+  return promise;
+}
+
+function clearConversationMessageFlight(key: string, promise: Promise<TopicMessageResult>): void {
+  if (conversationMessageFlights.get(key)?.promise === promise) conversationMessageFlights.delete(key);
 }
 
 function replayedConversationMessageResult(message: StoredTopicMessage): TopicMessageResult {

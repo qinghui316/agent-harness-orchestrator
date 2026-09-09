@@ -35,6 +35,12 @@ export interface ComposerDraftSettlementOptions {
   skillOverrides?: boolean;
 }
 
+export interface ComposerDraftCheckpoint {
+  projectId: string;
+  productMode: ProductMode;
+  localRevision: number;
+}
+
 export class ComposerDraftSyncOwner {
   private readonly scopes = new Map<string, ScopeState>();
 
@@ -118,6 +124,54 @@ export class ComposerDraftSyncOwner {
         const result = await this.api.save({ ...cloneContent(settled), expectedUpdatedAt: state.updatedAt });
         state.updatedAt = result.updatedAt;
         return result;
+      } catch (cause) {
+        this.recordConflict(state, cause);
+        throw cause;
+      }
+    });
+  }
+
+  checkpoint(projectId: string, productMode: ProductMode): ComposerDraftCheckpoint {
+    return { projectId, productMode, localRevision: this.state(projectId, productMode).localRevision };
+  }
+
+  async rebaseAcceptedExternal(
+    checkpoint: ComposerDraftCheckpoint,
+    accepted: ComposerDraftContent,
+    options: ComposerDraftSettlementOptions = {
+      text: true,
+      contextRefs: true,
+      attachmentIds: true,
+      skillOverrides: true,
+    },
+  ): Promise<ComposerDraftSnapshot | null> {
+    if (checkpoint.projectId !== accepted.projectId || checkpoint.productMode !== accepted.productMode) {
+      throw new Error("Composer draft checkpoint does not match the accepted draft scope.");
+    }
+    const state = this.state(checkpoint.projectId, checkpoint.productMode);
+    return this.enqueue(checkpoint.projectId, checkpoint.productMode, async () => {
+      const remote = await this.api.load(checkpoint.projectId, checkpoint.productMode);
+      state.updatedAt = remote?.updatedAt ?? null;
+      state.conflict = null;
+      if (state.localRevision === checkpoint.localRevision) {
+        state.latestContent = remote ? contentFromSnapshot(remote) : null;
+        state.pendingContent = null;
+        return remote;
+      }
+      if (state.timer) {
+        clearTimeout(state.timer);
+        state.timer = null;
+      }
+      const current = state.latestContent
+        ?? (remote ? contentFromSnapshot(remote) : cloneContent(accepted));
+      const settled = settleContent(current, accepted, options);
+      state.latestContent = settled;
+      state.pendingContent = null;
+      state.localRevision += 1;
+      try {
+        const saved = await this.api.save({ ...cloneContent(settled), expectedUpdatedAt: state.updatedAt });
+        state.updatedAt = saved.updatedAt;
+        return saved;
       } catch (cause) {
         this.recordConflict(state, cause);
         throw cause;

@@ -153,7 +153,7 @@ export interface CurrentValueRef<T> {
 }
 
 export interface ConversationDraftLifecyclePorts {
-  readonly drafts?: ComposerDraftApi;
+  readonly drafts?: Readonly<ComposerDraftApi>;
   readonly session: Readonly<{
     restoreDraftProvider?(providerId: string | null): void;
     selectProvider?(providerId: string): void | Promise<void>;
@@ -200,9 +200,22 @@ export interface ConversationExecutionActionPorts {
   readonly timeline: Readonly<{
     calibrate(projectId: string, conversationId: string, agentSurfaceId: "main-agent"): Promise<void>;
   }>;
-  readonly queue?: Readonly<NonNullable<ConversationComposerPorts["queue"]>>;
+  readonly queue?: Readonly<{
+    snapshot: DeepReadonly<ConversationTurnQueueSnapshot> | null;
+    loading: boolean;
+    enqueue(input: ConversationTurnQueueEnqueueInput): Promise<ConversationTurnQueueSnapshot | null>;
+    reclaim(queueItemId: string, expectedDraftUpdatedAt: string | null): Promise<ConversationTurnQueueSnapshot | null>;
+  }>;
   readonly onError: ConversationComposerPorts["onError"];
 }
+
+type DeepReadonly<T> = T extends (...args: infer TArgs) => infer TResult
+  ? (...args: TArgs) => TResult
+  : T extends readonly (infer TItem)[]
+    ? readonly DeepReadonly<TItem>[]
+    : T extends object
+      ? { readonly [TKey in keyof T]: DeepReadonly<T[TKey]> }
+      : T;
 
 export function prepareComposerInput(input: {
   body: string;

@@ -18,6 +18,22 @@ export type ExecutionCannotSendMessage = ConversationExecutionActionPorts["actio
 // @ts-expect-error Execution actions cannot mutate optimistic Timeline rows.
 export type ExecutionCannotShowPending = ConversationExecutionActionPorts["timeline"]["showPending"];
 
+function assertNestedComposerPortsAreReadonly(
+  draft: ConversationDraftLifecyclePorts,
+  execution: ConversationExecutionActionPorts,
+): void {
+  // @ts-expect-error Draft API methods cannot be replaced by a lifecycle owner.
+  draft.drafts!.save = draft.drafts!.save;
+  // @ts-expect-error Queue snapshots are immutable projections.
+  execution.queue!.snapshot!.revision = "queue:forged";
+  // @ts-expect-error Queue item collections cannot be mutated in place.
+  execution.queue!.snapshot!.items.push(execution.queue!.snapshot!.items[0]!);
+  // @ts-expect-error Queue methods cannot be replaced by an execution owner.
+  execution.queue!.enqueue = execution.queue!.enqueue;
+}
+
+void assertNestedComposerPortsAreReadonly;
+
 describe("Conversation experience boundaries", () => {
   it("keeps application contracts independent of presentation", () => {
     for (const path of [

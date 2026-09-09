@@ -1553,6 +1553,74 @@ describe("Conversation composer controller", () => {
     expect(result.current.attachments).toEqual([]);
   });
 
+  it("persists edits made while a queued Turn is being accepted", async () => {
+    const queued = deferred<ConversationTurnQueueSnapshot>();
+    const ports = composerPorts();
+    let persisted = draftSnapshot({ updatedAt: "initial-token" });
+    let saveSequence = 0;
+    ports.drafts.load.mockImplementation(async () => persisted);
+    ports.drafts.save.mockImplementation(async (input) => {
+      persisted = draftSnapshot({
+        projectId: input.projectId,
+        productMode: input.productMode,
+        agentTurnMode: input.agentTurnMode,
+        agentModelId: input.agentModelId,
+        agentReasoningEffort: input.agentReasoningEffort,
+        text: input.text,
+        contextRefs: input.contextRefs,
+        attachments: input.attachmentIds.map(attachment),
+        skillOverrides: input.skillOverrides,
+        selectedProviderId: input.selectedProviderId,
+        updatedAt: `saved-token-${++saveSequence}`,
+      });
+      return persisted;
+    });
+    ports.queue = {
+      snapshot: queueSnapshot("queue:0"),
+      loading: false,
+      enqueue: vi.fn(() => queued.promise),
+      reclaim: vi.fn(async () => queueSnapshot("queue:1")),
+    };
+    const { result } = renderHook(() => useConversationComposerController(conversationScope({
+      productMode: "agent",
+      running: true,
+      selectedProviderId: "codex",
+      runControlState: { state: "running", canStop: true, canSteer: false, providerId: "codex", attemptId: "attempt-1" },
+      conversation: { id: "conversation-1", productMode: "agent", state: "active", selectedProviderId: "codex" },
+    }), ports));
+    await waitFor(() => expect(ports.drafts.load).toHaveBeenCalledOnce());
+    act(() => {
+      result.current.setComposerText("queued message");
+      result.current.setFileRefs([fileRef("src/a.ts")]);
+      result.current.setAttachments([attachment("attachment-a")]);
+    });
+
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.send(); });
+    await waitFor(() => expect(ports.queue!.enqueue).toHaveBeenCalledOnce());
+    act(() => {
+      result.current.setComposerText("next message");
+      result.current.setFileRefs([fileRef("src/a.ts"), fileRef("src/b.ts")]);
+      result.current.setAttachments([attachment("attachment-a"), attachment("attachment-b")]);
+    });
+    await act(async () => { await Promise.resolve(); });
+    persisted = draftSnapshot({ text: "", updatedAt: "external-token" });
+    await act(async () => {
+      queued.resolve(queueSnapshot("queue:1"));
+      await pending;
+    });
+
+    expect(result.current.composerText).toBe("next message");
+    expect(result.current.fileRefs).toEqual([expect.objectContaining({ relativePath: "src/b.ts" })]);
+    expect(result.current.attachments).toEqual([expect.objectContaining({ id: "attachment-b" })]);
+    expect(ports.drafts.save).toHaveBeenLastCalledWith(expect.objectContaining({
+      text: "next message",
+      contextRefs: [expect.objectContaining({ relativePath: "src/b.ts" })],
+      attachmentIds: ["attachment-b"],
+      expectedUpdatedAt: "external-token",
+    }));
+  });
+
   it("does not bypass an unavailable queue snapshot with a direct Turn", async () => {
     const ports = composerPorts();
     ports.queue = {

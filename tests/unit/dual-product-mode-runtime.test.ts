@@ -143,12 +143,11 @@ describe("dual product-mode foundation", () => {
       productMode: "agent",
       clientRequestId: "followup-concurrent-create",
     }, undefined, { runMainAgent: false });
-    const admitted: Array<() => void> = [];
+    const admitted = deferred<void>();
+    const release = deferred<void>();
     const admit = vi.fn(async (input: Parameters<ConversationTurnRoutingPort["admit"]>[0]) => {
-      await new Promise<void>((resolve) => {
-        admitted.push(resolve);
-        if (admitted.length === 2) admitted.splice(0).forEach((release) => release());
-      });
+      admitted.resolve();
+      await release.promise;
       return testAdmission(input);
     });
     const route = vi.fn(testTurnRouter().route);
@@ -159,14 +158,17 @@ describe("dual product-mode foundation", () => {
       clientRequestId: "followup-concurrent-request",
     };
 
-    const results = await Promise.all([
-      postConversationMessage(project(), conversation.conversationId, input, undefined, { turnRouter: router }),
-      postConversationMessage(project(), conversation.conversationId, input, undefined, { turnRouter: router }),
-    ]);
+    const first = postConversationMessage(project(), conversation.conversationId, input, undefined, { turnRouter: router });
+    await admitted.promise;
+    const duplicate = postConversationMessage(project(), conversation.conversationId, input, undefined, { turnRouter: router });
+    await Promise.resolve();
+    expect(admit).toHaveBeenCalledOnce();
+    release.resolve();
+    const results = await Promise.all([first, duplicate]);
 
     expect(results).toHaveLength(2);
     expect(results.some((result) => result.user.clientRequestId === "followup-concurrent-request")).toBe(true);
-    expect(admit).toHaveBeenCalledTimes(2);
+    expect(admit).toHaveBeenCalledTimes(1);
     expect(route).toHaveBeenCalledTimes(1);
     const database = await openProjectRuntimeWorkbenchDatabase(fixture.resolution.paths);
     try {
@@ -640,6 +642,56 @@ describe("dual product-mode foundation", () => {
     expect(await conversationRoutingState(conversation.conversationId)).toEqual(before);
   });
 
+  it("single-flights concurrent exact Harness follow-ups before Provider switching", async () => {
+    const conversation = await createWorkbenchConversation(project(), {
+      body: "Harness Provider switch single-flight",
+      productMode: "harness",
+      clientRequestId: "harness-provider-switch-create",
+    }, undefined, { runMainAgent: false });
+    const started = deferred<void>();
+    const release = deferred<void>();
+    const switchProviderAtSafePoint = vi.fn(async () => {
+      started.resolve();
+      await release.promise;
+      return {
+        conversationId: conversation.conversationId,
+        previousProviderId: conversation.selectedProviderId,
+        selectedProviderId: "other-provider",
+        graphScopeId: null,
+        resumePointId: "unchanged",
+        resumePointHash: "unchanged",
+        resumeAttemptId: "unchanged",
+        switchedAt: new Date().toISOString(),
+      };
+    });
+    const admit = vi.fn(testAdmission);
+    const route = vi.fn(testTurnRouter().route);
+    const router: ConversationTurnRoutingPort = {
+      ...testTurnRouter(),
+      switchProviderAtSafePoint,
+      admit,
+      route,
+    };
+    const input = {
+      message: "Switch exactly once.",
+      productMode: "harness" as const,
+      providerId: "other-provider",
+      clientRequestId: "harness-provider-switch-request",
+    };
+
+    const first = postConversationMessage(project(), conversation.conversationId, input, undefined, { turnRouter: router });
+    await started.promise;
+    const duplicate = postConversationMessage(project(), conversation.conversationId, input, undefined, { turnRouter: router });
+    await Promise.resolve();
+    expect(switchProviderAtSafePoint).toHaveBeenCalledOnce();
+    release.resolve();
+    await expect(Promise.all([first, duplicate])).resolves.toHaveLength(2);
+
+    expect(switchProviderAtSafePoint).toHaveBeenCalledOnce();
+    expect(admit).toHaveBeenCalledOnce();
+    expect(route).toHaveBeenCalledOnce();
+  });
+
   it("rejects prepared Agent admission while the FIFO head is active", async () => {
     const conversation = await createWorkbenchConversation(project(), {
       body: "Agent prepared queue boundary",
@@ -704,6 +756,16 @@ function testTurnRouter(): ConversationTurnRoutingPort {
     resolveProviderId: (_project, requestedProviderId) => requestedProviderId ?? "codex",
     resolveRuntimeState: async () => ({ state: "ready", project: project(), resolution: fixture.resolution }),
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (cause?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }
 
 async function testAdmission(input: Parameters<ConversationTurnRoutingPort["admit"]>[0]) {
