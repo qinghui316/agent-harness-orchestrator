@@ -70,13 +70,13 @@ export class ConversationDraftController {
   ): void {
     if (options.text) this.port.setText((current) => current === snapshot.text ? "" : current);
     if (options.contextRefs) {
-      this.port.setContextRefs((current) => sameReferences(current, snapshot.contextRefs) ? [] : current);
+      this.port.setContextRefs((current) => removeAcceptedReferences(current, snapshot.contextRefs));
     }
     if (options.attachments) {
-      this.port.setAttachments((current) => sameAttachments(current, snapshot.attachments) ? [] : current);
+      this.port.setAttachments((current) => removeAcceptedAttachments(current, snapshot.attachments));
     }
     if (options.skillOverrides) {
-      this.port.setSkillOverrides((current) => sameOverrides(current, snapshot.skillOverrides) ? {} : current);
+      this.port.setSkillOverrides((current) => removeAcceptedOverrides(current, snapshot.skillOverrides));
     }
   }
 
@@ -150,16 +150,37 @@ function mergeAttachments(
   })];
 }
 
-function sameReferences(left: readonly TopicFileReference[], right: readonly TopicFileReference[]): boolean {
-  return JSON.stringify(mergeReferences([], left)) === JSON.stringify(mergeReferences([], right));
+function removeAcceptedReferences(
+  current: readonly TopicFileReference[],
+  accepted: readonly TopicFileReference[],
+): TopicFileReference[] {
+  const acceptedKeys = new Set(accepted.map(referenceIdentity));
+  return current
+    .filter((reference) => !acceptedKeys.has(referenceIdentity(reference)))
+    .map((reference) => ({ ...reference }));
 }
 
-function sameAttachments(left: readonly TopicAttachment[], right: readonly TopicAttachment[]): boolean {
-  return left.map((attachment) => attachment.id).join("\0") === right.map((attachment) => attachment.id).join("\0");
+function referenceIdentity(reference: TopicFileReference): string {
+  return `${reference.kind}:${reference.relativePath}`;
 }
 
-function sameOverrides(left: Readonly<Record<string, boolean>>, right: Readonly<Record<string, boolean>>): boolean {
-  const entries = (value: Readonly<Record<string, boolean>>) => Object.entries(value)
-    .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey));
-  return JSON.stringify(entries(left)) === JSON.stringify(entries(right));
+function removeAcceptedAttachments(
+  current: readonly TopicAttachment[],
+  accepted: readonly TopicAttachment[],
+): TopicAttachment[] {
+  const acceptedIds = new Set(accepted.map((attachment) => attachment.id));
+  return current
+    .filter((attachment) => !acceptedIds.has(attachment.id))
+    .map((attachment) => ({ ...attachment }));
+}
+
+function removeAcceptedOverrides(
+  current: Readonly<Record<string, boolean>>,
+  accepted: Readonly<Record<string, boolean>>,
+): Record<string, boolean> {
+  const next = { ...current };
+  for (const [skillId, acceptedValue] of Object.entries(accepted)) {
+    if (next[skillId] === acceptedValue) delete next[skillId];
+  }
+  return next;
 }

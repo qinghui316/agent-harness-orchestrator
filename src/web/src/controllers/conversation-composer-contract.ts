@@ -152,25 +152,57 @@ export interface CurrentValueRef<T> {
   readonly current: T;
 }
 
-export type ConversationDraftLifecyclePorts = Pick<
-  ConversationComposerPorts,
-  "drafts" | "session" | "onError"
->;
+export interface ConversationDraftLifecyclePorts {
+  readonly drafts?: ComposerDraftApi;
+  readonly session: Readonly<{
+    restoreDraftProvider?(providerId: string | null): void;
+    selectProvider?(providerId: string): void | Promise<void>;
+  }>;
+  readonly onError: ConversationComposerPorts["onError"];
+}
 
-export type ConversationComposerResourcePorts = Pick<
-  ConversationComposerPorts,
-  "skills" | "attachments" | "onError"
->;
+export interface ConversationComposerResourcePorts {
+  readonly skills?: Readonly<{
+    load(identity: SkillRequestIdentity): Promise<SkillListItem[]>;
+    setEnabled(identity: SkillRequestIdentity, skillId: string, enabled: boolean): Promise<void>;
+  }>;
+  readonly attachments?: Readonly<{
+    upload(projectId: string, upload: ComposerAttachmentUpload): Promise<TopicAttachment>;
+    remove(projectId: string, attachmentId: string): Promise<void>;
+  }>;
+  readonly onError: ConversationComposerPorts["onError"];
+}
 
-export type ConversationSubmissionCoordinatorPorts = Pick<
-  ConversationComposerPorts,
-  "operation" | "ids" | "session" | "actions" | "timeline" | "projection" | "attachments" | "onError"
->;
+export interface ConversationSubmissionCoordinatorPorts {
+  readonly operation: Readonly<ConversationComposerPorts["operation"]>;
+  readonly ids?: Readonly<NonNullable<ConversationComposerPorts["ids"]>>;
+  readonly session: Readonly<{
+    ensureProjectRegistered(projectId: string): Promise<string | null>;
+    createConversation(request: ComposerCreateConversationRequest): Promise<ComposerCreatedConversation>;
+    beginPendingConversation?: NonNullable<ConversationComposerPorts["session"]["beginPendingConversation"]>;
+  }>;
+  readonly actions: Readonly<{
+    sendMessage?: NonNullable<ConversationComposerPorts["actions"]["sendMessage"]>;
+  }>;
+  readonly timeline: Readonly<ConversationComposerPorts["timeline"]>;
+  readonly projection: Readonly<ConversationComposerPorts["projection"]>;
+  readonly attachments?: Readonly<NonNullable<ConversationComposerPorts["attachments"]>>;
+  readonly onError: ConversationComposerPorts["onError"];
+}
 
-export type ConversationExecutionActionPorts = Pick<
-  ConversationComposerPorts,
-  "operation" | "ids" | "actions" | "timeline" | "queue" | "onError"
->;
+export interface ConversationExecutionActionPorts {
+  readonly operation: Readonly<ConversationComposerPorts["operation"]>;
+  readonly ids?: Readonly<NonNullable<ConversationComposerPorts["ids"]>>;
+  readonly actions: Readonly<{
+    steer(request: ComposerActionRequest): Promise<ConversationSteerOutcome>;
+    stop(request: ComposerActionRequest): Promise<void>;
+  }>;
+  readonly timeline: Readonly<{
+    calibrate(projectId: string, conversationId: string, agentSurfaceId: "main-agent"): Promise<void>;
+  }>;
+  readonly queue?: Readonly<NonNullable<ConversationComposerPorts["queue"]>>;
+  readonly onError: ConversationComposerPorts["onError"];
+}
 
 export function prepareComposerInput(input: {
   body: string;

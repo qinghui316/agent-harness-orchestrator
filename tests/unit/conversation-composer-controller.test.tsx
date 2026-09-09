@@ -1343,6 +1343,48 @@ describe("Conversation composer controller", () => {
     expect(success.result.current.attachments).toEqual([]);
   });
 
+  it("settles accepted resources by identity while preserving edits made during a first send", async () => {
+    const creation = deferred<{ projectId: string; conversationId: string }>();
+    const ports = composerPorts();
+    ports.skills.load.mockResolvedValue([
+      skill("accepted-skill"),
+      skill("next-skill"),
+    ]);
+    ports.session.createConversation.mockImplementation(() => creation.promise);
+    const { result } = renderHook(() => useConversationComposerController(homeScope({
+      productMode: "agent",
+      providerCapabilities: [providerCapability("codex", true)],
+    }), ports));
+    await waitFor(() => expect(result.current.skillItems).toHaveLength(2));
+
+    act(() => {
+      result.current.setComposerText("send resource A");
+      result.current.setFileRefs([fileRef("src/a.ts")]);
+      result.current.setAttachments([attachment("attachment-a")]);
+    });
+    await act(async () => result.current.toggleSkill("accepted-skill"));
+
+    let pending!: Promise<{ projectId: string; conversationId: string } | null>;
+    act(() => { pending = result.current.createConversation(); });
+    await waitFor(() => expect(ports.session.createConversation).toHaveBeenCalledOnce());
+
+    act(() => {
+      result.current.setComposerText("next message");
+      result.current.setFileRefs([fileRef("src/a.ts"), fileRef("src/b.ts")]);
+      result.current.setAttachments((current) => [...current, attachment("attachment-b")]);
+    });
+    await act(async () => result.current.toggleSkill("next-skill"));
+    await act(async () => {
+      creation.resolve({ projectId: "repo", conversationId: "conversation-new" });
+      await pending;
+    });
+
+    expect(result.current.composerText).toBe("next message");
+    expect(result.current.fileRefs).toEqual([expect.objectContaining({ relativePath: "src/b.ts" })]);
+    expect(result.current.attachments).toEqual([expect.objectContaining({ id: "attachment-b" })]);
+    expect(result.current.draftSkillOverrides).toEqual({ "next-skill": true });
+  });
+
   it("keeps a captured first send running after a Provider switch without overwriting the new draft", async () => {
     let resolveCreation!: (created: { projectId: string; conversationId: string }) => void;
     const ports = composerPorts();

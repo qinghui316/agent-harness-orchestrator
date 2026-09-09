@@ -1,5 +1,22 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import type {
+  ConversationDraftLifecyclePorts,
+  ConversationExecutionActionPorts,
+  ConversationSubmissionCoordinatorPorts,
+} from "../../src/web/src/controllers/conversation-composer-contract.js";
+
+// `npm run typecheck:contracts` compiles these negative capability assertions.
+// @ts-expect-error Draft lifecycle cannot create Conversations.
+export type DraftLifecycleCannotCreateConversation = ConversationDraftLifecyclePorts["session"]["createConversation"];
+// @ts-expect-error Submission cannot steer a running Turn.
+export type SubmissionCannotSteer = ConversationSubmissionCoordinatorPorts["actions"]["steer"];
+// @ts-expect-error Submission cannot stop a running Turn.
+export type SubmissionCannotStop = ConversationSubmissionCoordinatorPorts["actions"]["stop"];
+// @ts-expect-error Execution actions cannot submit a normal message.
+export type ExecutionCannotSendMessage = ConversationExecutionActionPorts["actions"]["sendMessage"];
+// @ts-expect-error Execution actions cannot mutate optimistic Timeline rows.
+export type ExecutionCannotShowPending = ConversationExecutionActionPorts["timeline"]["showPending"];
 
 describe("Conversation experience boundaries", () => {
   it("keeps application contracts independent of presentation", () => {
@@ -84,6 +101,9 @@ describe("Conversation experience boundaries", () => {
   });
 
   it("gives each extracted Composer owner only its declared capability ports", () => {
+    const contract = read("src/web/src/controllers/conversation-composer-contract.ts");
+    expect(contract).not.toMatch(/Conversation(?:DraftLifecycle|ComposerResource|SubmissionCoordinator|ExecutionAction)Ports\s*=\s*Pick</);
+
     const draft = read("src/web/src/controllers/useConversationDraftLifecycle.ts");
     expect(draft).toMatch(/CurrentValueRef<ConversationDraftLifecyclePorts>/);
     expect(draft).not.toMatch(/portsRef\.current\.(?:actions|queue|timeline|skills|attachments|projection|operation|ids)/);

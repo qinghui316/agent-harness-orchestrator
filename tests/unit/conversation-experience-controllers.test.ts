@@ -16,7 +16,7 @@ import type { ComposerDraftContent } from "../../src/web/src/controllers/Compose
 import type { TopicAttachment, TopicFileReference } from "../../src/web/src/types.js";
 
 describe("Conversation experience application owners", () => {
-  it("reads an immutable draft snapshot and clears only values still matching the accepted draft", () => {
+  it("reads an immutable draft snapshot and removes only accepted resource identities", () => {
     const harness = draftHarness(draft({
       text: "first",
       contextRefs: [fileRef("src/first.ts")],
@@ -31,14 +31,17 @@ describe("Conversation experience application owners", () => {
 
     const realAccepted = owner.read();
     harness.state.text = "newer edit";
-    harness.state.attachments = [attachment("newer")];
+    harness.state.contextRefs.push(fileRef("src/newer.ts"));
+    harness.state.attachments.push(attachment("newer"));
+    harness.state.skillOverrides = { reviewer: true, formatter: true, changed: false };
+    realAccepted.skillOverrides.changed = true;
     owner.clearAcceptedSnapshot(realAccepted);
 
     expect(harness.state).toMatchObject({
       text: "newer edit",
-      contextRefs: [],
+      contextRefs: [expect.objectContaining({ relativePath: "src/newer.ts" })],
       attachments: [expect.objectContaining({ id: "newer" })],
-      skillOverrides: {},
+      skillOverrides: { formatter: true, changed: false },
     });
     expect(harness.dirtyCount).toBe(0);
   });

@@ -38,7 +38,6 @@ interface ConversationExecutionDraftPort {
 
 interface ConversationExecutionResourcePort {
   skillItems: SkillListItem[];
-  attachmentSelectionGenerationRef: MutableRefObject<number>;
   invalidateRequests(): void;
 }
 
@@ -80,7 +79,6 @@ export function useConversationExecutionActions(
       return;
     }
     const attachmentIds = captured.attachments.map((attachment) => attachment.id);
-    const attachmentGeneration = resources.attachmentSelectionGenerationRef.current;
     if (!captured.text.trim() && attachmentIds.length === 0) return;
     const prepared = prepareComposerInput({
       body: captured.text,
@@ -124,7 +122,7 @@ export function useConversationExecutionActions(
       draft.controller.clearAcceptedSnapshot(captured, {
         text: true,
         contextRefs: true,
-        attachments: resources.attachmentSelectionGenerationRef.current === attachmentGeneration,
+        attachments: true,
         skillOverrides: true,
       });
       portsRef.current.onError(null);

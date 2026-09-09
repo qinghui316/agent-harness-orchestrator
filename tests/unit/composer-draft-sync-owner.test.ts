@@ -119,6 +119,41 @@ describe("ComposerDraftSyncOwner", () => {
     }));
   });
 
+  it("removes accepted resource identities while preserving resources added during submission", async () => {
+    const submitted = content("submitted", {
+      contextRefs: [{ relativePath: "src/a.ts", name: "a.ts", kind: "file", source: "composer" }],
+      attachmentIds: ["attachment-a"],
+      skillOverrides: { reviewer: true, changed: true },
+    });
+    const api = draftApi({ load: vi.fn(async () => snapshot({
+      text: submitted.text,
+      contextRefs: submitted.contextRefs,
+      attachments: [],
+      skillOverrides: submitted.skillOverrides,
+      updatedAt: "captured-token",
+    })) });
+    const owner = new ComposerDraftSyncOwner(api, () => undefined, 10_000);
+    await owner.load("repo", "agent");
+    owner.schedule(content("next message", {
+      contextRefs: [
+        ...submitted.contextRefs,
+        { relativePath: "src/b.ts", name: "b.ts", kind: "file", source: "composer" },
+      ],
+      attachmentIds: ["attachment-a", "attachment-b"],
+      skillOverrides: { reviewer: true, formatter: true, changed: false },
+    }));
+
+    await owner.settleAccepted(submitted);
+
+    expect(api.save).toHaveBeenCalledWith(expect.objectContaining({
+      text: "next message",
+      contextRefs: [expect.objectContaining({ relativePath: "src/b.ts" })],
+      attachmentIds: ["attachment-b"],
+      skillOverrides: { formatter: true, changed: false },
+      expectedUpdatedAt: "captured-token",
+    }));
+  });
+
   it("uses the settlement token for an edit made while settlement is in flight", async () => {
     const settlement = deferred<ComposerDraftSnapshot>();
     const api = draftApi({ load: vi.fn(async () => snapshot({ text: "submitted", updatedAt: "captured-token" })) });

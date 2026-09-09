@@ -45,7 +45,6 @@ interface ConversationSubmissionDraftPort {
 
 interface ConversationSubmissionResourcePort {
   skillItems: SkillListItem[];
-  attachmentSelectionGenerationRef: MutableRefObject<number>;
   reloadSkills(projectId?: string | null, capturedIdentity?: SkillRequestIdentity): Promise<void>;
   applySkillOverrides(identity: SkillRequestIdentity, overrides: Record<string, boolean>): Promise<void>;
   appendAttachments(files: File[]): Promise<TopicAttachment[]>;
@@ -128,7 +127,6 @@ export function useConversationSubmissionCoordinator(
       portsRef.current.onError(attachmentError);
       return null;
     }
-    const attachmentGeneration = resources.attachmentSelectionGenerationRef.current;
     const prepared = prepareComposerInput({
       body,
       selectedRefs,
@@ -191,7 +189,6 @@ export function useConversationSubmissionCoordinator(
         portsRef.current.onError(null);
       },
       onAccepted: async (created) => {
-        if (attachmentGeneration !== resources.attachmentSelectionGenerationRef.current) return;
         draft.controller.clearAcceptedSnapshot(acceptedDraft);
         await resources.reloadSkills(created.projectId);
       },
@@ -251,7 +248,6 @@ export function useConversationSubmissionCoordinator(
       skillOverrides: captured.skillOverrides,
       selectedProviderId: effectiveComposerProviderId(currentScope),
     });
-    const attachmentGeneration = resources.attachmentSelectionGenerationRef.current;
     const clientRequestId = (portsRef.current.ids ?? defaultComposerIds).createClientRequestId();
     const snapshot = createDraftSubmissionSnapshot({
       projectId: currentScope.projectId,
@@ -293,7 +289,6 @@ export function useConversationSubmissionCoordinator(
         portsRef.current.onError(null);
       },
       onAccepted: () => {
-        if (attachmentGeneration !== resources.attachmentSelectionGenerationRef.current) return;
         draft.controller.clearAcceptedSnapshot(captured, { contextRefs: true, attachments: true, skillOverrides: true });
       },
     });

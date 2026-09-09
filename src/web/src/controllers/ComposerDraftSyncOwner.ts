@@ -240,28 +240,40 @@ function settleContent(
   return {
     ...cloneContent(current),
     text: options.text && current.text === accepted.text ? "" : current.text,
-    contextRefs: options.contextRefs && sameReferences(current.contextRefs, accepted.contextRefs)
-      ? []
+    contextRefs: options.contextRefs
+      ? removeAcceptedReferences(current.contextRefs, accepted.contextRefs)
       : current.contextRefs.map((item) => ({ ...item })),
-    attachmentIds: options.attachmentIds && sameStrings(current.attachmentIds, accepted.attachmentIds)
-      ? []
+    attachmentIds: options.attachmentIds
+      ? removeAcceptedStrings(current.attachmentIds, accepted.attachmentIds)
       : [...current.attachmentIds],
-    skillOverrides: options.skillOverrides && sameOverrides(current.skillOverrides, accepted.skillOverrides)
-      ? {}
+    skillOverrides: options.skillOverrides
+      ? removeAcceptedOverrides(current.skillOverrides, accepted.skillOverrides)
       : { ...current.skillOverrides },
   };
 }
 
-function sameReferences(left: ComposerDraftContent["contextRefs"], right: ComposerDraftContent["contextRefs"]): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+function removeAcceptedReferences(
+  current: ComposerDraftContent["contextRefs"],
+  accepted: ComposerDraftContent["contextRefs"],
+): ComposerDraftContent["contextRefs"] {
+  const acceptedKeys = new Set(accepted.map((reference) => `${reference.kind}:${reference.relativePath}`));
+  return current
+    .filter((reference) => !acceptedKeys.has(`${reference.kind}:${reference.relativePath}`))
+    .map((reference) => ({ ...reference }));
 }
 
-function sameStrings(left: readonly string[], right: readonly string[]): boolean {
-  return left.length === right.length && left.every((value, index) => value === right[index]);
+function removeAcceptedStrings(current: readonly string[], accepted: readonly string[]): string[] {
+  const acceptedValues = new Set(accepted);
+  return current.filter((value) => !acceptedValues.has(value));
 }
 
-function sameOverrides(left: Readonly<Record<string, boolean>>, right: Readonly<Record<string, boolean>>): boolean {
-  const entries = (value: Readonly<Record<string, boolean>>) => Object.entries(value)
-    .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey));
-  return JSON.stringify(entries(left)) === JSON.stringify(entries(right));
+function removeAcceptedOverrides(
+  current: Readonly<Record<string, boolean>>,
+  accepted: Readonly<Record<string, boolean>>,
+): Record<string, boolean> {
+  const next = { ...current };
+  for (const [skillId, acceptedValue] of Object.entries(accepted)) {
+    if (next[skillId] === acceptedValue) delete next[skillId];
+  }
+  return next;
 }

@@ -31,7 +31,6 @@ export interface ConversationComposerResources {
   skillItems: SkillListItem[];
   activeSkillIds: string[];
   enabledSkillCount: number;
-  attachmentSelectionGenerationRef: MutableRefObject<number>;
   reloadSkills(projectId?: string | null, capturedIdentity?: SkillRequestIdentity): Promise<void>;
   toggleSkill(skillId: string): Promise<void>;
   appendAttachments(files: File[]): Promise<TopicAttachment[]>;
@@ -51,7 +50,6 @@ export function useConversationComposerResources(
   const [skillItems, setSkillItems] = useState<SkillListItem[]>([]);
   const [skillsLoadedIdentity, setSkillsLoadedIdentity] = useState<string | null>(null);
   const skillRequestGenerationRef = useRef(0);
-  const attachmentSelectionGenerationRef = useRef(0);
 
   const activeSkillIds = useMemo(
     () => activeComposerSkillIds(skillItems, scope.conversation?.id ?? null, draft.draftSkillOverrides),
@@ -163,7 +161,6 @@ export function useConversationComposerResources(
         return [];
       }
       draft.setAttachmentsRaw((current) => mergeTopicAttachments(current, uploaded));
-      attachmentSelectionGenerationRef.current += 1;
       draft.markDirty();
       return uploaded;
     } catch (cause) {
@@ -175,7 +172,6 @@ export function useConversationComposerResources(
   const removeAttachment = useCallback(async (attachmentId: string): Promise<void> => {
     const projectId = scopeRef.current.projectId;
     draft.setAttachmentsRaw((current) => current.filter((attachment) => attachment.id !== attachmentId));
-    attachmentSelectionGenerationRef.current += 1;
     draft.markDirty();
     if (!projectId) return;
     try {
@@ -186,7 +182,6 @@ export function useConversationComposerResources(
   }, []);
 
   const setAttachments = useCallback((next: TopicAttachment[] | ((current: TopicAttachment[]) => TopicAttachment[])): void => {
-    attachmentSelectionGenerationRef.current += 1;
     draft.setAttachmentsRaw(next);
     draft.markDirty();
   }, [draft]);
@@ -205,7 +200,6 @@ export function useConversationComposerResources(
     skillItems,
     activeSkillIds,
     enabledSkillCount: activeSkillIds.length,
-    attachmentSelectionGenerationRef,
     reloadSkills,
     toggleSkill,
     appendAttachments,
