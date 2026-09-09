@@ -56,6 +56,50 @@ describe("Conversation experience boundaries", () => {
     expect(owner).toMatch(/\.session\.createConversation\(/);
     expect(owner).toMatch(/\.timeline\.showPending\?\./);
   });
+
+  it("keeps the Composer hook as a thin composition root", () => {
+    const hook = read("src/web/src/controllers/useConversationComposerController.ts");
+    expect(hook.split(/\r?\n/).length).toBeLessThan(220);
+    expect(hook).not.toMatch(/fetch\(|fetchJson|postJson|\/api\//);
+    expect(hook).not.toMatch(/\.actions\.(steer|stop)|\.queue\.(enqueue|reclaim)|\.timeline\.calibrate/);
+    expect(hook).toMatch(/useConversationDraftLifecycle/);
+    expect(hook).toMatch(/useConversationComposerResources/);
+    expect(hook).toMatch(/useConversationSubmissionCoordinator/);
+    expect(hook).toMatch(/useConversationExecutionActions/);
+  });
+
+  it("keeps extracted Composer owners acyclic and composed only by the root hook", () => {
+    const ownerPaths = [
+      "src/web/src/controllers/useConversationDraftLifecycle.ts",
+      "src/web/src/controllers/useConversationComposerResources.ts",
+      "src/web/src/controllers/useConversationSubmissionCoordinator.ts",
+      "src/web/src/controllers/useConversationExecutionActions.ts",
+    ];
+    for (const path of ownerPaths) {
+      const imports = importSources(read(path));
+      expect(imports, path).not.toMatch(/\.\/useConversation(?:DraftLifecycle|ComposerResources|SubmissionCoordinator|ExecutionActions)/);
+    }
+    const contractImports = importSources(read("src/web/src/controllers/conversation-composer-contract.ts"));
+    expect(contractImports).not.toMatch(/\.\/useConversation/);
+  });
+
+  it("gives each extracted Composer owner only its declared capability ports", () => {
+    const draft = read("src/web/src/controllers/useConversationDraftLifecycle.ts");
+    expect(draft).toMatch(/CurrentValueRef<ConversationDraftLifecyclePorts>/);
+    expect(draft).not.toMatch(/portsRef\.current\.(?:actions|queue|timeline|skills|attachments|projection|operation|ids)/);
+
+    const resources = read("src/web/src/controllers/useConversationComposerResources.ts");
+    expect(resources).toMatch(/CurrentValueRef<ConversationComposerResourcePorts>/);
+    expect(resources).not.toMatch(/portsRef\.current\.(?:actions|queue|timeline|projection|operation|ids|drafts|session)/);
+
+    const submission = read("src/web/src/controllers/useConversationSubmissionCoordinator.ts");
+    expect(submission).toMatch(/CurrentValueRef<ConversationSubmissionCoordinatorPorts>/);
+    expect(submission).not.toMatch(/portsRef\.current\.(?:queue|skills|drafts)/);
+
+    const execution = read("src/web/src/controllers/useConversationExecutionActions.ts");
+    expect(execution).toMatch(/CurrentValueRef<ConversationExecutionActionPorts>/);
+    expect(execution).not.toMatch(/portsRef\.current\.(?:skills|attachments|drafts|session|projection)/);
+  });
 });
 
 function read(path: string): string {

@@ -598,6 +598,7 @@ export async function postConversationMessage(
     modelId: identity.conversation.productMode === "agent" ? modelId : undefined,
     reasoningEffort: identity.conversation.productMode === "agent" ? reasoningEffort : undefined,
   }, turnRouter, live);
+  if (committed.replayed) return replayedConversationMessageResult(committed.message);
   const result = await turnRouter.route({
     project,
     conversation: committed.conversation,
@@ -785,6 +786,7 @@ async function commitTopLevelConversationMessage(
   conversation: StoredConversation;
   message: StoredTopicMessage;
   planHandoff?: ValidatedPlanHandoffIntent;
+  replayed: boolean;
 }> {
   const { runtimeState } = identity;
   const paths = runtimeState.state === "onboarding" ? runtimeState.paths : runtimeState.resolution.paths;
@@ -849,6 +851,7 @@ async function commitTopLevelConversationMessage(
       queuedTurnDispatch: parsed.queuedTurnDispatch,
     };
     const userWrite = toCanonicalTimelineMessage(projectId, conversationId, user);
+    let replayed = false;
     if (conversation.productMode === "agent") {
       const committed = database.unitOfWork.commitAgentConversationMessage({
         projectId,
@@ -865,8 +868,11 @@ async function commitTopLevelConversationMessage(
         updatedAt: now,
         message: userWrite,
       });
-      delivery.publishCommittedMany(committed.graphScopeRows);
-      delivery.publishCommitted(committed.message);
+      replayed = committed.replayed;
+      if (!committed.replayed) {
+        delivery.publishCommittedMany(committed.graphScopeRows);
+        delivery.publishCommitted(committed.message);
+      }
     } else {
       const committed = database.unitOfWork.commitConversationMessage({
         projectId,
@@ -878,8 +884,19 @@ async function commitTopLevelConversationMessage(
         allowActiveQueue: Boolean(planHandoff),
         updatedAt: now,
       });
-      delivery.publishCommittedMany(committed.graphScopeRows);
-      delivery.publishCommitted(committed.message);
+      replayed = committed.replayed;
+      if (!committed.replayed) {
+        delivery.publishCommittedMany(committed.graphScopeRows);
+        delivery.publishCommitted(committed.message);
+      }
+    }
+    if (replayed) {
+      const committedConversation = database.conversations.readConversation(projectId, conversationId);
+      const committedMessage = database.timeline.readMessage(projectId, conversationId, user.id);
+      if (!committedConversation || !committedMessage) {
+        throw new Error("Replayed Conversation Turn could not be reloaded.");
+      }
+      return { conversation: committedConversation, message: committedMessage, replayed: true };
     }
     if (graphScopeChanged) {
       publishAgentSurfacesInvalidated(projectId, { conversationId, graphScopeId, reason: "scope-changed" });
@@ -901,7 +918,7 @@ async function commitTopLevelConversationMessage(
     if (!committedConversation || !committedMessage) {
       throw new Error("Committed Conversation Turn could not be reloaded.");
     }
-    return { conversation: committedConversation, message: committedMessage, planHandoff };
+    return { conversation: committedConversation, message: committedMessage, planHandoff, replayed: false };
   } finally {
     database.close();
   }
@@ -1323,6 +1340,16 @@ async function readConversationMessageReplay(
   } finally {
     database.close();
   }
+}
+
+function replayedConversationMessageResult(message: StoredTopicMessage): TopicMessageResult {
+  return {
+    user: fromStoredThreadMessage(message),
+    assistant: null,
+    run: null,
+    providerSessionId: null,
+    mode: "chat",
+  };
 }
 
 async function assertConversationQueueAdmission(

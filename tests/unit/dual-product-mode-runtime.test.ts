@@ -137,6 +137,50 @@ describe("dual product-mode foundation", () => {
     expect(route).toHaveBeenCalledTimes(1);
   });
 
+  it("serializes concurrent exact follow-ups and routes the Provider only once", async () => {
+    const conversation = await createWorkbenchConversation(project(), {
+      body: "Initial Agent request.",
+      productMode: "agent",
+      clientRequestId: "followup-concurrent-create",
+    }, undefined, { runMainAgent: false });
+    const admitted: Array<() => void> = [];
+    const admit = vi.fn(async (input: Parameters<ConversationTurnRoutingPort["admit"]>[0]) => {
+      await new Promise<void>((resolve) => {
+        admitted.push(resolve);
+        if (admitted.length === 2) admitted.splice(0).forEach((release) => release());
+      });
+      return testAdmission(input);
+    });
+    const route = vi.fn(testTurnRouter().route);
+    const router = { ...testTurnRouter(), admit, route };
+    const input = {
+      message: "One concurrent-safe follow-up.",
+      productMode: "agent" as const,
+      clientRequestId: "followup-concurrent-request",
+    };
+
+    const results = await Promise.all([
+      postConversationMessage(project(), conversation.conversationId, input, undefined, { turnRouter: router }),
+      postConversationMessage(project(), conversation.conversationId, input, undefined, { turnRouter: router }),
+    ]);
+
+    expect(results).toHaveLength(2);
+    expect(results.some((result) => result.user.clientRequestId === "followup-concurrent-request")).toBe(true);
+    expect(admit).toHaveBeenCalledTimes(2);
+    expect(route).toHaveBeenCalledTimes(1);
+    const database = await openProjectRuntimeWorkbenchDatabase(fixture.resolution.paths);
+    try {
+      const correlated = database.timeline.listConversationMessages(project().id, conversation.conversationId)
+        .filter((row) => {
+          const raw = JSON.parse(row.rawJson) as { clientRequestId?: string };
+          return raw.clientRequestId === "followup-concurrent-request";
+        });
+      expect(correlated).toHaveLength(1);
+    } finally {
+      database.close();
+    }
+  });
+
   it("rejects unbounded or non-contract follow-up request identities", async () => {
     const conversation = await createWorkbenchConversation(project(), {
       body: "Request identity validation.",

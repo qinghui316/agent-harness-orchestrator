@@ -400,6 +400,63 @@ describe("Conversation composer controller", () => {
     expect(ports.onError).toHaveBeenLastCalledWith("消息暂时无法发送。请重试。");
   });
 
+  it("settles first-send resources when retry navigation advances to the canonical Conversation", async () => {
+    const ports = composerPorts();
+    const retriedCreation = deferred<{ projectId: string; conversationId: string }>();
+    ports.ids.createClientRequestId
+      .mockReturnValueOnce("request-first")
+      .mockReturnValueOnce("request-retry");
+    ports.skills.load.mockResolvedValue([skill("reviewer")]);
+    ports.session.createConversation
+      .mockRejectedValueOnce(new WorkbenchRequestError(400, "create rejected"))
+      .mockImplementationOnce(() => retriedCreation.promise);
+    const initial = homeScope({ productMode: "agent", providerCapabilities: [providerCapability("codex", true)] });
+    const { result, rerender } = renderHook(
+      ({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
+      { initialProps: { scope: initial } },
+    );
+    await waitFor(() => expect(result.current.skillItems).toHaveLength(1));
+    act(() => {
+      result.current.setComposerText("retry this first send");
+      result.current.setFileRefs([fileRef("src/retry.ts")]);
+      result.current.setAttachments([attachment("attachment-retry")]);
+    });
+    await act(async () => result.current.toggleSkill("reviewer"));
+
+    await act(async () => {
+      await expect(result.current.createConversation()).rejects.toBeInstanceOf(WorkbenchRequestError);
+    });
+    expect(result.current.composerText).toBe("");
+    expect(result.current.fileRefs).toHaveLength(1);
+    expect(result.current.attachments).toHaveLength(1);
+    expect(result.current.draftSkillOverrides).toEqual({ reviewer: true });
+
+    let retry!: Promise<void>;
+    act(() => { retry = result.current.retryPendingIntent("request-first"); });
+    await waitFor(() => expect(ports.session.createConversation).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      retriedCreation.resolve({ projectId: "repo", conversationId: "conversation-retried" });
+      rerender({ scope: conversationScope({
+        productMode: "agent",
+        selectedProviderId: "codex",
+        providerCapabilities: [providerCapability("codex", true)],
+        conversation: {
+          id: "conversation-retried",
+          productMode: "agent",
+          state: "active",
+          selectedProviderId: "codex",
+        },
+      }) });
+      await retry;
+    });
+
+    expect(result.current.fileRefs).toEqual([]);
+    expect(result.current.attachments).toEqual([]);
+    expect(result.current.draftSkillOverrides).toEqual({});
+    expect(ports.projection.refreshConversation).toHaveBeenCalledWith("repo", "conversation-retried");
+    expect(ports.timeline.calibrate).toHaveBeenCalledWith("repo", "conversation-retried", "main-agent");
+  });
+
   it("sends ordinary messages through the action port and restores failed text without overwriting newer edits", async () => {
     let rejectSend!: (cause: Error) => void;
     const ports = composerPorts();

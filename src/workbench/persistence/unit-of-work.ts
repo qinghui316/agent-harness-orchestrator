@@ -251,8 +251,10 @@ export class WorkbenchUnitOfWork {
     allowActiveQueue?: boolean;
     updatedAt: string;
     message: StoredTopicMessageWrite;
-  }): { message: StoredTopicMessage; graphScopeRows: StoredTopicMessage[] } {
+  }): { message: StoredTopicMessage; graphScopeRows: StoredTopicMessage[]; replayed: boolean } {
     return this.db.transaction(() => {
+      const replay = this.timeline.readCanonicalRequestReplay(input.message);
+      if (replay) return { message: replay, graphScopeRows: [], replayed: true };
       this.assertConversationQueueCommit(
         input.projectId,
         input.conversationId,
@@ -268,7 +270,7 @@ export class WorkbenchUnitOfWork {
       this.conversations.updateAgentTurnPreferences(input);
       const message = this.timeline.appendMessage(input.message);
       this.applyConversationSkillOverrides(input.projectId, input.conversationId, input.skillOverrides, input.updatedAt);
-      return { message, graphScopeRows };
+      return { message, graphScopeRows, replayed: false };
     }).immediate();
   }
 
@@ -281,8 +283,10 @@ export class WorkbenchUnitOfWork {
     queuedTurnDispatch?: ConversationQueuedTurnDispatchEvidence;
     allowActiveQueue?: boolean;
     updatedAt: string;
-  }): { message: StoredTopicMessage; graphScopeRows: StoredTopicMessage[] } {
+  }): { message: StoredTopicMessage; graphScopeRows: StoredTopicMessage[]; replayed: boolean } {
     return this.db.transaction(() => {
+      const replay = this.timeline.readCanonicalRequestReplay(input.message);
+      if (replay) return { message: replay, graphScopeRows: [], replayed: true };
       this.assertConversationQueueCommit(
         input.projectId,
         input.conversationId,
@@ -297,7 +301,7 @@ export class WorkbenchUnitOfWork {
       );
       const message = this.timeline.appendMessage(input.message);
       this.applyConversationSkillOverrides(input.projectId, input.conversationId, input.skillOverrides, input.updatedAt);
-      return { message, graphScopeRows };
+      return { message, graphScopeRows, replayed: false };
     }).immediate();
   }
 

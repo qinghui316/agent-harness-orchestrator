@@ -141,6 +141,22 @@ readMessage(projectId: string, conversationId: string, messageId: string): Store
     return row ? mapMessageRow(row) : null;
   }
 
+  readCanonicalRequestReplay(message: StoredTopicMessageWrite): StoredTopicMessage | null {
+    const existing = this.readMessage(message.projectId, message.conversationId, message.id);
+    if (!existing) return null;
+    const expected = canonicalRequestIdentity(message.rawJson);
+    const actual = canonicalRequestIdentity(existing.rawJson);
+    if (expected.clientRequestId
+      && expected.requestHash
+      && actual.clientRequestId === expected.clientRequestId
+      && actual.requestHash === expected.requestHash) {
+      return existing;
+    }
+    const error = new Error("clientRequestId was already used for a different Conversation message.");
+    error.name = "Conflict";
+    throw error;
+  }
+
 listTimelineSurfaceLatest(projectId: string, conversationId: string, agentSurfaceId: string, limit: number): StoredTopicMessage[] {
     return (this.db.prepare(`${timelineMessageSelect()}
       WHERE project_id = ? AND conversation_id = ? AND agent_surface_id = ?
@@ -290,4 +306,19 @@ deleteMessages(projectId: string, changeId: string): number {
     return result.changes;
   }
 
+}
+
+function canonicalRequestIdentity(rawJson: string): {
+  clientRequestId: string | null;
+  requestHash: string | null;
+} {
+  try {
+    const raw = JSON.parse(rawJson) as { clientRequestId?: unknown; requestHash?: unknown };
+    return {
+      clientRequestId: typeof raw.clientRequestId === "string" ? raw.clientRequestId : null,
+      requestHash: typeof raw.requestHash === "string" ? raw.requestHash : null,
+    };
+  } catch {
+    return { clientRequestId: null, requestHash: null };
+  }
 }
