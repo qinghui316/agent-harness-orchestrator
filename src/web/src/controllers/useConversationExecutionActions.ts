@@ -281,6 +281,21 @@ export function useConversationExecutionActions(
     const captured = draft.controller.read();
     const submittedText = captured.text;
     const productMode = composerProductMode(currentScope);
+    const accepted = productMode === "agent" ? null : composerDraftContent({
+      projectId: currentScope.projectId,
+      productMode,
+      agentTurnMode: captured.agentTurnMode,
+      agentModelId: captured.modelId,
+      agentReasoningEffort: captured.reasoningEffort,
+      text: captured.text,
+      contextRefs: captured.contextRefs,
+      attachments: captured.attachments,
+      skillOverrides: captured.skillOverrides,
+      selectedProviderId: effectiveComposerProviderId(currentScope),
+    });
+    const draftCheckpoint = productMode === "agent"
+      ? null
+      : draft.syncOwner.checkpoint(currentScope.projectId, productMode);
     if (productMode === "agent"
       && (!currentScope.runControlState?.canStop
         || !currentScope.runControlState.providerId
@@ -304,10 +319,18 @@ export function useConversationExecutionActions(
       (actionGeneration, actionScope) => ownsAction(actionGeneration, actionScope)
         && composerStopIdentity(scopeRef.current) === stopIdentity,
     );
-    if (productMode !== "agent"
+    if (accepted && draftCheckpoint
       && ownsAction(generation, currentScope)
       && composerStopIdentity(scopeRef.current) === stopIdentity) {
       draft.controller.clearAcceptedSnapshot(captured, { text: true });
+    }
+    if (accepted && draftCheckpoint) {
+      await draft.settleAcceptedDraft(
+        accepted,
+        { text: true },
+        draftCheckpoint,
+        draft.controller.settlementGuard(captured.mutationToken, accepted),
+      );
     }
   }, [draft]);
 

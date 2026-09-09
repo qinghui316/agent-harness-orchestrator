@@ -1651,6 +1651,7 @@ describe("Conversation composer controller", () => {
       prompt: "stop context",
     });
     expect(result.current.composerText).toBe("");
+    expect(ports.drafts.save).toHaveBeenLastCalledWith(expect.objectContaining({ text: "" }));
     expect(ports.projection.refreshConversation).not.toHaveBeenCalled();
   });
 
@@ -1680,6 +1681,34 @@ describe("Conversation composer controller", () => {
 
     expect(result.current.composerText).toBe("steer text");
     expect(ports.drafts.save).toHaveBeenLastCalledWith(expect.objectContaining({ text: "steer text" }));
+  });
+
+  it("preserves text re-entered with the same value while Harness Stop is pending", async () => {
+    const stop = deferred<void>();
+    const ports = composerPorts();
+    ports.actions.stop.mockImplementation(() => stop.promise);
+    const runningScope = conversationScope({
+      productMode: "harness",
+      running: true,
+      runControlState: { state: "running", canStop: true, canSteer: true },
+    });
+    const { result } = renderHook(() => useConversationComposerController(runningScope, ports));
+    act(() => result.current.setComposerText("stop text"));
+
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.stop(); });
+    await waitFor(() => expect(ports.actions.stop).toHaveBeenCalledOnce());
+    act(() => {
+      result.current.setComposerText("changed while stopping");
+      result.current.setComposerText("stop text");
+    });
+    await act(async () => {
+      stop.resolve();
+      await pending;
+    });
+
+    expect(result.current.composerText).toBe("stop text");
+    expect(ports.drafts.save).toHaveBeenLastCalledWith(expect.objectContaining({ text: "stop text" }));
   });
 
   it("queues the complete next Turn when a running Conversation cannot steer", async () => {
