@@ -380,6 +380,33 @@ describe("Conversation composer controller", () => {
     expect(result.current.composerText).toBe("next user request");
   });
 
+  it("preserves a Review command re-entered with the same value after its mutation token was captured", async () => {
+    const command = "/review custom inspect the boundary";
+    const ports = composerPorts();
+    ports.drafts.load.mockResolvedValue(draftSnapshot({ text: command }));
+    const { result } = renderHook(() => useConversationComposerController(
+      homeScope({ productMode: "agent" }),
+      ports,
+    ));
+    await waitFor(() => expect(result.current.composerText).toBe(command));
+    const mutationToken = result.current.captureDraftMutationToken();
+    act(() => {
+      result.current.setComposerText("changed while Review is pending");
+      result.current.setComposerText(command);
+    });
+
+    await act(async () => {
+      await result.current.clearAcceptedReviewCommand(
+        command,
+        "2026-08-20T00:00:00.000Z",
+        mutationToken,
+      );
+    });
+
+    expect(result.current.composerText).toBe(command);
+    expect(ports.drafts.save).toHaveBeenLastCalledWith(expect.objectContaining({ text: command }));
+  });
+
   it("calibrates a committed single-Provider Conversation when capability discovery was still loading", async () => {
     const ports = composerPorts();
     const creation = deferred<{ projectId: string; conversationId: string }>();
@@ -2233,6 +2260,30 @@ describe("Conversation composer controller", () => {
     expect(result.current.agentModelId).toBeNull();
     expect(result.current.agentReasoningEffort).toBeNull();
     expect(ports.session.selectProvider).toHaveBeenCalledWith("other");
+  });
+
+  it("shows the effective Agent model after explicitly returning the next Turn to automatic selection", () => {
+    const ports = composerPorts();
+    const { result } = renderHook(() => useConversationComposerController(conversationScope({
+      productMode: "agent",
+      selectedProviderId: "codex",
+      providerCapabilities: [providerCapability("codex", true)],
+      providerModelSettings: providerModelSettings("codex"),
+      conversation: {
+        id: "conversation-model",
+        productMode: "agent",
+        state: "active",
+        selectedProviderId: "codex",
+        agentModelId: "removed-model",
+        agentReasoningEffort: null,
+      },
+    }), ports));
+    expect(result.current.modelLabel).toBe("removed-model");
+
+    act(() => result.current.selectAgentModel(null));
+
+    expect(result.current.agentModelId).toBeNull();
+    expect(result.current.modelLabel).toBe("GPT Test");
   });
 
   it("preserves an unavailable explicit model and blocks the Turn", async () => {

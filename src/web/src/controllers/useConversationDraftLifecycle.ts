@@ -54,13 +54,18 @@ export interface ConversationDraftLifecycle {
   selectProvider(providerId: string): Promise<void>;
   cleanupTransition(transition: ComposerTransition): void;
   flushDraft(): Promise<string | null>;
+  captureDraftMutationToken(): string | null;
   settleAcceptedDraft(
     accepted: ComposerDraftContent,
     options?: ComposerDraftSettlementOptions,
     checkpoint?: ComposerDraftCheckpoint,
     guard?: ComposerDraftSettlementGuard,
   ): Promise<void>;
-  clearAcceptedReviewCommand(capturedText: string, expectedDraftUpdatedAt: string | null): Promise<void>;
+  clearAcceptedReviewCommand(
+    capturedText: string,
+    expectedDraftUpdatedAt: string | null,
+    capturedMutationToken?: string | null,
+  ): Promise<void>;
   applyRestoredSnapshot(snapshot: ComposerDraftSnapshot): void;
 }
 
@@ -394,6 +399,10 @@ export function useConversationDraftLifecycle(
     return syncOwnerRef.current!.flush(currentScope.projectId, composerProductMode(currentScope));
   }, []);
 
+  const captureDraftMutationToken = useCallback((): string | null => (
+    controllerRef.current!.read().mutationToken ?? null
+  ), []);
+
   const settleAcceptedDraft = useCallback(async (
     accepted: ComposerDraftContent,
     options?: ComposerDraftSettlementOptions,
@@ -424,19 +433,34 @@ export function useConversationDraftLifecycle(
     }
   }, []);
 
-  const clearAcceptedReviewCommand = useCallback(async (capturedText: string, _expectedDraftUpdatedAt: string | null): Promise<void> => {
+  const clearAcceptedReviewCommand = useCallback(async (
+    capturedText: string,
+    _expectedDraftUpdatedAt: string | null,
+    capturedMutationToken?: string | null,
+  ): Promise<void> => {
     const currentScope = scopeRef.current;
     const draft = controllerRef.current!.read();
     if (!currentScope.projectId) return;
     const productMode = composerProductMode(currentScope);
     const checkpoint = syncOwnerRef.current!.checkpoint(currentScope.projectId, productMode);
-    controllerRef.current!.clearAcceptedSnapshot({ ...draft, text: capturedText }, { text: true });
-    await settleAcceptedDraft(composerDraftContent({
+    const captured = {
+      ...draft,
+      text: capturedText,
+      mutationToken: capturedMutationToken ?? draft.mutationToken,
+    };
+    const accepted = composerDraftContent({
       projectId: currentScope.projectId, productMode, agentTurnMode: draft.agentTurnMode,
       agentModelId: draft.modelId, agentReasoningEffort: draft.reasoningEffort, text: capturedText,
       contextRefs: draft.contextRefs, attachments: draft.attachments, skillOverrides: draft.skillOverrides,
       selectedProviderId: effectiveComposerProviderId(currentScope),
-    }), { text: true }, checkpoint);
+    });
+    controllerRef.current!.clearAcceptedSnapshot(captured, { text: true });
+    await settleAcceptedDraft(
+      accepted,
+      { text: true },
+      checkpoint,
+      controllerRef.current!.settlementGuard(captured.mutationToken, accepted),
+    );
   }, [settleAcceptedDraft]);
 
   const applyRestoredSnapshot = useCallback((restored: ComposerDraftSnapshot): void => {
@@ -475,7 +499,7 @@ export function useConversationDraftLifecycle(
     ),
     setDiagnosticsRaw: setDraftDiagnostics,
     selectAgentTurnMode, selectAgentModel, selectAgentReasoningEffort, selectProvider, cleanupTransition,
-    flushDraft, settleAcceptedDraft, clearAcceptedReviewCommand, applyRestoredSnapshot,
+    flushDraft, captureDraftMutationToken, settleAcceptedDraft, clearAcceptedReviewCommand, applyRestoredSnapshot,
   };
 }
 

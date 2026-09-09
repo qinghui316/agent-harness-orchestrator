@@ -121,6 +121,7 @@ export function useConversationComposerController(
     enqueue: execution.enqueue,
     reclaimQueuedTurn: execution.reclaimQueuedTurn,
     flushDraft: draft.flushDraft,
+    captureDraftMutationToken: draft.captureDraftMutationToken,
     clearAcceptedReviewCommand: draft.clearAcceptedReviewCommand,
     send: execution.send,
     retryPendingIntent: submission.retryPendingIntent,

@@ -57,6 +57,11 @@ describe("Composer action projection", () => {
       composerModelId: null,
       savedConversationModelId: "removed-model",
       modelSettings,
+    })).toBe("Runtime Model");
+    expect(projectComposerModelLabel({
+      productMode: "agent",
+      savedConversationModelId: "removed-model",
+      modelSettings,
     })).toBe("removed-model");
     expect(projectComposerModelLabel({
       productMode: "harness",

@@ -78,13 +78,16 @@ export function buildComposerActionProjection(input: {
 
 export function projectComposerModelLabel(input: {
   productMode: ProductMode;
-  composerModelId: string | null;
+  composerModelId?: string | null;
   savedConversationModelId?: string | null;
   modelSettings?: ProviderModelSettingsSnapshot | null;
 }): string {
+  const effectiveModelId = input.modelSettings?.effectiveModel?.modelId ?? null;
   const selectedModelId = input.productMode === "agent"
-    ? input.composerModelId ?? input.savedConversationModelId ?? input.modelSettings?.effectiveModel?.modelId ?? null
-    : input.modelSettings?.effectiveModel?.modelId ?? null;
+    ? input.composerModelId === undefined
+      ? input.savedConversationModelId ?? effectiveModelId
+      : input.composerModelId ?? effectiveModelId
+    : effectiveModelId;
   if (!selectedModelId) return input.modelSettings?.available === false ? "模型不可用" : "默认模型";
   return input.modelSettings?.candidates.find((candidate) => candidate.modelId.toLowerCase() === selectedModelId.toLowerCase())?.label
     ?? selectedModelId;

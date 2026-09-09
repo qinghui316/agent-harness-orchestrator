@@ -43,9 +43,11 @@ describe("Conversation Review frontend owners", () => {
     let resolvePost!: (value: { projectId: string; conversationId: string }) => void;
     api.postJson.mockImplementation(() => new Promise<{ projectId: string; conversationId: string }>((resolve) => { resolvePost = resolve; }));
     const clearAcceptedCommand = vi.fn(async () => undefined);
+    const captureDraftMutationToken = vi.fn(() => "review-mutation:7");
     const navigateConversation = vi.fn(async () => undefined);
     const { result } = renderHook(() => useConversationReviewController({
       ...controllerInput("project-a"),
+      captureDraftMutationToken,
       clearAcceptedCommand,
       navigateConversation,
     }));
@@ -58,7 +60,8 @@ describe("Conversation Review frontend owners", () => {
     });
     expect(api.postJson).toHaveBeenCalledTimes(1);
     await act(async () => { resolvePost({ projectId: "project-a", conversationId: "conversation-created" }); await first; });
-    expect(clearAcceptedCommand).toHaveBeenCalledWith("/review", "draft-revision");
+    expect(captureDraftMutationToken).toHaveBeenCalledOnce();
+    expect(clearAcceptedCommand).toHaveBeenCalledWith("/review", "draft-revision", "review-mutation:7");
     expect(navigateConversation).toHaveBeenCalledWith("project-a", "conversation-created");
     expect(navigateConversation.mock.invocationCallOrder[0]).toBeLessThan(clearAcceptedCommand.mock.invocationCallOrder[0]!);
 
@@ -137,6 +140,7 @@ function controllerInput(projectId: string) {
     running: false,
     queue: { snapshot: null, loading: false, enqueue: vi.fn() },
     flushDraft: vi.fn(async () => "draft-revision"),
+    captureDraftMutationToken: vi.fn(() => "review-mutation:1"),
     clearAcceptedCommand: vi.fn(async () => undefined),
     navigateConversation: vi.fn(async () => undefined),
     onError: vi.fn(),

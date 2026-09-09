@@ -24,7 +24,12 @@ export function useConversationReviewController(input: {
   running: boolean;
   queue: QueuePort;
   flushDraft(): Promise<string | null>;
-  clearAcceptedCommand(capturedText: string, expectedDraftUpdatedAt: string | null): Promise<void>;
+  captureDraftMutationToken(): string | null;
+  clearAcceptedCommand(
+    capturedText: string,
+    expectedDraftUpdatedAt: string | null,
+    capturedMutationToken?: string | null,
+  ): Promise<void>;
   navigateConversation(projectId: string, conversationId: string): Promise<void>;
   onError(message: string | null): void;
 }) {
@@ -88,6 +93,7 @@ export function useConversationReviewController(input: {
     const generation = ++generationRef.current;
     submittingRef.current = true;
     setSubmitting(true);
+    const capturedMutationToken = capturedCommand ? current.captureDraftMutationToken() : null;
     let draftToken: string | null = null;
     let createdConversation: ConversationReviewReceipt | null = null;
     try {
@@ -131,7 +137,9 @@ export function useConversationReviewController(input: {
         && generation === generationRef.current) {
         await current.navigateConversation(createdConversation.projectId, createdConversation.conversationId);
       }
-      if (capturedCommand) await current.clearAcceptedCommand(capturedCommand, draftToken);
+      if (capturedCommand) {
+        await current.clearAcceptedCommand(capturedCommand, draftToken, capturedMutationToken);
+      }
       if (requestIdentity === identityRef.current && generation === generationRef.current) {
         setOpen(false);
         selectorCommandRef.current = undefined;

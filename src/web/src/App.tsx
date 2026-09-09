@@ -743,6 +743,7 @@ export function App(): ReactElement {
     running: composerRunning,
     queue: conversationTurnQueue,
     flushDraft: composer.flushDraft,
+    captureDraftMutationToken: composer.captureDraftMutationToken,
     clearAcceptedCommand: composer.clearAcceptedReviewCommand,
     navigateConversation: chooseConversation,
     onError: setError,
