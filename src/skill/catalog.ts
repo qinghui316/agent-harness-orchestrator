@@ -20,6 +20,7 @@ import {
   resolveSkillPathIdentity,
   skillPathIdentity,
 } from "./path-identity.js";
+import { hashProjectHarnessProviderContent } from "../project-harness/provider-content-hash.js";
 
 export type SkillSourceKind = "custom" | "system-aho" | "provider-native" | "project-harness";
 
@@ -126,6 +127,7 @@ export async function listSkills(
 ): Promise<SkillCatalogResult> {
   assertSnapshotIdentity(paths, snapshot);
   assertRequiredInputsDiscovered(snapshot, requiredInputs);
+  await assertProjectHarnessInputsCurrent(requiredInputs);
   const store = await openProjectRuntimeWorkbenchDatabase(paths);
   try {
     return buildSkillCatalog(snapshot, {
@@ -187,6 +189,7 @@ export async function setSkillEnabled(
 ): Promise<SkillCatalogResult> {
   assertSnapshotIdentity(paths, snapshot);
   assertRequiredInputsDiscovered(snapshot, requiredInputs);
+  await assertProjectHarnessInputsCurrent(requiredInputs);
   const skillId = slugify(skillIdInput);
   const store = await openProjectRuntimeWorkbenchDatabase(paths);
   try {
@@ -223,6 +226,7 @@ export async function getEnabledSkillContext(
 ): Promise<EnabledSkillContext> {
   assertSnapshotIdentity(paths, snapshot);
   assertRequiredInputsDiscovered(snapshot, requiredInputs);
+  await assertProjectHarnessInputsCurrent(requiredInputs);
   const store = await openProjectRuntimeWorkbenchDatabase(paths);
   let catalog: SkillResolutionCatalogResult;
   try {
@@ -321,12 +325,15 @@ function decorateSkills(
     const selectionSkillIds = [...new Set([skillId, ...legacyIds])].sort();
     const identityInput = identityInputs.find((input) =>
       input.id === skill.name
-      && input.contentHash === skill.contentHash
-      && skillPathIdentity(input.path) === group.pathIdentity);
+      && skillPathIdentity(input.path) === group.pathIdentity
+      && (input.source === "project-harness" || input.contentHash === skill.contentHash));
     const requiredInput = requiredInputs.find((input) =>
       input.id === skill.name
-      && input.contentHash === skill.contentHash
-      && skillPathIdentity(input.path) === group.pathIdentity);
+      && skillPathIdentity(input.path) === group.pathIdentity
+      && (input.source === "project-harness" || input.contentHash === skill.contentHash));
+    const contentHash = identityInput?.source === "project-harness"
+      ? identityInput.contentHash
+      : skill.contentHash;
     const sourceKind = sourceKindFor(skill, group.canonicalPath, roots, identityInput);
     const required = requiredInput?.required === true;
     const runtimeAssigned = isRuntimeAssignedSkill(skillId);
@@ -338,13 +345,13 @@ function decorateSkills(
       sourcePath: skill.path,
       sourceKind,
       scope: skill.scope,
-      contentHash: skill.contentHash,
+      contentHash,
       compatibility: { requiredCapabilities: ["skill.native-load"] },
       providerBindings: [{
         providerId: snapshot.providerId,
         bindingKind: "native" as const,
         status: skill.enabled ? "ready" as const : "disabled" as const,
-        contentHash: skill.contentHash,
+        contentHash,
         scope: skill.scope,
       }],
       providerEnabled: skill.enabled,
@@ -410,11 +417,23 @@ function assertRequiredInputsDiscovered(
     const group = matching[0]!;
     if (group.metadataConflict) throw new Error(`Required Skill ${input.id} has conflicting Provider metadata.`);
     const discovered = group.representative;
-    if (discovered.contentHash !== input.contentHash) {
+    if (input.source !== "project-harness" && discovered.contentHash !== input.contentHash) {
       throw new Error(`Required Skill ${input.id} content identity does not match Provider discovery.`);
     }
     if (!discovered.enabled) {
       throw new Error(`Required Skill ${input.id} is disabled in the Provider configuration.`);
+    }
+  }
+}
+
+async function assertProjectHarnessInputsCurrent(inputs: readonly ProviderSkillInput[]): Promise<void> {
+  for (const input of inputs) {
+    if (input.source !== "project-harness") continue;
+    const resolved = resolveSkillPathIdentity(input.path);
+    if (!resolved.ok) throw new Error(resolved.message);
+    const contentHash = await hashProjectHarnessProviderContent(dirname(resolved.value.canonicalPath));
+    if (contentHash !== input.contentHash) {
+      throw new Error(`Required Skill ${input.id} content identity does not match current stable Harness content.`);
     }
   }
 }

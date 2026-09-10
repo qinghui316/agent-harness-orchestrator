@@ -40,6 +40,16 @@ describe("user-facing language", () => {
       .toBe("代码审查暂时无法开始。请重试。");
   });
 
+  it("turns the ordinary Skill resource limit into user language", () => {
+    const failure = toUserFacingFailure(
+      new WorkbenchRequestError(500, "Skill package has too many files: C:\\private\\skill"),
+      "settings",
+    );
+    expect(failure.summary).toBe("这个技能包含的内容过多，暂时无法加载。");
+    expect(failure.recoveryAction).toBe("请精简技能内容后重试。");
+    expect(failure.summary).not.toContain("Skill package");
+  });
+
   it("redacts local paths and private identities in diagnostic detail", () => {
     const detail = sanitizeTechnicalDetail(
       "C:\\Users\\qing hui\\repo\\file.ts, /home/qing hui/repo/file.ts; \\\\server\\shared folder\\file.ts, file:///C:/repo with spaces/file.ts; changeId=change-1 taskRunId=task-1 agentSurfaceId=surface-1 workerId=worker-1 payloadHash=secret-hash threadId=abc UUID 123e4567-e89b-42d3-a456-426614174000 deadbeefdeadbeefdeadbeefdeadbeef",

@@ -711,3 +711,17 @@ Multi-worktree execution remains auxiliary runtime evidence. Worktrees isolate d
 not prove that outputs can be combined. Final combination still requires an exact
 SchedulerIntegrationCandidate, IntegrationCheck, aggregate validation and audit, and the applicable
 human apply or remote-landing confirmation.
+
+## 9. Project Harness Provider Content And Startup State
+
+Project Harness discovery produces two independent identities. The lifecycle `contentFingerprint`
+continues to cover the Harness contracts used by migration and Evolution. The Provider
+`contentHash` covers only stable executable Skill content: `SKILL.md`, `references/`, `scripts/`,
+`assets/`, and `agents/`. Changes under `state/` do not change the Provider hash and remain
+auditable through their existing canonical records.
+
+At Workbench startup, `ProjectRuntimeCoordinator.reconcileStartup()` returns the states used by
+recovery. Only `ready` projects restore Conversation, Queue, Review, Provider interaction, approval,
+and execution state. A failed project is retained in the Registry and projected as unavailable;
+other ready projects continue. An unavailable project cannot create Agent, AHO, Terminal, Review,
+or Provider effects. Global Registry and host-integrity failures still stop startup.

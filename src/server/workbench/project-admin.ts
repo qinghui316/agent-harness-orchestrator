@@ -14,8 +14,12 @@ import { listProjectStatusesWithDirect } from "./direct-project.js";
 import type { WorkbenchProjectInput } from "../../workbench/read-model-types.js";
 import type { WorkbenchProjectRemovalConfirmation, WorkbenchProjectRemovalPort } from "./project-removal.js";
 
-export async function listProjectStatuses(store: ProjectRegistryStore, directInput: WorkbenchProjectInput | null = null): Promise<unknown[]> {
-  return listProjectStatusesWithDirect(store, directInput);
+export async function listProjectStatuses(
+  store: ProjectRegistryStore,
+  directInput: WorkbenchProjectInput | null = null,
+  projectRuntimeCoordinator?: Pick<ProjectRuntimeCoordinatorPort, "startupState">,
+): Promise<unknown[]> {
+  return listProjectStatusesWithDirect(store, directInput, projectRuntimeCoordinator);
 }
 
 export async function addExistingProject(

@@ -53,6 +53,14 @@ export function toUserFacingFailure(
     rawDetail,
   );
 
+  if (/skill package has too many files/i.test(rawDetail)) {
+    return {
+      summary: "这个技能包含的内容过多，暂时无法加载。",
+      recoveryAction: "请精简技能内容后重试。",
+      technicalDetail,
+    };
+  }
+
   if (status === 401 || status === 403) {
     return { summary: "当前操作没有可用权限。", recoveryAction: "检查授权后重试。", technicalDetail };
   }

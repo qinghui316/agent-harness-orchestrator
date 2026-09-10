@@ -26,6 +26,7 @@ import { MainConversationView,
 import {
   ProjectConversationSidebar,
   TopicComposer,
+  UnmanagedProjectView,
   currentWorkpadSummary,
 } from "./shell/WorkbenchShellParts.js";
 import {
@@ -1257,6 +1258,8 @@ export function App(): ReactElement {
             onOpenProject={openProject}
             onRefresh={loadApp}
           />
+        ) : selectedProjectStatus.runtimeAvailability?.state === "unavailable" ? (
+          <UnmanagedProjectView project={selectedProjectStatus} />
         ) : !activeTopic ? (
           <ProjectReadinessHome
             project={selectedProjectStatus}

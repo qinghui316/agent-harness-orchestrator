@@ -71,7 +71,7 @@ describe("project runtime coordinator", () => {
     expect(existsSync(fixture.targetSidecar)).toBe(true);
   });
 
-  it("blocks unclassified JSONL identities before changing Registry or sidecar state", async () => {
+  it("isolates an unclassified project identity without changing Registry or sidecar state", async () => {
     const fixture = await createLegacyFixture();
     const runRoot = join(fixture.sourceSidecar, "runs", "run-1");
     await mkdir(runRoot, { recursive: true });
@@ -81,11 +81,43 @@ describe("project runtime coordinator", () => {
       "utf8",
     );
 
-    await expect(fixture.coordinator.reconcileStartup()).rejects.toThrow(/Unclassified JSONL project identity/);
+    const startup = await fixture.coordinator.reconcileStartup();
+
+    expect(startup.states).toEqual([
+      expect.objectContaining({
+        state: "unavailable",
+        issue: expect.objectContaining({ code: "harness-invalid" }),
+      }),
+    ]);
+    await expect(fixture.coordinator.requireReady(fixture.project)).rejects.toThrow("这个项目需要处理后才能继续使用");
     expect(await fixture.store.resolveProject("legacy-a1")).not.toBeNull();
     expect(await fixture.store.resolveProject("canonical-a1")).toBeNull();
     expect(existsSync(fixture.sourceSidecar)).toBe(true);
     expect(existsSync(fixture.targetSidecar)).toBe(false);
+  });
+
+  it("keeps other registered projects available when one project directory is missing", async () => {
+    const root = await mkdtemp(join(tmpdir(), "aho-runtime-isolation-"));
+    cleanup.push(root);
+    const existingRoot = join(root, "existing");
+    const missingRoot = join(root, "missing");
+    await mkdir(existingRoot);
+    const store = new ProjectRegistryStore(join(root, "aho-home"));
+    const existing = (await store.registerProject({ path: existingRoot, name: "Existing" })).project;
+    const missing = (await store.registerProject({ path: missingRoot, name: "Missing" })).project;
+    const coordinator = new ProjectRuntimeCoordinator({
+      store,
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+    });
+
+    const startup = await coordinator.reconcileStartup();
+
+    expect(startup.states).toEqual(expect.arrayContaining([
+      expect.objectContaining({ state: "onboarding", project: expect.objectContaining({ id: existing.id }) }),
+      expect.objectContaining({ state: "unavailable", project: expect.objectContaining({ id: missing.id }) }),
+    ]));
+    await expect(coordinator.resolve(existing)).resolves.toMatchObject({ state: "onboarding" });
+    await expect(coordinator.resolve(missing)).rejects.toThrow("这个项目需要处理后才能继续使用");
   });
 
   it("preserves a registered legacy-id Git worktree across canonical identity migration", async () => {
@@ -225,7 +257,7 @@ async function createLegacyFixture() {
     ahoHome,
     createTransactionId: () => "identity-test-1",
   });
-  return { root, projectRoot, ahoHome, sourceSidecar, targetSidecar, store, coordinator };
+  return { root, projectRoot, ahoHome, sourceSidecar, targetSidecar, store, coordinator, project };
 }
 
 function recoveryJournal(fixture: Awaited<ReturnType<typeof createLegacyFixture>>): ProjectIdentityMigrationJournal {

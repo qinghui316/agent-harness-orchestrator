@@ -1311,3 +1311,16 @@ Conflict before catalog or mutation side effects. The only uncomposed
 Conversation compatibility path is `runMainAgent: false` persistence setup; a
 real create-after-send, follow-up, continuation, child follow-up, or plan
 settlement without an explicit composed Router fails closed.
+
+## 24. Project Startup Availability
+
+Project startup availability is a process-local projection, not a new Harness truth. The Project
+Runtime Coordinator alone may mark a registered project `unavailable`; Workbench lists that project
+with a bounded explanation, and every execution path continues to pass through strict runtime
+admission. UI state cannot override the admission result. Repairing files takes effect after a new
+Workbench process resolves the project again.
+
+Provider content hashing does not traverse Project Harness `state/`, does not rewrite historical
+Attempt evidence, and does not replace Change, Registry, Integration, Evolution, or validation
+digests. Stable content rejects links and path escape. The separate ordinary Skill package limit is
+retained as a resource boundary.

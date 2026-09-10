@@ -10,7 +10,7 @@ import type {
 } from "./contracts.js";
 import { projectRelativePath } from "./contracts.js";
 import { fingerprintProjectHarnessContent } from "./fingerprint.js";
-import { hashNativeSkillPackageContent } from "../skill/content-hash.js";
+import { hashProjectHarnessProviderContent } from "./provider-content-hash.js";
 import { readProjectHarnessManifest } from "./manifest.js";
 import { assertNoLinkedPathAncestors, assertPhysicalDirectory } from "./path-safety.js";
 
@@ -78,7 +78,7 @@ export async function discoverProjectHarness(
   }
 
   const contentFingerprint = await fingerprintProjectHarnessContent(skillRoot);
-  const providerContentHash = await hashNativeSkillPackageContent(skillRoot);
+  const providerContentHash = await hashProjectHarnessProviderContent(skillRoot);
   const handle: ProjectHarnessHandle = {
     projectId: manifest.project_id,
     skillName: manifest.skill_name,

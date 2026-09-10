@@ -26,6 +26,7 @@ import {
   skillPathIdentity,
 } from "./path-identity.js";
 import { hashNativeSkillPackageContent } from "./content-hash.js";
+import { hashProjectHarnessProviderContent } from "../project-harness/provider-content-hash.js";
 
 export interface TurnSkillContextResolverOptions {
   providerRegistry: Pick<ProviderRegistry, "get">;
@@ -372,7 +373,10 @@ async function validateCandidate(
     };
   }
   try {
-    const contentHash = await hashNativeSkillPackageContent(dirname(rebound.value.canonicalPath));
+    const skillRoot = dirname(rebound.value.canonicalPath);
+    const contentHash = skill.sourceKind === "project-harness"
+      ? await hashProjectHarnessProviderContent(skillRoot)
+      : await hashNativeSkillPackageContent(skillRoot);
     if (contentHash !== skill.contentHash) {
       return {
         ok: false,

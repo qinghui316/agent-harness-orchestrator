@@ -15,7 +15,12 @@ import { defaultStaticRoot, serveStatic } from "./workbench/static.js";
 import { defaultProviderRegistry } from "../provider-runtime/index.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import type { WorkbenchServeOptions, WorkbenchServerContext, WorkbenchServerHandle } from "./workbench/types.js";
-import { ProjectRuntimeCoordinator, type ProjectRuntimeCoordinatorPort } from "../project-runtime/coordinator.js";
+import {
+  ProjectRuntimeCoordinator,
+  type ProjectRuntimeCoordinatorPort,
+  type ProjectRuntimeStartupResult,
+  type ProjectRuntimeStartupState,
+} from "../project-runtime/coordinator.js";
 import { WorkbenchProjectRemovalService } from "./workbench/project-removal.js";
 import { reconcileRecoveredApprovalDecisions } from "../workbench/actions/approval-decision-reconciliation.js";
 import { reconcileStaleAgentNativeChildren } from "../workbench/agent-native-child-lifecycle-service.js";
@@ -103,7 +108,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
     providerRegistry,
   });
   const productModeActivity = options.productModeActivity ?? new ProductModeActivityProjectionOwner();
-  await projectRuntimeCoordinator.reconcileStartup();
+  const startup = await projectRuntimeCoordinator.reconcileStartup();
   const restoredInput = await restoreDirectProjectInput(input, store);
   const composedInput = restoredInput
     ? {
@@ -114,7 +119,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
       conversationLifecycleSnapshotResolver: (project: ManagedProject, productMode: import("../provider-runtime/index.js").ProductMode, conversationId: string) => conversationLifecycle.read(project, productMode, conversationId),
     }
     : restoredInput;
-  await recoverWorkbenchProjects(store, composedInput, projectRuntimeCoordinator, providerRegistry, conversationContext, conversationFork, conversationTurnQueue, conversationLifecycle, conversationReview);
+  await recoverWorkbenchProjects(store, composedInput, projectRuntimeCoordinator, providerRegistry, conversationContext, conversationFork, conversationTurnQueue, conversationLifecycle, conversationReview, startup);
   const context: WorkbenchServerContext = {
     input: composedInput,
     staticRoot,
@@ -321,7 +326,7 @@ async function readRuntimeSnapshot(input: {
 export async function recoverWorkbenchProjects(
   store: ProjectRegistryStore,
   directInput: WorkbenchProjectInput | null,
-  projectRuntimeCoordinator: Pick<ProjectRuntimeCoordinatorPort, "resolve"> = new ProjectRuntimeCoordinator({
+  projectRuntimeCoordinator: Pick<ProjectRuntimeCoordinatorPort, "resolve"> & Partial<Pick<ProjectRuntimeCoordinatorPort, "markUnavailable">> = new ProjectRuntimeCoordinator({
     store,
     discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
   }),
@@ -331,31 +336,42 @@ export async function recoverWorkbenchProjects(
   conversationTurnQueue?: ConversationTurnQueueOwner,
   conversationLifecycle?: ConversationLifecycleOwner,
   conversationReview?: ConversationReviewLifecycleOwner,
+  startup?: Pick<ProjectRuntimeStartupResult, "states">,
 ): Promise<void> {
   const projects = await store.listProjects();
   if (directInput?.project && !projects.some((project) => project.id === directInput.project?.id || project.path === directInput.project?.path)) {
     projects.push(directInput.project);
   }
+  const startupByProjectId = new Map(startup?.states.map((state) => [state.project.id, state] as const) ?? []);
   for (const project of projects) {
     if (!existsSync(project.path)) continue;
-    const runtime = await projectRuntimeCoordinator.resolve(project);
-    await reconcileStaleAgentMainAttempts({ project, providerRegistry, runtimeState: runtime });
-    await reconcileStaleAgentNativeChildren({ project, providerRegistry });
-    const runtimePaths = runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
-    await reconcileStaleProviderInputRequests({ runtime: runtimePaths, providerRegistry });
-    await conversationContext?.reconcileProject(runtimePaths);
-    await conversationFork?.reconcileProject(runtimePaths);
-    await conversationTurnQueue?.reconcileProject(runtimePaths);
-    await conversationLifecycle?.reconcileProject(runtimePaths);
-    await conversationReview?.reconcileProject(runtimePaths);
-    if (runtime.state !== "ready") continue;
-    const reconcileReceipt = (receipt: Parameters<typeof reconcileRecoveredApprovalDecisions>[1][number]) => (
-      reconcileRecoveredApprovalDecisions(project, [receipt])
-    );
-    await recoverApplyApprovalReceipts(project, true, reconcileReceipt);
-    await recoverIntegrationCheckApprovalReceipts(project, true, reconcileReceipt);
-    await recoverDiscardApprovalReceipts(project, true, reconcileReceipt);
-    await recoverSpecTestApprovalReceipts(project, reconcileReceipt);
+    let runtime: ProjectRuntimeStartupState | undefined = startupByProjectId.get(project.id);
+    try {
+      runtime ??= await projectRuntimeCoordinator.resolve(project);
+      if (runtime.state !== "ready") continue;
+      await reconcileStaleAgentMainAttempts({ project, providerRegistry, runtimeState: runtime });
+      await reconcileStaleAgentNativeChildren({ project, providerRegistry });
+      const runtimePaths = runtime.resolution.paths;
+      await reconcileStaleProviderInputRequests({ runtime: runtimePaths, providerRegistry });
+      await conversationContext?.reconcileProject(runtimePaths);
+      await conversationFork?.reconcileProject(runtimePaths);
+      await conversationTurnQueue?.reconcileProject(runtimePaths);
+      await conversationLifecycle?.reconcileProject(runtimePaths);
+      await conversationReview?.reconcileProject(runtimePaths);
+      const reconcileReceipt = (receipt: Parameters<typeof reconcileRecoveredApprovalDecisions>[1][number]) => (
+        reconcileRecoveredApprovalDecisions(project, [receipt])
+      );
+      await recoverApplyApprovalReceipts(project, true, reconcileReceipt);
+      await recoverIntegrationCheckApprovalReceipts(project, true, reconcileReceipt);
+      await recoverDiscardApprovalReceipts(project, true, reconcileReceipt);
+      await recoverSpecTestApprovalReceipts(project, reconcileReceipt);
+    } catch {
+      projectRuntimeCoordinator.markUnavailable?.(project, {
+        code: "project-recovery-failed",
+        summary: "这个项目的协作配置需要处理。",
+        recovery: "请检查项目协作配置，然后重新启动 Beaver Code。",
+      });
+    }
   }
 }
 

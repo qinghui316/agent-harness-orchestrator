@@ -49,8 +49,30 @@ export type ProjectRuntimeState =
     audit: Awaited<ReturnType<typeof auditProjectHarness>>;
   };
 
+export interface ProjectRuntimeStartupIssue {
+  code: "harness-missing" | "harness-unreadable" | "harness-invalid" | "project-recovery-failed";
+  summary: string;
+  recovery: string;
+}
+
+export interface ProjectRuntimeUnavailable {
+  state: "unavailable";
+  project: ManagedProject;
+  issue: ProjectRuntimeStartupIssue;
+}
+
+export type ProjectRuntimeStartupState = ProjectRuntimeState | ProjectRuntimeUnavailable;
+
+export class ProjectRuntimeUnavailableError extends Error {
+  readonly name = "Conflict";
+
+  constructor(readonly unavailable: ProjectRuntimeUnavailable) {
+    super("这个项目需要处理后才能继续使用。");
+  }
+}
+
 export interface ProjectRuntimeStartupResult {
-  states: ProjectRuntimeState[];
+  states: ProjectRuntimeStartupState[];
   migrations: ProjectIdentityMigrationResult[];
   recoveries: ProjectIdentityMigrationResult[];
   onboardingRecoveries: ProjectHarnessOnboardingRecord[];
@@ -68,6 +90,8 @@ export interface ProjectRuntimeCoordinatorPort {
   reconcileStartup(): Promise<ProjectRuntimeStartupResult>;
   register(input: { path: string; name?: string }): Promise<ProjectRuntimeState>;
   resolve(project: ManagedProject): Promise<ProjectRuntimeState>;
+  startupState(project: ManagedProject): Promise<ProjectRuntimeStartupState>;
+  markUnavailable(project: ManagedProject, issue: ProjectRuntimeStartupIssue): ProjectRuntimeUnavailable;
   requireReady(project: ManagedProject): Promise<ProjectRuntimeResolution>;
   runtimePaths(projectId: string): ProjectRuntimePaths;
 }
@@ -77,6 +101,7 @@ export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort 
   private readonly createTransactionId: () => string;
   private readonly initializeSidecar: typeof initializeProjectRuntimeSidecar;
   private readonly discoveryPolicy: ProjectHarnessDiscoveryPolicy;
+  private readonly startupStates = new Map<string, ProjectRuntimeStartupState>();
 
   constructor(private readonly options: ProjectRuntimeCoordinatorOptions) {
     this.ahoHome = options.ahoHome ?? dirname(options.store.registryPath);
@@ -89,17 +114,29 @@ export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort 
     const projectsRoot = join(this.ahoHome, "projects");
     await assertProjectRuntimePathSafety(resolveProjectRuntimePaths("project-runtime-identities", this.ahoHome));
     const onboardingRecoveries: ProjectHarnessOnboardingRecord[] = [];
+    const unavailable = new Map<string, ProjectRuntimeUnavailable>();
     for (const project of await this.options.store.listProjects()) {
-      if (!existsSync(project.path)) continue;
+      if (!existsSync(project.path)) {
+        unavailable.set(project.id, this.createUnavailable(project, {
+          code: "harness-unreadable",
+          summary: "这个项目的协作配置无法读取。",
+          recovery: "请检查项目位置和访问权限，然后重新启动 Beaver Code。",
+        }));
+        continue;
+      }
       const paths = resolveProjectRuntimePaths(project.id, this.ahoHome);
       if (!existsSync(join(paths.sidecarRoot, "onboarding", "transaction.json"))) continue;
-      const recovered = await recoverProjectHarnessOnboarding(
-        project.id,
-        project.path,
-        paths.sidecarRoot,
-        this.discoveryPolicy,
-      );
-      if (recovered) onboardingRecoveries.push(recovered);
+      try {
+        const recovered = await recoverProjectHarnessOnboarding(
+          project.id,
+          project.path,
+          paths.sidecarRoot,
+          this.discoveryPolicy,
+        );
+        if (recovered) onboardingRecoveries.push(recovered);
+      } catch (cause) {
+        unavailable.set(project.id, this.createUnavailable(project, projectRuntimeStartupIssue(cause, "project-recovery-failed")));
+      }
     }
     return withProjectHarnessWriterLock(projectsRoot, {
       projectId: "project-runtime-identities",
@@ -111,13 +148,23 @@ export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort 
         (journal) => buildProjectIdentityRecoveryDocuments(journal, this.options.store, this.discoveryPolicy),
       );
       const migrations: ProjectIdentityMigrationResult[] = [];
-      const states: ProjectRuntimeState[] = [];
+      const states: ProjectRuntimeStartupState[] = [];
       for (const initial of await this.options.store.listProjects()) {
-        if (!existsSync(initial.path)) continue;
-        const reconciled = await this.reconcileRegisteredProject(initial, lock);
-        if (reconciled.migration) migrations.push(reconciled.migration);
-        states.push(reconciled.state);
+        const unavailableState = unavailable.get(initial.id);
+        if (unavailableState) {
+          states.push(unavailableState);
+          continue;
+        }
+        try {
+          const reconciled = await this.reconcileRegisteredProject(initial, lock);
+          if (reconciled.migration) migrations.push(reconciled.migration);
+          states.push(reconciled.state);
+        } catch (cause) {
+          states.push(this.createUnavailable(initial, projectRuntimeStartupIssue(cause)));
+        }
       }
+      this.startupStates.clear();
+      for (const state of states) this.startupStates.set(state.project.id, state);
       return { states, migrations, recoveries, onboardingRecoveries };
     });
   }
@@ -132,6 +179,7 @@ export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort 
       projectId: discovery?.handle.projectId,
     });
     try {
+      this.startupStates.delete(registration.project.id);
       const state = await this.resolve(registration.project);
       const paths = state.state === "onboarding" ? state.paths : state.resolution.paths;
       await this.initializeSidecar(paths);
@@ -143,10 +191,23 @@ export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort 
   }
 
   async resolve(project: ManagedProject): Promise<ProjectRuntimeState> {
+    const startupState = this.startupStates.get(project.id);
+    if (startupState?.state === "unavailable") throw new ProjectRuntimeUnavailableError(startupState);
     return resolveProjectRuntimeState(project, {
       ahoHome: this.ahoHome,
       discoveryPolicy: this.discoveryPolicy,
     });
+  }
+
+  async startupState(project: ManagedProject): Promise<ProjectRuntimeStartupState> {
+    const startupState = this.startupStates.get(project.id);
+    return startupState?.state === "unavailable" ? startupState : this.resolve(project);
+  }
+
+  markUnavailable(project: ManagedProject, issue: ProjectRuntimeStartupIssue): ProjectRuntimeUnavailable {
+    const state = this.createUnavailable(project, issue);
+    this.startupStates.set(project.id, state);
+    return state;
   }
 
   runtimePaths(projectId: string): ProjectRuntimePaths {
@@ -201,6 +262,27 @@ export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort 
     });
     await recoverPendingProjectHarnessChangeAbandonmentsUnderWriterLock(resolution, lock);
   }
+
+  private createUnavailable(project: ManagedProject, issue: ProjectRuntimeStartupIssue): ProjectRuntimeUnavailable {
+    return { state: "unavailable", project, issue };
+  }
+}
+
+function projectRuntimeStartupIssue(
+  cause: unknown,
+  fallback: ProjectRuntimeStartupIssue["code"] = "harness-invalid",
+): ProjectRuntimeStartupIssue {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  const unreadable = /ENOENT|EACCES|EPERM|not exist|cannot read|unreadable/i.test(message);
+  const missing = /SKILL\.md.*(?:missing|required)|Harness.*not found/i.test(message);
+  const code = missing ? "harness-missing" : unreadable ? "harness-unreadable" : fallback;
+  return {
+    code,
+    summary: code === "harness-unreadable"
+      ? "这个项目的协作配置无法读取。"
+      : "这个项目的协作配置需要处理。",
+    recovery: "请检查项目协作配置，然后重新启动 Beaver Code。",
+  };
 }
 
 export async function resolveProjectRuntimeState(

@@ -12,7 +12,13 @@ export interface RegistryFile {
   projects: ManagedProject[];
 }
 
-export type HarnessReadiness = "missing" | "partial" | "ready";
+export type HarnessReadiness = "missing" | "partial" | "ready" | "unavailable";
+
+export interface ProjectRuntimeAvailabilityProjection {
+  state: "ready" | "onboarding" | "repair-required" | "unavailable";
+  summary: string | null;
+  recovery: string | null;
+}
 
 export interface HarnessComponentStatus {
   name: string;
@@ -45,4 +51,5 @@ export interface ProjectStatus {
   dirty: boolean | null;
   managed: boolean;
   harness: HarnessAuditResult;
+  runtimeAvailability?: ProjectRuntimeAvailabilityProjection;
 }

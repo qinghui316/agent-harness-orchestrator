@@ -879,7 +879,7 @@ describe("workbench server", () => {
     const coordinator: ProjectRuntimeCoordinatorPort = {
       async reconcileStartup() {
         order.push("identity-recovery");
-        return { states: [], migrations: [], recoveries: [] };
+        return { states: [], migrations: [], recoveries: [], onboardingRecoveries: [] };
       },
       async resolve(inputProject) {
         resolveCount += 1;
@@ -894,6 +894,12 @@ describe("workbench server", () => {
       },
       async requireReady() {
         throw new Error("not used");
+      },
+      async startupState(inputProject) {
+        return this.resolve(inputProject);
+      },
+      markUnavailable(inputProject, issue) {
+        return { state: "unavailable", project: inputProject, issue };
       },
       runtimePaths(projectId) {
         return resolveProjectRuntimePaths(projectId, registryRoot);
@@ -2130,6 +2136,36 @@ describe("workbench server", () => {
     }
   });
 
+  it("starts with a ready project when another registered project is unavailable", async () => {
+    await handle!.close();
+    handle = null;
+    const store = new ProjectRegistryStore(registryRoot);
+    await store.registerProject({ path: tempDir, name: project().name, projectId: project().id });
+    const missingPath = join(tempDir, "missing-project");
+    const missing = (await store.registerProject({ path: missingPath, name: "Unavailable Project" })).project;
+
+    handle = await startWorkbenchServer(null, { port: 0, staticRoot, store });
+
+    const payload = await getJson<{ projects: Array<{
+      project: ManagedProject;
+      harness: { readiness: string };
+      runtimeAvailability?: { state: string; summary: string | null };
+    }> }>(`${handle.url}/api/projects`);
+    expect(payload.projects.find((item) => item.project.id === project().id)).toMatchObject({
+      harness: { readiness: "ready" },
+      runtimeAvailability: { state: "ready" },
+    });
+    expect(payload.projects.find((item) => item.project.id === missing.id)).toMatchObject({
+      harness: { readiness: "unavailable" },
+      runtimeAvailability: {
+        state: "unavailable",
+        summary: "这个项目的协作配置无法读取。",
+      },
+    });
+    expect((await fetch(`${handle.url}/api/projects/${missing.id}/workbench/snapshot?productMode=agent`)).status).toBe(409);
+    expect((await fetch(`${handle.url}/api/projects/${project().id}/workbench/topics?productMode=harness`)).status).toBe(200);
+  });
+
   it("starts when a previously registered project directory no longer exists", async () => {
     const removedRoot = await mkdtemp(join(tmpdir(), "aho-removed-project-"));
     const missingHome = join(registryRoot, "missing-project-home");
@@ -2167,7 +2203,7 @@ describe("workbench server", () => {
     expect(buildNativeFolderDialogCommand("freebsd")).toBeNull();
   });
 
-  it("runs Skill-native approval recovery for every ready registered project", async () => {
+  it("isolates a failed ready-project recovery and allows a later clean restart", async () => {
     const secondRoot = await mkdtemp(join(tmpdir(), "aho-server-recovery-"));
     const recoveryHome = join(registryRoot, "multi-project-recovery");
     const store = new ProjectRegistryStore(recoveryHome);
@@ -2184,9 +2220,25 @@ describe("workbench server", () => {
     await mkdir(malformed, { recursive: true });
     await writeFile(join(malformed, "apply-transaction.json"), "{}\n", "utf8");
 
-    await expect(recoverWorkbenchProjects(store, null)).rejects.toThrow(/Invalid IntegrationCheck apply transaction/i);
+    const coordinator = new ProjectRuntimeCoordinator({
+      store,
+      ahoHome: recoveryHome,
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+    });
+    await expect(recoverWorkbenchProjects(store, null, coordinator)).resolves.toBeUndefined();
+    const registered = await store.resolveProject("recovery-project");
+    expect(registered).not.toBeNull();
+    await expect(coordinator.startupState(registered!)).resolves.toMatchObject({
+      state: "unavailable",
+      issue: { code: "project-recovery-failed" },
+    });
     await rm(malformed, { recursive: true, force: true });
-    await expect(recoverWorkbenchProjects(store, null)).resolves.toBeUndefined();
+    const restarted = new ProjectRuntimeCoordinator({
+      store,
+      ahoHome: recoveryHome,
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+    });
+    await expect(recoverWorkbenchProjects(store, null, restarted)).resolves.toBeUndefined();
     await rm(secondRoot, { recursive: true, force: true });
   });
 });

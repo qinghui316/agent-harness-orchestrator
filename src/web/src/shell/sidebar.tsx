@@ -444,6 +444,14 @@ export function UnmanagedProjectView({ project }: { project: ProjectStatus | nul
       <p className="eyebrow">项目已添加</p>
       <h1>{projectDisplayName(project.project)}</h1>
       <p>{issue?.detail ?? "项目协作配置尚未完成准备。"}</p>
+      {project.runtimeAvailability?.state === "unavailable" ? (
+        <>
+          <p>{project.runtimeAvailability.recovery ?? "修复后请退出并重新打开 Beaver Code。"}</p>
+          <div className="empty-workbench-actions">
+            <button type="button" className="primary-button" onClick={() => { window.location.href = "/"; }}>打开其他项目</button>
+          </div>
+        </>
+      ) : null}
     </section>
   );
 }
@@ -501,6 +509,13 @@ type SidebarConversation = {
 function harnessStatusIssue(project: ProjectStatus, snapshot?: Snapshot): { kind: "uninitialized"; short: string; detail: string } | null {
   const harnessReady = snapshot?.harness.harnessReady ?? project.harness.readiness === "ready";
   if (harnessReady) return null;
+  if (project.runtimeAvailability?.state === "unavailable" || project.harness.readiness === "unavailable") {
+    return {
+      kind: "uninitialized",
+      short: "项目需要处理",
+      detail: project.runtimeAvailability?.summary ?? "这个项目的协作配置无法读取。你仍然可以打开其他项目。",
+    };
+  }
   return {
     kind: "uninitialized",
     short: project.harness.readiness === "partial" ? "协作配置需要修复" : "首次对话自动准备",

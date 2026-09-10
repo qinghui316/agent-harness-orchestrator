@@ -26,6 +26,14 @@ export async function handleTerminalApi(context: WorkbenchServerContext, request
       sendJson(response, 400, { error: "Terminal requires a selected project path." });
       return true;
     }
+    if (input.project) {
+      const runtime = await context.projectRuntimeCoordinator.startupState(input.project);
+      if (runtime.state === "unavailable") {
+        const error = new Error("这个项目需要处理后才能继续使用。");
+        error.name = "Conflict";
+        throw error;
+      }
+    }
     const body = await readJsonBody<TerminalOpenRequest>(request);
     try {
       const session = await context.terminalRuntime.open({

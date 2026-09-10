@@ -99,7 +99,7 @@ async function handleApiRequest(context: WorkbenchServerContext, request: Incomi
     }
   }
   if (request.method === "GET" && url.pathname === "/api/projects") {
-    sendJson(response, 200, { projects: await listProjectStatuses(context.store, context.input) });
+    sendJson(response, 200, { projects: await listProjectStatuses(context.store, context.input, context.projectRuntimeCoordinator) });
     return;
   }
   if (request.method === "POST" && url.pathname === "/api/projects") {

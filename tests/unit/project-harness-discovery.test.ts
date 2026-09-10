@@ -8,7 +8,7 @@ import {
 } from "../../src/project-harness/discovery.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../src/provider-runtime/project-harness-discovery.js";
 import { projectRelativePath, type ProjectHarnessDiscoveryPolicy } from "../../src/project-harness/contracts.js";
-import { hashNativeSkillPackageContent } from "../../src/skill/content-hash.js";
+import { hashProjectHarnessProviderContent } from "../../src/project-harness/provider-content-hash.js";
 
 const cleanup: string[] = [];
 
@@ -34,7 +34,7 @@ describe("project Harness discovery", () => {
     expect(discovered.providerInput).toMatchObject({
       source: "project-harness",
       required: true,
-      contentHash: await hashNativeSkillPackageContent(skill),
+      contentHash: await hashProjectHarnessProviderContent(skill),
     });
   });
 

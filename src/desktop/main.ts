@@ -27,6 +27,7 @@ import {
 } from "./protocol.js";
 import { normalizeWindowState, type DesktopWindowState } from "./window-state.js";
 import { parseOfficeRendererConsoleDiagnostic } from "./renderer-diagnostic.js";
+import { readDesktopBuildInfo } from "./build-info.js";
 
 const desktopDir = join(homedir(), ".agent-harness", "desktop");
 const statePath = join(desktopDir, "window-state.json");
@@ -35,6 +36,7 @@ const utilityEntry = fileURLToPath(new URL("./utility.js", import.meta.url));
 const startupPage = fileURLToPath(new URL("./startup.html", import.meta.url));
 const startupUrl = pathToFileURL(startupPage).href;
 const recovery = new DesktopRecoveryController();
+const buildInfo = readDesktopBuildInfo();
 
 let window: BrowserWindow | null = null;
 let utility: UtilityProcess | null = null;
@@ -77,6 +79,7 @@ app.on("activate", () => {
 async function startApplication(): Promise<void> {
   await mkdir(desktopDir, { recursive: true });
   app.setName("Beaver Code");
+  await log("build", `version=${buildInfo.version} commit=${buildInfo.commit} channel=${buildInfo.channel} platform=${process.platform} arch=${process.arch}`);
   Menu.setApplicationMenu(buildMenu());
   await createWindow();
   spawnWorkbench();
@@ -312,7 +315,7 @@ function buildMenu(): Menu {
     },
     { label: "编辑", submenu: [{ role: "undo" }, { role: "redo" }, { type: "separator" }, { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" }] },
     { label: "视图", submenu: [{ role: "reload" }, { role: "resetZoom" }, { role: "zoomIn" }, { role: "zoomOut" }, { type: "separator" }, { role: "togglefullscreen" }, ...(!app.isPackaged ? [{ role: "toggleDevTools" as const }] : [])] },
-    { label: "帮助", submenu: [{ label: `Beaver Code ${app.getVersion()}`, enabled: false }, { label: "打开诊断目录", click: () => void shell.openPath(desktopDir) }] },
+    { label: "帮助", submenu: [{ label: `Beaver Code ${buildInfo.version} · ${buildInfo.commit.slice(0, 8)}`, enabled: false }, { label: "打开诊断目录", click: () => void shell.openPath(desktopDir) }] },
   ];
   return Menu.buildFromTemplate(template);
 }

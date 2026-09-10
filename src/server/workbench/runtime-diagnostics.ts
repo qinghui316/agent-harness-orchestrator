@@ -33,7 +33,7 @@ export async function getRuntimeDiagnostics(context: WorkbenchServerContext, pro
     try {
       const input = await resolveProjectInputWithDirect(context.store, context.input, projectId);
       projectPath = input.path;
-      const statuses = await listProjectStatuses(context.store, context.input) as ProjectStatus[];
+      const statuses = await listProjectStatuses(context.store, context.input, context.projectRuntimeCoordinator) as ProjectStatus[];
       const status = statuses.find((item) => item.project?.id === projectId);
       selectedProject = status?.project ?? null;
       if (!status) {

@@ -114,7 +114,7 @@ export type ProjectStatus = {
   harness: {
     projectPath: string;
     managed: boolean;
-    readiness: "missing" | "partial" | "ready";
+    readiness: "missing" | "partial" | "ready" | "unavailable";
     activeChanges: Array<{ name: string; path: string }>;
     pendingEvolution: boolean;
     components: Array<{
@@ -124,6 +124,11 @@ export type ProjectStatus = {
       exists: boolean;
       required: boolean;
     }>;
+  };
+  runtimeAvailability?: {
+    state: "ready" | "onboarding" | "repair-required" | "unavailable";
+    summary: string | null;
+    recovery: string | null;
   };
 };
 

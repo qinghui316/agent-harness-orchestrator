@@ -1061,7 +1061,11 @@ function canLoadWorkbenchSnapshot(
   status: ProjectStatus | null | undefined,
   productMode: ProductMode,
 ): status is ProjectStatus {
-  return Boolean(status?.project && (productMode === "agent" || status.managed));
+  return Boolean(
+    status?.project
+    && status.runtimeAvailability?.state !== "unavailable"
+    && (productMode === "agent" || status.managed),
+  );
 }
 
 function withoutSetValue(values: Set<string>, value: string): Set<string> {

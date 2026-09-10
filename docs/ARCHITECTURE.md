@@ -735,3 +735,17 @@ Not in the current architecture baseline:
 - direct dependence on model-provider memory
 - automatic CI drift gates
 - L3 Spec-as-Source as an immediate invariant
+
+## 14. Desktop Startup Composition
+
+`ProjectRuntimeCoordinator` owns the per-start interpretation of registered projects. It performs
+global Registry and recovery checks once, then produces one startup state per project. The
+Workbench recovery pass consumes those states and restores business runtime only for `ready`
+projects; it does not rediscover each Harness independently. A project-scoped discovery or recovery
+failure becomes `unavailable` for that process generation, while Registry corruption, global locks,
+desktop host authentication, and server composition remain global startup failures.
+
+Project Harness Provider identity is computed by one owner over stable Skill content only:
+`SKILL.md`, `references/`, `scripts/`, `assets/`, and `agents/`. Dynamic `state/` remains governed by
+Harness evidence and is not a Provider Skill input. Ordinary Skills continue to use the bounded
+native package hasher.

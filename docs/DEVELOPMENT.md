@@ -546,3 +546,22 @@ Additional artifacts:
   codex-events.jsonl
   last-message.md
 ```
+
+## 18. Beaver Code Internal Builds
+
+```powershell
+npm run build:desktop
+npm run test:desktop:native
+npm run package:desktop:win
+npm run verify:desktop:package
+```
+
+`build:desktop` creates `dist/desktop/build-info.json` from the package version, full Git commit,
+UTC build time, internal channel, and current dirty flag. The file is generated output and is not
+committed. `package:desktop:win` refuses a dirty worktree before compiling and again before invoking
+Electron Builder. Package verification checks the Windows x64 installer, embedded build identity,
+native module layout, architecture exclusions, and source-map exclusions.
+
+An internal candidate installer may be used for controlled acceptance. The locally retained demo
+installation must be rebuilt from the exact canonical `master` commit after Change close and an
+explicit I2 Integration. Desktop upgrades preserve `~/.agent-harness`.

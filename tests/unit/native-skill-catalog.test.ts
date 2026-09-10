@@ -15,6 +15,7 @@ import {
   setSkillEnabled,
 } from "../../src/skill/catalog.js";
 import { hashNativeSkillPackageContent } from "../../src/skill/content-hash.js";
+import { hashProjectHarnessProviderContent } from "../../src/project-harness/provider-content-hash.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 
 let root: string;
@@ -125,7 +126,7 @@ describe("native Skill catalog and sidecar selections", () => {
     const harnessInput = {
       id: "demo-project-harness",
       path: harnessPath,
-      contentHash: await hashNativeSkillPackageContent(dirname(harnessPath)),
+      contentHash: await hashProjectHarnessProviderContent(dirname(harnessPath)),
       source: "project-harness" as const,
       required: true,
     };
@@ -209,7 +210,7 @@ describe("native Skill catalog and sidecar selections", () => {
       enabled: true,
       scope: "repo",
     }]);
-    const contentHash = await hashNativeSkillPackageContent(dirname(physicalPath));
+    const contentHash = await hashProjectHarnessProviderContent(dirname(physicalPath));
 
     const context = await getEnabledSkillContext(paths, snapshot, undefined, [{
       id: "demo-project-harness",
@@ -370,7 +371,7 @@ describe("native Skill catalog and sidecar selections", () => {
     const paths = resolveProjectRuntimePaths("demo-project", join(root, "aho-home"));
     await initializeProjectRuntimeSidecar(paths);
     const harnessPath = await createSkill(join(projectPath, ".agents", "skills"), "demo-project-harness");
-    const discoveredHash = await hashNativeSkillPackageContent(dirname(harnessPath));
+    const discoveredHash = await hashProjectHarnessProviderContent(dirname(harnessPath));
     const snapshot = await snapshotFor(projectPath, skills.map(({ enabled }) => ({
       name: "demo-project-harness",
       path: harnessPath,

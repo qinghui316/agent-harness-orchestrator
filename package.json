@@ -1,6 +1,6 @@
 {
   "name": "agent-harness-orchestrator",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local-first Spec-Anchored managed-run harness for AI coding.",
   "type": "module",
   "main": "dist/desktop/main.js",
@@ -18,9 +18,9 @@
   },
   "scripts": {
     "build": "tsc && vite build && node scripts/build-project-harness-runtime.mjs && node scripts/copy-templates.mjs && node scripts/copy-desktop-assets.mjs",
-    "build:desktop": "npm run build && node scripts/build-desktop-icon.mjs",
+    "build:desktop": "npm run build && node scripts/generate-desktop-build-info.mjs && node scripts/build-desktop-icon.mjs",
     "dev:desktop": "npm run build:desktop && electron .",
-    "package:desktop:win": "npm run build:desktop && electron-builder --config electron-builder.yml --win nsis --x64",
+    "package:desktop:win": "node scripts/package-desktop-win.mjs",
     "test:desktop:native": "electron scripts/desktop-native-smoke.cjs",
     "verify:desktop:package": "node scripts/verify-desktop-package.mjs",
     "build:project-harness-runtime": "node scripts/build-project-harness-runtime.mjs",
@@ -68,6 +68,7 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@electron/asar": "3.4.1",
     "@eslint/js": "^9.39.1",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",

@@ -52,7 +52,7 @@ describe("Workbench Apply decision recovery", () => {
     await mkdir(malformedCheck, { recursive: true });
     await writeFile(join(malformedCheck, "apply-transaction.json"), "{}\n", "utf8");
 
-    await expect(recoverWorkbenchProjects(store, null)).rejects.toThrow(/Invalid IntegrationCheck apply transaction/i);
+    await expect(recoverWorkbenchProjects(store, null)).resolves.toBeUndefined();
 
     expect(await decisionStatus(fixture.resolution.paths, fixture.changeId, "result.apply")).toBe("accepted");
     await rm(malformedCheck, { recursive: true, force: true });

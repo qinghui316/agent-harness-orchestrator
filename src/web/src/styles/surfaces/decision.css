@@ -489,3 +489,10 @@ h1 {
   color: var(--text-muted);
   line-height: 1.6;
 }
+
+.empty-workbench-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+}
