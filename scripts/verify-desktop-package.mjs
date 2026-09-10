@@ -27,7 +27,7 @@ for (const pattern of required) if (!unpacked.some((file) => pattern.test(file))
 if (nativeBinaries.some((file) => /arm64|darwin|linux/i.test(file))) failures.push("Package contains an unexpected non-Windows or arm64 native binary.");
 if (installer && (await stat(installer)).size < 1_000_000) failures.push("Installer is unexpectedly small.");
 if (asar) {
-  const entries = listPackage(asar, { isPack: true });
+  const entries = listPackage(asar, { isPack: false });
   if (entries.some((entry) => entry.endsWith(".map"))) failures.push("Package contains source maps.");
   if (entries.some((entry) => /^[A-Za-z]:[\\/]|^\\\\/.test(entry))) failures.push("Package contains a host absolute archive path.");
   try {
@@ -39,6 +39,20 @@ if (asar) {
     if (buildInfo.channel !== "internal") failures.push("Packaged build channel is not internal.");
   } catch (cause) {
     failures.push(`Packaged build identity is missing or invalid: ${cause instanceof Error ? cause.message : String(cause)}`);
+  }
+  try {
+    const manifest = JSON.parse(extractFile(asar, "package.json").toString("utf8"));
+    if (manifest.author) failures.push("Packaged manifest contains an application author identity.");
+    if (manifest.repository || manifest.bugs || manifest.homepage) failures.push("Packaged manifest contains repository identity metadata.");
+  } catch (cause) {
+    failures.push(`Packaged manifest is missing or invalid: ${cause instanceof Error ? cause.message : String(cause)}`);
+  }
+  for (const entry of entries.filter(isPackagedApplicationText)) {
+    const content = extractFile(asar, entry.slice(1)).toString("utf8");
+    if (/[A-Za-z]:\\Users\\[^\\\r\n]+\\|\/(?:Users|home)\/[^/\r\n]+\//.test(content)) {
+      failures.push(`Package contains a host user path in ${entry}.`);
+      break;
+    }
   }
 }
 
@@ -57,4 +71,8 @@ async function walk(directory) {
     else results.push(path);
   }
   return results;
+}
+
+function isPackagedApplicationText(entry) {
+  return /^\\dist\\.*\.(?:css|html|js|json)$/i.test(entry);
 }

@@ -1,6 +1,11 @@
 appId: com.agentharness.desktop
 productName: Beaver Code
 artifactName: Beaver-Code-Setup-${version}-win-${arch}.${ext}
+extraMetadata:
+  author: ""
+  repository: null
+  bugs: null
+  homepage: null
 asar: true
 npmRebuild: false
 directories:
