@@ -96,6 +96,39 @@ describe("project runtime coordinator", () => {
     expect(existsSync(fixture.targetSidecar)).toBe(false);
   });
 
+  it("isolates a registered project whose Harness manifest remains but SKILL.md is missing", async () => {
+    const root = await mkdtemp(join(tmpdir(), "aho-runtime-partial-harness-"));
+    cleanup.push(root);
+    const projectRoot = join(root, "project");
+    const skillRoot = join(projectRoot, ".agents", "skills", "partial-harness");
+    await mkdir(join(skillRoot, "state"), { recursive: true });
+    await writeFile(join(skillRoot, "state", "manifest.json"), `${JSON.stringify({
+      schema_version: "2.0",
+      project_id: "partial-project",
+      project_name: "Partial",
+      skill_name: "partial-harness",
+      skill_revision: 1,
+      analysis_status: "complete",
+    })}\n`, "utf8");
+    const store = new ProjectRegistryStore(join(root, "aho-home"));
+    const project = (await store.registerProject({ path: projectRoot, name: "Partial", projectId: "partial-project" })).project;
+    const coordinator = new ProjectRuntimeCoordinator({
+      store,
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+    });
+
+    const startup = await coordinator.reconcileStartup();
+
+    expect(startup.states).toEqual([
+      expect.objectContaining({
+        state: "unavailable",
+        project: expect.objectContaining({ id: project.id }),
+        issue: expect.objectContaining({ code: "harness-missing" }),
+      }),
+    ]);
+    await expect(coordinator.requireReady(project)).rejects.toThrow("这个项目需要处理后才能继续使用");
+  });
+
   it("keeps other registered projects available when one project directory is missing", async () => {
     const root = await mkdtemp(join(tmpdir(), "aho-runtime-isolation-"));
     cleanup.push(root);

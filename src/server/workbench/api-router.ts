@@ -49,6 +49,7 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
 async function handleApiRequest(context: WorkbenchServerContext, request: IncomingMessage, response: ServerResponse, url: URL): Promise<void> {
   if (request.method !== "GET") {
     assertLocalWorkbenchRequest(request);
+    await assertProjectMutationAvailable(context, url.pathname);
   }
 
   const projectWorkbench = matchProjectWorkbenchRoute(url.pathname);
@@ -441,6 +442,15 @@ async function handleApiRequest(context: WorkbenchServerContext, request: Incomi
 
   if (await handleDirectWorkbenchApi(context, request, response, url)) return;
   sendJson(response, 404, { error: "Not found." });
+}
+
+async function assertProjectMutationAvailable(context: WorkbenchServerContext, pathname: string): Promise<void> {
+  if (/^\/api\/projects\/[^/]+\/(?:removal-confirmation|remove)$/.test(pathname)) return;
+  const projectId = projectIdForTrackedRequest(pathname)
+    ?? directProjectIdForTrackedRequest(context, pathname);
+  if (!projectId) return;
+  const input = await resolveProjectInputWithDirect(context.store, context.input, projectId);
+  if (input.project) await context.projectRuntimeCoordinator.resolve(input.project);
 }
 
 export function resolveProjectSkillProvider(project: { defaultProviderId?: string }, requestedProviderId?: string | null, registry: ProviderRegistry = defaultProviderRegistry) {

@@ -117,9 +117,10 @@ async function discoverRoute(
     }
     await assertNoLinkedPathAncestors(route.skillRoot, `${route.providerId} explicit project Harness`);
     const skillRoot = await assertPhysicalDirectory(route.skillRoot, `${route.providerId} explicit project Harness`);
-    if (!existsSync(join(skillRoot, "state", "manifest.json")) || !existsSync(join(skillRoot, "SKILL.md"))) {
-      return [];
-    }
+    const manifestExists = existsSync(join(skillRoot, "state", "manifest.json"));
+    const skillExists = existsSync(join(skillRoot, "SKILL.md"));
+    if (manifestExists && !skillExists) throw new Error("Project Harness SKILL.md is required when its manifest exists.");
+    if (!manifestExists || !skillExists) return [];
     return [{ providerId: route.providerId, discoveryPath: skillRoot, targetPath: skillRoot }];
   }
   return discoverProviderPaths(projectRoot, route.providerId, route.relativeRoot);
@@ -137,7 +138,12 @@ async function discoverProviderPaths(
     const discoveryPath = join(root, entry.name);
     if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
     const manifestPath = join(discoveryPath, "state", "manifest.json");
-    if (!existsSync(manifestPath) || !existsSync(join(discoveryPath, "SKILL.md"))) continue;
+    const manifestExists = existsSync(manifestPath);
+    const skillExists = existsSync(join(discoveryPath, "SKILL.md"));
+    if (manifestExists && !skillExists && entry.name.endsWith("-harness")) {
+      throw new Error("Project Harness SKILL.md is required when its manifest exists.");
+    }
+    if (!manifestExists || !skillExists) continue;
     found.push({ providerId, discoveryPath, targetPath: await realpath(discoveryPath) });
   }
   return found;

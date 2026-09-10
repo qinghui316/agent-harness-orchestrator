@@ -81,9 +81,11 @@ async function executeAbandonAction(input: WorkbenchProjectInput & { project: Ma
     error.name = "BadRequest";
     throw error;
   }
-  const state = await resolveProjectRuntimeState(input.project, {
-    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
-  });
+  const state = input.runtimeStateResolver
+    ? await input.runtimeStateResolver(input.project)
+    : await resolveProjectRuntimeState(input.project, {
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+    });
   if (state.state !== "ready") {
     throw new Error(`Project Harness is not ready for Change abandon: ${state.state}.`);
   }

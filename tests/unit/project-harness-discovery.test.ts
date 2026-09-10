@@ -52,6 +52,23 @@ describe("project Harness discovery", () => {
     ]);
   });
 
+  it("rejects a partial Project Harness instead of treating it as undiscovered", async () => {
+    const project = await createProject("partial-harness");
+    const skill = join(project, ".agents", "skills", "sample-a1b2-harness");
+    await mkdir(join(skill, "state"), { recursive: true });
+    await writeFile(join(skill, "state", "manifest.json"), `${JSON.stringify({
+      schema_version: "2.0",
+      project_id: "sample-a1b2",
+      project_name: "sample-a1b2",
+      skill_name: "sample-a1b2-harness",
+      skill_revision: 27,
+      analysis_status: "complete",
+    })}\n`, "utf8");
+
+    await expect(discoverProjectHarness(project, DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY))
+      .rejects.toThrow("Project Harness SKILL.md is required");
+  });
+
   it("supports a direct AHO Host binding to one physical Skill", async () => {
     const project = await createProject("aho-host");
     const skill = join(project, "portable-skills", "sample-a1b2-harness");

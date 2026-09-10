@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ProjectRegistryStore } from "../../src/registry/store.js";
 import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
-import { ProjectRuntimeCoordinator, type ProjectRuntimeCoordinatorPort } from "../../src/project-runtime/coordinator.js";
+import { ProjectRuntimeCoordinator, ProjectRuntimeUnavailableError, type ProjectRuntimeCoordinatorPort } from "../../src/project-runtime/coordinator.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../src/provider-runtime/project-harness-discovery.js";
 import type { RunMetadata } from "../../src/types/index.js";
 import { TerminalRuntime } from "../../src/server/terminal/terminal-runtime.js";
@@ -2134,6 +2134,67 @@ describe("workbench server", () => {
       await rm(sourceRoot, { recursive: true, force: true });
       await rm(otherRoot, { recursive: true, force: true });
     }
+  });
+
+  it("rejects every project mutation through the startup coordinator when recovery marked the project unavailable", async () => {
+    await handle!.close();
+    handle = null;
+    const store = new ProjectRegistryStore(registryRoot);
+    await store.registerProject({ path: tempDir, name: project().name, projectId: project().id });
+    const unavailable = {
+      state: "unavailable" as const,
+      project: project(),
+      issue: {
+        code: "project-recovery-failed" as const,
+        summary: "这个项目的协作配置需要处理。",
+        recovery: "请重新启动 Beaver Code。",
+      },
+    };
+    const coordinator: ProjectRuntimeCoordinatorPort = {
+      async reconcileStartup() {
+        return { states: [unavailable], migrations: [], recoveries: [], onboardingRecoveries: [] };
+      },
+      async resolve() {
+        throw new ProjectRuntimeUnavailableError(unavailable);
+      },
+      async startupState() {
+        return unavailable;
+      },
+      async requireReady() {
+        throw new ProjectRuntimeUnavailableError(unavailable);
+      },
+      markUnavailable() {
+        return unavailable;
+      },
+      async register() {
+        throw new Error("not used");
+      },
+      runtimePaths(projectId) {
+        return resolveProjectRuntimePaths(projectId, registryRoot);
+      },
+    };
+    handle = await startWorkbenchServer({ project: project(), path: tempDir }, {
+      port: 0,
+      staticRoot,
+      store,
+      projectRuntimeCoordinator: coordinator,
+    });
+
+    const providerAction = await fetch(`${handle.url}/api/projects/repo/providers/codex/actions/project.trust`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirm: true }),
+    });
+    const abandon = await fetch(`${handle.url}/api/projects/repo/workbench/actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ abandon: { changeId: "change-a", conversationId: "conv-a", graphScopeId: "graph-a" }, confirm: true }),
+    });
+
+    expect(providerAction.status).toBe(409);
+    expect(abandon.status).toBe(409);
+    await expect(providerAction.json()).resolves.toMatchObject({ error: "这个项目需要处理后才能继续使用。" });
+    await expect(abandon.json()).resolves.toMatchObject({ error: "这个项目需要处理后才能继续使用。" });
   });
 
   it("starts with a ready project when another registered project is unavailable", async () => {
