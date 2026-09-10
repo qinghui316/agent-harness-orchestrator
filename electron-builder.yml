@@ -9,7 +9,7 @@ directories:
 files:
   - dist/**/*
   - package.json
-  - '!dist/**/*.map'
+  - '!**/*.map'
   - '!node_modules/better-sqlite3/prebuilds/darwin-*.node'
   - '!node_modules/better-sqlite3/prebuilds/linux*.node'
   - '!node_modules/better-sqlite3/prebuilds/win32-arm64.node'

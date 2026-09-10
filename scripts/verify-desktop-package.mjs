@@ -1,7 +1,7 @@
 import console from "node:console";
 import { existsSync } from "node:fs";
 import { readFile, readdir, stat } from "node:fs/promises";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import process from "node:process";
 import { execFileSync } from "node:child_process";
 import { extractFile, listPackage } from "@electron/asar";
@@ -31,7 +31,7 @@ if (asar) {
   if (entries.some((entry) => entry.endsWith(".map"))) failures.push("Package contains source maps.");
   if (entries.some((entry) => /^[A-Za-z]:[\\/]|^\\\\/.test(entry))) failures.push("Package contains a host absolute archive path.");
   try {
-    const buildInfo = JSON.parse(extractFile(asar, "dist/desktop/build-info.json").toString("utf8"));
+    const buildInfo = JSON.parse(extractFile(asar, join("dist", "desktop", "build-info.json")).toString("utf8"));
     const expectedCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8", windowsHide: true }).trim();
     if (buildInfo.version !== packageJson.version) failures.push("Packaged build version does not match package.json.");
     if (buildInfo.commit !== expectedCommit) failures.push("Packaged build commit does not match the current Git commit.");
