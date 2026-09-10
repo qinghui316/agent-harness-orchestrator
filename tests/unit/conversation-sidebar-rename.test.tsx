@@ -26,6 +26,22 @@ describe("Conversation sidebar rename", () => {
     expect(screen.queryByText("暂无对话。")).toBeNull();
   });
 
+  it("does not offer a new Conversation for a project locked during startup", () => {
+    const unavailable: ProjectStatus = {
+      ...managedProject(),
+      runtimeAvailability: {
+        state: "unavailable",
+        summary: "这个项目的协作配置需要处理。",
+        recovery: "请重新启动 Beaver Code。",
+      },
+    };
+    renderSidebar(vi.fn(async () => undefined), sidebarSnapshot(), unavailable);
+
+    expect(screen.queryByLabelText("在 Repo 中开始新对话")).toBeNull();
+    fireEvent.click(screen.getByLabelText("更多项目操作"));
+    expect(screen.queryByRole("menuitem", { name: "新建对话" })).toBeNull();
+  });
+
   it("saves once on Enter even when blur follows", async () => {
     const rename = vi.fn(async () => undefined);
     renderSidebar(rename);
@@ -76,8 +92,8 @@ describe("Conversation sidebar rename", () => {
 function renderSidebar(
   onRenameConversation: (projectId: string, conversationId: string, title: string) => Promise<void>,
   snapshot = sidebarSnapshot(),
+  project = managedProject(),
 ): void {
-  const project = managedProject();
   render(<ProjectConversationSidebar
     projects={[project]}
     selectedProjectId="repo-1"

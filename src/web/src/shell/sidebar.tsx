@@ -185,7 +185,11 @@ export function ProjectConversationSidebar({
             const harnessReady = projectSnapshot?.harness.harnessReady ?? item.harness.readiness === "ready";
             const harnessIssue = harnessStatusIssue(item, projectSnapshot);
             const secondary = duplicateName ? shortProjectContext(item.path) : harnessIssue?.short ?? shortProjectContext(item.path);
-            const canStartConversation = Boolean(item.project && item.pathExists);
+            const canStartConversation = Boolean(
+              item.project
+              && item.pathExists
+              && item.runtimeAvailability?.state !== "unavailable",
+            );
             const conversations = conversationsForSidebar(projectSnapshot, selectedTopicId);
             const filteredConversations = normalizedSearch
               ? conversations.filter((conversation) => conversation.title.toLowerCase().includes(normalizedSearch) || conversation.status.toLowerCase().includes(normalizedSearch))
