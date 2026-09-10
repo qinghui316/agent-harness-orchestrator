@@ -185,10 +185,11 @@ export function ProjectConversationSidebar({
             const harnessReady = projectSnapshot?.harness.harnessReady ?? item.harness.readiness === "ready";
             const harnessIssue = harnessStatusIssue(item, projectSnapshot);
             const secondary = duplicateName ? shortProjectContext(item.path) : harnessIssue?.short ?? shortProjectContext(item.path);
+            const projectUnavailable = item.runtimeAvailability?.state === "unavailable";
             const canStartConversation = Boolean(
               item.project
               && item.pathExists
-              && item.runtimeAvailability?.state !== "unavailable",
+              && !projectUnavailable,
             );
             const conversations = conversationsForSidebar(projectSnapshot, selectedTopicId);
             const filteredConversations = normalizedSearch
@@ -256,7 +257,7 @@ export function ProjectConversationSidebar({
                   <div className="conversation-list">
                     {lifecycleError && selected ? <div className="conversation-lifecycle-error" role="alert">{lifecycleError}</div> : null}
                     {harnessReady && !projectSnapshot ? <div className="conversation-placeholder">正在加载对话。</div> : null}
-                    {!harnessReady && !hasConversationSnapshot ? <div className="conversation-placeholder">首次需求时会根据项目情况建立必要工作说明。</div> : null}
+                    {!projectUnavailable && !harnessReady && !hasConversationSnapshot ? <div className="conversation-placeholder">首次需求时会根据项目情况建立必要工作说明。</div> : null}
                     {activeConversations.map((conversation) => {
                       const menuId = `${projectId}:${conversation.id}`;
                       const editing = editingConversation?.menuId === menuId ? editingConversation : null;

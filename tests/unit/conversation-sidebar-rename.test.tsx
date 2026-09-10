@@ -38,6 +38,7 @@ describe("Conversation sidebar rename", () => {
     renderSidebar(vi.fn(async () => undefined), sidebarSnapshot(), unavailable);
 
     expect(screen.queryByLabelText("在 Repo 中开始新对话")).toBeNull();
+    expect(screen.queryByText("首次需求时会根据项目情况建立必要工作说明。")).toBeNull();
     fireEvent.click(screen.getByLabelText("更多项目操作"));
     expect(screen.queryByRole("menuitem", { name: "新建对话" })).toBeNull();
   });
