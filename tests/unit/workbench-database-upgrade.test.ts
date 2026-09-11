@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -149,6 +149,38 @@ describe("Workbench database upgrade safety", () => {
     await expect(WorkbenchDatabase.open(paths, noActiveWorkGuard())).rejects.toMatchObject({ code: "corrupt" });
   });
 
+  it.each([
+    "conversation_change_links",
+    "conversation_graph_scopes",
+    "planning_acceptance_commits",
+    "skill_roots",
+    "skill_enablement",
+  ])("rejects Schema 18 when durable table %s is missing", async (table) => {
+    const paths = resolveProjectRuntimePaths(`damaged-current-${table.replaceAll("_", "-")}`, root);
+    const opened = await WorkbenchDatabase.open(paths, noActiveWorkGuard());
+    opened.close();
+    const raw = new Database(paths.workbenchDbPath);
+    raw.exec(`DROP TABLE "${table}"`);
+    raw.close();
+    const before = await digest(paths.workbenchDbPath);
+
+    await expect(WorkbenchDatabase.open(paths, noActiveWorkGuard())).rejects.toMatchObject({ code: "corrupt" });
+    expect(await digest(paths.workbenchDbPath)).toBe(before);
+  });
+
+  it("rejects a current database whose durable index contract is incomplete", async () => {
+    const paths = resolveProjectRuntimePaths("damaged-current-index", root);
+    const opened = await WorkbenchDatabase.open(paths, noActiveWorkGuard());
+    opened.close();
+    const raw = new Database(paths.workbenchDbPath);
+    raw.exec("DROP INDEX idx_conversations_project_updated");
+    raw.close();
+    const before = await digest(paths.workbenchDbPath);
+
+    await expect(WorkbenchDatabase.open(paths, noActiveWorkGuard())).rejects.toMatchObject({ code: "corrupt" });
+    expect(await digest(paths.workbenchDbPath)).toBe(before);
+  });
+
   it("rejects an incomplete supported migration source without filling in missing durable data", async () => {
     const paths = resolveProjectRuntimePaths("damaged-supported", root);
     await createLegacyDatabase(paths.workbenchDbPath, 16);
@@ -180,6 +212,7 @@ describe("Workbench database upgrade safety", () => {
       migrationImplementationVersion: 1,
       sourceDigest: await digest(paths.workbenchDbPath),
       snapshotDigest: await digest(snapshotPath),
+      targetDigest: null,
       preservedRecordCounts: {},
       preservedIdentityDigest: "test",
       appliedVersions: [],
@@ -195,6 +228,140 @@ describe("Workbench database upgrade safety", () => {
     await expect(stat(join(dirname(paths.workbenchDbPath), "schema-upgrades", "recovery", "receipt.json"))).resolves.toBeTruthy();
   });
 
+  it("does not overwrite a replacement database when staged recovery evidence is stale", async () => {
+    const paths = resolveProjectRuntimePaths("stale-staged-replacement", root);
+    await createLegacyDatabase(paths.workbenchDbPath, 16);
+    const stagingDir = join(dirname(paths.workbenchDbPath), "schema-upgrades", "staging-stale");
+    const snapshotPath = join(stagingDir, "workbench.sqlite");
+    await mkdir(stagingDir, { recursive: true });
+    await copyFile(paths.workbenchDbPath, snapshotPath);
+    const sourceDigest = await digest(paths.workbenchDbPath);
+    await writeFile(join(stagingDir, "receipt.json"), `${JSON.stringify({
+      schemaVersion: "1.0",
+      transactionId: "stale",
+      fromSchema: 16,
+      toSchema: 18,
+      migrationImplementationVersion: 1,
+      sourceDigest,
+      snapshotDigest: await digest(snapshotPath),
+      targetDigest: null,
+      preservedRecordCounts: {},
+      preservedIdentityDigest: "test",
+      appliedVersions: [],
+      startedAt: "2026-09-11T00:00:00.000Z",
+      completedAt: null,
+      result: "staged",
+    }, null, 2)}\n`, "utf8");
+    const replacement = new Database(paths.workbenchDbPath);
+    replacement.pragma("user_version = 99");
+    replacement.close();
+    const replacementDigest = await digest(paths.workbenchDbPath);
+
+    await expect(WorkbenchDatabase.open(paths, noActiveWorkGuard())).rejects.toMatchObject({ code: "recovery-required" });
+    expect(await digest(paths.workbenchDbPath)).toBe(replacementDigest);
+    const preserved = new Database(paths.workbenchDbPath, { readonly: true });
+    expect(Number(preserved.pragma("user_version", { simple: true }))).toBe(99);
+    preserved.close();
+  });
+
+  it("resumes a restore that stopped after displacing the live database", async () => {
+    const paths = resolveProjectRuntimePaths("interrupted-restore-swap", root);
+    await createLegacyDatabase(paths.workbenchDbPath, 16);
+    const upgradeRoot = join(dirname(paths.workbenchDbPath), "schema-upgrades");
+    const stagingDir = join(upgradeRoot, "staging-resume-restore");
+    const snapshotPath = join(stagingDir, "workbench.sqlite");
+    await mkdir(stagingDir, { recursive: true });
+    await copyFile(paths.workbenchDbPath, snapshotPath);
+    const sourceDigest = await digest(paths.workbenchDbPath);
+    await writeFile(join(stagingDir, "receipt.json"), `${JSON.stringify({
+      schemaVersion: "1.0",
+      transactionId: "resume-restore",
+      fromSchema: 16,
+      toSchema: 18,
+      migrationImplementationVersion: 1,
+      sourceDigest,
+      snapshotDigest: await digest(snapshotPath),
+      targetDigest: null,
+      preservedRecordCounts: {},
+      preservedIdentityDigest: "test",
+      appliedVersions: [],
+      startedAt: "2026-09-11T00:00:00.000Z",
+      completedAt: null,
+      result: "staged",
+    }, null, 2)}\n`, "utf8");
+    await copyFile(snapshotPath, `${paths.workbenchDbPath}.resume-restore.restore`);
+    await writeFile(join(upgradeRoot, "restore-transaction.json"), `${JSON.stringify({
+      schemaVersion: "1.0",
+      transactionId: "resume-restore",
+      expectedLiveDigest: sourceDigest,
+      snapshotDigest: await digest(snapshotPath),
+      phase: "prepared",
+    }, null, 2)}\n`, "utf8");
+    await rename(paths.workbenchDbPath, `${paths.workbenchDbPath}.resume-restore.failed`);
+
+    await expect(WorkbenchDatabase.open(paths, noActiveWorkGuard())).rejects.toMatchObject({ code: "recovery-required" });
+    const restored = new Database(paths.workbenchDbPath, { readonly: true });
+    expect(Number(restored.pragma("user_version", { simple: true }))).toBe(16);
+    restored.close();
+    await expect(stat(join(upgradeRoot, "restore-transaction.json"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("recreates a missing recovery marker from verified recovery evidence", async () => {
+    const paths = resolveProjectRuntimePaths("missing-recovery-marker", root);
+    await createLegacyDatabase(paths.workbenchDbPath, 16);
+    await expect(WorkbenchDatabase.open(paths, noActiveWorkGuard(), undefined, {
+      createTransactionId: () => "marker-recovery",
+      beforeMigration: () => { throw new Error("injected migration failure"); },
+    })).rejects.toMatchObject({ code: "recovery-required" });
+    const markerPath = join(dirname(paths.workbenchDbPath), "schema-upgrades", "recovery-required.json");
+    await rm(markerPath, { force: true });
+
+    await expect(WorkbenchDatabase.open(paths, noActiveWorkGuard())).rejects.toMatchObject({ code: "recovery-required" });
+    await expect(stat(markerPath)).resolves.toBeTruthy();
+  });
+
+  it("clears stale recovery evidence when a separately restored current database is valid", async () => {
+    const paths = resolveProjectRuntimePaths("stale-recovery-marker", root);
+    await createLegacyDatabase(paths.workbenchDbPath, 16);
+    await expect(WorkbenchDatabase.open(paths, noActiveWorkGuard(), undefined, {
+      createTransactionId: () => "stale-marker",
+      beforeMigration: () => { throw new Error("injected migration failure"); },
+    })).rejects.toMatchObject({ code: "recovery-required" });
+    await rm(paths.workbenchDbPath, { force: true });
+    const replacement = new Database(paths.workbenchDbPath);
+    applyCurrentWorkbenchSchema(replacement);
+    replacement.pragma("user_version = 18");
+    replacement.close();
+
+    const opened = await WorkbenchDatabase.open(paths, noActiveWorkGuard());
+    opened.close();
+    await expect(stat(join(dirname(paths.workbenchDbPath), "schema-upgrades", "recovery-required.json"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(stat(join(dirname(paths.workbenchDbPath), "schema-upgrades", "recovery"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("defers migration when a WAL checkpoint cannot include every committed frame", async () => {
+    const paths = resolveProjectRuntimePaths("busy-checkpoint", root);
+    await createLegacyDatabase(paths.workbenchDbPath, 16);
+    const reader = new Database(paths.workbenchDbPath);
+    reader.pragma("journal_mode = WAL");
+    reader.exec("BEGIN");
+    reader.prepare("SELECT COUNT(*) AS count FROM canonical_timeline_items").get();
+    const writer = new Database(paths.workbenchDbPath);
+    writer.prepare("UPDATE canonical_timeline_items SET text = ? WHERE id = 'sentinel'").run("committed in WAL");
+    writer.close();
+    try {
+      await expect(WorkbenchDatabase.open(paths, noActiveWorkGuard())).rejects.toMatchObject({ name: "WorkbenchMigrationBusyError" });
+    } finally {
+      reader.exec("ROLLBACK");
+      reader.close();
+    }
+    const preserved = new Database(paths.workbenchDbPath, { readonly: true });
+    expect(Number(preserved.pragma("user_version", { simple: true }))).toBe(16);
+    expect(preserved.prepare("SELECT text FROM canonical_timeline_items WHERE id = 'sentinel'").get()).toEqual({ text: "committed in WAL" });
+    preserved.close();
+    await expect(stat(join(dirname(paths.workbenchDbPath), "schema-upgrades", "recovery-required.json"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("finalizes a committed migration whose snapshot promotion was interrupted", async () => {
     const paths = resolveProjectRuntimePaths("interrupted-completed", root);
     await createLegacyDatabase(paths.workbenchDbPath, 17);
@@ -206,6 +373,7 @@ describe("Workbench database upgrade safety", () => {
     applyCurrentWorkbenchSchema(raw);
     raw.pragma("user_version = 18");
     raw.close();
+    const targetDigest = await digest(paths.workbenchDbPath);
     await writeFile(join(stagingDir, "receipt.json"), `${JSON.stringify({
       schemaVersion: "1.0",
       transactionId: "completed",
@@ -214,6 +382,7 @@ describe("Workbench database upgrade safety", () => {
       migrationImplementationVersion: 1,
       sourceDigest: await digest(snapshotPath),
       snapshotDigest: await digest(snapshotPath),
+      targetDigest,
       preservedRecordCounts: {},
       preservedIdentityDigest: "test",
       appliedVersions: [18],

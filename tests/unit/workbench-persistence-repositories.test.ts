@@ -638,7 +638,10 @@ describe("Workbench persistence owners", () => {
     }
     expect(creators.map((file) => file.replaceAll("\\", "/"))).toEqual([
       expect.stringMatching(/src\/workbench\/persistence\/database-upgrade\.ts$/),
+      expect.stringMatching(/src\/workbench\/persistence\/schema-migrations\.ts$/),
     ]);
+    const migrationSource = await readFile(join(persistenceRoot, "schema-migrations.ts"), "utf8");
+    expect(migrationSource.match(/new Database\([^)]*\)/g)).toEqual(['new Database(":memory:")']);
   });
 });
 

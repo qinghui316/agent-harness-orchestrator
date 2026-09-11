@@ -43,6 +43,7 @@ import { defaultProjectRuntimeActivityRegistry } from "../project-runtime/activi
 import { WorkbenchDatabaseCompatibilityError } from "../workbench/persistence/schema-migrations.js";
 import { inspectWorkbenchDatabaseUpgradeState } from "../workbench/persistence/database-upgrade.js";
 import { WORKBENCH_SCHEMA_VERSION } from "../workbench/persistence/schema.js";
+import { WorkbenchMigrationBusyError } from "../workbench/persistence/migration-errors.js";
 
 export type { WorkbenchServeOptions, WorkbenchServerHandle } from "./workbench/types.js";
 export { executeWorkbenchAction } from "./workbench/actions.js";
@@ -393,7 +394,7 @@ async function readRuntimeSnapshot(input: {
 export async function recoverWorkbenchProjects(
   store: ProjectRegistryStore,
   directInput: WorkbenchProjectInput | null,
-  projectRuntimeCoordinator: Pick<ProjectRuntimeCoordinatorPort, "resolve"> & Partial<Pick<ProjectRuntimeCoordinatorPort, "markUnavailable" | "startupState">> = new ProjectRuntimeCoordinator({
+  projectRuntimeCoordinator: Pick<ProjectRuntimeCoordinatorPort, "resolve"> & Partial<Pick<ProjectRuntimeCoordinatorPort, "markUnavailable" | "markWorkbenchDataState" | "startupState">> = new ProjectRuntimeCoordinator({
     store,
     discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
   }),
@@ -424,17 +425,23 @@ export async function recoverWorkbenchProjects(
       ? await projectRuntimeCoordinator.startupState(project)
       : await projectRuntimeCoordinator.resolve(project);
     if (options.shouldRecover && !options.shouldRecover(project, runtime)) continue;
-    const recovered = await recoverWorkbenchProject({
-      project,
-      runtime,
-      projectRuntimeCoordinator,
-      providerRegistry,
-      conversationContext,
-      conversationFork,
-      conversationTurnQueue,
-      conversationLifecycle,
-      conversationReview,
-    });
+    let recovered = false;
+    try {
+      recovered = await recoverWorkbenchProject({
+        project,
+        runtime,
+        projectRuntimeCoordinator,
+        providerRegistry,
+        conversationContext,
+        conversationFork,
+        conversationTurnQueue,
+        conversationLifecycle,
+        conversationReview,
+      });
+    } catch (cause) {
+      if (!(cause instanceof WorkbenchMigrationBusyError)) throw cause;
+      continue;
+    }
     if (recovered) options.recoveredProjectIds?.add(project.id);
   }
 }
@@ -442,7 +449,7 @@ export async function recoverWorkbenchProjects(
 async function recoverWorkbenchProject(input: {
   project: ManagedProject;
   runtime: ProjectRuntimeStartupState;
-  projectRuntimeCoordinator: Pick<ProjectRuntimeCoordinatorPort, "resolve"> & Partial<Pick<ProjectRuntimeCoordinatorPort, "markUnavailable">>;
+  projectRuntimeCoordinator: Pick<ProjectRuntimeCoordinatorPort, "resolve"> & Partial<Pick<ProjectRuntimeCoordinatorPort, "markUnavailable" | "markWorkbenchDataState">>;
   providerRegistry: typeof defaultProviderRegistry;
   conversationContext?: ConversationContextLifecycleOwner;
   conversationFork?: ConversationForkLifecycleOwner;
@@ -454,24 +461,30 @@ async function recoverWorkbenchProject(input: {
   const runtime = input.runtime;
   try {
     if (runtime.state !== "ready") return true;
-      await reconcileStaleAgentMainAttempts({ project, providerRegistry, runtimeState: runtime });
-      await reconcileStaleAgentNativeChildren({ project, providerRegistry });
-      const runtimePaths = runtime.resolution.paths;
-      await reconcileStaleProviderInputRequests({ runtime: runtimePaths, providerRegistry });
-      await conversationContext?.reconcileProject(runtimePaths);
-      await conversationFork?.reconcileProject(runtimePaths);
-      await conversationTurnQueue?.reconcileProject(runtimePaths);
-      await conversationLifecycle?.reconcileProject(runtimePaths);
-      await conversationReview?.reconcileProject(runtimePaths);
-      const reconcileReceipt = (receipt: Parameters<typeof reconcileRecoveredApprovalDecisions>[1][number]) => (
-        reconcileRecoveredApprovalDecisions(project, [receipt])
-      );
-      await recoverApplyApprovalReceipts(project, true, reconcileReceipt);
-      await recoverIntegrationCheckApprovalReceipts(project, true, reconcileReceipt);
-      await recoverDiscardApprovalReceipts(project, true, reconcileReceipt);
-      await recoverSpecTestApprovalReceipts(project, reconcileReceipt);
+    await reconcileStaleAgentMainAttempts({ project, providerRegistry, runtimeState: runtime });
+    await reconcileStaleAgentNativeChildren({ project, providerRegistry });
+    const runtimePaths = runtime.resolution.paths;
+    await reconcileStaleProviderInputRequests({ runtime: runtimePaths, providerRegistry });
+    await conversationContext?.reconcileProject(runtimePaths);
+    await conversationFork?.reconcileProject(runtimePaths);
+    await conversationTurnQueue?.reconcileProject(runtimePaths);
+    await conversationLifecycle?.reconcileProject(runtimePaths);
+    await conversationReview?.reconcileProject(runtimePaths);
+    const reconcileReceipt = (receipt: Parameters<typeof reconcileRecoveredApprovalDecisions>[1][number]) => (
+      reconcileRecoveredApprovalDecisions(project, [receipt])
+    );
+    await recoverApplyApprovalReceipts(project, true, reconcileReceipt);
+    await recoverIntegrationCheckApprovalReceipts(project, true, reconcileReceipt);
+    await recoverDiscardApprovalReceipts(project, true, reconcileReceipt);
+    await recoverSpecTestApprovalReceipts(project, reconcileReceipt);
     return true;
   } catch (cause) {
+    if (cause instanceof WorkbenchMigrationBusyError) {
+      if (runtime.state === "ready" && runtime.workbenchData?.state === "upgrade-required") {
+        projectRuntimeCoordinator.markWorkbenchDataState?.(project, runtime.workbenchData);
+      }
+      throw cause;
+    }
     projectRuntimeCoordinator.markUnavailable?.(project, workbenchRecoveryIssue(cause));
     return false;
   }

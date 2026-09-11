@@ -467,7 +467,7 @@ describe("provider-neutral runtime contract", () => {
     await expect(openProjectRuntimeWorkbenchDatabase(memory)).rejects.toMatchObject({ code: "unsupported-legacy" });
   });
 
-  it("refuses a schema migration while any registered provider turn is active", async () => {
+  it("does not let an unrelated project's active provider turn block migration", async () => {
     const project = managedProject(root);
     const memory = resolveProjectRuntimePaths(project.id, root);
     const registry = new ProviderRegistry();
@@ -489,7 +489,46 @@ describe("provider-neutral runtime contract", () => {
     const db = await createSchema16Database(memory.workbenchDbPath);
     db.close();
 
-    await expect(openProjectRuntimeWorkbenchDatabase(memory, { providerRegistry: registry })).rejects.toThrow("Agent 任务正在运行");
+    const opened = await openProjectRuntimeWorkbenchDatabase(memory, { providerRegistry: registry });
+    opened.close();
+  });
+
+  it("refuses a schema migration while this project's provider turn is active", async () => {
+    const project = managedProject(root);
+    const memory = resolveProjectRuntimePaths(project.id, root);
+    const registry = new ProviderRegistry();
+    const provider = fakeProvider("alpha");
+    provider.conversation.getActiveTurn = (scopeId) => scopeId === "conversation-active" ? {
+      providerId: "alpha",
+      attemptId: "alpha-attempt",
+      runtimeScopeId: "conversation-active",
+      roleId: "main-agent",
+      runId: "alpha-run",
+      session: { providerId: "alpha", sessionId: "alpha-session" },
+      turnId: "alpha-turn",
+      startedAt: "2026-07-15T00:00:00.000Z",
+      steer: async () => undefined,
+      interrupt: async () => ({ status: "interrupt-requested" as const }),
+      respondToUserInput: async () => undefined,
+    } : null;
+    registry.register(provider);
+    const db = await createSchema16Database(memory.workbenchDbPath);
+    db.prepare(`INSERT INTO conversations (
+      project_id, conversation_id, product_mode, agent_turn_mode, agent_model_id,
+      agent_reasoning_effort, client_create_request_id, client_create_request_hash,
+      title, state, surface_kind, bound_change_id, current_graph_scope_id,
+      selected_provider_id, completed_turn_sequence, timeline_position,
+      timeline_revision, created_at, updated_at, deleted_at
+    ) VALUES (?, ?, 'agent', 'default', NULL, NULL, NULL, NULL, 'Active',
+      'active', 'user', NULL, NULL, 'alpha', 0, 0, 0, ?, ?, NULL)`).run(
+      project.id,
+      "conversation-active",
+      "2026-07-15T00:00:00.000Z",
+      "2026-07-15T00:00:00.000Z",
+    );
+    db.close();
+
+    await expect(openProjectRuntimeWorkbenchDatabase(memory, { providerRegistry: registry })).rejects.toThrow("这个项目仍有 Agent 任务正在运行");
   });
 
   it("refuses a schema migration while a background AgentTask is running", async () => {
@@ -737,6 +776,19 @@ async function createSchema16Database(path: string): Promise<Database.Database> 
   await mkdir(dirname(path), { recursive: true });
   const database = new Database(path);
   initializeCurrentWorkbenchSchema(database);
+  for (const row of database.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger'").all() as Array<{ name: string }>) {
+    database.exec(`DROP TRIGGER IF EXISTS "${row.name.replaceAll('"', '""')}"`);
+  }
+  database.exec(`
+    DROP TABLE conversation_review_operations;
+    ALTER TABLE provider_attempts DROP COLUMN operation_kind;
+    ALTER TABLE conversation_turn_queue_items DROP COLUMN review_target_json;
+    ALTER TABLE conversation_turn_queue_items DROP COLUMN item_kind;
+    DROP TABLE conversation_lifecycle_operations;
+    ALTER TABLE conversations DROP COLUMN lifecycle_revision;
+    ALTER TABLE conversations DROP COLUMN archived_at;
+    ALTER TABLE conversations DROP COLUMN archive_origin;
+  `);
   database.pragma("user_version = 16");
   return database;
 }

@@ -276,6 +276,19 @@ async function createLegacyFixture() {
   initializeCurrentWorkbenchSchema(database);
   database.exec("CREATE TABLE skills (project_id TEXT NOT NULL, skill_id TEXT NOT NULL, PRIMARY KEY(project_id, skill_id))");
   database.prepare("INSERT INTO skills(project_id, skill_id) VALUES (?, ?)").run("legacy-a1", "skill-1");
+  for (const row of database.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger'").all() as Array<{ name: string }>) {
+    database.exec(`DROP TRIGGER IF EXISTS "${row.name.replaceAll('"', '""')}"`);
+  }
+  database.exec(`
+    DROP TABLE conversation_review_operations;
+    ALTER TABLE provider_attempts DROP COLUMN operation_kind;
+    ALTER TABLE conversation_turn_queue_items DROP COLUMN review_target_json;
+    ALTER TABLE conversation_turn_queue_items DROP COLUMN item_kind;
+    DROP TABLE conversation_lifecycle_operations;
+    ALTER TABLE conversations DROP COLUMN lifecycle_revision;
+    ALTER TABLE conversations DROP COLUMN archived_at;
+    ALTER TABLE conversations DROP COLUMN archive_origin;
+  `);
   database.pragma("user_version = 16");
   database.close();
   await createHarness(projectRoot);

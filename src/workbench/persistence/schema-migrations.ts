@@ -1,4 +1,4 @@
-import type Database from "better-sqlite3";
+import Database from "better-sqlite3";
 import { applyCurrentWorkbenchSchema, ensureColumn, hasAnyWorkbenchUserTables, hasWorkbenchRuntimeTables, WORKBENCH_SCHEMA_VERSION } from "./schema.js";
 import type { SqliteRow } from "./sql-mappers.js";
 
@@ -145,27 +145,8 @@ export function inspectWorkbenchSchema(db: Database.Database): {
 }
 
 function validateMigrationSourceSchema(db: Database.Database, version: number): void {
-  const requiredTables = [
-    "canonical_timeline_items",
-    "conversations",
-    "action_runs",
-    "provider_thread_links",
-    "conversation_provider_bindings",
-    "provider_attempts",
-    "provider_resume_points",
-    "composer_drafts",
-    "approval_cache",
-    "decision_records",
-    "conversation_fork_operations",
-    "conversation_turn_queues",
-    "conversation_turn_queue_items",
-  ];
-  if (version >= 17) requiredTables.push("conversation_lifecycle_operations");
   try {
-    for (const table of requiredTables) assertTable(db, table);
-    assertColumns(db, "conversations", ["project_id", "conversation_id", "product_mode", "state"]);
-    assertColumns(db, "provider_attempts", ["project_id", "attempt_id", "conversation_id", "product_mode", "status"]);
-    assertColumns(db, "conversation_turn_queue_items", ["project_id", "conversation_id", "product_mode", "status"]);
+    assertSchemaShape(db, version);
   } catch (cause) {
     throw new WorkbenchDatabaseCompatibilityError("corrupt", "这个项目的数据结构不完整。", { cause });
   }
@@ -207,16 +188,187 @@ export function migrateWorkbenchSchema(db: Database.Database, currentVersion: nu
 }
 
 export function validateCurrentWorkbenchSchema(db: Database.Database): void {
-  assertTable(db, "conversations");
-  assertTable(db, "canonical_timeline_items");
-  assertTable(db, "provider_attempts");
-  assertTable(db, "composer_drafts");
-  assertTable(db, "conversation_turn_queue_items");
-  assertTable(db, "conversation_review_operations");
-  assertColumns(db, "conversations", ["product_mode", "lifecycle_revision"]);
-  assertColumns(db, "provider_attempts", ["product_mode", "operation_kind"]);
+  assertSchemaShape(db, WORKBENCH_SCHEMA_VERSION);
   const integrity = db.pragma("integrity_check", { simple: true });
   if (integrity !== "ok") throw new Error("Workbench database integrity check failed.");
+}
+
+interface SchemaShape {
+  readonly tables: ReadonlyMap<string, readonly ColumnShape[]>;
+  readonly indexes: ReadonlyMap<string, readonly string[]>;
+}
+
+interface ColumnShape {
+  readonly name: string;
+  readonly type: string;
+  readonly notnull: number;
+  readonly defaultValue: string | null;
+  readonly pk: number;
+}
+
+const schemaShapeCache = new Map<number, SchemaShape>();
+
+function assertSchemaShape(db: Database.Database, version: number): void {
+  const expected = expectedSchemaShape(version);
+  const actual = readSchemaShape(db);
+  for (const [table, expectedColumns] of expected.tables) {
+    const actualColumns = actual.tables.get(table);
+    if (!actualColumns) throw new Error(`Workbench schema is missing required table: ${table}`);
+    if (JSON.stringify(actualColumns) !== JSON.stringify(expectedColumns)) {
+      throw new Error(`Workbench schema table ${table} has an unexpected column contract.`);
+    }
+    const actualIndexes = actual.indexes.get(table) ?? [];
+    if (JSON.stringify(actualIndexes) !== JSON.stringify(expected.indexes.get(table) ?? [])) {
+      throw new Error(`Workbench schema table ${table} has an unexpected index contract.`);
+    }
+  }
+  assertCheckConstraintFragments(db, version);
+}
+
+function expectedSchemaShape(version: number): SchemaShape {
+  const cached = schemaShapeCache.get(version);
+  if (cached) return cached;
+  const reference = new Database(":memory:");
+  try {
+    applyCurrentWorkbenchSchema(reference);
+    for (const row of reference.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger'").all() as Array<{ name: string }>) {
+      reference.exec(`DROP TRIGGER IF EXISTS ${quoteIdentifier(row.name)}`);
+    }
+    if (version < 18) {
+      reference.exec(`
+        DROP TABLE conversation_review_operations;
+        ALTER TABLE provider_attempts DROP COLUMN operation_kind;
+        ALTER TABLE conversation_turn_queue_items DROP COLUMN review_target_json;
+        ALTER TABLE conversation_turn_queue_items DROP COLUMN item_kind;
+      `);
+    }
+    if (version < 17) {
+      reference.exec(`
+        DROP TABLE conversation_lifecycle_operations;
+        ALTER TABLE conversations DROP COLUMN lifecycle_revision;
+        ALTER TABLE conversations DROP COLUMN archived_at;
+        ALTER TABLE conversations DROP COLUMN archive_origin;
+      `);
+    }
+    const shape = readSchemaShape(reference);
+    schemaShapeCache.set(version, shape);
+    return shape;
+  } finally {
+    reference.close();
+  }
+}
+
+function readSchemaShape(db: Database.Database): SchemaShape {
+  const tables = new Map<string, ColumnShape[]>();
+  const columnRows = db.prepare(`
+    SELECT schema_table.name AS table_name,
+           table_column.name,
+           table_column.type,
+           table_column."notnull" AS "notnull",
+           table_column.dflt_value,
+           table_column.pk
+      FROM sqlite_master AS schema_table,
+           pragma_table_info(schema_table.name) AS table_column
+     WHERE schema_table.type = 'table'
+       AND schema_table.name NOT LIKE 'sqlite_%'
+     ORDER BY schema_table.name, table_column.name
+  `).all() as Array<{
+    table_name: string;
+    name: string;
+    type: string;
+    notnull: number;
+    dflt_value: string | null;
+    pk: number;
+  }>;
+  for (const column of columnRows) {
+    const columns = tables.get(column.table_name) ?? [];
+    columns.push({
+      name: String(column.name),
+      type: String(column.type).toUpperCase(),
+      notnull: Number(column.notnull),
+      defaultValue: column.dflt_value === null ? null : String(column.dflt_value),
+      pk: Number(column.pk),
+    });
+    tables.set(column.table_name, columns);
+  }
+
+  const indexRows = db.prepare(`
+    SELECT schema_table.name AS table_name,
+           index_list.name AS index_name,
+           index_list."unique" AS is_unique,
+           index_list.origin,
+           index_list.partial,
+           index_column.seqno,
+           index_column.name AS column_name
+      FROM sqlite_master AS schema_table,
+           pragma_index_list(schema_table.name) AS index_list
+      LEFT JOIN pragma_index_info(index_list.name) AS index_column
+     WHERE schema_table.type = 'table'
+       AND schema_table.name NOT LIKE 'sqlite_%'
+     ORDER BY schema_table.name, index_list.name, index_column.seqno
+  `).all() as Array<{
+    table_name: string;
+    index_name: string;
+    is_unique: number;
+    origin: string;
+    partial: number;
+    seqno: number | null;
+    column_name: string | null;
+  }>;
+  const indexParts = new Map<string, { table: string; prefix: string; columns: string[] }>();
+  for (const row of indexRows) {
+    const key = `${row.table_name}\0${row.index_name}`;
+    const part = indexParts.get(key) ?? {
+      table: row.table_name,
+      prefix: `${Number(row.is_unique)}:${String(row.origin)}:${Number(row.partial)}:`,
+      columns: [],
+    };
+    if (row.column_name !== null) part.columns.push(row.column_name);
+    indexParts.set(key, part);
+  }
+  const indexes = new Map<string, string[]>();
+  for (const part of indexParts.values()) {
+    const signatures = indexes.get(part.table) ?? [];
+    signatures.push(`${part.prefix}${part.columns.join(",")}`);
+    indexes.set(part.table, signatures);
+  }
+  for (const signatures of indexes.values()) signatures.sort();
+  return { tables, indexes };
+}
+
+function assertCheckConstraintFragments(db: Database.Database, version: number): void {
+  const fragments: Readonly<Record<string, readonly string[]>> = {
+    conversations: ["check(product_modein('agent','harness'))", "check(agent_turn_modein('default','plan')oragent_turn_modeisnull)"],
+    provider_attempts: ["check(product_modein('agent','harness'))", "check(conversation_idisnotnullorproduct_mode='harness')"],
+    composer_drafts: ["check(product_modein('agent','harness'))", "check(agent_turn_modein('default','plan')oragent_turn_modeisnull)"],
+    conversation_fork_operations: ["check(statusin('pending','submitting','completed','failed','interrupted'))"],
+    conversation_turn_queues: ["check(product_modein('agent','harness'))"],
+    conversation_turn_queue_items: ["check(product_modein('agent','harness'))", "check(statusin('queued','dispatching','blocked','dispatched','cancelled'))", "check(retry_countbetween0and1)"],
+  };
+  const versioned: Record<string, readonly string[]> = { ...fragments };
+  if (version >= 17) {
+    versioned.conversations = [...versioned.conversations!, "check(archive_originin('agent-user','harness-workflow')orarchive_originisnull)"];
+    versioned.conversation_lifecycle_operations = [
+      "check(product_modein('agent','harness'))",
+      "check(actionin('archive','restore','delete'))",
+      "check(statusin('pending','submitting','completed','failed','interrupted'))",
+    ];
+  }
+  if (version >= 18) {
+    versioned.provider_attempts = [...versioned.provider_attempts!, "check(operation_kindin('conversation-turn','review'))"];
+    versioned.conversation_turn_queue_items = [...versioned.conversation_turn_queue_items!, "check(item_kindin('conversation-turn','review'))"];
+    versioned.conversation_review_operations = [
+      "check(statusin('pending','submitting','reviewing','completed','failed','interrupted'))",
+      "check(sourcein('direct','queue'))",
+    ];
+  }
+  for (const [table, requiredFragments] of Object.entries(versioned)) {
+    const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?").get(table) as { sql?: string } | undefined;
+    const normalized = String(row?.sql ?? "").toLowerCase().replaceAll(/\s+/g, "");
+    for (const fragment of requiredFragments) {
+      if (!normalized.includes(fragment)) throw new Error(`Workbench schema table ${table} is missing a required check constraint.`);
+    }
+  }
 }
 
 function assertTable(db: Database.Database, table: string): void {
@@ -228,4 +380,8 @@ function assertColumns(db: Database.Database, table: string, columns: readonly s
   const existing = new Set((db.prepare(`PRAGMA table_info(${table})`).all() as SqliteRow[]).map((row) => String(row.name)));
   const missing = columns.filter((column) => !existing.has(column));
   if (missing.length > 0) throw new Error(`Workbench schema table ${table} is missing required columns: ${missing.join(", ")}`);
+}
+
+function quoteIdentifier(value: string): string {
+  return `"${value.replaceAll('"', '""')}"`;
 }

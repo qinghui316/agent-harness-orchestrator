@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { ProviderRegistry } from "../../provider-runtime/registry.js";
 import type { ProjectRuntimePaths } from "../../project-runtime/paths.js";
 import type { SqliteRow } from "./sql-mappers.js";
+import { WorkbenchMigrationBusyError } from "./migration-errors.js";
 
 export interface WorkbenchMigrationGuard {
   assertSafe(db: Database.Database): Promise<void>;
@@ -20,7 +21,7 @@ export class RuntimeWorkbenchMigrationGuard implements WorkbenchMigrationGuard {
     const { listAgentTasks } = await import("../../agent-task/repository.js");
     const activeTasks = (await listAgentTasks(this.runtime)).filter((task) => task.status === "claimed" || task.status === "running");
     if (activeTasks.length > 0) {
-      throw new Error("Workbench 数据需要升级，但仍有后台 Agent 任务正在运行。请等待任务结束后重试。");
+      throw new WorkbenchMigrationBusyError("Workbench 数据需要升级，但仍有后台 Agent 任务正在运行。请等待任务结束后重试。");
     }
     await assertWorkflowModelAttemptsStopped(this.runtime);
   }
@@ -28,9 +29,6 @@ export class RuntimeWorkbenchMigrationGuard implements WorkbenchMigrationGuard {
 
 export async function assertProviderTurnsStoppedBeforeMigration(db: Database.Database, providerRegistry?: ProviderRegistry): Promise<void> {
   const registry = providerRegistry ?? (await import("../../provider-runtime/default-registry.js")).defaultProviderRegistry;
-  if (registry.listActiveTurns().length > 0) {
-    throw new Error("Workbench 数据需要升级，但仍有 Agent 任务正在运行。请先停止并等待退出。");
-  }
   const tables = new Set((db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as SqliteRow[]).map((row) => String(row.name)));
   const scopeIds = new Set<string>();
   if (tables.has("conversations")) {
@@ -48,7 +46,7 @@ export async function assertProviderTurnsStoppedBeforeMigration(db: Database.Dat
     }
   }
   if (registry.findActiveTurns(scopeIds).length > 0) {
-    throw new Error("Workbench 数据需要升级，但仍有 Agent 任务正在运行。请先停止并等待退出。");
+    throw new WorkbenchMigrationBusyError("Workbench 数据需要升级，但这个项目仍有 Agent 任务正在运行。请先停止并等待退出。");
   }
 }
 
@@ -62,7 +60,7 @@ export async function assertWorkflowModelAttemptsStopped(runtime: Pick<ProjectRu
     if (!entry.isDirectory() || entry.name === ".gitkeep") continue;
     const active = (await listTaskRuns(runtime, entry.name)).filter((run) => isActiveTaskRunStatus(run.status));
     if (active.length > 0) {
-      throw new Error("Workbench 数据需要升级，但仍有协作任务正在运行。请先暂停并完成处理。");
+      throw new WorkbenchMigrationBusyError("Workbench 数据需要升级，但这个项目仍有协作任务正在运行。请先暂停并完成处理。");
     }
   }
 }

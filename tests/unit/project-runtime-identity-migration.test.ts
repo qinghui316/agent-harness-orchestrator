@@ -322,6 +322,19 @@ async function createDatabase(path: string): Promise<void> {
     .run("timeline-a", SOURCE_ID, "conversation-a", "", 1, 1, "main-agent", "message", new Date().toISOString(), JSON.stringify({ type: "message", text: "unchanged" }));
   database.prepare("INSERT INTO composer_drafts(project_id, product_mode, agent_turn_mode, text, updated_at) VALUES (?, ?, ?, ?, ?)")
     .run(SOURCE_ID, "agent", "default", "Keep this draft", new Date().toISOString());
+  for (const row of database.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger'").all() as Array<{ name: string }>) {
+    database.exec(`DROP TRIGGER IF EXISTS "${row.name.replaceAll('"', '""')}"`);
+  }
+  database.exec(`
+    DROP TABLE conversation_review_operations;
+    ALTER TABLE provider_attempts DROP COLUMN operation_kind;
+    ALTER TABLE conversation_turn_queue_items DROP COLUMN review_target_json;
+    ALTER TABLE conversation_turn_queue_items DROP COLUMN item_kind;
+    DROP TABLE conversation_lifecycle_operations;
+    ALTER TABLE conversations DROP COLUMN lifecycle_revision;
+    ALTER TABLE conversations DROP COLUMN archived_at;
+    ALTER TABLE conversations DROP COLUMN archive_origin;
+  `);
   database.pragma("user_version = 16");
   database.close();
 }

@@ -1,5 +1,6 @@
 import { mkdir, open, readFile, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { WorkbenchMigrationBusyError } from "./persistence/migration-errors.js";
 
 export interface WorkbenchRuntimeMutationPaths {
   workbenchDbPath: string;
@@ -26,10 +27,10 @@ export async function acquireWorkbenchRuntimeMutationLock(
       handle = undefined;
       if (!isAlreadyLocked(error)) throw error;
       if (attempt === 0 && await removeDeadOwnerLock(path)) continue;
-      throw new Error(`Workbench 正在执行数据升级或运行状态变更，暂时不能${action}。请稍后重试。`, { cause: error });
+      throw new WorkbenchMigrationBusyError(`Workbench 正在执行数据升级或运行状态变更，暂时不能${action}。请稍后重试。`, { cause: error });
     }
   }
-  if (!handle) throw new Error(`Workbench 无法取得运行状态变更锁，不能${action}。`);
+  if (!handle) throw new WorkbenchMigrationBusyError(`Workbench 无法取得运行状态变更锁，不能${action}。`);
   let released = false;
   return {
     release: async () => {
