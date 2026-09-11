@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import type { ProductMode } from "../../../provider-runtime/index.js";
+import { validateStoredExecutionContractRef, type ProductMode } from "../../../provider-runtime/index.js";
 import type {
   StoredConversationQueuedTurn,
   StoredConversationQueuedTurnStatus,
@@ -273,6 +273,15 @@ function mapQueue(row: SqliteRow): StoredConversationTurnQueue {
 }
 
 function mapItem(row: SqliteRow): StoredConversationQueuedTurn {
+  let executionContract;
+  try {
+    executionContract = validateStoredExecutionContractRef({
+      family: row.executionContractFamily,
+      epoch: Number(row.executionContractEpoch),
+    });
+  } catch {
+    throw new Error(`Conversation queued Turn has invalid execution contract: ${String(row.queueItemId)}`);
+  }
   return {
     projectId: String(row.projectId), conversationId: String(row.conversationId),
     productMode: String(row.productMode) as ProductMode, queueItemId: String(row.queueItemId),
@@ -280,8 +289,8 @@ function mapItem(row: SqliteRow): StoredConversationQueuedTurn {
     position: Number(row.position), status: String(row.status) as StoredConversationQueuedTurnStatus,
     retryCount: Number(row.retryCount), predecessorExecutionRevision: String(row.predecessorExecutionRevision),
     dispatchRequestId: String(row.dispatchRequestId),
-    executionContractFamily: String(row.executionContractFamily),
-    executionContractEpoch: Number(row.executionContractEpoch),
+    executionContractFamily: executionContract.family,
+    executionContractEpoch: executionContract.epoch,
     itemKind: row.itemKind === "review" ? "review" : "conversation-turn",
     reviewTargetJson: row.reviewTargetJson === null ? null : String(row.reviewTargetJson), text: String(row.text),
     contextRefsJson: String(row.contextRefsJson), attachmentIdsJson: String(row.attachmentIdsJson),

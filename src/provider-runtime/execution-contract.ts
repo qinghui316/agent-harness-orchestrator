@@ -23,6 +23,11 @@ export interface ExecutionContractIdentity {
   providerAdapterVersion: string;
 }
 
+export interface StoredExecutionContractRef {
+  family: ExecutionContractFamily | "legacy-v0";
+  epoch: number;
+}
+
 export type StoredExecutionContractIdentity =
   | {
       kind: "legacy";
@@ -153,6 +158,25 @@ export function validateExecutionContractIdentity(input: {
     policyHash: input.policyHash,
     providerAdapterVersion: input.providerAdapterVersion,
   };
+}
+
+export function validateStoredExecutionContractRef(input: {
+  family: unknown;
+  epoch: unknown;
+}): StoredExecutionContractRef {
+  if (input.family === "legacy-v0" && input.epoch === 0) {
+    return { family: "legacy-v0", epoch: 0 };
+  }
+  if (typeof input.family === "string"
+    && EXECUTION_CONTRACT_FAMILIES.includes(input.family as ExecutionContractFamily)
+    && Number.isSafeInteger(input.epoch)
+    && Number(input.epoch) > 0) {
+    return {
+      family: input.family as ExecutionContractFamily,
+      epoch: Number(input.epoch),
+    };
+  }
+  throw new Error("Stored execution contract reference is invalid.");
 }
 
 export function resolveStoredExecutionContract(

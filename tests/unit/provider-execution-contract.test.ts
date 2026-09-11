@@ -4,6 +4,7 @@ import {
   ExecutionContractRegistry,
   resolveExecutionContract,
   storedExecutionContract,
+  validateStoredExecutionContractRef,
 } from "../../src/provider-runtime/index.js";
 
 describe("Provider execution contract registry", () => {
@@ -67,6 +68,20 @@ describe("Provider execution contract registry", () => {
   ])("rejects %s in a versioned stored identity", (_label, patch) => {
     const valid = resolveExecutionContract({ ...agentTurnInput(), providerAdapterVersion: "adapter-v1" });
     expect(() => storedExecutionContract({ ...valid, ...patch })).toThrow(/execution contract/i);
+  });
+
+  it.each([
+    ["unknown family", { family: "unknown", epoch: 1 }],
+    ["negative epoch", { family: "agent.turn", epoch: -1 }],
+    ["fractional epoch", { family: "agent.turn", epoch: 1.5 }],
+    ["partial legacy pair", { family: "legacy-v0", epoch: 1 }],
+  ])("rejects %s in a stored Queue execution reference", (_label, value) => {
+    expect(() => validateStoredExecutionContractRef(value)).toThrow(/invalid/i);
+  });
+
+  it("accepts only the exact legacy Queue reference", () => {
+    expect(validateStoredExecutionContractRef({ family: "legacy-v0", epoch: 0 }))
+      .toEqual({ family: "legacy-v0", epoch: 0 });
   });
 });
 

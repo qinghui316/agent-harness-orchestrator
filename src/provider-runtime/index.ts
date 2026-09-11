@@ -30,6 +30,7 @@ export {
   resolveStoredExecutionContract,
   storedExecutionContract,
   validateExecutionContractIdentity,
+  validateStoredExecutionContractRef,
 } from "./execution-contract.js";
 export type {
   ExecutionContractDefinition,
@@ -37,4 +38,5 @@ export type {
   ExecutionContractIdentity,
   ExecutionContractResolutionInput,
   StoredExecutionContractIdentity,
+  StoredExecutionContractRef,
 } from "./execution-contract.js";

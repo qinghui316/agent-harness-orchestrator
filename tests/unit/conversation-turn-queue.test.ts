@@ -461,6 +461,55 @@ describe("ConversationTurnQueueOwner", () => {
       .toBe("confirmation-required");
   });
 
+  it.each([
+    ["unknown family", "unknown-family", 1],
+    ["negative epoch", "agent.turn", -1],
+    ["fractional epoch", "agent.turn", 1.5],
+    ["partial legacy pair", "legacy-v0", 1],
+  ])("fails closed without side effects for a Queue item with %s", async (_label, family, epoch) => {
+    const original = createOwner();
+    const initial = await original.read(project, "agent", conversationId);
+    const queued = await original.enqueue(project, queueRequest(initial.revision, initial.executionRevision!));
+    const item = queued.items[0]!;
+    const raw = new Database(paths.workbenchDbPath);
+    try {
+      raw.prepare(`
+        UPDATE conversation_turn_queue_items
+        SET execution_contract_family = ?, execution_contract_epoch = ?
+        WHERE queue_item_id = ?
+      `).run(family, epoch, item.queueItemId);
+    } finally {
+      raw.close();
+    }
+
+    const postConversationMessage = vi.fn(async () => ({}) as never);
+    const upgraded = createOwner(postConversationMessage, undefined, executionRegistry({ "agent.turn": 2 }));
+    await expect(upgraded.read(project, "agent", conversationId))
+      .rejects.toThrow("Conversation queued Turn has invalid execution contract");
+    await expect(upgraded.confirmExecutionContract(project, {
+      productMode: "agent",
+      conversationId,
+      queueItemId: item.queueItemId,
+      expectedRevision: queued.revision,
+      clientRequestId: `confirm-${String(_label).replaceAll(" ", "-")}`,
+      expectedCreatedContract: { family, epoch },
+      expectedTargetContract: { family: "agent.turn", epoch: 2 },
+    })).rejects.toThrow("Conversation queued Turn has invalid execution contract");
+    await expect(upgraded.dispatchNext(project, "agent", conversationId, queued.revision))
+      .rejects.toThrow("Conversation queued Turn has invalid execution contract");
+    expect(postConversationMessage).not.toHaveBeenCalled();
+
+    const evidence = new Database(paths.workbenchDbPath, { readonly: true });
+    try {
+      expect(evidence.prepare("SELECT COUNT(*) AS count FROM conversation_turn_queue_contract_confirmations").get())
+        .toMatchObject({ count: 0 });
+      expect(evidence.prepare("SELECT status FROM conversation_turn_queue_items WHERE queue_item_id = ?").get(item.queueItemId))
+        .toMatchObject({ status: "queued" });
+    } finally {
+      evidence.close();
+    }
+  });
+
   it("reclaims only into an unchanged empty draft and restores the complete queued input", async () => {
     const owner = createOwner();
     const initial = await owner.read(project, "agent", conversationId);
