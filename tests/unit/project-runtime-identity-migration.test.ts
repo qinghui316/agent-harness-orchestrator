@@ -11,7 +11,7 @@ import {
   type ProjectIdentityMigrationStage,
 } from "../../src/project-runtime/identity-migration.js";
 import { WORKBENCH_PROJECT_IDENTITY_COLUMNS } from "../../src/project-runtime/identity-migration-sqlite.js";
-import { migrate as migrateWorkbenchSchema } from "../../src/workbench/persistence/schema.js";
+import { initializeCurrentWorkbenchSchema, prepareStagedWorkbenchSchema } from "../../src/workbench/persistence/schema-migrations.js";
 
 const SOURCE_ID = "aho-self";
 const TARGET_ID = "agent-harness-orchestrator-a6ad344cbe4e";
@@ -25,7 +25,7 @@ describe("staged canonical project identity migration", () => {
   it("keeps the identity allowlist exactly aligned with the current Workbench schema", () => {
     const database = new Database(":memory:");
     try {
-      migrateWorkbenchSchema(database);
+      initializeCurrentWorkbenchSchema(database);
       const tables = database.prepare(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
       ).all() as Array<{ name: string }>;
@@ -276,7 +276,7 @@ async function createFixture(transactionId: string): Promise<{
       sqliteDatabases: [{
         relativePath: "workbench/workbench.sqlite",
         identityColumns: WORKBENCH_PROJECT_IDENTITY_COLUMNS,
-        prepareStagedDatabase: migrateWorkbenchSchema,
+        prepareStagedDatabase: prepareStagedWorkbenchSchema,
       }],
       jsonDocuments: [
         { kind: "runtime-state", scope: "sidecar", path: "runs/run-1.json", allowedIdentityPaths: ["/projectId"] },
@@ -291,7 +291,7 @@ async function createFixture(transactionId: string): Promise<{
 
 async function createDatabase(path: string): Promise<void> {
   const database = new Database(path);
-  migrateWorkbenchSchema(database);
+  initializeCurrentWorkbenchSchema(database);
   database.exec(`
     CREATE TABLE skills (
       project_id TEXT NOT NULL,
@@ -322,7 +322,7 @@ async function createDatabase(path: string): Promise<void> {
     .run("timeline-a", SOURCE_ID, "conversation-a", "", 1, 1, "main-agent", "message", new Date().toISOString(), JSON.stringify({ type: "message", text: "unchanged" }));
   database.prepare("INSERT INTO composer_drafts(project_id, product_mode, agent_turn_mode, text, updated_at) VALUES (?, ?, ?, ?, ?)")
     .run(SOURCE_ID, "agent", "default", "Keep this draft", new Date().toISOString());
-  database.pragma("user_version = 9");
+  database.pragma("user_version = 16");
   database.close();
 }
 

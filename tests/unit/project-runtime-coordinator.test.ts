@@ -15,6 +15,7 @@ import { ProjectRegistryStore } from "../../src/registry/store.js";
 import { git } from "../../src/project/git.js";
 import { getWorktreeStatus } from "../../src/worktree/manager.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../src/provider-runtime/project-harness-discovery.js";
+import { initializeCurrentWorkbenchSchema } from "../../src/workbench/persistence/schema-migrations.js";
 
 const cleanup: string[] = [];
 
@@ -272,9 +273,10 @@ async function createLegacyFixture() {
   const targetSidecar = join(ahoHome, "projects", "canonical-a1");
   await mkdir(join(sourceSidecar, "workbench"), { recursive: true });
   const database = new Database(join(sourceSidecar, "workbench", "workbench.sqlite"));
+  initializeCurrentWorkbenchSchema(database);
   database.exec("CREATE TABLE skills (project_id TEXT NOT NULL, skill_id TEXT NOT NULL, PRIMARY KEY(project_id, skill_id))");
   database.prepare("INSERT INTO skills(project_id, skill_id) VALUES (?, ?)").run("legacy-a1", "skill-1");
-  database.pragma("user_version = 9");
+  database.pragma("user_version = 16");
   database.close();
   await createHarness(projectRoot);
   const store = new ProjectRegistryStore(ahoHome);

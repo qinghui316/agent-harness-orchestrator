@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import Database from "better-sqlite3";
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -2225,6 +2226,99 @@ describe("workbench server", () => {
     });
     expect((await fetch(`${handle.url}/api/projects/${missing.id}/workbench/snapshot?productMode=agent`)).status).toBe(409);
     expect((await fetch(`${handle.url}/api/projects/${project().id}/workbench/topics?productMode=harness`)).status).toBe(200);
+  });
+
+  it("isolates an unsupported Workbench database without changing its schema version", async () => {
+    await handle!.close();
+    handle = null;
+    const isolatedHome = join(registryRoot, "database-compatibility");
+    const healthyRoot = join(tempDir, "healthy-project");
+    const legacyRoot = join(tempDir, "legacy-project");
+    await mkdir(healthyRoot, { recursive: true });
+    await mkdir(legacyRoot, { recursive: true });
+    await createReadyProjectHarnessFixture({
+      projectRoot: healthyRoot,
+      ahoHome: isolatedHome,
+      projectId: "healthy-project",
+      projectName: "Healthy Project",
+    });
+    await createReadyProjectHarnessFixture({
+      projectRoot: legacyRoot,
+      ahoHome: isolatedHome,
+      projectId: "legacy-project",
+      projectName: "Legacy Project",
+    });
+    const store = new ProjectRegistryStore(isolatedHome);
+    await store.registerProject({ path: healthyRoot, name: "Healthy Project", projectId: "healthy-project" });
+    await store.registerProject({ path: legacyRoot, name: "Legacy Project", projectId: "legacy-project" });
+    const legacyPaths = resolveProjectRuntimePaths("legacy-project", isolatedHome);
+    const initialized = await openProjectRuntimeWorkbenchDatabase(legacyPaths);
+    initialized.close();
+    const legacy = new Database(legacyPaths.workbenchDbPath);
+    legacy.pragma("user_version = 7");
+    legacy.close();
+
+    handle = await startWorkbenchServer(null, { port: 0, staticRoot, store });
+    const payload = await getJson<{ projects: Array<{
+      project: ManagedProject;
+      runtimeAvailability?: { state: string; summary: string | null };
+    }> }>(`${handle.url}/api/projects`);
+    expect(payload.projects.find((item) => item.project.id === "legacy-project")).toMatchObject({
+      runtimeAvailability: {
+        state: "unavailable",
+        summary: "这个项目的数据版本过旧，无法自动升级。",
+      },
+    });
+    expect((await fetch(`${handle.url}/api/projects/healthy-project/workbench/topics?productMode=agent`)).status).toBe(200);
+    const preserved = new Database(legacyPaths.workbenchDbPath, { readonly: true });
+    expect(Number(preserved.pragma("user_version", { simple: true }))).toBe(7);
+    preserved.close();
+  });
+
+  it("preflights Schema 16 and upgrades it only when the project is first opened", async () => {
+    await handle!.close();
+    handle = null;
+    const isolatedHome = join(registryRoot, "lazy-database-upgrade");
+    const projectRoot = join(tempDir, "lazy-project");
+    await mkdir(projectRoot, { recursive: true });
+    await createReadyProjectHarnessFixture({
+      projectRoot,
+      ahoHome: isolatedHome,
+      projectId: "lazy-project",
+      projectName: "Lazy Project",
+    });
+    const store = new ProjectRegistryStore(isolatedHome);
+    await store.registerProject({ path: projectRoot, name: "Lazy Project", projectId: "lazy-project" });
+    const paths = resolveProjectRuntimePaths("lazy-project", isolatedHome);
+    const initialized = await openProjectRuntimeWorkbenchDatabase(paths);
+    initialized.close();
+    const legacy = new Database(paths.workbenchDbPath);
+    legacy.pragma("user_version = 16");
+    legacy.close();
+
+    handle = await startWorkbenchServer(null, { port: 0, staticRoot, store });
+    const before = await getJson<{ projects: Array<{
+      project: ManagedProject;
+      runtimeAvailability?: { state: string; summary: string | null };
+    }> }>(`${handle.url}/api/projects`);
+    expect(before.projects.find((item) => item.project.id === "lazy-project")).toMatchObject({
+      runtimeAvailability: { state: "upgrade-required" },
+    });
+    const beforeOpen = new Database(paths.workbenchDbPath, { readonly: true });
+    expect(Number(beforeOpen.pragma("user_version", { simple: true }))).toBe(16);
+    beforeOpen.close();
+
+    expect((await fetch(`${handle.url}/api/projects/lazy-project/workbench/topics?productMode=agent`)).status).toBe(200);
+    const afterOpen = new Database(paths.workbenchDbPath, { readonly: true });
+    expect(Number(afterOpen.pragma("user_version", { simple: true }))).toBe(18);
+    afterOpen.close();
+    const after = await getJson<{ projects: Array<{
+      project: ManagedProject;
+      runtimeAvailability?: { state: string };
+    }> }>(`${handle.url}/api/projects`);
+    expect(after.projects.find((item) => item.project.id === "lazy-project")).toMatchObject({
+      runtimeAvailability: { state: "ready" },
+    });
   });
 
   it("starts when a previously registered project directory no longer exists", async () => {

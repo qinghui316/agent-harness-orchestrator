@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import type { ProviderDescriptor, ProviderTurnResult } from "../../src/provider-runtime/contracts.js";
@@ -17,6 +17,7 @@ import { claimAgentTask, createAgentTask } from "../../src/agent-task/manager.js
 import { acquireWorkbenchRuntimeMutationLock } from "../../src/workbench/schema-rebuild-gate.js";
 import { resolveProjectSkillProvider } from "../../src/server/workbench/api-router.js";
 import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
+import { initializeCurrentWorkbenchSchema } from "../../src/workbench/persistence/schema-migrations.js";
 
 let root: string;
 
@@ -454,7 +455,7 @@ describe("provider-neutral runtime contract", () => {
     expect(alpha.snapshot.recentVisibleConversation).toEqual([]);
   });
 
-  it("refuses a schema rebuild while a model attempt is active", async () => {
+  it("rejects an unsupported legacy schema before consulting runtime activity", async () => {
     const project = managedProject(root);
     const memory = resolveProjectRuntimePaths(project.id, root);
     await mkdir(memory.workbenchRoot, { recursive: true });
@@ -463,10 +464,10 @@ describe("provider-neutral runtime contract", () => {
     db.pragma("user_version = 2");
     db.close();
 
-    await expect(openProjectRuntimeWorkbenchDatabase(memory)).rejects.toThrow("模型执行尚未结束");
+    await expect(openProjectRuntimeWorkbenchDatabase(memory)).rejects.toMatchObject({ code: "unsupported-legacy" });
   });
 
-  it("refuses a schema rebuild while any registered provider turn is active", async () => {
+  it("refuses a schema migration while any registered provider turn is active", async () => {
     const project = managedProject(root);
     const memory = resolveProjectRuntimePaths(project.id, root);
     const registry = new ProviderRegistry();
@@ -485,16 +486,13 @@ describe("provider-neutral runtime contract", () => {
       respondToUserInput: async () => undefined,
     }];
     registry.register(provider);
-    await mkdir(memory.workbenchRoot, { recursive: true });
-    const db = new Database(memory.workbenchDbPath);
-    db.exec("CREATE TABLE conversations (conversation_id TEXT, bound_change_id TEXT);");
-    db.pragma("user_version = 2");
+    const db = await createSchema16Database(memory.workbenchDbPath);
     db.close();
 
-    await expect(openProjectRuntimeWorkbenchDatabase(memory, { providerRegistry: registry })).rejects.toThrow("provider turn 正在运行");
+    await expect(openProjectRuntimeWorkbenchDatabase(memory, { providerRegistry: registry })).rejects.toThrow("Agent 任务正在运行");
   });
 
-  it("refuses a schema rebuild while a background AgentTask is running", async () => {
+  it("refuses a schema migration while a background AgentTask is running", async () => {
     const project = managedProject(root);
     const memory = resolveProjectRuntimePaths(project.id, root);
     await createAgentTask(memory, {
@@ -505,33 +503,27 @@ describe("provider-neutral runtime contract", () => {
       summary: "维护项目记忆",
       initialStatus: "running",
     });
-    await mkdir(memory.workbenchRoot, { recursive: true });
-    const db = new Database(memory.workbenchDbPath);
-    db.exec("CREATE TABLE conversations (conversation_id TEXT, bound_change_id TEXT);");
-    db.pragma("user_version = 2");
+    const db = await createSchema16Database(memory.workbenchDbPath);
     db.close();
 
     await expect(openProjectRuntimeWorkbenchDatabase(memory)).rejects.toThrow("后台 Agent 任务正在运行");
   });
 
-  it("refuses a schema rebuild while another Workbench writer owns the database", async () => {
+  it("refuses a schema migration while another Workbench writer owns the database", async () => {
     const project = managedProject(root);
     const memory = resolveProjectRuntimePaths(project.id, root);
-    await mkdir(memory.workbenchRoot, { recursive: true });
-    const db = new Database(memory.workbenchDbPath);
+    const db = await createSchema16Database(memory.workbenchDbPath);
     db.pragma("journal_mode = WAL");
-    db.exec("CREATE TABLE conversations (conversation_id TEXT, bound_change_id TEXT);");
-    db.pragma("user_version = 2");
     db.exec("BEGIN IMMEDIATE");
     try {
-      await expect(openProjectRuntimeWorkbenchDatabase(memory)).rejects.toThrow("另一个 Workbench 实例正在使用");
+      await expect(openProjectRuntimeWorkbenchDatabase(memory)).rejects.toThrow("另一个 Beaver Code 实例正在使用");
     } finally {
       db.exec("ROLLBACK");
       db.close();
     }
   });
 
-  it("rebuilds conversation state without deleting Skill settings", async () => {
+  it("preserves Conversation and Skill settings when an unsupported schema is rejected", async () => {
     const project = managedProject(root);
     const memory = resolveProjectRuntimePaths(project.id, root);
     const now = new Date().toISOString();
@@ -560,17 +552,21 @@ describe("provider-neutral runtime contract", () => {
     old.pragma("user_version = 2");
     old.close();
 
-    const rebuilt = await openProjectRuntimeWorkbenchDatabase(memory);
+    await expect(openProjectRuntimeWorkbenchDatabase(memory)).rejects.toMatchObject({ code: "unsupported-legacy" });
+    const preserved = new Database(memory.workbenchDbPath, { readonly: true });
     try {
-      expect(rebuilt.conversations.readConversation(project.id, "old-conversation")).toBeNull();
-      expect(rebuilt.skills.listSkillRoots(project.id)).toEqual([expect.objectContaining({ rootPath: join(root, "skills") })]);
-      expect(rebuilt.skills.listSkillEnablement(project.id)).toEqual([expect.objectContaining({ skillId: "project-skill", enabled: true })]);
+      expect(preserved.prepare("SELECT title FROM conversations WHERE project_id = ? AND conversation_id = ?").get(project.id, "old-conversation"))
+        .toEqual({ title: "Old history" });
+      expect(preserved.prepare("SELECT root_path FROM skill_roots WHERE project_id = ?").get(project.id))
+        .toEqual({ root_path: join(root, "skills") });
+      expect(preserved.prepare("SELECT enabled FROM skill_enablement WHERE project_id = ? AND skill_id = ?").get(project.id, "project-skill"))
+        .toEqual({ enabled: 1 });
     } finally {
-      rebuilt.close();
+      preserved.close();
     }
   });
 
-  it("retires schema-9 bridge state without rebuilding Conversation data", async () => {
+  it("preserves schema-9 bridge and Conversation data when automatic migration is unsupported", async () => {
     const project = managedProject(root);
     const memory = resolveProjectRuntimePaths(project.id, root);
     const now = new Date().toISOString();
@@ -607,18 +603,16 @@ describe("provider-neutral runtime contract", () => {
     schema9.pragma("user_version = 9");
     schema9.close();
 
-    const migrated = await openProjectRuntimeWorkbenchDatabase(memory);
-    expect(migrated.conversations.readConversation(project.id, "preserved-conversation")).toMatchObject({
-      title: "Preserved history",
-    });
-    migrated.close();
+    await expect(openProjectRuntimeWorkbenchDatabase(memory)).rejects.toMatchObject({ code: "unsupported-legacy" });
     const inspected = new Database(memory.workbenchDbPath, { readonly: true });
-    expect(inspected.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'bridge_sync'").get()).toBeUndefined();
-    expect(Number(inspected.pragma("user_version", { simple: true }))).toBe(18);
+    expect(inspected.prepare("SELECT title FROM conversations WHERE project_id = ? AND conversation_id = ?").get(project.id, "preserved-conversation"))
+      .toEqual({ title: "Preserved history" });
+    expect(inspected.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'bridge_sync'").get()).toBeTruthy();
+    expect(Number(inspected.pragma("user_version", { simple: true }))).toBe(9);
     inspected.close();
   });
 
-  it("prevents a file-backed AgentTask claim from racing a schema rebuild", async () => {
+  it("prevents a file-backed AgentTask claim from racing a schema migration", async () => {
     const project = managedProject(root);
     const memory = resolveProjectRuntimePaths(project.id, root);
     const task = await createAgentTask(memory, {
@@ -628,11 +622,11 @@ describe("provider-neutral runtime contract", () => {
       kind: "background",
       summary: "等待领取",
     });
-    const rebuild = await acquireWorkbenchRuntimeMutationLock(memory, "重建 Workbench 会话数据库");
+    const migration = await acquireWorkbenchRuntimeMutationLock(memory, "升级 Workbench 数据");
     try {
       await expect(claimAgentTask(memory, task)).rejects.toThrow("暂时不能领取 Agent 任务");
     } finally {
-      await rebuild.release();
+      await migration.release();
     }
     await expect(claimAgentTask(memory, task)).resolves.toMatchObject({ status: "claimed" });
   });
@@ -737,4 +731,12 @@ function capabilitySnapshot(providerId: string, productMode: "agent" | "harness"
     degradedReasons: [],
     capabilities: [...keys].map((key) => ({ key, label: key, spec: "supported", runtime: "ready", summary: "ready" })),
   };
+}
+
+async function createSchema16Database(path: string): Promise<Database.Database> {
+  await mkdir(dirname(path), { recursive: true });
+  const database = new Database(path);
+  initializeCurrentWorkbenchSchema(database);
+  database.pragma("user_version = 16");
+  return database;
 }

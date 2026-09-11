@@ -126,7 +126,7 @@ export type ProjectStatus = {
     }>;
   };
   runtimeAvailability?: {
-    state: "ready" | "onboarding" | "repair-required" | "unavailable";
+    state: "ready" | "upgrade-required" | "upgrading" | "onboarding" | "repair-required" | "unavailable";
     summary: string | null;
     recovery: string | null;
   };

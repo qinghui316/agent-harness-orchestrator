@@ -85,11 +85,39 @@ async function registeredHarnessStatus(
         required: binding.required,
       })),
     },
-    availability: {
-      state: state.state,
-      summary: state.state === "repair-required" ? "这个项目的协作配置需要处理。" : null,
-      recovery: state.state === "repair-required" ? "请检查项目协作配置，然后重新启动 Beaver Code。" : null,
-    },
+    availability: projectRuntimeAvailability(state),
+  };
+}
+
+function projectRuntimeAvailability(state: Exclude<ProjectRuntimeStartupState, { state: "unavailable" }>): NonNullable<ProjectStatus["runtimeAvailability"]> {
+  if (state.state === "repair-required") {
+    return {
+      state: "repair-required",
+      summary: "这个项目的协作配置需要处理。",
+      recovery: "请检查项目协作配置，然后重新启动 Beaver Code。",
+    };
+  }
+  if (state.state !== "ready" || !state.workbenchData || state.workbenchData.state === "ready") {
+    return { state: state.state, summary: null, recovery: null };
+  }
+  if (state.workbenchData.state === "upgrade-required") {
+    return {
+      state: "upgrade-required",
+      summary: "这个项目的数据将在首次打开时升级。",
+      recovery: null,
+    };
+  }
+  if (state.workbenchData.state === "upgrading") {
+    return {
+      state: "upgrading",
+      summary: "正在安全升级这个项目的数据。",
+      recovery: null,
+    };
+  }
+  return {
+    state: "unavailable",
+    summary: "这个项目的数据需要处理。",
+    recovery: "原有数据已保留，请查看诊断信息后重试。",
   };
 }
 

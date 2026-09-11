@@ -78,6 +78,7 @@ export interface WorkbenchServerContext {
   conversationTurnQueue: ConversationTurnQueueOwner;
   conversationLifecycle: ConversationLifecycleOwner;
   conversationReview: ConversationReviewLifecycleOwner;
+  ensureProjectRecovered: (projectId: string) => Promise<void>;
   desktopHost?: WorkbenchDesktopHostPort;
 }
 

@@ -8,7 +8,8 @@ import { resolveProjectRuntimePaths, type ProjectRuntimePaths } from "../../src/
 import type { ManagedProject } from "../../src/types/index.js";
 import { ConversationLifecycleOwner } from "../../src/workbench/conversation-lifecycle.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
-import { migrate } from "../../src/workbench/persistence/schema.js";
+import { applyCurrentWorkbenchSchema } from "../../src/workbench/persistence/schema.js";
+import { migrateWorkbenchSchema } from "../../src/workbench/persistence/schema-migrations.js";
 
 const projectId = "conversation-lifecycle-project";
 let root: string;
@@ -303,24 +304,27 @@ describe("ConversationLifecycleOwner", () => {
 describe("Schema 17 lifecycle migration", () => {
   it("backfills archive origin without reviving deleted Conversations", () => {
     const db = new Database(":memory:");
+    applyCurrentWorkbenchSchema(db);
+    for (const row of db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger'").all() as Array<{ name: string }>) {
+      db.exec(`DROP TRIGGER IF EXISTS ${row.name}`);
+    }
     db.exec(`
-      CREATE TABLE conversations (
-        project_id TEXT NOT NULL, conversation_id TEXT NOT NULL, product_mode TEXT NOT NULL,
-        agent_turn_mode TEXT, agent_model_id TEXT, agent_reasoning_effort TEXT,
-        client_create_request_id TEXT, client_create_request_hash TEXT, title TEXT NOT NULL,
-        state TEXT NOT NULL, surface_kind TEXT NOT NULL, bound_change_id TEXT,
-        current_graph_scope_id TEXT, selected_provider_id TEXT NOT NULL,
-        completed_turn_sequence INTEGER NOT NULL, timeline_position INTEGER NOT NULL,
-        timeline_revision INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-        deleted_at TEXT, PRIMARY KEY(project_id, conversation_id)
-      );
+      DELETE FROM conversations;
+      DROP TABLE conversation_review_operations;
+      ALTER TABLE provider_attempts DROP COLUMN operation_kind;
+      ALTER TABLE conversation_turn_queue_items DROP COLUMN review_target_json;
+      ALTER TABLE conversation_turn_queue_items DROP COLUMN item_kind;
+      DROP TABLE conversation_lifecycle_operations;
+      ALTER TABLE conversations DROP COLUMN lifecycle_revision;
+      ALTER TABLE conversations DROP COLUMN archived_at;
+      ALTER TABLE conversations DROP COLUMN archive_origin;
       INSERT INTO conversations VALUES
         ('p', 'agent-archive', 'agent', 'default', NULL, NULL, NULL, NULL, 'Agent', 'archive', 'user', NULL, NULL, 'codex', 0, 0, 0, '2026-08-01', '2026-08-02', NULL),
         ('p', 'harness-archive', 'harness', NULL, NULL, NULL, NULL, NULL, 'Harness', 'archive', 'user', 'change-1', NULL, 'codex', 0, 0, 0, '2026-08-01', '2026-08-03', NULL),
         ('p', 'deleted', 'agent', 'default', NULL, NULL, NULL, NULL, 'Deleted', 'active', 'user', NULL, NULL, 'codex', 0, 0, 0, '2026-08-01', '2026-08-04', '2026-08-05');
       PRAGMA user_version = 16;
     `);
-    migrate(db);
+    migrateWorkbenchSchema(db, 16);
     expect(db.pragma("user_version", { simple: true })).toBe(18);
     expect(db.prepare("SELECT conversation_id, archive_origin, archived_at, lifecycle_revision, deleted_at FROM conversations ORDER BY conversation_id").all())
       .toEqual([

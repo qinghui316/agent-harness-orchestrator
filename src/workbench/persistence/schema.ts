@@ -3,15 +3,7 @@ import type { SqliteRow } from "./sql-mappers.js";
 
 export const WORKBENCH_SCHEMA_VERSION = 18;
 
-export function requiresRuntimeSchemaRebuild(currentVersion: number): boolean {
-  return ![9, 10, 11, 12, 13, 14, 15, 16, 17, WORKBENCH_SCHEMA_VERSION].includes(currentVersion);
-}
-
-export function migrate(db: Database.Database): void {
-  const currentVersion = Number(db.pragma("user_version", { simple: true }));
-  if (requiresRuntimeSchemaRebuild(currentVersion)) {
-    resetWorkbenchConversationRunSchema(db);
-  }
+export function applyCurrentWorkbenchSchema(db: Database.Database): void {
   db.exec("DROP TABLE IF EXISTS bridge_sync; DROP TABLE IF EXISTS skills;");
   db.exec(`
     CREATE TABLE IF NOT EXISTS canonical_timeline_items (
@@ -670,10 +662,9 @@ export function migrate(db: Database.Database): void {
       SELECT RAISE(ABORT, 'Conversation with pending Turn queue items cannot be archived or deleted');
     END;
   `);
-  db.pragma(`user_version = ${WORKBENCH_SCHEMA_VERSION}`);
 }
 
-function ensureColumn(db: Database.Database, table: string, column: string, declaration: string): void {
+export function ensureColumn(db: Database.Database, table: string, column: string, declaration: string): void {
   const columns = db.prepare(`PRAGMA table_info(${table})`).all() as SqliteRow[];
   if (!columns.some((item) => String(item.name) === column)) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${declaration}`);
@@ -685,51 +676,7 @@ export function hasWorkbenchRuntimeTables(db: Database.Database): boolean {
   return Boolean(row?.present);
 }
 
-export function beginExclusiveSchemaRebuild(db: Database.Database): void {
-  try {
-    db.pragma("busy_timeout = 250");
-    db.exec("BEGIN EXCLUSIVE");
-    db.pragma("busy_timeout = 5000");
-  } catch (error) {
-    if (error instanceof Error && /busy|locked/i.test(error.message)) {
-      throw new Error("Workbench 会话数据库需要重建，但另一个 Workbench 实例正在使用该数据库。请先停止其他实例后重试。", { cause: error });
-    }
-    throw error;
-  }
-}
-
-export function assertRuntimeDatabaseResetSafe(db: Database.Database): void {
-  const tables = new Set((db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as SqliteRow[]).map((row) => String(row.name)));
-  if (tables.has("provider_attempts")) {
-    const active = db.prepare("SELECT COUNT(*) AS count FROM provider_attempts WHERE status IN ('queued', 'running')").get() as SqliteRow;
-    if (Number(active.count ?? 0) > 0) throw new Error("Workbench 会话数据库需要重建，但仍有模型执行尚未结束或完成对账。");
-  }
-  if (tables.has("action_runs")) {
-    const columns = db.prepare("PRAGMA table_info(action_runs)").all() as SqliteRow[];
-    if (columns.some((column) => String(column.name) === "status")) {
-      const active = db.prepare("SELECT COUNT(*) AS count FROM action_runs WHERE status IN ('queued', 'running')").get() as SqliteRow;
-      if (Number(active.count ?? 0) > 0) throw new Error("Workbench 会话数据库需要重建，但仍有 Workbench action 正在运行。");
-    }
-  }
-}
-
-export function resetWorkbenchConversationRunSchema(db: Database.Database): void {
-  db.exec(`
-    DROP TABLE IF EXISTS messages;
-    DROP TABLE IF EXISTS canonical_timeline_items;
-    DROP TABLE IF EXISTS conversations;
-    DROP TABLE IF EXISTS action_runs;
-    DROP TABLE IF EXISTS provider_thread_links;
-    DROP TABLE IF EXISTS conversation_provider_bindings;
-    DROP TABLE IF EXISTS provider_attempts;
-    DROP TABLE IF EXISTS provider_resume_points;
-    DROP TABLE IF EXISTS conversation_change_links;
-    DROP TABLE IF EXISTS conversation_graph_scopes;
-    DROP TABLE IF EXISTS planning_acceptance_commits;
-    DROP TABLE IF EXISTS composer_drafts;
-    DROP TABLE IF EXISTS conversation_turn_queue_items;
-    DROP TABLE IF EXISTS conversation_turn_queues;
-    DROP TABLE IF EXISTS approval_cache;
-    DROP TABLE IF EXISTS decision_records;
-  `);
+export function hasAnyWorkbenchUserTables(db: Database.Database): boolean {
+  const row = db.prepare("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1").get() as SqliteRow | undefined;
+  return Boolean(row?.present);
 }

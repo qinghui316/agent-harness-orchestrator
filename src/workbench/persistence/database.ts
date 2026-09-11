@@ -1,7 +1,4 @@
 import Database from "better-sqlite3";
-import { mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
-import { acquireWorkbenchRuntimeMutationLock, type WorkbenchRuntimeMutationLock } from "../schema-rebuild-gate.js";
 import { ConversationRepository } from "./repositories/conversation-repository.js";
 import { DecisionRepository } from "./repositories/decision-repository.js";
 import { InteractionRepository } from "./repositories/interaction-repository.js";
@@ -14,15 +11,8 @@ import { ConversationForkRepository } from "./repositories/conversation-fork-rep
 import { ConversationTurnQueueRepository } from "./repositories/conversation-turn-queue-repository.js";
 import { ConversationLifecycleRepository } from "./repositories/conversation-lifecycle-repository.js";
 import { ConversationReviewRepository } from "./repositories/conversation-review-repository.js";
-import type { WorkbenchResetGuard } from "./reset-guard.js";
-import {
-  assertRuntimeDatabaseResetSafe,
-  beginExclusiveSchemaRebuild,
-  hasWorkbenchRuntimeTables,
-  migrate,
-  requiresRuntimeSchemaRebuild,
-  WORKBENCH_SCHEMA_VERSION,
-} from "./schema.js";
+import type { WorkbenchMigrationGuard } from "./reset-guard.js";
+import { openSafeWorkbenchConnection, type WorkbenchDatabaseUpgradeOptions } from "./database-upgrade.js";
 import { WorkbenchUnitOfWork } from "./unit-of-work.js";
 
 export class WorkbenchDatabase {
@@ -73,44 +63,11 @@ export class WorkbenchDatabase {
 
   static async open(
     paths: { workbenchDbPath: string },
-    resetGuard: WorkbenchResetGuard,
+    migrationGuard: WorkbenchMigrationGuard,
     onClose?: () => void,
+    upgradeOptions?: WorkbenchDatabaseUpgradeOptions,
   ): Promise<WorkbenchDatabase> {
-    await mkdir(dirname(paths.workbenchDbPath), { recursive: true });
-    const connection = new Database(paths.workbenchDbPath);
-    connection.pragma("journal_mode = WAL");
-    connection.pragma("foreign_keys = ON");
-    const currentVersion = Number(connection.pragma("user_version", { simple: true }) ?? 0);
-    const needsRebuild = currentVersion !== WORKBENCH_SCHEMA_VERSION;
-    const rebuildingExistingRuntime = needsRebuild
-      && requiresRuntimeSchemaRebuild(currentVersion)
-      && hasWorkbenchRuntimeTables(connection);
-    let rebuildTransaction = false;
-    let rebuildLock: WorkbenchRuntimeMutationLock | null = null;
-    if (rebuildingExistingRuntime) {
-      try {
-        rebuildLock = await acquireWorkbenchRuntimeMutationLock(paths, "重建 Workbench 会话数据库");
-        await resetGuard.assertSafe(connection);
-        beginExclusiveSchemaRebuild(connection);
-        rebuildTransaction = true;
-        assertRuntimeDatabaseResetSafe(connection);
-      } catch (error) {
-        if (rebuildTransaction) connection.exec("ROLLBACK");
-        connection.close();
-        await rebuildLock?.release();
-        throw error;
-      }
-    }
-    try {
-      migrate(connection);
-      if (rebuildTransaction) connection.exec("COMMIT");
-      await rebuildLock?.release();
-    } catch (error) {
-      if (rebuildTransaction) connection.exec("ROLLBACK");
-      connection.close();
-      await rebuildLock?.release();
-      throw error;
-    }
+    const connection = await openSafeWorkbenchConnection(paths, migrationGuard, upgradeOptions);
     return new WorkbenchDatabase(connection, onClose);
   }
 

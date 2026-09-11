@@ -226,7 +226,26 @@ GET  /api/projects/:projectId/workbench/actions/:actionRunId
 GET  /api/projects/:projectId/workbench/actions/:actionRunId/events
 ```
 
-Ordinary chat messages use the Workbench canonical timeline in the resolved SQLite store. Old conversation/run schemas and `thread.jsonl` compatibility readers are not production inputs; incompatible runtime data is rebuilt only after the quiescence gate passes. Provider session ids are continuity metadata and do not override Shared Conversation context or Harness facts. Accepted `spec.md`, `plan.md`, `tasks.md`, review, run, validation, audit, apply, and close artifacts remain the workflow sources of truth.
+Ordinary chat messages use the Workbench canonical timeline in the resolved SQLite store. Schema
+16 and 17 databases upgrade to Schema 18 through explicit forward migrations after a quiescence
+check and verified sidecar backup. Populated older schemas, future schemas, damaged databases, and
+failed recovery markers are preserved and isolated instead of being rebuilt or cleared. Never
+delete a project's Workbench database, WAL, migration snapshot, or recovery marker to make startup
+pass. Diagnose against a copy and preserve the original evidence. Provider session ids are
+continuity metadata and do not override Shared Conversation context or Harness facts. Accepted
+`spec.md`, `plan.md`, `tasks.md`, review, run, validation, audit, apply, and close artifacts remain
+the workflow sources of truth.
+
+Focused migration verification:
+
+```powershell
+npx vitest run tests/unit/workbench-database-upgrade.test.ts tests/unit/workbench-persistence-repositories.test.ts --pool=forks --poolOptions.forks.singleFork
+npx vitest run tests/unit/workbench-server.test.ts --pool=forks --poolOptions.forks.singleFork
+```
+
+Historical-data acceptance must use copied databases under a temporary `AHO_HOME`. A test may
+inspect the live Registry to locate candidates, but it must not open a live user database in
+read-write mode or place migration artifacts beside it.
 
 Current Plan, clarification, and provider questions are exposed through
 `GET` snapshot interaction projection and settled through the single opaque

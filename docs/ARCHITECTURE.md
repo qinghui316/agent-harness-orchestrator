@@ -749,3 +749,28 @@ Project Harness Provider identity is computed by one owner over stable Skill con
 `SKILL.md`, `references/`, `scripts/`, `assets/`, and `agents/`. Dynamic `state/` remains governed by
 Harness evidence and is not a Provider Skill input. Ordinary Skills continue to use the bounded
 native package hasher.
+
+## 15. Workbench Data Evolution
+
+Workbench persistence separates connection lifetime, schema evolution, and table repositories:
+
+```text
+Workbench composition
+-> WorkbenchDatabase
+-> database-upgrade owner
+-> explicit 16 -> 17 -> 18 migration chain
+-> bounded repositories
+```
+
+The migration chain is forward-only. Schema 18 opens without a snapshot. A populated Schema 16 or
+17 database is checkpointed and backed up before one exclusive migration transaction runs. The
+snapshot, digest, applied versions, and bounded receipt live beside the Workbench database under
+`schema-upgrades/`; they never enter the user's Git repository. A failed or interrupted migration
+restores the verified snapshot and records a recovery marker so startup cannot repeat the same
+failed transition indefinitely.
+
+Populated databases older than Schema 16, databases created by a newer Beaver Code version, and
+databases that fail structural or SQLite integrity validation remain unchanged and fail closed.
+One project's compatibility failure becomes a project-local unavailable state; it does not make
+the Registry, Electron host, or other projects unavailable. Electron Main coordinates process
+lifecycle only and never opens, backs up, or migrates Workbench SQLite.

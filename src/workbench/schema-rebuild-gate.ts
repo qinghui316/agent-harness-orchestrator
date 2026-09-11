@@ -26,7 +26,7 @@ export async function acquireWorkbenchRuntimeMutationLock(
       handle = undefined;
       if (!isAlreadyLocked(error)) throw error;
       if (attempt === 0 && await removeDeadOwnerLock(path)) continue;
-      throw new Error(`Workbench 正在执行数据库重建或运行状态变更，暂时不能${action}。请稍后重试。`, { cause: error });
+      throw new Error(`Workbench 正在执行数据升级或运行状态变更，暂时不能${action}。请稍后重试。`, { cause: error });
     }
   }
   if (!handle) throw new Error(`Workbench 无法取得运行状态变更锁，不能${action}。`);

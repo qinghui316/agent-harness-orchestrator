@@ -40,6 +40,7 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
     })
     : null;
   try {
+    if (trackedProjectId) await context.ensureProjectRecovered(trackedProjectId);
     await handleApiRequest(context, request, response, url);
   } finally {
     lease?.complete();

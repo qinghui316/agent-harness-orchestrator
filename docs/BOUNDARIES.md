@@ -1246,12 +1246,15 @@ Workbench SQLite persistence has one dependency direction:
 ```text
 composition owner
 -> WorkbenchDatabase
+-> database-upgrade owner
 -> bounded repositories
--> schema v8 tables
+-> schema v18 tables
 ```
 
-- `src/workbench/persistence/database.ts` is the only Workbench SQLite
-  connection, WAL, schema-lifecycle, transaction, and close owner.
+- `src/workbench/persistence/database.ts` owns the shared repository connection lifetime and
+  transactions. `database-upgrade.ts` is the only owner allowed to create that connection,
+  inspect compatibility, configure WAL, create upgrade snapshots, restore them, or invoke the
+  explicit migration chain.
 - Timeline, Conversation, ProviderAttempt, Interaction, Skill, and Decision
   repositories share that connection. They must not open or close SQLite or
   import coordinators, SSE delivery, read models, provider adapters, or
@@ -1259,9 +1262,19 @@ composition owner
 - Cross-table state transitions use named `WorkbenchUnitOfWork` commands.
   Provider, filesystem, Git, Harness, and Workflow calls stay outside the
   synchronous SQLite transaction.
-- Reset quiescence belongs to the composition-owned `WorkbenchResetGuard`.
-  The Database consumes its port and must not import higher-level runtime
-  owners to decide whether reset is legal.
+- Upgrade quiescence is supplied through the existing composition-owned guard port. Persistence
+  consumes that narrow port and must not import Provider, Workflow, or Agent Task owners to decide
+  whether a migration may start.
+- Schema 16, 17, and 18 are the only automatic compatibility window. Each transition is explicit,
+  validated, and forward-only. Populated older or future schemas are preserved byte-for-byte and
+  rejected; no unsupported version may fall back to table deletion or cumulative current-DDL
+  mutation.
+- A schema-changing open checkpoints SQLite, writes a verified sidecar snapshot and receipt, and
+  then migrates in one exclusive transaction. Failure restores the snapshot and leaves a retry
+  suppression marker. Schema 18 opens do not create routine backups.
+- Migration snapshots cover Workbench SQLite only. Registry, Harness evidence, user Git projects,
+  and Electron Chromium caches remain with their existing owners. Electron Main cannot read or
+  migrate business data.
 - `src/workbench/store.ts`, `WorkbenchStore`, compatibility exports, and
   repository-local connections are retired and must not be restored.
 

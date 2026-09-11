@@ -40,6 +40,7 @@ export type ProjectRuntimeState =
     state: "ready";
     project: ManagedProject;
     resolution: ProjectRuntimeResolution;
+    workbenchData?: ProjectWorkbenchDataState;
   }
   | {
     state: "repair-required";
@@ -50,10 +51,26 @@ export type ProjectRuntimeState =
   };
 
 export interface ProjectRuntimeStartupIssue {
-  code: "harness-missing" | "harness-unreadable" | "harness-invalid" | "project-recovery-failed";
+  code:
+    | "harness-missing"
+    | "harness-unreadable"
+    | "harness-invalid"
+    | "project-recovery-failed"
+    | "workbench-data-unsupported"
+    | "workbench-data-newer"
+    | "workbench-data-corrupt"
+    | "workbench-data-recovery-required";
   summary: string;
   recovery: string;
 }
+
+export type ProjectWorkbenchDataState =
+  | { state: "ready"; schemaVersion: number }
+  | { state: "upgrade-required"; schemaVersion: number | null }
+  | { state: "upgrading"; schemaVersion: number | null }
+  | { state: "recovery-required"; schemaVersion: number | null }
+  | { state: "newer-version"; schemaVersion: number | null }
+  | { state: "unsupported-legacy"; schemaVersion: number | null };
 
 export interface ProjectRuntimeUnavailable {
   state: "unavailable";
@@ -84,6 +101,7 @@ export interface ProjectRuntimeCoordinatorOptions {
   ahoHome?: string;
   createTransactionId?: () => string;
   initializeSidecar?: typeof initializeProjectRuntimeSidecar;
+  inspectWorkbenchData?: (paths: ProjectRuntimePaths) => Promise<Exclude<ProjectWorkbenchDataState, { state: "upgrading" }>>;
 }
 
 export interface ProjectRuntimeCoordinatorPort {
@@ -92,6 +110,7 @@ export interface ProjectRuntimeCoordinatorPort {
   resolve(project: ManagedProject): Promise<ProjectRuntimeState>;
   startupState(project: ManagedProject): Promise<ProjectRuntimeStartupState>;
   markUnavailable(project: ManagedProject, issue: ProjectRuntimeStartupIssue): ProjectRuntimeUnavailable;
+  markWorkbenchDataState?(project: ManagedProject, state: ProjectWorkbenchDataState): void;
   requireReady(project: ManagedProject): Promise<ProjectRuntimeResolution>;
   runtimePaths(projectId: string): ProjectRuntimePaths;
 }
@@ -158,7 +177,7 @@ export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort 
         try {
           const reconciled = await this.reconcileRegisteredProject(initial, lock);
           if (reconciled.migration) migrations.push(reconciled.migration);
-          states.push(reconciled.state);
+          states.push(await this.attachWorkbenchDataState(reconciled.state));
         } catch (cause) {
           states.push(this.createUnavailable(initial, projectRuntimeStartupIssue(cause)));
         }
@@ -193,6 +212,7 @@ export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort 
   async resolve(project: ManagedProject): Promise<ProjectRuntimeState> {
     const startupState = this.startupStates.get(project.id);
     if (startupState?.state === "unavailable") throw new ProjectRuntimeUnavailableError(startupState);
+    if (startupState) return startupState;
     return resolveProjectRuntimeState(project, {
       ahoHome: this.ahoHome,
       discoveryPolicy: this.discoveryPolicy,
@@ -208,6 +228,11 @@ export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort 
     const state = this.createUnavailable(project, issue);
     this.startupStates.set(project.id, state);
     return state;
+  }
+
+  markWorkbenchDataState(project: ManagedProject, state: ProjectWorkbenchDataState): void {
+    const current = this.startupStates.get(project.id);
+    if (current?.state === "ready") this.startupStates.set(project.id, { ...current, workbenchData: state });
   }
 
   runtimePaths(projectId: string): ProjectRuntimePaths {
@@ -253,6 +278,33 @@ export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort 
     }
     await this.recoverChangeAbandonments(migratedProject, lock);
     return { state: await this.resolve(migratedProject), migration };
+  }
+
+  private async attachWorkbenchDataState(state: ProjectRuntimeState): Promise<ProjectRuntimeStartupState> {
+    if (state.state !== "ready" || !this.options.inspectWorkbenchData) return state;
+    const workbenchData = await this.options.inspectWorkbenchData(state.resolution.paths);
+    if (workbenchData.state === "newer-version") {
+      return this.createUnavailable(state.project, {
+        code: "workbench-data-newer",
+        summary: "这个项目的数据由更新版本的 Beaver Code 创建。",
+        recovery: "请使用创建这些数据的版本打开项目。",
+      });
+    }
+    if (workbenchData.state === "unsupported-legacy") {
+      return this.createUnavailable(state.project, {
+        code: "workbench-data-unsupported",
+        summary: "这个项目的数据版本过旧，无法自动升级。",
+        recovery: "原有数据保持不变，请使用兼容版本进行恢复。",
+      });
+    }
+    if (workbenchData.state === "recovery-required") {
+      return this.createUnavailable(state.project, {
+        code: "workbench-data-recovery-required",
+        summary: "这个项目的数据需要恢复。",
+        recovery: "原有数据已保留，请查看诊断信息后重试。",
+      });
+    }
+    return { ...state, workbenchData };
   }
 
   private async recoverChangeAbandonments(project: ManagedProject, lock: WriterLockScope): Promise<void> {

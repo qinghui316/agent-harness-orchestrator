@@ -8,7 +8,7 @@ import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { WorkbenchDatabase } from "../../src/workbench/persistence/database.js";
 import type { StoredTopicMessageWrite } from "../../src/workbench/persistence/contracts.js";
-import { WORKBENCH_SCHEMA_VERSION } from "../../src/workbench/persistence/schema.js";
+import { applyCurrentWorkbenchSchema, WORKBENCH_SCHEMA_VERSION } from "../../src/workbench/persistence/schema.js";
 
 let root: string;
 const projectId = "persistence-owner";
@@ -110,7 +110,7 @@ describe("Workbench persistence owners", () => {
     }
   });
 
-  it.each([9, 10, 11, 12, 13, 14, 15])("migrates revision %i to the current schema without losing Conversation continuity", async (revision) => {
+  it.each([16, 17] as const)("migrates revision %i to the current schema without losing Conversation continuity", async (revision) => {
     await createLegacyWorkbenchDatabase(revision);
 
     const database = await openProjectRuntimeWorkbenchDatabase(runtimePaths());
@@ -598,7 +598,7 @@ describe("Workbench persistence owners", () => {
     }
   });
 
-  it("runs external reset guards outside the exclusive SQLite transaction", async () => {
+  it("rejects unsupported populated schemas without invoking destructive reset guards", async () => {
     const paths = runtimePaths();
     const initial = await openProjectRuntimeWorkbenchDatabase(paths);
     initial.close();
@@ -606,14 +606,17 @@ describe("Workbench persistence owners", () => {
     old.pragma("user_version = 2");
     old.close();
 
-    let guardObservedTransaction: boolean | null = null;
-    const rebuilt = await WorkbenchDatabase.open(paths, {
+    let guardCalled = false;
+    await expect(WorkbenchDatabase.open(paths, {
       assertSafe: async (connection) => {
-        guardObservedTransaction = connection.inTransaction;
+        guardCalled = true;
+        expect(connection.inTransaction).toBe(false);
       },
-    });
-    rebuilt.close();
-    expect(guardObservedTransaction).toBe(false);
+    })).rejects.toMatchObject({ code: "unsupported-legacy" });
+    expect(guardCalled).toBe(false);
+    const preserved = new Database(paths.workbenchDbPath, { readonly: true });
+    expect(Number(preserved.pragma("user_version", { simple: true }))).toBe(2);
+    preserved.close();
   });
 
   it("keeps connection creation and high-level dependencies out of repositories", async () => {
@@ -634,7 +637,7 @@ describe("Workbench persistence owners", () => {
       if ((await readFile(file, "utf8")).includes("new Database(")) creators.push(file);
     }
     expect(creators.map((file) => file.replaceAll("\\", "/"))).toEqual([
-      expect.stringMatching(/src\/workbench\/persistence\/database\.ts$/),
+      expect.stringMatching(/src\/workbench\/persistence\/database-upgrade\.ts$/),
     ]);
   });
 });
@@ -721,106 +724,52 @@ async function collectTypeScriptFiles(directory: string): Promise<string[]> {
   return files.sort();
 }
 
-async function createLegacyWorkbenchDatabase(revision: 9 | 10 | 11): Promise<void> {
+async function createLegacyWorkbenchDatabase(revision: 16 | 17): Promise<void> {
   const paths = runtimePaths();
   await mkdir(paths.workbenchRoot, { recursive: true });
   const database = new Database(paths.workbenchDbPath);
   try {
+    applyCurrentWorkbenchSchema(database);
+    for (const row of database.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger'").all() as Array<{ name: string }>) {
+      database.exec(`DROP TRIGGER IF EXISTS ${row.name}`);
+    }
     database.exec(`
-      CREATE TABLE conversations (
-        project_id TEXT NOT NULL,
-        conversation_id TEXT NOT NULL,
-        title TEXT NOT NULL,
-        state TEXT NOT NULL DEFAULT 'active',
-        surface_kind TEXT NOT NULL DEFAULT 'user',
-        bound_change_id TEXT,
-        current_graph_scope_id TEXT,
-        selected_provider_id TEXT NOT NULL,
-        completed_turn_sequence INTEGER NOT NULL DEFAULT 0,
-        timeline_position INTEGER NOT NULL DEFAULT 0,
-        timeline_revision INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        deleted_at TEXT,
-        PRIMARY KEY(project_id, conversation_id)
-      );
-      CREATE TABLE canonical_timeline_items (
-        id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL,
-        conversation_id TEXT NOT NULL DEFAULT '',
-        change_id TEXT NOT NULL,
-        position INTEGER NOT NULL,
-        revision INTEGER NOT NULL,
-        agent_surface_id TEXT NOT NULL,
-        initial_thread_input INTEGER NOT NULL DEFAULT 0,
-        type TEXT NOT NULL,
-        timestamp TEXT NOT NULL,
-        text TEXT,
-        action_run_id TEXT,
-        action_type TEXT,
-        status TEXT,
-        run_id TEXT,
-        provider_id TEXT,
-        thread_id TEXT,
-        turn_id TEXT,
-        item_id TEXT,
-        artifact TEXT,
-        error TEXT,
-        raw_json TEXT NOT NULL
-      );
-      CREATE TABLE conversation_provider_bindings (
-        project_id TEXT NOT NULL,
-        conversation_id TEXT NOT NULL,
-        provider_id TEXT NOT NULL,
-        native_session_id TEXT,
-        last_delivered_completed_turn INTEGER NOT NULL DEFAULT 0,
-        preferred_model_json TEXT,
-        last_used_at TEXT,
-        binding_status TEXT NOT NULL,
-        PRIMARY KEY(project_id, conversation_id, provider_id)
-      );
-      CREATE TABLE provider_attempts (
-        project_id TEXT NOT NULL,
-        conversation_id TEXT,
-        attempt_id TEXT NOT NULL,
-        graph_scope_id TEXT,
-        provider_id TEXT NOT NULL,
-        change_id TEXT,
-        agent_task_id TEXT,
-        role_id TEXT NOT NULL,
-        parent_agent_surface_id TEXT,
-        operation_profile TEXT NOT NULL,
-        native_session_id TEXT,
-        model_json TEXT,
-        capability_snapshot_json TEXT NOT NULL,
-        handoff_hash TEXT NOT NULL,
-        delivered_through_completed_turn INTEGER NOT NULL,
-        worktree_id TEXT,
-        status TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        PRIMARY KEY(project_id, attempt_id)
-      );
-      INSERT INTO conversations VALUES (
-        '${projectId}', 'legacy-conversation', 'Legacy conversation', 'active', 'user',
-        NULL, 'legacy-graph', 'codex', 1, 1, 1, '${now}', '${now}', NULL
-      );
-      INSERT INTO canonical_timeline_items VALUES (
-        'legacy-message', '${projectId}', 'legacy-conversation', '', 1, 1,
-        'main-agent', 0, 'user.message', '${now}', 'Preserve this message.',
-        NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, '{}'
-      );
-      INSERT INTO conversation_provider_bindings VALUES (
-        '${projectId}', 'legacy-conversation', 'codex', 'legacy-session', 1,
-        NULL, '${now}', 'ready'
-      );
-      INSERT INTO provider_attempts VALUES (
-        '${projectId}', 'legacy-conversation', 'legacy-attempt', 'legacy-graph', 'codex',
-        NULL, NULL, 'main-agent', NULL, 'main', 'legacy-session', NULL,
-        '{"providerId":"codex","productMode":"harness"}', '', 1, NULL,
-        'completed', '${now}', '${now}'
-      );
+      DROP TABLE conversation_review_operations;
+      ALTER TABLE provider_attempts DROP COLUMN operation_kind;
+      ALTER TABLE conversation_turn_queue_items DROP COLUMN review_target_json;
+      ALTER TABLE conversation_turn_queue_items DROP COLUMN item_kind;
     `);
+    if (revision === 16) {
+      database.exec(`
+        DROP TABLE conversation_lifecycle_operations;
+        ALTER TABLE conversations DROP COLUMN lifecycle_revision;
+        ALTER TABLE conversations DROP COLUMN archived_at;
+        ALTER TABLE conversations DROP COLUMN archive_origin;
+      `);
+    }
+    database.prepare(`INSERT INTO conversations (
+      project_id, conversation_id, product_mode, agent_turn_mode, title, state, surface_kind,
+      bound_change_id, current_graph_scope_id, selected_provider_id, completed_turn_sequence,
+      timeline_position, timeline_revision, created_at, updated_at, deleted_at
+    ) VALUES (?, ?, 'harness', NULL, ?, 'active', 'user', NULL, ?, 'codex', 1, 1, 1, ?, ?, NULL)`)
+      .run(projectId, "legacy-conversation", "Legacy conversation", "legacy-graph", now, now);
+    database.prepare(`INSERT INTO canonical_timeline_items (
+      id, project_id, conversation_id, change_id, position, revision, agent_surface_id,
+      initial_thread_input, type, timestamp, text, raw_json
+    ) VALUES (?, ?, ?, '', 1, 1, 'main-agent', 0, 'user.message', ?, ?, '{}')`)
+      .run("legacy-message", projectId, "legacy-conversation", now, "Preserve this message.");
+    database.prepare(`INSERT INTO conversation_provider_bindings (
+      project_id, conversation_id, provider_id, native_session_id, last_delivered_completed_turn,
+      preferred_model_json, last_used_at, binding_status
+    ) VALUES (?, ?, 'codex', 'legacy-session', 1, NULL, ?, 'ready')`)
+      .run(projectId, "legacy-conversation", now);
+    database.prepare(`INSERT INTO provider_attempts (
+      project_id, conversation_id, attempt_id, product_mode, agent_turn_mode, graph_scope_id,
+      provider_id, role_id, operation_profile, native_session_id, capability_snapshot_json,
+      effective_skill_inputs_json, handoff_hash, delivered_through_completed_turn, status,
+      created_at, updated_at
+    ) VALUES (?, ?, ?, 'harness', NULL, ?, 'codex', 'main-agent', 'main', 'legacy-session', ?, '[]', '', 1, 'completed', ?, ?)`)
+      .run(projectId, "legacy-conversation", "legacy-attempt", "legacy-graph", '{"providerId":"codex","productMode":"harness"}', now, now);
     database.pragma(`user_version = ${revision}`);
   } finally {
     database.close();

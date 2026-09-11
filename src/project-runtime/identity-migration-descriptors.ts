@@ -19,7 +19,7 @@ import type {
 } from "./identity-migration.js";
 import { WORKBENCH_PROJECT_IDENTITY_COLUMNS } from "./identity-migration-sqlite.js";
 import type { ProjectRuntimePaths } from "./paths.js";
-import { migrate as migrateWorkbenchSchema } from "../workbench/persistence/schema.js";
+import { prepareStagedWorkbenchSchema } from "../workbench/persistence/schema-migrations.js";
 
 export interface ProjectIdentityMigrationDescriptorInput {
   project: ManagedProject;
@@ -98,7 +98,7 @@ export async function buildProjectIdentityMigrationOptions(
     sqliteDatabases.push({
       relativePath: "workbench/workbench.sqlite",
       identityColumns: WORKBENCH_PROJECT_IDENTITY_COLUMNS,
-      prepareStagedDatabase: migrateWorkbenchSchema,
+      prepareStagedDatabase: prepareStagedWorkbenchSchema,
     });
   }
   const jsonDocuments: ProjectIdentityJsonDocument[] = [
