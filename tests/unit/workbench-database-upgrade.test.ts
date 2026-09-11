@@ -399,6 +399,41 @@ describe("Workbench database upgrade safety", () => {
     await expect(stat(join(upgradeRoot, "recovery", "workbench.sqlite"))).resolves.toBeTruthy();
   });
 
+  it("reconciles a newly promoted recovery receipt over an older marker after a crash", async () => {
+    const paths = resolveProjectRuntimePaths("recovery-marker-swap", root);
+    await createLegacyDatabase(paths.workbenchDbPath, 16);
+    await expect(WorkbenchDatabase.open(paths, noActiveWorkGuard(), undefined, {
+      createTransactionId: () => "recovery-marker-swap-old",
+      beforeMigration: () => { throw new Error("old implementation failure"); },
+    })).rejects.toMatchObject({ code: "recovery-required" });
+    const upgradeRoot = join(dirname(paths.workbenchDbPath), "schema-upgrades");
+    const receiptPath = join(upgradeRoot, "recovery", "receipt.json");
+    const markerPath = join(upgradeRoot, "recovery-required.json");
+    for (const evidencePath of [receiptPath, markerPath]) {
+      const evidence = JSON.parse(await readFile(evidencePath, "utf8")) as { migrationImplementationVersion: number };
+      evidence.migrationImplementationVersion += 1;
+      await writeFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, "utf8");
+    }
+
+    await expect(WorkbenchDatabase.open(paths, noActiveWorkGuard(), undefined, {
+      createTransactionId: () => "recovery-marker-swap-new",
+      beforeMigration: () => { throw new Error("new implementation failure"); },
+      afterRecoveryEvidencePromoted: () => { throw new Error("simulated crash before marker replacement"); },
+    })).rejects.toMatchObject({ code: "recovery-required" });
+    const promotedReceipt = JSON.parse(await readFile(receiptPath, "utf8")) as { migrationImplementationVersion: number };
+    const staleMarker = JSON.parse(await readFile(markerPath, "utf8")) as { migrationImplementationVersion: number };
+    expect(promotedReceipt.migrationImplementationVersion).toBe(1);
+    expect(staleMarker.migrationImplementationVersion).toBe(2);
+
+    let migrationRetried = false;
+    await expect(WorkbenchDatabase.open(paths, noActiveWorkGuard(), undefined, {
+      beforeMigration: () => { migrationRetried = true; },
+    })).rejects.toMatchObject({ code: "recovery-required" });
+    expect(migrationRetried).toBe(false);
+    const reconciledMarker = JSON.parse(await readFile(markerPath, "utf8")) as { migrationImplementationVersion: number };
+    expect(reconciledMarker.migrationImplementationVersion).toBe(1);
+  });
+
   it("retries after a recovered Schema 16 source receives a later durable write", async () => {
     const paths = resolveProjectRuntimePaths("changed-source-retry", root);
     await createLegacyDatabase(paths.workbenchDbPath, 16);

@@ -58,6 +58,7 @@ export interface WorkbenchDatabaseUpgradeOptions {
   beforeCheckpoint?: () => void | Promise<void>;
   beforeMigration?: (db: Database.Database) => void;
   afterCommit?: () => void;
+  afterRecoveryEvidencePromoted?: () => void;
 }
 
 export type WorkbenchDatabaseUpgradeState =
@@ -271,6 +272,7 @@ export async function openSafeWorkbenchConnection(
       };
       await writeJsonFile(stagedReceiptPath, restoredReceipt);
       await promoteRecoveryEvidence(stagingDir, upgradePaths.recoveryDir);
+      options.afterRecoveryEvidencePromoted?.();
       await writeJsonFile(upgradePaths.recoveryMarkerPath, {
         schemaVersion: "1.0",
         databaseDigest: restoredDigest,
@@ -593,9 +595,17 @@ async function reconcileRecoveryStateUnderLock(
     upgradePaths.root,
     `recovery-${receipt?.transactionId ?? "marker"}`,
   ).catch(() => null);
-  if (receipt && !marker && liveLogicalDigest === receipt.sourceDigest) {
+  if (receipt
+    && liveLogicalDigest === receipt.sourceDigest
+    && receipt.migrationImplementationVersion === WORKBENCH_MIGRATION_IMPLEMENTATION_VERSION) {
     const liveFileDigest = await digestFile(paths.workbenchDbPath);
-    await writeRecoveryMarker(upgradePaths.recoveryMarkerPath, receipt, liveFileDigest, receipt.completedAt ?? new Date().toISOString());
+    if (!marker
+      || marker.databaseDigest !== liveFileDigest
+      || marker.fromSchema !== receipt.fromSchema
+      || marker.toSchema !== receipt.toSchema
+      || marker.migrationImplementationVersion !== receipt.migrationImplementationVersion) {
+      await writeRecoveryMarker(upgradePaths.recoveryMarkerPath, receipt, liveFileDigest, receipt.completedAt ?? new Date().toISOString());
+    }
     return;
   }
   if (!marker) return;
