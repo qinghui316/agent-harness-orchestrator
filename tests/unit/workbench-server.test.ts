@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import Database from "better-sqlite3";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
@@ -20,6 +20,7 @@ import { resolveTopicAttachments } from "../../src/workbench/attachments.js";
 import type { ConversationTurnRoutingPort } from "../../src/workbench/conversation-turn-contract.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { materializeWorkbenchSchemaContract } from "../../src/workbench/persistence/schema-migrations.js";
+import { applyCurrentWorkbenchSchema } from "../../src/workbench/persistence/schema.js";
 import type { ConversationTurnControlOwner } from "../../src/workbench/conversation-turn-control.js";
 import type { ConversationTurnRetryOwner } from "../../src/workbench/conversation-turn-retry.js";
 import type { ConversationContextLifecycleOwner } from "../../src/workbench/conversation-context-lifecycle.js";
@@ -2320,6 +2321,81 @@ describe("workbench server", () => {
     expect(after.projects.find((item) => item.project.id === "lazy-project")).toMatchObject({
       runtimeAvailability: { state: "ready" },
     });
+  });
+
+  it("routes recoverable migration evidence through startup calibration instead of permanently isolating projects", async () => {
+    await handle!.close();
+    handle = null;
+    const isolatedHome = join(registryRoot, "migration-retry-calibration");
+    const store = new ProjectRegistryStore(isolatedHome);
+    const projectIds = ["implementation-retry", "changed-source-retry", "stale-current"] as const;
+    for (const projectId of projectIds) {
+      const projectRoot = join(tempDir, projectId);
+      await mkdir(projectRoot, { recursive: true });
+      await createReadyProjectHarnessFixture({ projectRoot, ahoHome: isolatedHome, projectId, projectName: projectId });
+      await store.registerProject({ path: projectRoot, name: projectId, projectId });
+      const paths = resolveProjectRuntimePaths(projectId, isolatedHome);
+      const initialized = await openProjectRuntimeWorkbenchDatabase(paths);
+      initialized.close();
+      const legacy = new Database(paths.workbenchDbPath);
+      materializeWorkbenchSchemaContract(legacy, 16);
+      legacy.close();
+      await expect(openProjectRuntimeWorkbenchDatabase(paths, {
+        upgradeOptions: {
+          createTransactionId: () => `${projectId}-failed`,
+          beforeMigration: () => { throw new Error("injected migration failure"); },
+        },
+      })).rejects.toMatchObject({ code: "recovery-required" });
+    }
+
+    const implementationPaths = resolveProjectRuntimePaths("implementation-retry", isolatedHome);
+    const implementationUpgradeRoot = join(implementationPaths.workbenchRoot, "schema-upgrades");
+    for (const evidencePath of [
+      join(implementationUpgradeRoot, "recovery", "receipt.json"),
+      join(implementationUpgradeRoot, "recovery-required.json"),
+    ]) {
+      const evidence = JSON.parse(await readFile(evidencePath, "utf8")) as { migrationImplementationVersion: number };
+      evidence.migrationImplementationVersion += 1;
+      await writeFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, "utf8");
+    }
+
+    const changedPaths = resolveProjectRuntimePaths("changed-source-retry", isolatedHome);
+    const changed = new Database(changedPaths.workbenchDbPath);
+    changed.prepare(`
+      INSERT INTO skill_roots(project_id, root_path, source_kind, updated_at)
+      VALUES ('changed-source-retry', 'later-root', 'custom', '2026-09-11T00:00:00.000Z')
+    `).run();
+    changed.close();
+
+    const stalePaths = resolveProjectRuntimePaths("stale-current", isolatedHome);
+    await rm(stalePaths.workbenchDbPath, { force: true });
+    await rm(`${stalePaths.workbenchDbPath}-wal`, { force: true });
+    await rm(`${stalePaths.workbenchDbPath}-shm`, { force: true });
+    const replacement = new Database(stalePaths.workbenchDbPath);
+    applyCurrentWorkbenchSchema(replacement);
+    replacement.pragma("user_version = 18");
+    replacement.close();
+
+    handle = await startWorkbenchServer(null, { port: 0, staticRoot, store });
+    const before = await getJson<{ projects: Array<{
+      project: ManagedProject;
+      runtimeAvailability?: { state: string };
+    }> }>(`${handle.url}/api/projects`);
+    expect(before.projects.find((item) => item.project.id === "implementation-retry"))
+      .toMatchObject({ runtimeAvailability: { state: "upgrade-required" } });
+    expect(before.projects.find((item) => item.project.id === "changed-source-retry"))
+      .toMatchObject({ runtimeAvailability: { state: "upgrade-required" } });
+    expect(before.projects.find((item) => item.project.id === "stale-current"))
+      .toMatchObject({ runtimeAvailability: { state: "ready" } });
+
+    for (const projectId of ["implementation-retry", "changed-source-retry"] as const) {
+      expect((await fetch(`${handle.url}/api/projects/${projectId}/workbench/topics?productMode=agent`)).status).toBe(200);
+      const current = new Database(resolveProjectRuntimePaths(projectId, isolatedHome).workbenchDbPath, { readonly: true });
+      expect(Number(current.pragma("user_version", { simple: true }))).toBe(18);
+      current.close();
+    }
+    expect(existsSync(join(stalePaths.workbenchRoot, "schema-upgrades", "recovery-required.json"))).toBe(false);
+    expect(existsSync(join(stalePaths.workbenchRoot, "schema-upgrades", "recovery"))).toBe(false);
   });
 
   it("starts when a previously registered project directory no longer exists", async () => {

@@ -346,6 +346,54 @@ describe("Workbench database upgrade safety", () => {
     await expect(stat(markerPath)).resolves.toBeTruthy();
   });
 
+  it("retries a failed source after the migration implementation identity changes", async () => {
+    const paths = resolveProjectRuntimePaths("implementation-retry", root);
+    await createLegacyDatabase(paths.workbenchDbPath, 16);
+    await expect(WorkbenchDatabase.open(paths, noActiveWorkGuard(), undefined, {
+      createTransactionId: () => "implementation-retry",
+      beforeMigration: () => { throw new Error("old implementation failure"); },
+    })).rejects.toMatchObject({ code: "recovery-required" });
+    const upgradeRoot = join(dirname(paths.workbenchDbPath), "schema-upgrades");
+    for (const evidencePath of [
+      join(upgradeRoot, "recovery", "receipt.json"),
+      join(upgradeRoot, "recovery-required.json"),
+    ]) {
+      const evidence = JSON.parse(await readFile(evidencePath, "utf8")) as { migrationImplementationVersion: number };
+      evidence.migrationImplementationVersion += 1;
+      await writeFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, "utf8");
+    }
+
+    await expect(inspectWorkbenchDatabaseUpgradeState(paths)).resolves.toEqual({ state: "upgrade-required", schemaVersion: 16 });
+    const opened = await WorkbenchDatabase.open(paths, noActiveWorkGuard());
+    opened.close();
+    const verified = new Database(paths.workbenchDbPath, { readonly: true });
+    expect(Number(verified.pragma("user_version", { simple: true }))).toBe(18);
+    verified.close();
+  });
+
+  it("retries after a recovered Schema 16 source receives a later durable write", async () => {
+    const paths = resolveProjectRuntimePaths("changed-source-retry", root);
+    await createLegacyDatabase(paths.workbenchDbPath, 16);
+    await expect(WorkbenchDatabase.open(paths, noActiveWorkGuard(), undefined, {
+      createTransactionId: () => "changed-source-retry",
+      beforeMigration: () => { throw new Error("initial migration failure"); },
+    })).rejects.toMatchObject({ code: "recovery-required" });
+    const changed = new Database(paths.workbenchDbPath);
+    changed.prepare(`
+      INSERT INTO skill_roots(project_id, root_path, source_kind, updated_at)
+      VALUES ('changed-source-retry', 'stable-root', 'custom', '2026-09-11T00:00:00.000Z')
+    `).run();
+    changed.close();
+
+    await expect(inspectWorkbenchDatabaseUpgradeState(paths)).resolves.toEqual({ state: "upgrade-required", schemaVersion: 16 });
+    const opened = await WorkbenchDatabase.open(paths, noActiveWorkGuard());
+    opened.close();
+    const verified = new Database(paths.workbenchDbPath, { readonly: true });
+    expect(verified.prepare("SELECT root_path FROM skill_roots WHERE project_id = ?").get("changed-source-retry"))
+      .toEqual({ root_path: "stable-root" });
+    verified.close();
+  });
+
   it("clears stale recovery evidence when a separately restored current database is valid", async () => {
     const paths = resolveProjectRuntimePaths("stale-recovery-marker", root);
     await createLegacyDatabase(paths.workbenchDbPath, 16);

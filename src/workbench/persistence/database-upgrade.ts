@@ -73,13 +73,8 @@ export async function inspectWorkbenchDatabaseUpgradeState(
   const upgradePaths = resolveUpgradePaths(paths.workbenchDbPath);
   try {
     const marker = await readRecoveryMarker(upgradePaths.recoveryMarkerPath);
-    if (marker) {
-      const liveDigest = await digestFile(paths.workbenchDbPath).catch(() => null);
-      if (liveDigest === marker.databaseDigest) return { state: "recovery-required", schemaVersion: marker.fromSchema };
-      if (!isValidCurrentDatabase(paths.workbenchDbPath)) return { state: "recovery-required", schemaVersion: null };
-    }
-    if (await pathExists(upgradePaths.restoreJournalPath) || await pathExists(upgradePaths.recoveryDir)) {
-      return { state: "recovery-required", schemaVersion: null };
+    if (marker || await pathExists(upgradePaths.restoreJournalPath) || await pathExists(upgradePaths.recoveryDir)) {
+      return await inspectLiveDatabaseState(paths.workbenchDbPath);
     }
     const staging = await readdir(upgradePaths.root, { withFileTypes: true })
       .then((entries) => entries.some((entry) => entry.isDirectory() && entry.name.startsWith("staging-")), (error) => {
@@ -87,17 +82,7 @@ export async function inspectWorkbenchDatabaseUpgradeState(
         throw error;
       });
     if (staging) return { state: "upgrade-required", schemaVersion: null };
-    if (!await pathExists(paths.workbenchDbPath)) return { state: "ready", schemaVersion: WORKBENCH_SCHEMA_VERSION };
-    const database = new Database(paths.workbenchDbPath, { readonly: true, fileMustExist: true });
-    try {
-      const inspection = inspectWorkbenchSchema(database);
-      if (inspection.kind === "new") return { state: "ready", schemaVersion: WORKBENCH_SCHEMA_VERSION };
-      if (inspection.kind === "upgrade") return { state: "upgrade-required", schemaVersion: inspection.currentVersion };
-      validateCurrentWorkbenchSchema(database);
-      return { state: "ready", schemaVersion: inspection.currentVersion };
-    } finally {
-      database.close();
-    }
+    return await inspectLiveDatabaseState(paths.workbenchDbPath);
   } catch (cause) {
     if (cause instanceof WorkbenchDatabaseCompatibilityError) {
       if (cause.code === "newer-version") return { state: "newer-version", schemaVersion: readSchemaVersion(paths.workbenchDbPath) };
@@ -105,6 +90,20 @@ export async function inspectWorkbenchDatabaseUpgradeState(
       return { state: "recovery-required", schemaVersion: null };
     }
     return { state: "recovery-required", schemaVersion: null };
+  }
+}
+
+async function inspectLiveDatabaseState(path: string): Promise<WorkbenchDatabaseUpgradeState> {
+  if (!await pathExists(path)) return { state: "ready", schemaVersion: WORKBENCH_SCHEMA_VERSION };
+  const database = new Database(path, { readonly: true, fileMustExist: true });
+  try {
+    const inspection = inspectWorkbenchSchema(database);
+    if (inspection.kind === "new") return { state: "ready", schemaVersion: WORKBENCH_SCHEMA_VERSION };
+    if (inspection.kind === "upgrade") return { state: "upgrade-required", schemaVersion: inspection.currentVersion };
+    validateCurrentWorkbenchSchema(database);
+    return { state: "ready", schemaVersion: inspection.currentVersion };
+  } finally {
+    database.close();
   }
 }
 
@@ -578,27 +577,54 @@ async function reconcileRecoveryStateUnderLock(
     throw new WorkbenchDatabaseCompatibilityError("recovery-required", "这个项目的数据恢复记录无法读取。", { cause });
   }
   const recoveryExists = await pathExists(upgradePaths.recoveryDir);
-  if (recoveryExists && !marker) {
-    const receipt = await readMigrationReceipt(join(upgradePaths.recoveryDir, "receipt.json"));
+  const receipt = recoveryExists
+    ? await readMigrationReceipt(join(upgradePaths.recoveryDir, "receipt.json"))
+    : null;
+  if (receipt) {
     const snapshotPath = join(upgradePaths.recoveryDir, "workbench.sqlite");
     if (receipt.result !== "restored"
       || !await pathExists(snapshotPath)
-      || await digestFile(snapshotPath) !== receipt.snapshotDigest
-      || await backupDatabaseDigest(paths.workbenchDbPath, upgradePaths.root, `recovery-${receipt.transactionId}`).catch(() => null) !== receipt.sourceDigest) {
+      || await digestFile(snapshotPath) !== receipt.snapshotDigest) {
       throw new WorkbenchDatabaseCompatibilityError("recovery-required", "这个项目的数据恢复证据无法验证。");
     }
+  }
+  const liveLogicalDigest = await backupDatabaseDigest(
+    paths.workbenchDbPath,
+    upgradePaths.root,
+    `recovery-${receipt?.transactionId ?? "marker"}`,
+  ).catch(() => null);
+  if (receipt && !marker && liveLogicalDigest === receipt.sourceDigest) {
     const liveFileDigest = await digestFile(paths.workbenchDbPath);
     await writeRecoveryMarker(upgradePaths.recoveryMarkerPath, receipt, liveFileDigest, receipt.completedAt ?? new Date().toISOString());
     return;
   }
   if (!marker) return;
-  const liveDigest = await digestFile(paths.workbenchDbPath).catch(() => null);
-  if (liveDigest === marker.databaseDigest) return;
-  if (!isValidCurrentDatabase(paths.workbenchDbPath)) {
+  if (isValidCurrentDatabase(paths.workbenchDbPath)) {
+    await rm(upgradePaths.recoveryDir, { recursive: true, force: true });
+    await rm(upgradePaths.recoveryMarkerPath, { force: true });
+    return;
+  }
+  const liveFileDigest = await digestFile(paths.workbenchDbPath).catch(() => null);
+  const sameFailedInput = marker.migrationImplementationVersion === WORKBENCH_MIGRATION_IMPLEMENTATION_VERSION
+    && (receipt ? liveLogicalDigest === receipt.sourceDigest : liveFileDigest === marker.databaseDigest);
+  if (sameFailedInput) return;
+  if (!isSupportedMigrationSource(paths.workbenchDbPath)) {
     throw new WorkbenchDatabaseCompatibilityError("recovery-required", "当前项目数据与恢复记录不匹配。");
   }
   await rm(upgradePaths.recoveryDir, { recursive: true, force: true });
   await rm(upgradePaths.recoveryMarkerPath, { force: true });
+}
+
+function isSupportedMigrationSource(path: string): boolean {
+  let database: Database.Database | null = null;
+  try {
+    database = new Database(path, { readonly: true, fileMustExist: true });
+    return inspectWorkbenchSchema(database).kind === "upgrade";
+  } catch {
+    return false;
+  } finally {
+    database?.close();
+  }
 }
 
 async function writeRecoveryMarker(
@@ -736,7 +762,8 @@ async function readMigrationReceipt(path: string): Promise<WorkbenchMigrationRec
     || !/^[A-Za-z0-9_-]{1,128}$/.test(parsed.transactionId)
     || !Number.isInteger(parsed.fromSchema)
     || !Number.isInteger(parsed.toSchema)
-    || parsed.migrationImplementationVersion !== WORKBENCH_MIGRATION_IMPLEMENTATION_VERSION
+    || !Number.isInteger(parsed.migrationImplementationVersion)
+    || Number(parsed.migrationImplementationVersion) < 1
     || !isSha256Digest(parsed.sourceFileDigest)
     || !isSha256Digest(parsed.sourceDigest)
     || !isSha256Digest(parsed.snapshotDigest)
