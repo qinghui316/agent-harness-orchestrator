@@ -371,6 +371,34 @@ describe("Workbench database upgrade safety", () => {
     verified.close();
   });
 
+  it("retains earlier recovery evidence until a replacement migration reaches durable evidence", async () => {
+    const paths = resolveProjectRuntimePaths("implementation-retry-interrupted", root);
+    await createLegacyDatabase(paths.workbenchDbPath, 16);
+    await expect(WorkbenchDatabase.open(paths, noActiveWorkGuard(), undefined, {
+      createTransactionId: () => "implementation-retry-interrupted-old",
+      beforeMigration: () => { throw new Error("old implementation failure"); },
+    })).rejects.toMatchObject({ code: "recovery-required" });
+    const upgradeRoot = join(dirname(paths.workbenchDbPath), "schema-upgrades");
+    const receiptPath = join(upgradeRoot, "recovery", "receipt.json");
+    const markerPath = join(upgradeRoot, "recovery-required.json");
+    for (const evidencePath of [receiptPath, markerPath]) {
+      const evidence = JSON.parse(await readFile(evidencePath, "utf8")) as { migrationImplementationVersion: number };
+      evidence.migrationImplementationVersion += 1;
+      await writeFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, "utf8");
+    }
+    const receiptBefore = await digest(receiptPath);
+    const markerBefore = await digest(markerPath);
+
+    await expect(WorkbenchDatabase.open(paths, noActiveWorkGuard(), undefined, {
+      createTransactionId: () => "implementation-retry-interrupted-new",
+      beforeCheckpoint: () => { throw new Error("interrupted before replacement evidence"); },
+    })).rejects.toThrow("interrupted before replacement evidence");
+
+    expect(await digest(receiptPath)).toBe(receiptBefore);
+    expect(await digest(markerPath)).toBe(markerBefore);
+    await expect(stat(join(upgradeRoot, "recovery", "workbench.sqlite"))).resolves.toBeTruthy();
+  });
+
   it("retries after a recovered Schema 16 source receives a later durable write", async () => {
     const paths = resolveProjectRuntimePaths("changed-source-retry", root);
     await createLegacyDatabase(paths.workbenchDbPath, 16);

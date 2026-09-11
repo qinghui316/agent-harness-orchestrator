@@ -611,8 +611,6 @@ async function reconcileRecoveryStateUnderLock(
   if (!isSupportedMigrationSource(paths.workbenchDbPath)) {
     throw new WorkbenchDatabaseCompatibilityError("recovery-required", "当前项目数据与恢复记录不匹配。");
   }
-  await rm(upgradePaths.recoveryDir, { recursive: true, force: true });
-  await rm(upgradePaths.recoveryMarkerPath, { force: true });
 }
 
 function isSupportedMigrationSource(path: string): boolean {
