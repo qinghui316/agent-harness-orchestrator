@@ -325,7 +325,7 @@ describe("Schema 17 lifecycle migration", () => {
       PRAGMA user_version = 16;
     `);
     migrateWorkbenchSchema(db, 16);
-    expect(db.pragma("user_version", { simple: true })).toBe(18);
+    expect(db.pragma("user_version", { simple: true })).toBe(19);
     expect(db.prepare("SELECT conversation_id, archive_origin, archived_at, lifecycle_revision, deleted_at FROM conversations ORDER BY conversation_id").all())
       .toEqual([
         { conversation_id: "agent-archive", archive_origin: "agent-user", archived_at: "2026-08-02", lifecycle_revision: 0, deleted_at: null },

@@ -24,7 +24,7 @@ import { sendWorkbenchActionLive } from "./live-actions.js";
 import { readCreateTopicBody, sendConversationMessageLive, sendCreateTopicLive } from "./topic-messages.js";
 import { executeWorkbenchAction } from "./actions.js";
 import { sendProjectLiveEvents } from "./project-live-events.js";
-import type { ConversationContextCompactBody, ConversationDeleteConfirmationBody, ConversationForkBody, ConversationLifecycleBody, ConversationTurnInterruptBody, ConversationTurnQueueActionBody, ConversationTurnQueueBody, ConversationTurnSteerBody, IntakeRequest, UpdateConversationTitleRequest, WorkbenchActionRequest, WorkbenchServerContext } from "./types.js";
+import type { ConversationContextCompactBody, ConversationDeleteConfirmationBody, ConversationForkBody, ConversationLifecycleBody, ConversationTurnInterruptBody, ConversationTurnQueueActionBody, ConversationTurnQueueBody, ConversationTurnQueueContractConfirmationBody, ConversationTurnSteerBody, IntakeRequest, UpdateConversationTitleRequest, WorkbenchActionRequest, WorkbenchServerContext } from "./types.js";
 import type { AgentTurnMode, ProductMode } from "../../provider-runtime/index.js";
 import type { TopicFileReference } from "../../workbench/types.js";
 import { conversationSteerTimelineIds } from "../../workbench/conversation-turn-control.js";
@@ -426,6 +426,21 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
     ));
     return;
   }
+  const turnQueueConfirmContractMatch = rest.match(/^conversations\/([^/]+)\/turn-queue\/([^/]+)\/confirm-execution$/);
+  if (request.method === "POST" && turnQueueConfirmContractMatch?.[1] && turnQueueConfirmContractMatch[2]) {
+    assertRegisteredProject(input);
+    const body = await readJsonBody<ConversationTurnQueueContractConfirmationBody>(request);
+    sendJson(response, 200, await context.conversationTurnQueue.confirmExecutionContract(input.project, {
+      productMode: requireProductMode(typeof body.productMode === "string" ? body.productMode : null),
+      conversationId: decodeURIComponent(turnQueueConfirmContractMatch[1]),
+      queueItemId: decodeURIComponent(turnQueueConfirmContractMatch[2]),
+      expectedRevision: requireQueueString(body.expectedRevision, "expectedRevision"),
+      clientRequestId: requireQueueString(body.clientRequestId, "clientRequestId"),
+      expectedCreatedContract: requireQueueExecutionContractRef(body.expectedCreatedContract, "expectedCreatedContract"),
+      expectedTargetContract: requireQueueExecutionContractRef(body.expectedTargetContract, "expectedTargetContract"),
+    }));
+    return;
+  }
   const turnQueueDispatchMatch = rest.match(/^conversations\/([^/]+)\/turn-queue\/dispatch-next$/);
   if (request.method === "POST" && turnQueueDispatchMatch?.[1]) {
     assertRegisteredProject(input);
@@ -613,6 +628,22 @@ function requireQueueString(value: unknown, field: string): string {
 function requireQueueNullableString(value: unknown, field: string): string | null {
   if (value === null) return null;
   return requireQueueString(value, field);
+}
+
+function requireQueueExecutionContractRef(
+  value: unknown,
+  field: string,
+): { family: string; epoch: number } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw badQueueRequest(field + " must be an execution contract reference.");
+  }
+  const record = value as Record<string, unknown>;
+  const family = requireQueueString(record.family, field + ".family");
+  const epoch = record.epoch;
+  if (!Number.isSafeInteger(epoch) || Number(epoch) < 0) {
+    throw badQueueRequest(field + ".epoch must be a non-negative safe integer.");
+  }
+  return { family, epoch: Number(epoch) };
 }
 
 function requireQueueStringArray(value: unknown, field: string): string[] {

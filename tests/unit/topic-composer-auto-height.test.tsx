@@ -286,6 +286,42 @@ describe("Conversation Turn queue surface", () => {
     expect(screen.getAllByRole("button", { name: "移回输入框" })[1]!.hasAttribute("disabled")).toBe(true);
     expect(screen.getAllByRole("button", { name: "删除待发送内容" })[1]!.hasAttribute("disabled")).toBe(true);
   });
+
+  it("requires explicit execution confirmation without exposing the generic retry action", () => {
+    const onConfirmExecution = vi.fn();
+    const onRetry = vi.fn();
+    const snapshot: ConversationTurnQueueSnapshot = {
+      projectId: "project",
+      productMode: "agent",
+      conversationId: "conversation",
+      revision: "queue:3",
+      executionRevision: "execution:1",
+      canEnqueue: true,
+      canDispatch: false,
+      items: [{
+        ...queuedItem("blocked", "changed-execution", "Run this after the update", 1),
+        executionCompatibility: {
+          state: "confirmation-required",
+          created: { family: "agent.turn", epoch: 1 },
+          target: { family: "agent.turn", epoch: 2 },
+          summary: "执行方式已更新，需要确认后发送。",
+        },
+      }],
+    };
+
+    render(<ConversationTurnQueue
+      snapshot={snapshot}
+      busy={false}
+      onRetry={onRetry}
+      onConfirmExecution={onConfirmExecution}
+    />);
+
+    expect(screen.getByText("执行方式已更新，需要确认后发送。")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "重新尝试发送" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "按当前方式发送" }));
+    expect(onConfirmExecution).toHaveBeenCalledWith("changed-execution");
+    expect(onRetry).not.toHaveBeenCalled();
+  });
 });
 
 function queuedItem(status: "blocked" | "dispatching", queueItemId: string, text: string, position: number) {
@@ -305,6 +341,7 @@ function queuedItem(status: "blocked" | "dispatching", queueItemId: string, text
     reasoningEffort: null,
     createdAt: "2026-08-28T00:00:00.000Z",
     updatedAt: "2026-08-28T00:00:00.000Z",
+    executionCompatibility: { state: "compatible" as const },
   };
 }
 

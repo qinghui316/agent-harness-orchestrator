@@ -26,6 +26,7 @@ import {
 import { defaultProjectRuntimeActivityRegistry } from "../project-runtime/activity.js";
 import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
+import { resolveStoredExecutionContract } from "../provider-runtime/execution-contract.js";
 
 export function runProviderCodeTurn(
   input: Parameters<typeof runProviderCodeTurnActivity>[0],
@@ -80,6 +81,13 @@ async function runProviderCodeTurnActivity(input: {
       roleId: input.roleId,
       operationProfile: "coder",
       providerId,
+      executionContract: resolveStoredExecutionContract({
+        productMode: "harness",
+        operationProfile: "coder",
+        operationKind: "conversation-turn",
+        roleId: input.roleId,
+        providerAdapterVersion: provider.adapter.version,
+      }),
       nativeSessionId: null,
       model,
       capabilitySnapshot,

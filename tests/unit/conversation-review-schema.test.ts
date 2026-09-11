@@ -13,7 +13,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-describe("Conversation Review Schema 18", () => {
+describe("Conversation Review schema compatibility", () => {
   it("migrates Schema 17 Turn rows and enforces Review mode isolation", async () => {
     const root = await mkdtemp(join(tmpdir(), "aho-review-schema-"));
     roots.push(root);
@@ -100,7 +100,7 @@ describe("Conversation Review Schema 18", () => {
 
     const verified = new Database(paths.workbenchDbPath);
     try {
-      expect(verified.pragma("user_version", { simple: true })).toBe(18);
+      expect(verified.pragma("user_version", { simple: true })).toBe(19);
       expect(() => verified.prepare(`
         UPDATE conversation_turn_queue_items
         SET item_kind = 'review', review_target_json = '{"type":"uncommitted-changes"}'

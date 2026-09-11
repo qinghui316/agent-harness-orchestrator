@@ -1,5 +1,15 @@
 import type { ProviderSkillInput } from "../../project-harness/contracts.js";
-import { assertAgentTurnMode, assertProductMode, type ProviderCapabilitySnapshot, type ProviderModelRef } from "../../provider-runtime/index.js";
+import {
+  assertAgentTurnMode,
+  assertProductMode,
+  EXECUTION_CONTRACT_FAMILIES,
+  legacyExecutionContract,
+  storedExecutionContract,
+  type ExecutionContractFamily,
+  type ProviderCapabilitySnapshot,
+  type ProviderModelRef,
+  type StoredExecutionContractIdentity,
+} from "../../provider-runtime/index.js";
 import type { StoredConversation, StoredConversationProviderBinding, StoredDecisionRecord, StoredDecisionStatus, StoredProviderAttempt, StoredProviderResumePoint, StoredProviderThreadLink, StoredSkillEnablement, StoredSkillRoot, StoredTopicMessage } from "./contracts.js";
 
 export interface SqliteRow { [key: string]: unknown; }
@@ -118,6 +128,7 @@ export function mapProviderAttemptRow(row: SqliteRow): StoredProviderAttempt {
   const effectiveSkillInputs = parseJsonArray<ProviderSkillInput>(row.effectiveSkillInputsJson);
   if (!effectiveSkillInputs) throw new Error(`Provider attempt has invalid effective Skill inputs: ${String(row.attemptId)}`);
   const status = String(row.status);
+  const executionContract = mapStoredExecutionContract(row);
   return {
     projectId: String(row.projectId),
     conversationId: nullableString(row.conversationId),
@@ -133,6 +144,7 @@ export function mapProviderAttemptRow(row: SqliteRow): StoredProviderAttempt {
     parentAgentSurfaceId: nullableString(row.parentAgentSurfaceId),
     operationProfile: String(row.operationProfile),
     operationKind: row.operationKind === "review" ? "review" : "conversation-turn",
+    executionContract,
     providerId: String(row.providerId),
     nativeSessionId: nullableString(row.nativeSessionId),
     model: parseJsonObject<ProviderModelRef>(row.modelJson),
@@ -226,6 +238,26 @@ export function mapDecisionRow(row: SqliteRow): StoredDecisionRecord {
 
 export function nullableString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
+}
+
+function mapStoredExecutionContract(row: SqliteRow): StoredExecutionContractIdentity {
+  const family = nullableString(row.executionContractFamily);
+  const epoch = Number(row.executionContractEpoch ?? 0);
+  const policyHash = nullableString(row.executionPolicyHash);
+  const providerAdapterVersion = nullableString(row.providerAdapterVersion);
+  if (family === "legacy-v0" && epoch === 0 && policyHash === null && providerAdapterVersion === null) {
+    return legacyExecutionContract();
+  }
+  if (family && EXECUTION_CONTRACT_FAMILIES.includes(family as ExecutionContractFamily)
+    && Number.isSafeInteger(epoch) && epoch > 0 && policyHash && providerAdapterVersion) {
+    return storedExecutionContract({
+      family: family as ExecutionContractFamily,
+      epoch,
+      policyHash,
+      providerAdapterVersion,
+    });
+  }
+  throw new Error(`Provider attempt has invalid execution contract: ${String(row.attemptId)}`);
 }
 
 export function encodeScopeChangeId(value: string | null): string {

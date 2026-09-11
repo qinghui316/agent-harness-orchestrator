@@ -3,7 +3,7 @@ import { applyCurrentWorkbenchSchema, ensureColumn, hasAnyWorkbenchUserTables, h
 import type { SqliteRow } from "./sql-mappers.js";
 
 export const MINIMUM_AUTOMATIC_WORKBENCH_SCHEMA_VERSION = 16;
-export const WORKBENCH_MIGRATION_IMPLEMENTATION_VERSION = 1;
+export const WORKBENCH_MIGRATION_IMPLEMENTATION_VERSION = 2;
 
 export type WorkbenchDatabaseCompatibilityCode =
   | "unsupported-legacy"
@@ -112,9 +112,59 @@ const schema17To18: WorkbenchSchemaMigration = {
   },
 };
 
+const schema18To19: WorkbenchSchemaMigration = {
+  from: 18,
+  to: 19,
+  migrate(db) {
+    ensureColumn(db, "provider_attempts", "execution_contract_family", "TEXT NOT NULL DEFAULT 'legacy-v0'");
+    ensureColumn(db, "provider_attempts", "execution_contract_epoch", "INTEGER NOT NULL DEFAULT 0");
+    ensureColumn(db, "provider_attempts", "execution_policy_hash", "TEXT");
+    ensureColumn(db, "provider_attempts", "provider_adapter_version", "TEXT");
+    ensureColumn(db, "conversation_turn_queue_items", "execution_contract_family", "TEXT NOT NULL DEFAULT 'legacy-v0'");
+    ensureColumn(db, "conversation_turn_queue_items", "execution_contract_epoch", "INTEGER NOT NULL DEFAULT 0");
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS conversation_turn_queue_contract_confirmations (
+        project_id TEXT NOT NULL,
+        conversation_id TEXT NOT NULL,
+        queue_item_id TEXT NOT NULL,
+        prior_family TEXT NOT NULL,
+        prior_epoch INTEGER NOT NULL,
+        target_family TEXT NOT NULL,
+        target_epoch INTEGER NOT NULL,
+        client_request_id TEXT NOT NULL,
+        request_hash TEXT NOT NULL,
+        confirmed_at TEXT NOT NULL,
+        PRIMARY KEY(project_id, queue_item_id, target_family, target_epoch),
+        UNIQUE(project_id, conversation_id, client_request_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_queue_contract_confirmation_item
+        ON conversation_turn_queue_contract_confirmations(project_id, conversation_id, queue_item_id);
+      UPDATE provider_attempts
+      SET execution_contract_family = 'legacy-v0', execution_contract_epoch = 0,
+          execution_policy_hash = NULL, provider_adapter_version = NULL;
+      UPDATE conversation_turn_queue_items
+      SET execution_contract_family = 'legacy-v0', execution_contract_epoch = 0;
+    `);
+  },
+  validate(db) {
+    assertColumns(db, "provider_attempts", [
+      "execution_contract_family",
+      "execution_contract_epoch",
+      "execution_policy_hash",
+      "provider_adapter_version",
+    ]);
+    assertColumns(db, "conversation_turn_queue_items", [
+      "execution_contract_family",
+      "execution_contract_epoch",
+    ]);
+    assertTable(db, "conversation_turn_queue_contract_confirmations");
+  },
+};
+
 export const WORKBENCH_SCHEMA_MIGRATIONS: readonly WorkbenchSchemaMigration[] = [
   schema16To17,
   schema17To18,
+  schema18To19,
 ];
 
 export function inspectWorkbenchSchema(db: Database.Database): {
@@ -232,7 +282,7 @@ function assertSchemaShape(db: Database.Database, version: number): void {
 function expectedSchemaShape(version: number): SchemaShape {
   const cached = schemaShapeCache.get(version);
   if (cached) return cached;
-  if (version !== 16 && version !== 17 && version !== 18) throw new Error(`Unsupported Workbench schema contract version: ${version}`);
+  if (version !== 16 && version !== 17 && version !== 18 && version !== 19) throw new Error(`Unsupported Workbench schema contract version: ${version}`);
   const reference = new Database(":memory:");
   try {
     applyCurrentWorkbenchSchema(reference);
@@ -326,7 +376,18 @@ function readSchemaShape(db: Database.Database): SchemaShape {
   return { tables, indexes, triggers };
 }
 
-export function materializeWorkbenchSchemaContract(db: Database.Database, version: 16 | 17 | 18): void {
+export function materializeWorkbenchSchemaContract(db: Database.Database, version: 16 | 17 | 18 | 19): void {
+  if (version < 19) {
+    db.exec(`
+      DROP TABLE conversation_turn_queue_contract_confirmations;
+      ALTER TABLE provider_attempts DROP COLUMN provider_adapter_version;
+      ALTER TABLE provider_attempts DROP COLUMN execution_policy_hash;
+      ALTER TABLE provider_attempts DROP COLUMN execution_contract_epoch;
+      ALTER TABLE provider_attempts DROP COLUMN execution_contract_family;
+      ALTER TABLE conversation_turn_queue_items DROP COLUMN execution_contract_epoch;
+      ALTER TABLE conversation_turn_queue_items DROP COLUMN execution_contract_family;
+    `);
+  }
   if (version < 18) {
     db.exec(`
       DROP TRIGGER IF EXISTS trg_provider_attempt_agent_turn_mode_insert;

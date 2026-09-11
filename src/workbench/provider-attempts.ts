@@ -1,4 +1,5 @@
-import type { ProviderCapabilitySnapshot, ProviderModelRef, ProviderOperationProfile } from "../provider-runtime/index.js";
+import { defaultProviderRegistry, type ProviderCapabilitySnapshot, type ProviderModelRef, type ProviderOperationProfile } from "../provider-runtime/index.js";
+import { legacyExecutionContract, resolveStoredExecutionContract } from "../provider-runtime/execution-contract.js";
 import type { ProjectWorkbenchPathPort } from "../project-runtime/paths.js";
 import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import { type StoredProviderAttempt, type StoredProviderThreadLink } from "./persistence/contracts.js";
@@ -64,6 +65,9 @@ export async function startProviderAttempt(memory: ProviderAttemptStorePort, inp
         ? store.conversations.findConversationForChange(projectId, input.changeId)
         : null;
     const now = new Date().toISOString();
+    const providerDescriptor = typeof defaultProviderRegistry?.get === "function"
+      ? defaultProviderRegistry.get(input.providerId)
+      : null;
     const attempt: StoredProviderAttempt = {
       projectId,
       conversationId: conversation?.conversationId ?? input.conversationId ?? null,
@@ -78,6 +82,15 @@ export async function startProviderAttempt(memory: ProviderAttemptStorePort, inp
       operationProfile: input.operationProfile,
       operationKind: input.operationKind ?? "conversation-turn",
       providerId: input.providerId,
+      executionContract: providerDescriptor
+        ? resolveStoredExecutionContract({
+          productMode: conversation?.productMode ?? "harness",
+          operationProfile: input.operationProfile,
+          operationKind: input.operationKind ?? "conversation-turn",
+          roleId: input.roleId,
+          providerAdapterVersion: providerDescriptor.adapter.version,
+        })
+        : legacyExecutionContract(),
       nativeSessionId: null,
       model: input.model ?? null,
       reasoningEffort: null,

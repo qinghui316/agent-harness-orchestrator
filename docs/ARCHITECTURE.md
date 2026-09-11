@@ -677,6 +677,16 @@ source import-graph gate requires zero Web Client cycles and exact membership
 for the three separately registered root cycles, so a new cycle or expansion of
 an existing cycle fails lint with a concrete path.
 
+Provider execution behavior is identified by the provider-neutral
+`ExecutionContractRegistry`. Every new Provider Attempt captures one immutable
+`family + epoch + policyHash + providerAdapterVersion` identity. Families keep
+Agent turns, Review, native children, and each AHO role independent; only an
+incompatible behavior change advances that family's epoch. Completed history is
+never rewritten to current semantics. Conversation Queue items capture their
+creation family and epoch and require a durable, exact-target confirmation before
+dispatch when the current epoch differs. Presentation, Provider adapters, and
+individual controllers do not invent their own execution versions.
+
 Plan-document and workspace-resource projection follows the same read-only
 direction. The exact provider-qualified final Planning-child item owns the
 visible Plan body and immutable document identity; proposal files and accepted
@@ -758,12 +768,12 @@ Workbench persistence separates connection lifetime, schema evolution, and table
 Workbench composition
 -> WorkbenchDatabase
 -> database-upgrade owner
--> explicit 16 -> 17 -> 18 migration chain
+-> explicit 16 -> 17 -> 18 -> 19 migration chain
 -> bounded repositories
 ```
 
-The migration chain is forward-only. Schema 18 opens without a snapshot. A populated Schema 16 or
-17 database is checkpointed and backed up before one exclusive migration transaction runs. The
+The migration chain is forward-only. Schema 19 opens without a snapshot. A populated Schema 16,
+17, or 18 database is checkpointed and backed up before one exclusive migration transaction runs. The
 snapshot, digest, applied versions, and bounded receipt live beside the Workbench database under
 `schema-upgrades/`; they never enter the user's Git repository. A failed or interrupted migration
 restores the verified snapshot and records a recovery marker so startup cannot repeat the same
@@ -774,3 +784,10 @@ databases that fail structural or SQLite integrity validation remain unchanged a
 One project's compatibility failure becomes a project-local unavailable state; it does not make
 the Registry, Electron host, or other projects unavailable. Electron Main coordinates process
 lifecycle only and never opens, backs up, or migrates Workbench SQLite.
+
+Schema 19 adds immutable execution-contract identity to Provider Attempts and
+creation-contract identity plus exact confirmation receipts to Conversation Queue.
+The 18 -> 19 migration labels historical Attempts and active Queue items as
+`legacy-v0`; it does not manufacture policy facts or rewrite Timeline and Harness
+evidence. Legacy Queue content is preserved and waits for explicit confirmation
+before it can run under current semantics.

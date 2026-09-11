@@ -10,6 +10,7 @@ import type {
   ProviderRegistry,
 } from "../provider-runtime/index.js";
 import { defaultProviderRegistry } from "../provider-runtime/index.js";
+import { resolveStoredExecutionContract } from "../provider-runtime/execution-contract.js";
 import { agentThreadSurfaceId } from "../provider-runtime/agent-surface-id.js";
 import type { ManagedProject } from "../types/index.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
@@ -50,6 +51,7 @@ export class AgentNativeChildLifecycleService {
     runId: string;
     parentAttemptId: string;
     providerId: string;
+    providerAdapterVersion: string;
     capabilitySnapshot: ProviderCapabilitySnapshot;
     model: ProviderModelRef | null;
     reasoningEffort: string | null;
@@ -335,6 +337,13 @@ export class AgentNativeChildLifecycleService {
         operationProfile: NATIVE_CHILD_OPERATION_PROFILE,
         operationKind: "conversation-turn",
         providerId: this.input.providerId,
+        executionContract: resolveStoredExecutionContract({
+          productMode: "agent",
+          operationProfile: NATIVE_CHILD_OPERATION_PROFILE,
+          operationKind: "conversation-turn",
+          roleId: NATIVE_CHILD_AGENT_ROLE_ID,
+          providerAdapterVersion: this.input.providerAdapterVersion,
+        }),
         nativeSessionId: input.childThreadId,
         model: input.model ?? this.input.model,
         reasoningEffort: input.reasoningEffort ?? this.input.reasoningEffort,
@@ -666,6 +675,7 @@ export async function runAgentNativeChildFollowup(input: {
       runId,
       parentAttemptId: parentAttempt.attemptId,
       providerId: conversation.selectedProviderId,
+      providerAdapterVersion: resolvedProvider.descriptor.adapter.version,
       capabilitySnapshot: resolvedProvider.snapshot,
       model: previousAttempt.model,
       reasoningEffort: previousAttempt.reasoningEffort,

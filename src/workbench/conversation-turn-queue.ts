@@ -1,5 +1,15 @@
 import { createHash } from "node:crypto";
-import type { AgentTurnMode, ProductMode, ProviderId, ProviderReviewTarget } from "../provider-runtime/index.js";
+import {
+  defaultExecutionContractRegistry,
+  defaultProviderRegistry,
+  type AgentTurnMode,
+  type ExecutionContractIdentity,
+  type ExecutionContractRegistry,
+  type ProductMode,
+  type ProviderId,
+  type ProviderRegistry,
+  type ProviderReviewTarget,
+} from "../provider-runtime/index.js";
 import type { ProjectRuntimeCoordinatorPort } from "../project-runtime/coordinator.js";
 import type { ProjectRuntimePaths } from "../project-runtime/paths.js";
 import type { ManagedProject } from "../types/index.js";
@@ -38,7 +48,22 @@ export interface ConversationQueuedTurn extends ConversationQueuedTurnInput {
   diagnostic?: string;
   createdAt: string;
   updatedAt: string;
+  executionCompatibility: ConversationQueueExecutionCompatibility;
 }
+
+export interface ConversationQueueExecutionContractRef {
+  family: string;
+  epoch: number;
+}
+
+export type ConversationQueueExecutionCompatibility =
+  | { state: "compatible" }
+  | {
+      state: "confirmation-required" | "legacy-confirmation-required";
+      created: ConversationQueueExecutionContractRef;
+      target: ConversationQueueExecutionContractRef;
+      summary: string;
+    };
 
 export interface ConversationTurnQueueSnapshot {
   projectId: string;
@@ -62,6 +87,16 @@ export interface ConversationTurnEnqueueRequest extends ConversationQueuedTurnIn
   expectedDraftUpdatedAt: string | null;
 }
 
+export interface ConversationTurnQueueContractConfirmationRequest {
+  productMode: ProductMode;
+  conversationId: string;
+  queueItemId: string;
+  expectedRevision: string;
+  clientRequestId: string;
+  expectedCreatedContract: ConversationQueueExecutionContractRef;
+  expectedTargetContract: ConversationQueueExecutionContractRef;
+}
+
 export class ConversationTurnQueueOwner {
   constructor(private readonly options: {
     projectRuntimeCoordinator: Pick<ProjectRuntimeCoordinatorPort, "resolve">;
@@ -69,6 +104,8 @@ export class ConversationTurnQueueOwner {
     prepareConversationMessage?: typeof prepareConversationMessage;
     postConversationMessage?: typeof postConversationMessage;
     reviewDispatch?: ConversationQueuedReviewDispatchPort;
+    providerRegistry?: Pick<ProviderRegistry, "get">;
+    executionContractRegistry?: ExecutionContractRegistry;
   }) {}
 
   async read(project: ManagedProject, productMode: ProductMode, conversationId: string): Promise<ConversationTurnQueueSnapshot> {
@@ -94,7 +131,11 @@ export class ConversationTurnQueueOwner {
         && database.decisions.listDecisions(paths.projectId, conversation.boundChangeId ?? undefined)
           .some((decision) => decision.status === "pending" || decision.status === "requested-changes");
       const executionRevision = createConversationExecutionRevision(conversation.currentGraphScopeId, conversation.completedTurnSequence, activeAttempts.map((item) => item.attemptId));
-      const head = storedItems[0];
+      const publicItems = storedItems.map((item) => toPublicItem(
+        item,
+        this.executionCompatibility(database, item),
+      ));
+      const head = publicItems[0];
       const busy = activeAttempts.length > 0 || pendingInteraction || pendingFork || pendingCompaction || pendingGovernanceDecision;
       const disabledReason = conversation.state !== "active"
         ? "Conversation is read-only."
@@ -107,9 +148,9 @@ export class ConversationTurnQueueOwner {
         conversationId: conversation.conversationId,
         revision: encodeRevision(queue?.revision ?? 0),
         executionRevision,
-        items: storedItems.map(toPublicItem),
+        items: publicItems,
         canEnqueue: !disabledReason,
-        canDispatch: Boolean(head?.status === "queued" && !busy),
+        canDispatch: Boolean(head?.status === "queued" && head.executionCompatibility.state === "compatible" && !busy),
         ...(disabledReason ? { disabledReason } : {}),
       };
     } finally {
@@ -142,6 +183,11 @@ export class ConversationTurnQueueOwner {
         throw conflict("Queued Turn no longer matches the Conversation.");
       }
       const requestHash = hashQueuedInput(normalized);
+      const executionContract = this.resolveQueueExecutionContract({
+        productMode: normalized.productMode,
+        providerId: normalized.providerId,
+        itemKind: normalized.itemKind ?? "conversation-turn",
+      });
       const now = new Date().toISOString();
       database.unitOfWork.enqueueConversationTurn({
         expectedQueueRevision: decodeRevision(normalized.expectedRevision),
@@ -157,6 +203,8 @@ export class ConversationTurnQueueOwner {
           status: "queued",
           retryCount: 0,
           predecessorExecutionRevision: normalized.expectedExecutionRevision,
+          executionContractFamily: executionContract.family,
+          executionContractEpoch: executionContract.epoch,
           dispatchRequestId: `queue-dispatch-${digest(`${conversation.conversationId}\0${normalized.clientRequestId}\0${requestHash}`)}`,
           itemKind: normalized.itemKind ?? "conversation-turn",
           reviewTargetJson: normalized.reviewTarget ? JSON.stringify(normalized.reviewTarget) : null,
@@ -184,6 +232,97 @@ export class ConversationTurnQueueOwner {
     return this.read(project, normalized.productMode, normalized.conversationId);
   }
 
+  async confirmExecutionContract(
+    project: ManagedProject,
+    request: ConversationTurnQueueContractConfirmationRequest,
+  ): Promise<ConversationTurnQueueSnapshot> {
+    const productMode = request.productMode;
+    const conversationId = boundedId(request.conversationId, "conversationId");
+    const queueItemId = boundedId(request.queueItemId, "queueItemId");
+    const clientRequestId = boundedId(request.clientRequestId, "clientRequestId");
+    const runtime = await this.options.projectRuntimeCoordinator.resolve(project);
+    const paths = runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    let changed = false;
+    try {
+      database.immediateTransaction(() => {
+        const item = database.conversationTurnQueues.readItem(paths.projectId, conversationId, queueItemId);
+        const queue = database.conversationTurnQueues.readQueue(paths.projectId, conversationId);
+        const conversation = database.conversations.readConversation(paths.projectId, conversationId);
+        if (!item || !queue || !conversation || conversation.productMode !== productMode
+          || item.productMode !== productMode || !["queued", "blocked"].includes(item.status)) {
+          throw conflict("Conversation queued Turn changed before execution confirmation.");
+        }
+        const target = this.resolveQueueExecutionContract(item);
+        const requestHash = hashContractConfirmation({
+          projectId: paths.projectId,
+          productMode,
+          conversationId,
+          queueItemId,
+          expectedRevision: request.expectedRevision,
+          expectedCreatedContract: request.expectedCreatedContract,
+          expectedTargetContract: request.expectedTargetContract,
+        });
+        const replay = database.conversationTurnQueues.readContractConfirmationByRequestId(
+          paths.projectId,
+          conversationId,
+          clientRequestId,
+        );
+        if (replay) {
+          if (replay.requestHash !== requestHash) throw conflict("Queue confirmation clientRequestId was used for different content.");
+          return;
+        }
+        if (queue.revision !== decodeRevision(request.expectedRevision)
+          || !sameContractRef(request.expectedCreatedContract, {
+            family: item.executionContractFamily,
+            epoch: item.executionContractEpoch,
+          })
+          || !sameContractRef(request.expectedTargetContract, target)) {
+          throw conflict("Queued execution contract changed before confirmation.");
+        }
+        const existing = database.conversationTurnQueues.readContractConfirmation(
+          paths.projectId,
+          conversationId,
+          queueItemId,
+          target.family,
+          target.epoch,
+        );
+        if (existing) return;
+        const now = new Date().toISOString();
+        database.conversationTurnQueues.insertContractConfirmation({
+          projectId: paths.projectId,
+          conversationId,
+          queueItemId,
+          priorFamily: item.executionContractFamily,
+          priorEpoch: item.executionContractEpoch,
+          targetFamily: target.family,
+          targetEpoch: target.epoch,
+          clientRequestId,
+          requestHash,
+          confirmedAt: now,
+        });
+        if (item.status === "blocked") {
+          database.conversationTurnQueues.transitionItem({
+            projectId: paths.projectId,
+            conversationId,
+            queueItemId,
+            expectedStatus: "blocked",
+            status: "queued",
+            retryCount: 0,
+            diagnostic: null,
+            updatedAt: now,
+          });
+        }
+        database.conversationTurnQueues.advanceRevision(paths.projectId, conversationId, queue.revision, now);
+        changed = true;
+      });
+    } finally {
+      database.close();
+    }
+    if (changed) publishConversationTurnQueueInvalidated(project.id, { conversationId });
+    return this.read(project, productMode, conversationId);
+  }
+
   async remove(project: ManagedProject, productMode: ProductMode, conversationId: string, queueItemId: string, expectedRevision: string): Promise<ConversationTurnQueueSnapshot> {
     const removed = await this.transitionActiveItem(project, productMode, conversationId, queueItemId, expectedRevision, "cancelled");
     await this.cleanupUnreferencedAttachments(project, parseArray<string>(removed.attachmentIdsJson));
@@ -191,7 +330,7 @@ export class ConversationTurnQueueOwner {
   }
 
   async retry(project: ManagedProject, productMode: ProductMode, conversationId: string, queueItemId: string, expectedRevision: string): Promise<ConversationTurnQueueSnapshot> {
-    await this.transitionActiveItem(project, productMode, conversationId, queueItemId, expectedRevision, "queued", "blocked");
+    await this.transitionActiveItem(project, productMode, conversationId, queueItemId, expectedRevision, "queued", "blocked", true);
     return this.read(project, productMode, conversationId);
   }
 
@@ -239,13 +378,15 @@ export class ConversationTurnQueueOwner {
           const queue = database.conversationTurnQueues.readQueue(paths.projectId, item.conversationId);
           if (!current || current.status !== "dispatching" || !queue) return;
           const now = new Date().toISOString();
+          const currentContract = this.resolveQueueExecutionContract(current);
+          const compatible = this.executionCompatibility(database, current, currentContract).state === "compatible";
           database.conversationTurnQueues.transitionItem({
             projectId: paths.projectId,
             conversationId: item.conversationId,
             queueItemId: item.queueItemId,
             expectedStatus: "dispatching",
-            status: hasEvidence ? "dispatched" : "queued",
-            diagnostic: null,
+            status: hasEvidence ? "dispatched" : compatible ? "queued" : "blocked",
+            diagnostic: hasEvidence || compatible ? null : "Queued execution requires confirmation.",
             updatedAt: now,
             dispatchedAt: hasEvidence ? now : null,
           });
@@ -265,6 +406,7 @@ export class ConversationTurnQueueOwner {
 
   private async dispatchHead(project: ManagedProject, productMode: ProductMode, conversationId: string, queueItemId: string, expectedRevision: number): Promise<void> {
     const item = await this.claim(project, productMode, conversationId, queueItemId, expectedRevision);
+    if (!item) return;
     publishConversationTurnQueueInvalidated(project.id, { conversationId });
     try {
       if (item.itemKind === "review") {
@@ -331,7 +473,7 @@ export class ConversationTurnQueueOwner {
     }
   }
 
-  private async claim(project: ManagedProject, productMode: ProductMode, conversationId: string, queueItemId: string, expectedRevision: number): Promise<StoredConversationQueuedTurn> {
+  private async claim(project: ManagedProject, productMode: ProductMode, conversationId: string, queueItemId: string, expectedRevision: number): Promise<StoredConversationQueuedTurn | null> {
     const runtime = await this.options.projectRuntimeCoordinator.resolve(project);
     const paths = runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
     const database = await openProjectRuntimeWorkbenchDatabase(paths);
@@ -359,6 +501,17 @@ export class ConversationTurnQueueOwner {
           || head.status !== "queued" || head.productMode !== productMode
           || (productMode === "agent" && head.providerId !== conversation.selectedProviderId)) {
           throw conflict("Conversation queued Turn is no longer the dispatchable FIFO head.");
+        }
+        const currentContract = this.resolveQueueExecutionContract(head);
+        if (this.executionCompatibility(database, head, currentContract).state !== "compatible") {
+          const blocked = database.conversationTurnQueues.transitionItem({
+            projectId: paths.projectId, conversationId, queueItemId,
+            expectedStatus: "queued", status: "blocked",
+            diagnostic: "Queued execution requires confirmation.",
+            updatedAt: new Date().toISOString(),
+          });
+          database.conversationTurnQueues.advanceRevision(paths.projectId, conversationId, queue.revision, blocked.updatedAt);
+          return null;
         }
         const claimed = database.conversationTurnQueues.transitionItem({
           projectId: paths.projectId, conversationId, queueItemId,
@@ -391,7 +544,16 @@ export class ConversationTurnQueueOwner {
     }
   }
 
-  private async transitionActiveItem(project: ManagedProject, productMode: ProductMode, conversationId: string, queueItemId: string, expectedRevision: string, status: "queued" | "cancelled", requiredStatus?: "blocked"): Promise<StoredConversationQueuedTurn> {
+  private async transitionActiveItem(
+    project: ManagedProject,
+    productMode: ProductMode,
+    conversationId: string,
+    queueItemId: string,
+    expectedRevision: string,
+    status: "queued" | "cancelled",
+    requiredStatus?: "blocked",
+    requireCompatibleExecution = false,
+  ): Promise<StoredConversationQueuedTurn> {
     const runtime = await this.options.projectRuntimeCoordinator.resolve(project);
     const paths = runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
     const database = await openProjectRuntimeWorkbenchDatabase(paths);
@@ -404,6 +566,9 @@ export class ConversationTurnQueueOwner {
         if (!conversation || conversation.productMode !== productMode || !queue || queue.revision !== decodeRevision(expectedRevision)
           || !item || item.productMode !== productMode || (requiredStatus ? item.status !== requiredStatus : !["queued", "blocked"].includes(item.status))) {
           throw conflict("Conversation queued Turn changed before the requested action.");
+        }
+        if (requireCompatibleExecution && this.executionCompatibility(database, item).state !== "compatible") {
+          throw conflict("Queued execution requires confirmation.");
         }
         const changed = database.conversationTurnQueues.transitionItem({
           projectId: paths.projectId, conversationId, queueItemId,
@@ -445,6 +610,50 @@ export class ConversationTurnQueueOwner {
   private async resolvePaths(project: ManagedProject): Promise<ProjectRuntimePaths> {
     const runtime = await this.options.projectRuntimeCoordinator.resolve(project);
     return runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
+  }
+
+  private resolveQueueExecutionContract(input: {
+    productMode: ProductMode;
+    providerId: string;
+    itemKind: "conversation-turn" | "review";
+  }): ExecutionContractIdentity {
+    const provider = (this.options.providerRegistry ?? defaultProviderRegistry).get(input.providerId);
+    return (this.options.executionContractRegistry ?? defaultExecutionContractRegistry).resolve({
+      productMode: input.productMode,
+      operationProfile: input.productMode === "agent" ? "agent" : "main",
+      operationKind: input.itemKind,
+      roleId: "main-agent",
+      providerAdapterVersion: provider.adapter.version,
+    });
+  }
+
+  private executionCompatibility(
+    database: Awaited<ReturnType<typeof openProjectRuntimeWorkbenchDatabase>>,
+    item: StoredConversationQueuedTurn,
+    target = this.resolveQueueExecutionContract(item),
+  ): ConversationQueueExecutionCompatibility {
+    const created = {
+      family: item.executionContractFamily,
+      epoch: item.executionContractEpoch,
+    };
+    if (sameContractRef(created, target)
+      || database.conversationTurnQueues.readContractConfirmation(
+        item.projectId,
+        item.conversationId,
+        item.queueItemId,
+        target.family,
+        target.epoch,
+      )) {
+      return { state: "compatible" };
+    }
+    return {
+      state: item.executionContractFamily === "legacy-v0"
+        ? "legacy-confirmation-required"
+        : "confirmation-required",
+      created,
+      target: { family: target.family, epoch: target.epoch },
+      summary: "执行方式已更新，需要确认后发送",
+    };
   }
 
   private async readEnqueueReplay(
@@ -554,7 +763,10 @@ function normalizeNullableValue(value: unknown, field: string): string | null {
   return normalized;
 }
 
-function toPublicItem(item: StoredConversationQueuedTurn): ConversationQueuedTurn {
+function toPublicItem(
+  item: StoredConversationQueuedTurn,
+  executionCompatibility: ConversationQueueExecutionCompatibility,
+): ConversationQueuedTurn {
   return {
     itemKind: item.itemKind, reviewTarget: item.reviewTargetJson ? parseReviewTarget(item.reviewTargetJson) : null,
     queueItemId: item.queueItemId, clientRequestId: item.clientRequestId, position: item.position,
@@ -564,6 +776,7 @@ function toPublicItem(item: StoredConversationQueuedTurn): ConversationQueuedTur
     providerId: item.providerId, agentTurnMode: item.agentTurnMode, modelId: item.agentModelId,
     reasoningEffort: item.agentReasoningEffort, ...(item.diagnostic ? { diagnostic: item.diagnostic } : {}),
     createdAt: item.createdAt, updatedAt: item.updatedAt,
+    executionCompatibility,
   };
 }
 
@@ -575,6 +788,23 @@ function decodeRevision(value: string): number {
 }
 function hashQueuedInput(input: ConversationTurnEnqueueRequest): string { return digest(JSON.stringify({ version: 2, projectId: input.projectId, productMode: input.productMode, conversationId: input.conversationId, expectedRevision: input.expectedRevision, expectedExecutionRevision: input.expectedExecutionRevision, expectedDraftUpdatedAt: input.expectedDraftUpdatedAt, itemKind: input.itemKind, reviewTarget: input.reviewTarget, text: input.text, contextRefs: input.contextRefs, attachmentIds: input.attachmentIds, skillOverrides: input.skillOverrides, providerId: input.providerId, agentTurnMode: input.agentTurnMode, modelId: input.modelId, reasoningEffort: input.reasoningEffort })); }
 function digest(value: string): string { return createHash("sha256").update(value).digest("hex"); }
+function sameContractRef(
+  left: ConversationQueueExecutionContractRef,
+  right: ConversationQueueExecutionContractRef,
+): boolean {
+  return left.family === right.family && left.epoch === right.epoch;
+}
+function hashContractConfirmation(input: {
+  projectId: string;
+  productMode: ProductMode;
+  conversationId: string;
+  queueItemId: string;
+  expectedRevision: string;
+  expectedCreatedContract: ConversationQueueExecutionContractRef;
+  expectedTargetContract: ConversationQueueExecutionContractRef;
+}): string {
+  return digest(JSON.stringify({ version: 1, ...input }));
+}
 function parseArray<T>(value: string): T[] { try { const parsed = JSON.parse(value) as unknown; return Array.isArray(parsed) ? parsed as T[] : []; } catch { return []; } }
 function parseRecord(value: string): Record<string, boolean> { try { const parsed = JSON.parse(value) as unknown; return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? Object.fromEntries(Object.entries(parsed).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean")) : {}; } catch { return {}; } }
 function normalizeReviewTarget(value: unknown): ProviderReviewTarget {

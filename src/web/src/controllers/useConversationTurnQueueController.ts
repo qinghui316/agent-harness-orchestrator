@@ -27,6 +27,7 @@ export function useConversationTurnQueueController(input: {
   const responseGenerationRef = useRef(0);
   const dispatchRevisionRef = useRef<string | null>(null);
   const enqueueRetryRef = useRef<{ key: string; clientRequestId: string } | null>(null);
+  const confirmationRetryRef = useRef<{ key: string; clientRequestId: string } | null>(null);
   const invalidationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const executionKeyRef = useRef(input.executionKey ?? "");
   identityRef.current = identity;
@@ -65,6 +66,7 @@ export function useConversationTurnQueueController(input: {
   useEffect(() => {
     dispatchRevisionRef.current = null;
     enqueueRetryRef.current = null;
+    confirmationRetryRef.current = null;
     setSnapshot(null);
     setSnapshotCalibrationKey(null);
     snapshotCalibrationKeyRef.current = null;
@@ -156,6 +158,33 @@ export function useConversationTurnQueueController(input: {
     ),
   ), [applyMutation]);
 
+  const confirmExecutionContract = useCallback(async (queueItemId: string) => {
+    const item = snapshotRef.current?.items.find((candidate) => candidate.queueItemId === queueItemId);
+    if (!item || item.executionCompatibility.state === "compatible") return snapshotRef.current;
+    const compatibility = item.executionCompatibility;
+    const key = JSON.stringify({
+      queueItemId,
+      created: compatibility.created,
+      target: compatibility.target,
+    });
+    const clientRequestId = confirmationRetryRef.current?.key === key
+      ? confirmationRetryRef.current.clientRequestId
+      : createRequestId("queue-execution-confirmation");
+    confirmationRetryRef.current = { key, clientRequestId };
+    const result = await applyMutation((current, currentSnapshot) => postJson<ConversationTurnQueueSnapshot>(
+      `${baseQueueUrl(current)}/${encodeURIComponent(queueItemId)}/confirm-execution`,
+      {
+        productMode: current.productMode,
+        expectedRevision: currentSnapshot.revision,
+        clientRequestId,
+        expectedCreatedContract: compatibility.created,
+        expectedTargetContract: compatibility.target,
+      },
+    ));
+    if (result) confirmationRetryRef.current = null;
+    return result;
+  }, [applyMutation]);
+
   const dispatchNext = useCallback(async (): Promise<ConversationTurnQueueSnapshot | null> => {
     const current = inputRef.current;
     const currentSnapshot = snapshotRef.current;
@@ -216,6 +245,7 @@ export function useConversationTurnQueueController(input: {
     remove,
     reclaim,
     retry,
+    confirmExecutionContract,
     dispatchNext,
     handleEvent,
   };

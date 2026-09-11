@@ -181,6 +181,7 @@ function ownerFixture() {
     runId: "run-1",
     parentAttemptId: "attempt-main",
     providerId: "codex",
+    providerAdapterVersion: "test-adapter-v1",
     capabilitySnapshot: {} as never,
     model: null,
     parentHandoffHash: "handoff",

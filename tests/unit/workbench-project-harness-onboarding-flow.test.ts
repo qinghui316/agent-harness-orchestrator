@@ -222,6 +222,7 @@ function fakeProvider(observed: ProviderTurnRequest[], options: FakeProviderOpti
   return {
     id: providerId,
     displayName: "Codex",
+    adapter: { id: "test-provider", version: "1" },
     runtime: {
       liveness: () => ({ providerId, liveHostCount: 0 }),
       shutdown: async () => undefined,

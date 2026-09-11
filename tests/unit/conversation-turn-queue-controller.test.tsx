@@ -90,6 +90,7 @@ describe("Conversation Turn queue controller", () => {
         retryCount: 0, text: "queued", contextRefs: [], attachmentIds: [], skillOverrides: {},
         providerId: "codex", agentTurnMode: "default" as const, modelId: null, reasoningEffort: null,
         createdAt: "2026-08-28T00:00:00.000Z", updatedAt: "2026-08-28T00:00:00.000Z",
+        executionCompatibility: { state: "compatible" as const },
       }],
     };
     const fetchMock = vi.fn((_url: string | URL | Request, init?: RequestInit) => Promise.resolve(jsonResponse(
@@ -314,6 +315,48 @@ describe("Conversation Turn queue controller", () => {
 
     expect(result.current.snapshot?.revision).toBe("queue:2");
   });
+
+  it("confirms the exact queued execution contract before dispatch becomes available", async () => {
+    const confirmationRequired: ConversationTurnQueueSnapshot = {
+      ...queuedSnapshot(false),
+      items: [{
+        ...queuedSnapshot(false).items[0]!,
+        executionCompatibility: {
+          state: "confirmation-required",
+          created: { family: "agent.turn", epoch: 1 },
+          target: { family: "agent.turn", epoch: 2 },
+          summary: "执行方式已更新，需要确认后发送",
+        },
+      }],
+    };
+    const confirmed = {
+      ...confirmationRequired,
+      revision: "queue:2",
+      canDispatch: false,
+      items: [{ ...confirmationRequired.items[0]!, executionCompatibility: { state: "compatible" as const } }],
+    };
+    const fetchMock = vi.fn((_url: string | URL | Request, init?: RequestInit) => Promise.resolve(jsonResponse(
+      init?.method === "POST" ? confirmed : confirmationRequired,
+    )));
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useConversationTurnQueueController({
+      projectId: "project-1",
+      productMode: "agent",
+      conversationId: "conversation-a",
+      onError: vi.fn(),
+    }));
+    await waitFor(() => expect(result.current.snapshot?.items[0]?.executionCompatibility.state).toBe("confirmation-required"));
+
+    await act(async () => { await result.current.confirmExecutionContract("item-1"); });
+    const call = fetchMock.mock.calls.find(([url, init]) => init?.method === "POST" && String(url).endsWith("/item-1/confirm-execution"))!;
+    expect(JSON.parse(String(call[1]?.body))).toMatchObject({
+      productMode: "agent",
+      expectedRevision: "queue:1",
+      expectedCreatedContract: { family: "agent.turn", epoch: 1 },
+      expectedTargetContract: { family: "agent.turn", epoch: 2 },
+    });
+    expect(result.current.snapshot?.items[0]?.executionCompatibility).toEqual({ state: "compatible" });
+  });
 });
 
 function queuedSnapshot(canDispatch: boolean): ConversationTurnQueueSnapshot {
@@ -325,6 +368,7 @@ function queuedSnapshot(canDispatch: boolean): ConversationTurnQueueSnapshot {
       retryCount: 0, text: "queued", contextRefs: [], attachmentIds: [], skillOverrides: {},
       providerId: "codex", agentTurnMode: "default", modelId: null, reasoningEffort: null,
       createdAt: "2026-08-28T00:00:00.000Z", updatedAt: "2026-08-28T00:00:00.000Z",
+      executionCompatibility: { state: "compatible" },
     }],
   };
 }

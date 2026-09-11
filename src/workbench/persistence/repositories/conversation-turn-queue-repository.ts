@@ -3,6 +3,7 @@ import type { ProductMode } from "../../../provider-runtime/index.js";
 import type {
   StoredConversationQueuedTurn,
   StoredConversationQueuedTurnStatus,
+  StoredConversationTurnQueueContractConfirmation,
   StoredConversationTurnQueue,
 } from "../contracts.js";
 import type { SqliteRow } from "../sql-mappers.js";
@@ -45,7 +46,10 @@ export class ConversationTurnQueueRepository {
         queue_item_id AS queueItemId, client_request_id AS clientRequestId, request_hash AS requestHash,
         position, status, retry_count AS retryCount,
         predecessor_execution_revision AS predecessorExecutionRevision,
-        dispatch_request_id AS dispatchRequestId, item_kind AS itemKind, review_target_json AS reviewTargetJson,
+        dispatch_request_id AS dispatchRequestId,
+        execution_contract_family AS executionContractFamily,
+        execution_contract_epoch AS executionContractEpoch,
+        item_kind AS itemKind, review_target_json AS reviewTargetJson,
         text, context_refs_json AS contextRefsJson,
         attachment_ids_json AS attachmentIdsJson, skill_overrides_json AS skillOverridesJson,
         provider_id AS providerId, agent_turn_mode AS agentTurnMode,
@@ -64,7 +68,10 @@ export class ConversationTurnQueueRepository {
         queue_item_id AS queueItemId, client_request_id AS clientRequestId, request_hash AS requestHash,
         position, status, retry_count AS retryCount,
         predecessor_execution_revision AS predecessorExecutionRevision,
-        dispatch_request_id AS dispatchRequestId, item_kind AS itemKind, review_target_json AS reviewTargetJson,
+        dispatch_request_id AS dispatchRequestId,
+        execution_contract_family AS executionContractFamily,
+        execution_contract_epoch AS executionContractEpoch,
+        item_kind AS itemKind, review_target_json AS reviewTargetJson,
         text, context_refs_json AS contextRefsJson,
         attachment_ids_json AS attachmentIdsJson, skill_overrides_json AS skillOverridesJson,
         provider_id AS providerId, agent_turn_mode AS agentTurnMode,
@@ -83,7 +90,10 @@ export class ConversationTurnQueueRepository {
         queue_item_id AS queueItemId, client_request_id AS clientRequestId, request_hash AS requestHash,
         position, status, retry_count AS retryCount,
         predecessor_execution_revision AS predecessorExecutionRevision,
-        dispatch_request_id AS dispatchRequestId, item_kind AS itemKind, review_target_json AS reviewTargetJson,
+        dispatch_request_id AS dispatchRequestId,
+        execution_contract_family AS executionContractFamily,
+        execution_contract_epoch AS executionContractEpoch,
+        item_kind AS itemKind, review_target_json AS reviewTargetJson,
         text, context_refs_json AS contextRefsJson,
         attachment_ids_json AS attachmentIdsJson, skill_overrides_json AS skillOverridesJson,
         provider_id AS providerId, agent_turn_mode AS agentTurnMode,
@@ -117,15 +127,17 @@ export class ConversationTurnQueueRepository {
       INSERT INTO conversation_turn_queue_items (
         project_id, conversation_id, product_mode, queue_item_id, client_request_id, request_hash,
         position, status, retry_count, predecessor_execution_revision, dispatch_request_id,
+        execution_contract_family, execution_contract_epoch,
         item_kind, review_target_json,
         text, context_refs_json, attachment_ids_json, skill_overrides_json, provider_id,
         agent_turn_mode, agent_model_id, agent_reasoning_effort, diagnostic,
         created_at, updated_at, dispatched_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       item.projectId, item.conversationId, item.productMode, item.queueItemId, item.clientRequestId,
       item.requestHash, item.position, item.status, item.retryCount, item.predecessorExecutionRevision,
-      item.dispatchRequestId, item.itemKind ?? "conversation-turn", item.reviewTargetJson ?? null, item.text, item.contextRefsJson, item.attachmentIdsJson,
+      item.dispatchRequestId, item.executionContractFamily ?? "legacy-v0", item.executionContractEpoch ?? 0,
+      item.itemKind ?? "conversation-turn", item.reviewTargetJson ?? null, item.text, item.contextRefsJson, item.attachmentIdsJson,
       item.skillOverridesJson, item.providerId, item.agentTurnMode, item.agentModelId,
       item.agentReasoningEffort, item.diagnostic, item.createdAt, item.updatedAt, item.dispatchedAt,
     );
@@ -182,7 +194,64 @@ export class ConversationTurnQueueRepository {
     return this.readQueue(projectId, conversationId)!;
   }
 
+  readContractConfirmation(
+    projectId: string,
+    conversationId: string,
+    queueItemId: string,
+    targetFamily: string,
+    targetEpoch: number,
+  ): StoredConversationTurnQueueContractConfirmation | null {
+    const row = this.db.prepare(`
+      SELECT project_id AS projectId, conversation_id AS conversationId, queue_item_id AS queueItemId,
+        prior_family AS priorFamily, prior_epoch AS priorEpoch,
+        target_family AS targetFamily, target_epoch AS targetEpoch,
+        client_request_id AS clientRequestId, request_hash AS requestHash, confirmed_at AS confirmedAt
+      FROM conversation_turn_queue_contract_confirmations
+      WHERE project_id = ? AND conversation_id = ? AND queue_item_id = ?
+        AND target_family = ? AND target_epoch = ?
+    `).get(projectId, conversationId, queueItemId, targetFamily, targetEpoch) as SqliteRow | undefined;
+    return row ? mapConfirmation(row) : null;
+  }
+
+  readContractConfirmationByRequestId(
+    projectId: string,
+    conversationId: string,
+    clientRequestId: string,
+  ): StoredConversationTurnQueueContractConfirmation | null {
+    const row = this.db.prepare(`
+      SELECT project_id AS projectId, conversation_id AS conversationId, queue_item_id AS queueItemId,
+        prior_family AS priorFamily, prior_epoch AS priorEpoch,
+        target_family AS targetFamily, target_epoch AS targetEpoch,
+        client_request_id AS clientRequestId, request_hash AS requestHash, confirmed_at AS confirmedAt
+      FROM conversation_turn_queue_contract_confirmations
+      WHERE project_id = ? AND conversation_id = ? AND client_request_id = ?
+    `).get(projectId, conversationId, clientRequestId) as SqliteRow | undefined;
+    return row ? mapConfirmation(row) : null;
+  }
+
+  insertContractConfirmation(confirmation: StoredConversationTurnQueueContractConfirmation): void {
+    this.db.prepare(`
+      INSERT INTO conversation_turn_queue_contract_confirmations (
+        project_id, conversation_id, queue_item_id, prior_family, prior_epoch,
+        target_family, target_epoch, client_request_id, request_hash, confirmed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      confirmation.projectId,
+      confirmation.conversationId,
+      confirmation.queueItemId,
+      confirmation.priorFamily,
+      confirmation.priorEpoch,
+      confirmation.targetFamily,
+      confirmation.targetEpoch,
+      confirmation.clientRequestId,
+      confirmation.requestHash,
+      confirmation.confirmedAt,
+    );
+  }
+
   deleteConversationQueue(projectId: string, conversationId: string): void {
+    this.db.prepare("DELETE FROM conversation_turn_queue_contract_confirmations WHERE project_id = ? AND conversation_id = ?")
+      .run(projectId, conversationId);
     this.db.prepare("DELETE FROM conversation_turn_queue_items WHERE project_id = ? AND conversation_id = ?")
       .run(projectId, conversationId);
     this.db.prepare("DELETE FROM conversation_turn_queues WHERE project_id = ? AND conversation_id = ?")
@@ -208,6 +277,8 @@ function mapItem(row: SqliteRow): StoredConversationQueuedTurn {
     position: Number(row.position), status: String(row.status) as StoredConversationQueuedTurnStatus,
     retryCount: Number(row.retryCount), predecessorExecutionRevision: String(row.predecessorExecutionRevision),
     dispatchRequestId: String(row.dispatchRequestId),
+    executionContractFamily: String(row.executionContractFamily),
+    executionContractEpoch: Number(row.executionContractEpoch),
     itemKind: row.itemKind === "review" ? "review" : "conversation-turn",
     reviewTargetJson: row.reviewTargetJson === null ? null : String(row.reviewTargetJson), text: String(row.text),
     contextRefsJson: String(row.contextRefsJson), attachmentIdsJson: String(row.attachmentIdsJson),
@@ -217,6 +288,21 @@ function mapItem(row: SqliteRow): StoredConversationQueuedTurn {
     agentReasoningEffort: row.agentReasoningEffort === null ? null : String(row.agentReasoningEffort),
     diagnostic: row.diagnostic === null ? null : String(row.diagnostic), createdAt: String(row.createdAt),
     updatedAt: String(row.updatedAt), dispatchedAt: row.dispatchedAt === null ? null : String(row.dispatchedAt),
+  };
+}
+
+function mapConfirmation(row: SqliteRow): StoredConversationTurnQueueContractConfirmation {
+  return {
+    projectId: String(row.projectId),
+    conversationId: String(row.conversationId),
+    queueItemId: String(row.queueItemId),
+    priorFamily: String(row.priorFamily),
+    priorEpoch: Number(row.priorEpoch),
+    targetFamily: String(row.targetFamily),
+    targetEpoch: Number(row.targetEpoch),
+    clientRequestId: String(row.clientRequestId),
+    requestHash: String(row.requestHash),
+    confirmedAt: String(row.confirmedAt),
   };
 }
 

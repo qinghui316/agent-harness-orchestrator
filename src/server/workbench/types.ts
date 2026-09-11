@@ -295,6 +295,14 @@ export interface ConversationTurnQueueActionBody {
   expectedDraftUpdatedAt?: unknown;
 }
 
+export interface ConversationTurnQueueContractConfirmationBody {
+  productMode?: unknown;
+  expectedRevision?: unknown;
+  clientRequestId?: unknown;
+  expectedCreatedContract?: unknown;
+  expectedTargetContract?: unknown;
+}
+
 export interface FolderDialogResult {
   path: string | null;
   canceled: boolean;

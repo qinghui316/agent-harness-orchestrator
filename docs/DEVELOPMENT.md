@@ -227,7 +227,7 @@ GET  /api/projects/:projectId/workbench/actions/:actionRunId/events
 ```
 
 Ordinary chat messages use the Workbench canonical timeline in the resolved SQLite store. Schema
-16 and 17 databases upgrade to Schema 18 through explicit forward migrations after a quiescence
+16, 17, and 18 databases upgrade to Schema 19 through explicit forward migrations after a quiescence
 check and verified sidecar backup. Populated older schemas, future schemas, damaged databases, and
 failed recovery markers are preserved and isolated instead of being rebuilt or cleared. Never
 delete a project's Workbench database, WAL, migration snapshot, or recovery marker to make startup
@@ -235,6 +235,13 @@ pass. Diagnose against a copy and preserve the original evidence. Provider sessi
 continuity metadata and do not override Shared Conversation context or Harness facts. Accepted
 `spec.md`, `plan.md`, `tasks.md`, review, run, validation, audit, apply, and close artifacts remain
 the workflow sources of truth.
+
+Schema 19 preserves historical Provider Attempts as `legacy-v0` when their
+original execution semantics were not recorded. New Attempts must receive their
+execution identity from the shared Registry. Active legacy or older-epoch
+Conversation Queue items are content-preserving but require exact execution
+confirmation before dispatch; do not repair them by editing SQLite rows or
+advancing epochs in individual controllers.
 
 Focused migration verification:
 

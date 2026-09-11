@@ -20,3 +20,20 @@ export type * from "./contracts.js";
 export { AGENT_TURN_MODES, assertAgentTurnMode, assertProductMode, HARNESS_EXECUTION_MODES, parseAgentTurnMode, parseProductMode, PRODUCT_MODES, PROVIDER_CAPABILITY_SNAPSHOT_VERSION, stableCapabilitySnapshotHash } from "./capabilities.js";
 export { ProviderRegistry } from "./registry.js";
 export { createDefaultProviderRegistry, defaultProviderRegistry } from "./default-registry.js";
+export {
+  EXECUTION_CONTRACT_FAMILIES,
+  ExecutionContractRegistry,
+  defaultExecutionContractRegistry,
+  executionPolicyHash,
+  legacyExecutionContract,
+  resolveExecutionContract,
+  resolveStoredExecutionContract,
+  storedExecutionContract,
+} from "./execution-contract.js";
+export type {
+  ExecutionContractDefinition,
+  ExecutionContractFamily,
+  ExecutionContractIdentity,
+  ExecutionContractResolutionInput,
+  StoredExecutionContractIdentity,
+} from "./execution-contract.js";

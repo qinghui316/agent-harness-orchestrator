@@ -190,6 +190,15 @@ redacted. Review is stoppable but cannot be steered, cannot write project files,
 and is absent from AHO mode and all Harness validation, audit, authorization,
 confirmation, and governance projections.
 
+Schema 19 records which versioned execution contract a Provider Attempt used.
+The identity is split by Agent turn, Code Review, native child, and AHO role so
+an incompatible change affects only its own execution family. Conversation
+Queue items remember the family and epoch at creation. If that family advances,
+the item remains intact but shows `执行方式已更新，需要确认后发送`; the user must
+choose `按当前方式发送` before the Queue owner may dispatch it. Ordinary retry
+cannot bypass this confirmation, and historical Attempts remain readable as the
+behavior that actually ran rather than being rewritten to current policy.
+
 Ordinary Agent turns accept Composer-managed images and safe text/code files in
 both Default and Plan mode. One server-owned `TurnAttachmentResolver` validates
 project ownership, the exact managed attachment directory, type, size, and

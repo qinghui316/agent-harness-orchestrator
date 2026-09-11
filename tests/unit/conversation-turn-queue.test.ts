@@ -8,6 +8,12 @@ import { resolveProjectRuntimePaths, type ProjectRuntimePaths } from "../../src/
 import type { ManagedProject } from "../../src/types/index.js";
 import { createTopicAttachment } from "../../src/workbench/attachments.js";
 import { ConversationTurnQueueOwner } from "../../src/workbench/conversation-turn-queue.js";
+import {
+  EXECUTION_CONTRACT_FAMILIES,
+  ExecutionContractRegistry,
+  resolveStoredExecutionContract,
+  type ExecutionContractFamily,
+} from "../../src/provider-runtime/index.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 
 const projectId = "conversation-turn-queue-project";
@@ -312,6 +318,106 @@ describe("ConversationTurnQueueOwner", () => {
     } finally {
       database.close();
     }
+  });
+
+  it("blocks an incompatible queued Turn until the exact current execution contract is confirmed", async () => {
+    const original = createOwner();
+    const initial = await original.read(project, "agent", conversationId);
+    const queued = await original.enqueue(project, queueRequest(initial.revision, initial.executionRevision!));
+    const postConversationMessage = vi.fn(async () => ({}) as never);
+    const upgraded = createOwner(postConversationMessage, undefined, executionRegistry({ "agent.turn": 2 }));
+
+    const blocked = await upgraded.read(project, "agent", conversationId);
+    expect(blocked.canDispatch).toBe(false);
+    expect(blocked.items[0]?.executionCompatibility).toMatchObject({
+      state: "confirmation-required",
+      created: { family: "agent.turn", epoch: 1 },
+      target: { family: "agent.turn", epoch: 2 },
+    });
+    await upgraded.dispatchNext(project, "agent", conversationId, blocked.revision);
+    expect(postConversationMessage).not.toHaveBeenCalled();
+
+    const blockedAfterDispatch = await upgraded.read(project, "agent", conversationId);
+    expect(blockedAfterDispatch.items[0]?.status).toBe("queued");
+
+    const compatibility = blockedAfterDispatch.items[0]!.executionCompatibility;
+    if (compatibility.state === "compatible") throw new Error("Expected confirmation-required compatibility.");
+    const confirmed = await upgraded.confirmExecutionContract(project, {
+      productMode: "agent",
+      conversationId,
+      queueItemId: queued.items[0]!.queueItemId,
+      expectedRevision: blockedAfterDispatch.revision,
+      clientRequestId: "confirm-agent-turn-epoch-2",
+      expectedCreatedContract: compatibility.created,
+      expectedTargetContract: compatibility.target,
+    });
+    expect(confirmed.items[0]?.executionCompatibility).toEqual({ state: "compatible" });
+
+    await upgraded.dispatchNext(project, "agent", conversationId, confirmed.revision);
+    expect(postConversationMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let the generic retry API bypass execution confirmation", async () => {
+    const original = createOwner();
+    const initial = await original.read(project, "agent", conversationId);
+    const queued = await original.enqueue(project, queueRequest(initial.revision, initial.executionRevision!));
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      const storedQueue = database.conversationTurnQueues.readQueue(projectId, conversationId)!;
+      const item = database.conversationTurnQueues.readItem(projectId, conversationId, queued.items[0]!.queueItemId)!;
+      const updatedAt = new Date().toISOString();
+      database.conversationTurnQueues.transitionItem({
+        projectId,
+        conversationId,
+        queueItemId: item.queueItemId,
+        expectedStatus: "queued",
+        status: "blocked",
+        diagnostic: "Previous dispatch needs attention.",
+        updatedAt,
+      });
+      database.conversationTurnQueues.advanceRevision(projectId, conversationId, storedQueue.revision, updatedAt);
+    } finally {
+      database.close();
+    }
+
+    const upgraded = createOwner(undefined, undefined, executionRegistry({ "agent.turn": 2 }));
+    const blocked = await upgraded.read(project, "agent", conversationId);
+    await expect(upgraded.retry(
+      project,
+      "agent",
+      conversationId,
+      blocked.items[0]!.queueItemId,
+      blocked.revision,
+    )).rejects.toMatchObject({ name: "Conflict" });
+    expect((await upgraded.read(project, "agent", conversationId)).items[0]).toMatchObject({
+      status: "blocked",
+      executionCompatibility: { state: "confirmation-required" },
+    });
+  });
+
+  it("requires a new confirmation after the same execution family advances again", async () => {
+    const original = createOwner();
+    const initial = await original.read(project, "agent", conversationId);
+    await original.enqueue(project, queueRequest(initial.revision, initial.executionRevision!));
+    const epoch2 = createOwner(undefined, undefined, executionRegistry({ "agent.turn": 2 }));
+    const blocked = await epoch2.read(project, "agent", conversationId);
+    const compatibility = blocked.items[0]!.executionCompatibility;
+    if (compatibility.state === "compatible") throw new Error("Expected confirmation-required compatibility.");
+    await epoch2.confirmExecutionContract(project, {
+      productMode: "agent",
+      conversationId,
+      queueItemId: blocked.items[0]!.queueItemId,
+      expectedRevision: blocked.revision,
+      clientRequestId: "confirm-agent-turn-epoch-2",
+      expectedCreatedContract: compatibility.created,
+      expectedTargetContract: compatibility.target,
+    });
+
+    const epoch3 = createOwner(undefined, undefined, executionRegistry({ "agent.turn": 3 }));
+    expect((await epoch3.read(project, "agent", conversationId)).items[0]?.executionCompatibility).toMatchObject({
+      state: "confirmation-required",
+      target: { family: "agent.turn", epoch: 3 },
+    });
   });
 
   it("reclaims only into an unchanged empty draft and restores the complete queued input", async () => {
@@ -757,6 +863,7 @@ type QueueOwnerOptions = ConstructorParameters<typeof ConversationTurnQueueOwner
 function createOwner(
   postConversationMessage?: QueueOwnerOptions["postConversationMessage"],
   reviewDispatch?: QueueOwnerOptions["reviewDispatch"],
+  executionContractRegistry?: QueueOwnerOptions["executionContractRegistry"],
 ): ConversationTurnQueueOwner {
   return new ConversationTurnQueueOwner({
     projectRuntimeCoordinator: { resolve: async () => ({ state: "onboarding", paths }) } as never,
@@ -764,7 +871,17 @@ function createOwner(
     prepareConversationMessage: async () => ({}) as never,
     ...(postConversationMessage ? { postConversationMessage } : {}),
     ...(reviewDispatch ? { reviewDispatch } : {}),
+    ...(executionContractRegistry ? { executionContractRegistry } : {}),
   });
+}
+
+function executionRegistry(overrides: Partial<Record<ExecutionContractFamily, number>>): ExecutionContractRegistry {
+  return new ExecutionContractRegistry(EXECUTION_CONTRACT_FAMILIES.map((family) => ({
+    family,
+    epoch: overrides[family] ?? 1,
+    policyVersion: `${family}-test-v${overrides[family] ?? 1}`,
+    summary: `${family} test contract`,
+  })));
 }
 
 function namedError(name: string, message: string): Error {
@@ -831,6 +948,13 @@ async function insertRunningAttempt(attemptId: string): Promise<void> {
       roleId: "main-agent",
       operationProfile: "agent",
       providerId: "codex",
+      executionContract: resolveStoredExecutionContract({
+        productMode: "agent",
+        operationProfile: "agent",
+        operationKind: "conversation-turn",
+        roleId: "main-agent",
+        providerAdapterVersion: "test-adapter-v1",
+      }),
       nativeSessionId: null,
       model: null,
       capabilitySnapshot: { providerId: "codex", effectiveModel: null } as never,

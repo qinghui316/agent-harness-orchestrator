@@ -59,6 +59,7 @@ export function TopicComposer({
   onReclaimQueuedTurn,
   onRemoveQueuedTurn,
   onRetryQueuedTurn,
+  onConfirmQueuedTurnExecution,
   reviewOpen,
   reviewOptions,
   reviewLoading,
@@ -120,6 +121,7 @@ export function TopicComposer({
   onReclaimQueuedTurn?: (queueItemId: string) => void | Promise<void>;
   onRemoveQueuedTurn?: (queueItemId: string) => void | Promise<void>;
   onRetryQueuedTurn?: (queueItemId: string) => void | Promise<void>;
+  onConfirmQueuedTurnExecution?: (queueItemId: string) => void | Promise<void>;
   reviewOpen?: boolean;
   reviewOptions?: ProjectGitReviewOptions | null;
   reviewLoading?: boolean;
@@ -230,6 +232,7 @@ export function TopicComposer({
         onReclaim={onReclaimQueuedTurn}
         onRemove={onRemoveQueuedTurn}
         onRetry={onRetryQueuedTurn}
+        onConfirmExecution={onConfirmQueuedTurnExecution}
       />}
       contextControl={<ConversationContextIndicator
         snapshot={conversationContext ?? null}
@@ -548,12 +551,14 @@ export function ConversationTurnQueue({
   onReclaim,
   onRemove,
   onRetry,
+  onConfirmExecution,
 }: {
   snapshot: ConversationTurnQueueSnapshot | null;
   busy: boolean;
   onReclaim?: (queueItemId: string) => void | Promise<void>;
   onRemove?: (queueItemId: string) => void | Promise<void>;
   onRetry?: (queueItemId: string) => void | Promise<void>;
+  onConfirmExecution?: (queueItemId: string) => void | Promise<void>;
 }): ReactElement | null {
   if (!snapshot?.items?.length) return null;
   return <div className="conversation-turn-queue" aria-label="待发送内容">
@@ -565,14 +570,23 @@ export function ConversationTurnQueue({
       {snapshot.items.map((item, index) => {
         const needsAttention = queuedTurnNeedsAttention(item.status);
         const settlementPending = queuedTurnSettlementPending(item.status);
+        const confirmationRequired = item.executionCompatibility.state !== "compatible";
         return <li key={item.queueItemId} data-attention={needsAttention ? "true" : undefined}>
           <span className="conversation-turn-queue-index">{index + 1}</span>
           <span className="conversation-turn-queue-copy">
             <span>{item.itemKind === "review" ? reviewTargetPreview(item.reviewTarget) : queuePreview(item.text)}</span>
-            <small>{queuedTurnStatusLabel(item.status, item.attachmentIds.length)}</small>
+            <small>{confirmationRequired
+              ? queueExecutionCompatibilitySummary(item.executionCompatibility)
+              : queuedTurnStatusLabel(item.status, item.attachmentIds.length)}</small>
           </span>
           <span className="conversation-turn-queue-actions">
-            {needsAttention ? <button
+            {confirmationRequired ? <button
+              type="button"
+              className="conversation-turn-queue-confirm"
+              title="按当前方式发送"
+              disabled={busy || settlementPending}
+              onClick={() => void onConfirmExecution?.(item.queueItemId)}
+            >按当前方式发送</button> : needsAttention ? <button
               type="button"
               title="重新尝试"
               aria-label="重新尝试发送"
@@ -598,6 +612,12 @@ export function ConversationTurnQueue({
       })}
     </ol>
   </div>;
+}
+
+function queueExecutionCompatibilitySummary(
+  compatibility: ConversationTurnQueueSnapshot["items"][number]["executionCompatibility"],
+): string {
+  return compatibility.state === "compatible" ? "" : compatibility.summary;
 }
 
 function reviewTargetPreview(target: ProviderReviewTarget | null): string {

@@ -589,6 +589,10 @@ export interface ProviderSkillCatalogPort {
 export interface ProviderDescriptor {
   id: ProviderId;
   displayName: string;
+  adapter: {
+    id: string;
+    version: string;
+  };
   runtime: {
     liveness(): ProviderRuntimeLiveness;
     shutdown(reason?: string): void | Promise<void>;

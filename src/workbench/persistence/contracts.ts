@@ -1,5 +1,5 @@
 import type { ProviderSkillInput } from "../../project-harness/contracts.js";
-import type { AgentTurnMode, ProductMode, ProviderCapabilitySnapshot, ProviderId, ProviderModelRef } from "../../provider-runtime/index.js";
+import type { AgentTurnMode, ProductMode, ProviderCapabilitySnapshot, ProviderId, ProviderModelRef, StoredExecutionContractIdentity } from "../../provider-runtime/index.js";
 
 export interface StoredTopicMessage {
   id: string;
@@ -126,6 +126,7 @@ export interface StoredProviderAttempt {
   parentAgentSurfaceId?: string | null;
   operationProfile: string;
   operationKind: "conversation-turn" | "review";
+  executionContract: StoredExecutionContractIdentity;
   providerId: ProviderId;
   nativeSessionId: string | null;
   model: ProviderModelRef | null;
@@ -180,6 +181,8 @@ export interface StoredConversationQueuedTurn {
   retryCount: number;
   predecessorExecutionRevision: string;
   dispatchRequestId: string;
+  executionContractFamily: string;
+  executionContractEpoch: number;
   itemKind: "conversation-turn" | "review";
   reviewTargetJson: string | null;
   text: string;
@@ -194,6 +197,19 @@ export interface StoredConversationQueuedTurn {
   createdAt: string;
   updatedAt: string;
   dispatchedAt: string | null;
+}
+
+export interface StoredConversationTurnQueueContractConfirmation {
+  projectId: string;
+  conversationId: string;
+  queueItemId: string;
+  priorFamily: string;
+  priorEpoch: number;
+  targetFamily: string;
+  targetEpoch: number;
+  clientRequestId: string;
+  requestHash: string;
+  confirmedAt: string;
 }
 
 export interface StoredConversationReviewOperation {

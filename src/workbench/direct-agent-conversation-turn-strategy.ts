@@ -6,6 +6,7 @@ import {
   type ProviderRegistry,
   type ProviderTurnResult,
 } from "../provider-runtime/index.js";
+import { resolveStoredExecutionContract } from "../provider-runtime/execution-contract.js";
 import { defaultProjectRuntimeActivityRegistry } from "../project-runtime/activity.js";
 import { resolveProjectRuntimePaths, type ProjectRuntimePaths } from "../project-runtime/paths.js";
 import { buildCanonicalCaptureWrites } from "./provider-capture-persistence.js";
@@ -205,6 +206,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
       runId,
       parentAttemptId: attemptId,
       providerId: input.providerId,
+      providerAdapterVersion: this.providerRegistry.get(input.providerId).adapter.version,
       capabilitySnapshot,
       model,
       reasoningEffort,
@@ -335,6 +337,13 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
         parentAgentSurfaceId: null,
         operationProfile: "agent",
         providerId: input.providerId,
+        executionContract: resolveStoredExecutionContract({
+          productMode: "agent",
+          operationProfile: "agent",
+          operationKind: "conversation-turn",
+          roleId: "main-agent",
+          providerAdapterVersion: this.providerRegistry.get(input.providerId).adapter.version,
+        }),
         nativeSessionId: existingSessionId,
         model,
         reasoningEffort,

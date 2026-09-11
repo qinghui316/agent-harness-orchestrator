@@ -26,7 +26,7 @@ afterEach(async () => {
 describe("Workbench database upgrade safety", () => {
   it("preflights new, upgradeable, current, legacy, and future databases without mutating them", async () => {
     const emptyPaths = resolveProjectRuntimePaths("empty", root);
-    await expect(inspectWorkbenchDatabaseUpgradeState(emptyPaths)).resolves.toEqual({ state: "ready", schemaVersion: 18 });
+    await expect(inspectWorkbenchDatabaseUpgradeState(emptyPaths)).resolves.toEqual({ state: "ready", schemaVersion: WORKBENCH_SCHEMA_VERSION });
 
     for (const revision of [16, 17] as const) {
       const paths = resolveProjectRuntimePaths(`preflight-${revision}`, root);
@@ -39,7 +39,7 @@ describe("Workbench database upgrade safety", () => {
     const currentPaths = resolveProjectRuntimePaths("preflight-current", root);
     const current = await WorkbenchDatabase.open(currentPaths, noActiveWorkGuard());
     current.close();
-    await expect(inspectWorkbenchDatabaseUpgradeState(currentPaths)).resolves.toEqual({ state: "ready", schemaVersion: 18 });
+    await expect(inspectWorkbenchDatabaseUpgradeState(currentPaths)).resolves.toEqual({ state: "ready", schemaVersion: WORKBENCH_SCHEMA_VERSION });
 
     for (const revision of [7, 99]) {
       const paths = resolveProjectRuntimePaths(`preflight-unsupported-${revision}`, root);
@@ -48,13 +48,13 @@ describe("Workbench database upgrade safety", () => {
       raw.pragma(`user_version = ${revision}`);
       raw.close();
       await expect(inspectWorkbenchDatabaseUpgradeState(paths)).resolves.toEqual({
-        state: revision > 18 ? "newer-version" : "unsupported-legacy",
+        state: revision > WORKBENCH_SCHEMA_VERSION ? "newer-version" : "unsupported-legacy",
         schemaVersion: revision,
       });
     }
   });
 
-  it.each([16, 17] as const)("backs up and explicitly migrates Schema %i to 18", async (revision) => {
+  it.each([16, 17] as const)("backs up and explicitly migrates Schema %i to the current version", async (revision) => {
     const paths = resolveProjectRuntimePaths(`schema-${revision}`, root);
     await createLegacyDatabase(paths.workbenchDbPath, revision);
 
@@ -70,14 +70,14 @@ describe("Workbench database upgrade safety", () => {
 
     const previousDir = join(dirname(paths.workbenchDbPath), "schema-upgrades", "previous");
     const receipt = JSON.parse(await readFile(join(previousDir, "receipt.json"), "utf8")) as Record<string, unknown>;
-    expect(receipt).toMatchObject({ fromSchema: revision, toSchema: 18, result: "completed" });
-    expect(receipt.appliedVersions).toEqual(revision === 16 ? [17, 18] : [18]);
+    expect(receipt).toMatchObject({ fromSchema: revision, toSchema: WORKBENCH_SCHEMA_VERSION, result: "completed" });
+    expect(receipt.appliedVersions).toEqual(revision === 16 ? [17, 18, 19] : [18, 19]);
     expect(receipt.preservedRecordCounts).toMatchObject({ canonical_timeline_items: 1 });
     expect(receipt.preservedIdentityDigest).toMatch(/^[a-f0-9]{64}$/);
     await expect(stat(join(previousDir, "workbench.sqlite"))).resolves.toBeTruthy();
   });
 
-  it("does not create a backup for a current Schema-18 database", async () => {
+  it("does not create a backup for a current database", async () => {
     const paths = resolveProjectRuntimePaths("current", root);
     const first = await WorkbenchDatabase.open(paths, noActiveWorkGuard());
     first.close();
@@ -121,7 +121,7 @@ describe("Workbench database upgrade safety", () => {
     restored.close();
     const recoveryDir = join(dirname(paths.workbenchDbPath), "schema-upgrades", "recovery");
     const receipt = JSON.parse(await readFile(join(recoveryDir, "receipt.json"), "utf8")) as Record<string, unknown>;
-    expect(receipt).toMatchObject({ fromSchema: 16, toSchema: 18, result: "restored" });
+    expect(receipt).toMatchObject({ fromSchema: 16, toSchema: WORKBENCH_SCHEMA_VERSION, result: "restored" });
 
     await expect(WorkbenchDatabase.open(paths, noActiveWorkGuard(), undefined, {
       beforeMigration: () => {
@@ -161,7 +161,7 @@ describe("Workbench database upgrade safety", () => {
     "planning_acceptance_commits",
     "skill_roots",
     "skill_enablement",
-  ])("rejects Schema 18 when durable table %s is missing", async (table) => {
+  ])("rejects the current Schema when durable table %s is missing", async (table) => {
     const paths = resolveProjectRuntimePaths(`damaged-current-${table.replaceAll("_", "-")}`, root);
     const opened = await WorkbenchDatabase.open(paths, noActiveWorkGuard());
     opened.close();
@@ -367,7 +367,7 @@ describe("Workbench database upgrade safety", () => {
     const opened = await WorkbenchDatabase.open(paths, noActiveWorkGuard());
     opened.close();
     const verified = new Database(paths.workbenchDbPath, { readonly: true });
-    expect(Number(verified.pragma("user_version", { simple: true }))).toBe(18);
+    expect(Number(verified.pragma("user_version", { simple: true }))).toBe(WORKBENCH_SCHEMA_VERSION);
     verified.close();
   });
 
@@ -422,8 +422,8 @@ describe("Workbench database upgrade safety", () => {
     })).rejects.toMatchObject({ code: "recovery-required" });
     const promotedReceipt = JSON.parse(await readFile(receiptPath, "utf8")) as { migrationImplementationVersion: number };
     const staleMarker = JSON.parse(await readFile(markerPath, "utf8")) as { migrationImplementationVersion: number };
-    expect(promotedReceipt.migrationImplementationVersion).toBe(1);
-    expect(staleMarker.migrationImplementationVersion).toBe(2);
+    expect(promotedReceipt.migrationImplementationVersion).toBe(2);
+    expect(staleMarker.migrationImplementationVersion).toBe(3);
 
     let migrationRetried = false;
     await expect(WorkbenchDatabase.open(paths, noActiveWorkGuard(), undefined, {
@@ -431,7 +431,7 @@ describe("Workbench database upgrade safety", () => {
     })).rejects.toMatchObject({ code: "recovery-required" });
     expect(migrationRetried).toBe(false);
     const reconciledMarker = JSON.parse(await readFile(markerPath, "utf8")) as { migrationImplementationVersion: number };
-    expect(reconciledMarker.migrationImplementationVersion).toBe(1);
+    expect(reconciledMarker.migrationImplementationVersion).toBe(2);
   });
 
   it("retries after a recovered Schema 16 source receives a later durable write", async () => {
@@ -467,7 +467,7 @@ describe("Workbench database upgrade safety", () => {
     await rm(paths.workbenchDbPath, { force: true });
     const replacement = new Database(paths.workbenchDbPath);
     applyCurrentWorkbenchSchema(replacement);
-    replacement.pragma("user_version = 18");
+    replacement.pragma(`user_version = ${WORKBENCH_SCHEMA_VERSION}`);
     replacement.close();
 
     const opened = await WorkbenchDatabase.open(paths, noActiveWorkGuard());
@@ -534,7 +534,7 @@ describe("Workbench database upgrade safety", () => {
     const reopened = await WorkbenchDatabase.open(paths, noActiveWorkGuard());
     reopened.close();
     const current = new Database(paths.workbenchDbPath, { readonly: true });
-    expect(Number(current.pragma("user_version", { simple: true }))).toBe(18);
+    expect(Number(current.pragma("user_version", { simple: true }))).toBe(WORKBENCH_SCHEMA_VERSION);
     expect(current.prepare("SELECT text FROM canonical_timeline_items WHERE id = 'sentinel'").get()).toEqual({ text: "keep me" });
     current.close();
     const receipt = JSON.parse(await readFile(join(dirname(paths.workbenchDbPath), "schema-upgrades", "previous", "receipt.json"), "utf8")) as { result: string };
@@ -593,22 +593,22 @@ describe("Workbench database upgrade safety", () => {
     await copyFile(paths.workbenchDbPath, snapshotPath);
     const raw = new Database(paths.workbenchDbPath);
     applyCurrentWorkbenchSchema(raw);
-    raw.pragma("user_version = 18");
+    raw.pragma(`user_version = ${WORKBENCH_SCHEMA_VERSION}`);
     raw.close();
     const targetDigest = await digest(paths.workbenchDbPath);
     await writeFile(join(stagingDir, "receipt.json"), `${JSON.stringify({
       schemaVersion: "1.0",
       transactionId: "completed",
       fromSchema: 17,
-      toSchema: 18,
-      migrationImplementationVersion: 1,
+      toSchema: WORKBENCH_SCHEMA_VERSION,
+      migrationImplementationVersion: 2,
       sourceFileDigest: await digest(snapshotPath),
       sourceDigest: digestWorkbenchDatabaseContent(snapshotPath),
       snapshotDigest: await digest(snapshotPath),
       targetDigest,
       preservedRecordCounts: {},
       preservedIdentityDigest: "test",
-      appliedVersions: [18],
+      appliedVersions: [18, 19],
       startedAt: "2026-09-11T00:00:00.000Z",
       completedAt: "2026-09-11T00:00:01.000Z",
       result: "completed",

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { readBundledAgentCatalog } from "../agent/catalog.js";
 import { evaluateToolPolicy } from "../agent-task/tool-policy.js";
 import type { ProviderRegistry, ProviderTurnResult } from "../provider-runtime/index.js";
+import { resolveStoredExecutionContract } from "../provider-runtime/execution-contract.js";
 import { agentThreadSurfaceId } from "../provider-runtime/agent-surface-id.js";
 import { writeJsonFile } from "../fs/json.js";
 import { getGitCommit, getGitStatusShort } from "../project/git.js";
@@ -296,6 +297,13 @@ async function runProjectScopedMainAgentTurnActivity(
       roleId: "main-agent",
       operationProfile: "main",
       providerId: providerId!,
+      executionContract: resolveStoredExecutionContract({
+        productMode: "harness",
+        operationProfile: "main",
+        operationKind: "conversation-turn",
+        roleId: "main-agent",
+        providerAdapterVersion: provider.adapter.version,
+      }),
       nativeSessionId: mainSessionId,
       model: capabilitySnapshot.effectiveModel ? { providerId: providerId!, modelId: capabilitySnapshot.effectiveModel } : null,
       capabilitySnapshot,
@@ -366,6 +374,7 @@ async function runProjectScopedMainAgentTurnActivity(
     runId,
     parentAttemptId: attemptId,
     providerId,
+    providerAdapterVersion: provider.adapter.version,
     capabilitySnapshot,
     model: capabilitySnapshot.effectiveModel ? { providerId, modelId: capabilitySnapshot.effectiveModel } : null,
     parentHandoffHash: turnHandoffHash,

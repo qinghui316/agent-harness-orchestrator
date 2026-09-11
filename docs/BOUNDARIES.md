@@ -200,6 +200,15 @@ import Queue for shared helpers. Execution revision calculation belongs to the
 neutral `conversation-execution-revision` service and does not grant either
 owner authority over the other lifecycle.
 
+`ExecutionContractRegistry` is the single provider-neutral owner of execution
+families, epochs, policy hashes, and adapter-version capture. Controllers and
+Provider adapters consume a resolved identity but cannot define private version
+schemes. A Queue item stores its creation family and epoch. Queue dispatch and
+generic retry both fail closed when that identity is incompatible with the
+current family epoch; only the Queue owner's durable confirmation for the exact
+target family and epoch may restore dispatch eligibility. Changing one family
+does not invalidate another family's queued work.
+
 `ConversationReviewLifecycleOwner` is the sole native Code Review mutation owner.
 The optional `turn.review` capability is Agent-only and does not change minimum
 Provider readiness. Public contracts carry a neutral Git target, opaque Session
@@ -209,7 +218,7 @@ Turn, `review/start`, or inline delivery payloads. Existing Conversations retain
 their native Session model configuration; only an empty-Conversation bootstrap
 uses the current side-effect-free model admission.
 
-Schema 18 stores neutral Review operations and marks Provider Attempts and
+Schema 18 introduced neutral Review operations and marks Provider Attempts and
 Conversation FIFO items as `conversation-turn | review`. Review rows cannot
 carry ordinary Turn mode, draft text, attachment, file-reference, Skill, model,
 or effort fields, and database constraints reject Harness Review Attempts and
@@ -1248,7 +1257,7 @@ composition owner
 -> WorkbenchDatabase
 -> database-upgrade owner
 -> bounded repositories
--> schema v18 tables
+-> schema v19 tables
 ```
 
 - `src/workbench/persistence/database.ts` owns the shared repository connection lifetime and
@@ -1265,13 +1274,16 @@ composition owner
 - Upgrade quiescence is supplied through the existing composition-owned guard port. Persistence
   consumes that narrow port and must not import Provider, Workflow, or Agent Task owners to decide
   whether a migration may start.
-- Schema 16, 17, and 18 are the only automatic compatibility window. Each transition is explicit,
+- Schema 16, 17, 18, and 19 are the only automatic compatibility window. Each transition is explicit,
   validated, and forward-only. Populated older or future schemas are preserved byte-for-byte and
   rejected; no unsupported version may fall back to table deletion or cumulative current-DDL
   mutation.
 - A schema-changing open checkpoints SQLite, writes a verified sidecar snapshot and receipt, and
   then migrates in one exclusive transaction. Failure restores the snapshot and leaves a retry
-  suppression marker. Schema 18 opens do not create routine backups.
+  suppression marker. Schema 19 opens do not create routine backups.
+- Schema 19 stores immutable execution identity on Provider Attempts and creation identity plus
+  exact confirmation receipts for Conversation Queue. The 18 -> 19 migration preserves old facts
+  as `legacy-v0`; it neither rewrites history nor treats a legacy item as current behavior.
 - Migration snapshots cover Workbench SQLite only. Registry, Harness evidence, user Git projects,
   and Electron Chromium caches remain with their existing owners. Electron Main cannot read or
   migrate business data.

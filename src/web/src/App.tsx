@@ -1467,6 +1467,7 @@ export function App(): ReactElement {
                    onReclaimQueuedTurn={composer.reclaimQueuedTurn}
                    onRemoveQueuedTurn={(queueItemId) => { void conversationTurnQueue.remove(queueItemId); }}
                    onRetryQueuedTurn={(queueItemId) => { void conversationTurnQueue.retry(queueItemId); }}
+                   onConfirmQueuedTurnExecution={(queueItemId) => { void conversationTurnQueue.confirmExecutionContract(queueItemId); }}
                    reviewOpen={conversationReview.open}
                    reviewOptions={conversationReview.options}
                    reviewLoading={conversationReview.loading}

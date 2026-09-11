@@ -1164,6 +1164,7 @@ describe("DirectAgentConversationTurnStrategy", () => {
         runId: main.attemptId,
         parentAttemptId: main.attemptId,
         providerId: "codex",
+        providerAdapterVersion: "test-provider-v1",
         capabilitySnapshot: capabilitySnapshot("agent"),
         model: null,
         parentHandoffHash: main.handoffHash,
@@ -1530,6 +1531,7 @@ function fakeProvider(behavior: FakeProviderBehavior = {}): {
   const descriptor: ProviderDescriptor = {
     id: providerId,
     displayName: "Codex",
+    adapter: { id: "test-provider", version: "1" },
     runtime: { liveness: () => ({ providerId: "codex", liveHostCount: 0 }), shutdown: async () => undefined, shutdownProject: async () => undefined },
     capabilitySnapshot: async (_project, productMode) => capabilitySnapshot(productMode, behavior.childCapability !== false),
     runtimeSummary: async (_project, productMode) => ({

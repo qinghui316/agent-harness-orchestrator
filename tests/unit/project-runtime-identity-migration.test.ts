@@ -37,7 +37,7 @@ describe("staged canonical project identity migration", () => {
         .sort();
 
       expect(actual).toEqual(expected);
-      expect(expected).toHaveLength(20);
+      expect(expected).toHaveLength(21);
     } finally {
       database.close();
     }
@@ -71,7 +71,7 @@ describe("staged canonical project identity migration", () => {
       expect(proof.countAfter, proof.table).toBe(proof.countBefore);
       expect(proof.identityNeutralHashAfter, proof.table).toBe(proof.identityNeutralHashBefore);
     }
-    expect(result.sqliteProofs[0].userVersion).toBe(18);
+    expect(result.sqliteProofs[0].userVersion).toBe(19);
     expect(result.sqliteProofs[0].updatedRows).toBe(3);
 
     const run = await readJson<{ projectId: string; payload: { keep: string } }>(

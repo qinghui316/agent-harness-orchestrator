@@ -7,6 +7,7 @@ import type {
   ProviderModelRef,
 } from "../provider-runtime/index.js";
 import { agentThreadSurfaceId } from "../provider-runtime/agent-surface-id.js";
+import { resolveStoredExecutionContract } from "../provider-runtime/execution-contract.js";
 import { resolveRegisteredAgentExecutionProfile } from "./agent-execution-profile-resolver.js";
 import type { CanonicalTimelineDelivery } from "./canonical-timeline-delivery.js";
 import { toCanonicalTimelineMessage } from "./canonical-timeline-message.js";
@@ -40,6 +41,7 @@ export class ProviderChildLifecycleOwner {
     runId: string;
     parentAttemptId: string;
     providerId: string;
+    providerAdapterVersion: string;
     capabilitySnapshot: ProviderCapabilitySnapshot;
     model: ProviderModelRef | null;
     parentHandoffHash: string;
@@ -102,6 +104,13 @@ export class ProviderChildLifecycleOwner {
         roleId: record.roleId,
         operationProfile: resolved.operationProfile,
         providerId: this.input.providerId,
+        executionContract: resolveStoredExecutionContract({
+          productMode: "harness",
+          operationProfile: resolved.operationProfile,
+          operationKind: "conversation-turn",
+          roleId: record.roleId,
+          providerAdapterVersion: this.input.providerAdapterVersion,
+        }),
         nativeSessionId: record.threadId,
         model: this.input.model,
         capabilitySnapshot: this.input.capabilitySnapshot,

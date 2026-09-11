@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 import type { SqliteRow } from "./sql-mappers.js";
 
-export const WORKBENCH_SCHEMA_VERSION = 18;
+export const WORKBENCH_SCHEMA_VERSION = 19;
 
 export function applyCurrentWorkbenchSchema(db: Database.Database): void {
   db.exec("DROP TABLE IF EXISTS bridge_sync; DROP TABLE IF EXISTS skills;");
@@ -145,6 +145,10 @@ export function applyCurrentWorkbenchSchema(db: Database.Database): void {
       role_id TEXT NOT NULL,
       parent_agent_surface_id TEXT,
       operation_profile TEXT NOT NULL,
+      execution_contract_family TEXT NOT NULL DEFAULT 'legacy-v0',
+      execution_contract_epoch INTEGER NOT NULL DEFAULT 0,
+      execution_policy_hash TEXT,
+      provider_adapter_version TEXT,
       native_session_id TEXT,
       model_json TEXT,
       reasoning_effort TEXT,
@@ -311,6 +315,8 @@ export function applyCurrentWorkbenchSchema(db: Database.Database): void {
       retry_count INTEGER NOT NULL DEFAULT 0 CHECK(retry_count BETWEEN 0 AND 1),
       predecessor_execution_revision TEXT NOT NULL,
       dispatch_request_id TEXT NOT NULL,
+      execution_contract_family TEXT NOT NULL DEFAULT 'legacy-v0',
+      execution_contract_epoch INTEGER NOT NULL DEFAULT 0,
       item_kind TEXT NOT NULL DEFAULT 'conversation-turn' CHECK(item_kind IN ('conversation-turn', 'review')),
       review_target_json TEXT,
       text TEXT NOT NULL,
@@ -331,6 +337,23 @@ export function applyCurrentWorkbenchSchema(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_conversation_turn_queue_active
       ON conversation_turn_queue_items(project_id, conversation_id, status, position);
+
+    CREATE TABLE IF NOT EXISTS conversation_turn_queue_contract_confirmations (
+      project_id TEXT NOT NULL,
+      conversation_id TEXT NOT NULL,
+      queue_item_id TEXT NOT NULL,
+      prior_family TEXT NOT NULL,
+      prior_epoch INTEGER NOT NULL,
+      target_family TEXT NOT NULL,
+      target_epoch INTEGER NOT NULL,
+      client_request_id TEXT NOT NULL,
+      request_hash TEXT NOT NULL,
+      confirmed_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, queue_item_id, target_family, target_epoch),
+      UNIQUE(project_id, conversation_id, client_request_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_queue_contract_confirmation_item
+      ON conversation_turn_queue_contract_confirmations(project_id, conversation_id, queue_item_id);
 
     CREATE TABLE IF NOT EXISTS conversation_review_operations (
       project_id TEXT NOT NULL,
@@ -363,8 +386,14 @@ export function applyCurrentWorkbenchSchema(db: Database.Database): void {
   ensureColumn(db, "conversations", "agent_reasoning_effort", "TEXT");
   ensureColumn(db, "provider_attempts", "reasoning_effort", "TEXT");
   ensureColumn(db, "provider_attempts", "operation_kind", "TEXT NOT NULL DEFAULT 'conversation-turn' CHECK(operation_kind IN ('conversation-turn', 'review'))");
+  ensureColumn(db, "provider_attempts", "execution_contract_family", "TEXT NOT NULL DEFAULT 'legacy-v0'");
+  ensureColumn(db, "provider_attempts", "execution_contract_epoch", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "provider_attempts", "execution_policy_hash", "TEXT");
+  ensureColumn(db, "provider_attempts", "provider_adapter_version", "TEXT");
   ensureColumn(db, "conversation_turn_queue_items", "item_kind", "TEXT NOT NULL DEFAULT 'conversation-turn' CHECK(item_kind IN ('conversation-turn', 'review'))");
   ensureColumn(db, "conversation_turn_queue_items", "review_target_json", "TEXT");
+  ensureColumn(db, "conversation_turn_queue_items", "execution_contract_family", "TEXT NOT NULL DEFAULT 'legacy-v0'");
+  ensureColumn(db, "conversation_turn_queue_items", "execution_contract_epoch", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "composer_drafts", "agent_model_id", "TEXT");
   ensureColumn(db, "composer_drafts", "agent_reasoning_effort", "TEXT");
   ensureColumn(db, "conversations", "product_mode", "TEXT NOT NULL DEFAULT 'harness' CHECK(product_mode IN ('agent', 'harness'))");

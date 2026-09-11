@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { ProviderCapabilitySnapshot } from "../../src/provider-runtime/index.js";
+import { resolveStoredExecutionContract, type ProviderCapabilitySnapshot } from "../../src/provider-runtime/index.js";
 import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { WorkbenchDatabase } from "../../src/workbench/persistence/database.js";
@@ -166,6 +166,60 @@ describe("Workbench persistence owners", () => {
     }
   });
 
+  it("migrates Schema 18 Attempts and queued Turns as honest legacy execution contracts", async () => {
+    const paths = runtimePaths();
+    const current = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      current.conversations.createConversation(conversation("conversation-1"));
+      current.providerAttempts.createProviderAttempt(providerAttempt("legacy-attempt", "codex"));
+      current.conversationTurnQueues.ensureQueue({ projectId, conversationId: "conversation-1", productMode: "harness", updatedAt: now });
+      current.conversationTurnQueues.insertItem({
+        projectId,
+        conversationId: "conversation-1",
+        productMode: "harness",
+        queueItemId: "legacy-queue-item",
+        clientRequestId: "legacy-queue-request",
+        requestHash: "legacy-request-hash",
+        position: 1,
+        status: "queued",
+        retryCount: 0,
+        predecessorExecutionRevision: "legacy-execution-revision",
+        dispatchRequestId: "legacy-dispatch-request",
+        executionContractFamily: "aho.main",
+        executionContractEpoch: 1,
+        itemKind: "conversation-turn",
+        reviewTargetJson: null,
+        text: "keep queued content",
+        contextRefsJson: "[]",
+        attachmentIdsJson: "[]",
+        skillOverridesJson: "{}",
+        providerId: "codex",
+        agentTurnMode: null,
+        agentModelId: null,
+        agentReasoningEffort: null,
+        diagnostic: null,
+        createdAt: now,
+        updatedAt: now,
+        dispatchedAt: null,
+      });
+    } finally {
+      current.close();
+    }
+
+    const legacy = new Database(paths.workbenchDbPath);
+    materializeWorkbenchSchemaContract(legacy, 18);
+    legacy.close();
+    const migrated = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      expect(migrated.providerAttempts.readProviderAttempt(projectId, "legacy-attempt")?.executionContract)
+        .toEqual({ kind: "legacy", family: "legacy-v0", epoch: 0, policyHash: null, providerAdapterVersion: null });
+      expect(migrated.conversationTurnQueues.readItem(projectId, "conversation-1", "legacy-queue-item"))
+        .toMatchObject({ text: "keep queued content", executionContractFamily: "legacy-v0", executionContractEpoch: 0 });
+    } finally {
+      migrated.close();
+    }
+  });
+
   it("updates a Conversation title only inside the exact project scope", async () => {
     const database = await openProjectRuntimeWorkbenchDatabase(runtimePaths());
     try {
@@ -298,6 +352,7 @@ describe("Workbench persistence owners", () => {
         roleId: "main-agent",
         operationProfile: "main",
         providerId: "codex",
+        executionContract: testExecutionContract(),
         nativeSessionId: null,
         model: null,
         capabilitySnapshot: { providerId: "codex", effectiveModel: null } as unknown as ProviderCapabilitySnapshot,
@@ -413,6 +468,7 @@ describe("Workbench persistence owners", () => {
         ...providerAttempt("attempt-plan", "codex"),
         roleId: "planning-agent",
         operationProfile: "planning",
+        executionContract: testExecutionContract("planning", "planning-agent"),
       });
       database.providerAttempts.bindProviderAttemptThread(projectId, {
         attemptId: "attempt-plan",
@@ -462,6 +518,7 @@ describe("Workbench persistence owners", () => {
         roleId: "main-agent",
         operationProfile: "main",
         providerId: "codex",
+        executionContract: testExecutionContract(),
         nativeSessionId: "thread-graph-a",
         model: null,
         capabilitySnapshot: { providerId: "codex", effectiveModel: null } as unknown as ProviderCapabilitySnapshot,
@@ -569,6 +626,7 @@ describe("Workbench persistence owners", () => {
         roleId: "main-agent",
         operationProfile: "main",
         providerId: "codex",
+        executionContract: testExecutionContract(),
         nativeSessionId: "thread-stale-main",
         model: null,
         capabilitySnapshot: { providerId: "codex", effectiveModel: null } as unknown as ProviderCapabilitySnapshot,
@@ -662,6 +720,7 @@ function providerAttempt(attemptId: string, providerId: string) {
     roleId: "main-agent",
     operationProfile: "main",
     providerId,
+    executionContract: testExecutionContract(),
     nativeSessionId: null,
     model: null,
     capabilitySnapshot: { providerId, effectiveModel: null } as unknown as ProviderCapabilitySnapshot,
@@ -673,6 +732,46 @@ function providerAttempt(attemptId: string, providerId: string) {
     createdAt: now,
     updatedAt: now,
   };
+}
+
+function testExecutionContract(
+  operationProfile: "main" | "planning" = "main",
+  roleId = "main-agent",
+) {
+  return resolveStoredExecutionContract({
+    productMode: "harness",
+    operationProfile,
+    operationKind: "conversation-turn",
+    roleId,
+    providerAdapterVersion: "test-adapter-v1",
+  });
+
+  it("fails closed when a stored Provider Attempt has a partial execution identity", async () => {
+    const paths = runtimePaths();
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      database.conversations.createConversation(conversation("conversation-1"));
+      database.providerAttempts.createProviderAttempt(providerAttempt("attempt-invalid-contract", "codex"));
+    } finally {
+      database.close();
+    }
+
+    const raw = new Database(paths.workbenchDbPath);
+    try {
+      raw.prepare("UPDATE provider_attempts SET execution_policy_hash = NULL WHERE attempt_id = ?")
+        .run("attempt-invalid-contract");
+    } finally {
+      raw.close();
+    }
+
+    const reopened = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      expect(() => reopened.providerAttempts.readProviderAttempt(projectId, "attempt-invalid-contract"))
+        .toThrow("Provider attempt has invalid execution contract");
+    } finally {
+      reopened.close();
+    }
+  });
 }
 
 function conversation(conversationId: string) {

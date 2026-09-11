@@ -8,6 +8,7 @@ import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
 import type { ProjectRuntimeResolution } from "../project-runtime/context.js";
 import type { ProjectWorkbenchPathPort } from "../project-runtime/paths.js";
 import { defaultProviderRegistry, type ProviderOperationProfile } from "../provider-runtime/index.js";
+import { resolveStoredExecutionContract } from "../provider-runtime/execution-contract.js";
 import type { ProviderSkillInput } from "../project-harness/contracts.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import { agentThreadSurfaceId } from "../provider-runtime/agent-surface-id.js";
@@ -279,6 +280,13 @@ async function runExactChildAgentTurnActivity(input: {
       roleId: target.roleId,
       operationProfile: target.operationProfile,
       providerId: target.providerId,
+      executionContract: resolveStoredExecutionContract({
+        productMode: "harness",
+        operationProfile: target.operationProfile,
+        operationKind: "conversation-turn",
+        roleId: target.roleId,
+        providerAdapterVersion: resolvedProvider.descriptor.adapter.version,
+      }),
       nativeSessionId: target.threadId,
       model,
       capabilitySnapshot: resolvedProvider.snapshot,

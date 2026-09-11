@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { listAgentTasks } from "../agent-task/repository.js";
 import { defaultProviderRegistry } from "../provider-runtime/index.js";
+import { resolveStoredExecutionContract } from "../provider-runtime/execution-contract.js";
 import type { ProviderRegistry } from "../provider-runtime/registry.js";
 import type { ProviderOperationProfile } from "../provider-runtime/types.js";
 import { reconcileTaskQueues } from "../task-queue/reconcile.js";
@@ -195,6 +196,13 @@ export async function switchConversationProviderAtSafePoint(input: {
       operationProfile: "main",
       operationKind: "conversation-turn",
       providerId: input.targetProviderId,
+      executionContract: resolveStoredExecutionContract({
+        productMode: initial.conversation.productMode,
+        operationProfile: "main",
+        operationKind: "conversation-turn",
+        roleId: "main-agent",
+        providerAdapterVersion: postReconcile.descriptor.adapter.version,
+      }),
       nativeSessionId: existingBinding?.nativeSessionId ?? null,
       model: capabilitySnapshot.effectiveModel ? { providerId: input.targetProviderId, modelId: capabilitySnapshot.effectiveModel } : null,
       reasoningEffort: null,

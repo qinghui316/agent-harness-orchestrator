@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { assertProductMode, type ProviderId } from "../../../provider-runtime/index.js";
+import { assertProductMode, legacyExecutionContract, type ProviderId } from "../../../provider-runtime/index.js";
 import { agentThreadSurfaceId } from "../../../provider-runtime/agent-surface-id.js";
 import type { StoredConversationProviderBinding, StoredProviderAttempt, StoredProviderResumePoint, StoredProviderThreadLink } from "../contracts.js";
 import { mapConversationProviderBindingRow, mapProviderAttemptRow, mapProviderResumePointRow, mapProviderThreadRow, nullableString, type SqliteRow } from "../sql-mappers.js";
@@ -167,6 +167,7 @@ createProviderAttempt(
   attempt: Omit<StoredProviderAttempt, "productMode" | "agentTurnMode" | "effectiveSkillInputs" | "reasoningEffort" | "operationKind">
     & Partial<Pick<StoredProviderAttempt, "productMode" | "agentTurnMode" | "effectiveSkillInputs" | "reasoningEffort" | "operationKind">>,
 ): void {
+    const executionContract = attempt.executionContract ?? legacyExecutionContract();
     let productMode = attempt.productMode;
     if (attempt.conversationId) {
       const conversation = this.db.prepare(`
@@ -186,6 +187,7 @@ createProviderAttempt(
     const columns = `(
       project_id, conversation_id, attempt_id, product_mode, agent_turn_mode, graph_scope_id, provider_id,
       change_id, agent_task_id, role_id, parent_agent_surface_id, operation_profile, operation_kind,
+      execution_contract_family, execution_contract_epoch, execution_policy_hash, provider_adapter_version,
       native_session_id, model_json, reasoning_effort, capability_snapshot_json, effective_skill_inputs_json, handoff_hash,
       delivered_through_completed_turn, worktree_id, status, created_at, updated_at
     )`;
@@ -203,6 +205,10 @@ createProviderAttempt(
       attempt.parentAgentSurfaceId,
       attempt.operationProfile,
       attempt.operationKind ?? "conversation-turn",
+      executionContract.family,
+      executionContract.epoch,
+      executionContract.policyHash,
+      executionContract.providerAdapterVersion,
       attempt.nativeSessionId,
       attempt.model ? JSON.stringify(attempt.model) : null,
       attempt.reasoningEffort ?? null,
@@ -309,6 +315,10 @@ completeProviderAttempt(projectId: string, attemptId: string, status: StoredProv
         change_id AS changeId, agent_task_id AS agentTaskId, role_id AS roleId,
         parent_agent_surface_id AS parentAgentSurfaceId, operation_profile AS operationProfile,
         operation_kind AS operationKind,
+        execution_contract_family AS executionContractFamily,
+        execution_contract_epoch AS executionContractEpoch,
+        execution_policy_hash AS executionPolicyHash,
+        provider_adapter_version AS providerAdapterVersion,
         model_json AS modelJson, reasoning_effort AS reasoningEffort, capability_snapshot_json AS capabilitySnapshotJson,
         effective_skill_inputs_json AS effectiveSkillInputsJson,
         handoff_hash AS handoffHash, delivered_through_completed_turn AS deliveredThroughCompletedTurn,
@@ -525,6 +535,10 @@ listProviderAttempts(projectId: string, conversationId: string): StoredProviderA
         change_id AS changeId, agent_task_id AS agentTaskId, role_id AS roleId,
         parent_agent_surface_id AS parentAgentSurfaceId, operation_profile AS operationProfile,
         operation_kind AS operationKind,
+        execution_contract_family AS executionContractFamily,
+        execution_contract_epoch AS executionContractEpoch,
+        execution_policy_hash AS executionPolicyHash,
+        provider_adapter_version AS providerAdapterVersion,
         model_json AS modelJson, reasoning_effort AS reasoningEffort, capability_snapshot_json AS capabilitySnapshotJson,
         effective_skill_inputs_json AS effectiveSkillInputsJson,
         handoff_hash AS handoffHash, delivered_through_completed_turn AS deliveredThroughCompletedTurn,

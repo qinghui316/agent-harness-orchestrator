@@ -103,6 +103,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
     projectRuntimeCoordinator,
     turnRouter,
     reviewDispatch: conversationReview,
+    providerRegistry,
   });
   const conversationLifecycle = options.conversationLifecycle ?? new ConversationLifecycleOwner({
     providerRegistry,

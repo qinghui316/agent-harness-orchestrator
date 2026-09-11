@@ -704,6 +704,7 @@ function fakeProvider(providerId: string): ProviderDescriptor {
   return {
     id: providerId,
     displayName: providerId,
+    adapter: { id: "test-provider", version: "1" },
     runtime: {
       liveness: () => ({ providerId, liveHostCount: 0 }),
       shutdown: async () => undefined,

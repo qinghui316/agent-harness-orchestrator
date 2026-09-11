@@ -7,6 +7,7 @@ import type {
   ProviderReviewResult,
   ProviderReviewTarget,
 } from "../provider-runtime/index.js";
+import { resolveStoredExecutionContract } from "../provider-runtime/execution-contract.js";
 import type { ProjectRuntimeCoordinatorPort } from "../project-runtime/coordinator.js";
 import type { ProjectRuntimePaths } from "../project-runtime/paths.js";
 import type { ManagedProject } from "../types/index.js";
@@ -314,6 +315,13 @@ export class ConversationReviewLifecycleOwner implements ConversationQueuedRevie
           parentAgentSurfaceId: null,
           operationProfile: "agent",
           providerId: request.providerId,
+          executionContract: resolveStoredExecutionContract({
+            productMode: "agent",
+            operationProfile: "agent",
+            operationKind: "review",
+            roleId: "main-agent",
+            providerAdapterVersion: this.options.providerRegistry.get(request.providerId).adapter.version,
+          }),
           nativeSessionId: prepared.existingSessionId,
           model: modelAdmission?.resolvedModelId
             ? { providerId: request.providerId, modelId: modelAdmission.resolvedModelId }

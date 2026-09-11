@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import type { ProviderRegistry } from "../provider-runtime/registry.js";
 import type { ProviderTurnResult } from "../provider-runtime/contracts.js";
+import { resolveStoredExecutionContract } from "../provider-runtime/execution-contract.js";
 import { createProjectHarnessRuntime, type ProjectHarnessCommandPort } from "../project-harness/runtime.js";
 import {
   ensureProjectHarnessOnboardingWorkspace,
@@ -88,6 +89,13 @@ async function runProjectHarnessOnboardingTurnActivity(
       roleId: "main-agent",
       operationProfile: "main",
       providerId,
+      executionContract: resolveStoredExecutionContract({
+        productMode: "harness",
+        operationProfile: "main",
+        operationKind: "conversation-turn",
+        roleId: "main-agent",
+        providerAdapterVersion: resolvedProvider.descriptor.adapter.version,
+      }),
       nativeSessionId: null,
       model: resolvedProvider.snapshot.effectiveModel
         ? { providerId, modelId: resolvedProvider.snapshot.effectiveModel }
@@ -390,6 +398,13 @@ async function runIndependentBundleReview(input: {
       roleId: "auditor-agent",
       operationProfile: "auditor",
       providerId: input.providerId,
+      executionContract: resolveStoredExecutionContract({
+        productMode: "harness",
+        operationProfile: "auditor",
+        operationKind: "conversation-turn",
+        roleId: "auditor-agent",
+        providerAdapterVersion: resolved.descriptor.adapter.version,
+      }),
       nativeSessionId: null,
       model: resolved.snapshot.effectiveModel ? { providerId: input.providerId, modelId: resolved.snapshot.effectiveModel } : null,
       capabilitySnapshot: resolved.snapshot,

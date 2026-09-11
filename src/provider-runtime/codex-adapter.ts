@@ -1,7 +1,7 @@
 import { getActiveCodexAppServerTurn, isCodexAppServerChildAvailable, listActiveCodexAppServerTurns, runCodexAppServerChildClose, runCodexAppServerChildTurn, runCodexAppServerReview, runCodexAppServerTurn, type ActiveCodexAppServerTurn, type CodexAppServerReviewTarget, type CodexAppServerThreadGoalStatus } from "../codex/app-server.js";
 import { normalizeCodexContextEvent, type CodexAppServerRealtimeEvent, type CodexContextEvent } from "../codex/app-server-realtime.js";
 import { getCodexProviderCapabilitySnapshot, getCodexProviderRuntimeSummary } from "./codex.js";
-import { executeCodexProjectAction, getCodexDiagnostics, listCodexProjectActions } from "./codex-diagnostics.js";
+import { CODEX_PROVIDER_ADAPTER, executeCodexProjectAction, getCodexDiagnostics, listCodexProjectActions } from "./codex-diagnostics.js";
 import { codexModelSettings, selectCodexModel } from "./codex-models.js";
 import { listCodexNativeSkills, setCodexNativeSkillEnabled } from "../codex/native-skills.js";
 import { CodexAppServerJsonRpcError, CodexAppServerRequestTimeoutError, defaultCodexAppServerHostRegistry } from "../codex/app-server-host.js";
@@ -15,6 +15,7 @@ const activeAttemptByScope = new Map<string, string>();
 export const codexProviderDescriptor: ProviderDescriptor = {
   id: CODEX_PROVIDER_ID,
   displayName: "Codex",
+  adapter: CODEX_PROVIDER_ADAPTER,
   runtime: {
     liveness: () => ({
       providerId: CODEX_PROVIDER_ID,

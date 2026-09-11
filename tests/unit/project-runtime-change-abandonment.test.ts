@@ -584,6 +584,7 @@ describe.sequential("Skill-native Project Harness Change abandonment", () => {
       runId: "run-late-native-child",
       parentAttemptId: "attempt-late-child-parent",
       providerId: "codex",
+      providerAdapterVersion: "test-provider-v1",
       capabilitySnapshot: {} as never,
       model: null,
       parentHandoffHash: "late-child-parent",

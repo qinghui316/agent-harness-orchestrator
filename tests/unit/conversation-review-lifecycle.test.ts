@@ -398,6 +398,7 @@ function createOwner(runReview: (request: ProviderReviewRequest) => Promise<Prov
   return new ConversationReviewLifecycleOwner({
     providerRegistry: {
       get: () => ({
+        adapter: { id: "test-provider", version: "1" },
         capabilitySnapshot: async () => capabilitySnapshot(),
         models: { read: async () => modelSnapshot() },
         conversation: { runReview },

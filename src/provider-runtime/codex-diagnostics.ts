@@ -6,6 +6,11 @@ import type { ProviderDiagnosticsSnapshot, ProviderProjectAction } from "./types
 import { getCodexProviderCapabilitySnapshot } from "./codex.js";
 import { codexModelSettings } from "./codex-models.js";
 
+export const CODEX_PROVIDER_ADAPTER = Object.freeze({
+  id: "codex-app-server",
+  version: "1",
+});
+
 export async function getCodexDiagnostics(project: ManagedProject | null, projectPath?: string): Promise<ProviderDiagnosticsSnapshot> {
   const [runtime, capabilities, models, trust, rawModels] = await Promise.all([
     detectCodexCapabilities(),
@@ -18,7 +23,7 @@ export async function getCodexDiagnostics(project: ManagedProject | null, projec
     providerId: "codex",
     displayName: "Codex",
     installation: { available: runtime.available, version: runtime.version, path: getCodexConfigPath() },
-    adapter: { id: "codex-app-server", version: "1" },
+    adapter: CODEX_PROVIDER_ADAPTER,
     capabilities,
     models,
     sessionHealth: !runtime.available ? "unavailable" : runtime.errors.length > 0 ? "degraded" : "ready",
