@@ -122,7 +122,37 @@ export function legacyExecutionContract(): StoredExecutionContractIdentity {
 export function storedExecutionContract(
   identity: ExecutionContractIdentity,
 ): StoredExecutionContractIdentity {
-  return { kind: "versioned", ...identity };
+  return { kind: "versioned", ...validateExecutionContractIdentity(identity) };
+}
+
+export function validateExecutionContractIdentity(input: {
+  family: unknown;
+  epoch: unknown;
+  policyHash: unknown;
+  providerAdapterVersion: unknown;
+}): ExecutionContractIdentity {
+  if (typeof input.family !== "string"
+    || !EXECUTION_CONTRACT_FAMILIES.includes(input.family as ExecutionContractFamily)) {
+    throw new Error("Execution contract family is invalid.");
+  }
+  if (!Number.isSafeInteger(input.epoch) || Number(input.epoch) < 1) {
+    throw new Error("Execution contract epoch is invalid.");
+  }
+  if (typeof input.policyHash !== "string" || !/^[a-f0-9]{64}$/.test(input.policyHash)) {
+    throw new Error("Execution contract policy hash is invalid.");
+  }
+  if (typeof input.providerAdapterVersion !== "string"
+    || input.providerAdapterVersion !== input.providerAdapterVersion.trim()
+    || input.providerAdapterVersion.length < 1
+    || input.providerAdapterVersion.length > 128) {
+    throw new Error("Execution contract Provider Adapter version is invalid.");
+  }
+  return {
+    family: input.family as ExecutionContractFamily,
+    epoch: Number(input.epoch),
+    policyHash: input.policyHash,
+    providerAdapterVersion: input.providerAdapterVersion,
+  };
 }
 
 export function resolveStoredExecutionContract(

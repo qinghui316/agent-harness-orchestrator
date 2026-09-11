@@ -462,6 +462,7 @@ describe("workbench server", () => {
     const remove = vi.fn(async () => snapshot);
     const reclaim = vi.fn(async () => snapshot);
     const retry = vi.fn(async () => snapshot);
+    const confirmExecutionContract = vi.fn(async () => snapshot);
     const dispatchNext = vi.fn(async () => snapshot);
     const conversationTurnQueue = {
       read,
@@ -469,6 +470,7 @@ describe("workbench server", () => {
       remove,
       reclaim,
       retry,
+      confirmExecutionContract,
       dispatchNext,
       reconcileProject: async () => 0,
     } as unknown as ConversationTurnQueueOwner;
@@ -553,6 +555,25 @@ describe("workbench server", () => {
       body: JSON.stringify({ productMode: "agent", expectedRevision: "queue:1" }),
     })).status).toBe(200);
     expect(retry).toHaveBeenCalledWith(project(), "agent", "conversation-agent", "item-1", "queue:1");
+    expect((await fetch(`${endpoint}/item-1/confirm-execution`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        productMode: "agent",
+        expectedRevision: " queue:1 ",
+        clientRequestId: " confirm-1 ",
+        expectedCreatedContract: { family: "agent.turn", epoch: 1 },
+        expectedTargetContract: { family: "agent.turn", epoch: 2 },
+      }),
+    })).status).toBe(200);
+    expect(confirmExecutionContract).toHaveBeenCalledWith(project(), {
+      productMode: "agent",
+      conversationId: "conversation-agent",
+      queueItemId: "item-1",
+      expectedRevision: "queue:1",
+      clientRequestId: "confirm-1",
+      expectedCreatedContract: { family: "agent.turn", epoch: 1 },
+      expectedTargetContract: { family: "agent.turn", epoch: 2 },
+    });
     expect((await fetch(`${endpoint}/dispatch-next`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ productMode: "agent", expectedRevision: "queue:1" }),

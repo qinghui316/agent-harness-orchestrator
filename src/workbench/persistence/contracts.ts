@@ -208,6 +208,7 @@ export interface StoredConversationTurnQueueContractConfirmation {
   targetFamily: string;
   targetEpoch: number;
   clientRequestId: string;
+  expectedRevision: string;
   requestHash: string;
   confirmedAt: string;
 }

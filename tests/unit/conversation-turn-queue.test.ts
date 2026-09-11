@@ -420,6 +420,47 @@ describe("ConversationTurnQueueOwner", () => {
     });
   });
 
+  it("fails closed when a persisted confirmation no longer matches its source contract or request hash", async () => {
+    const original = createOwner();
+    const initial = await original.read(project, "agent", conversationId);
+    await original.enqueue(project, queueRequest(initial.revision, initial.executionRevision!));
+    const upgraded = createOwner(undefined, undefined, executionRegistry({ "agent.turn": 2 }));
+    const blocked = await upgraded.read(project, "agent", conversationId);
+    const compatibility = blocked.items[0]!.executionCompatibility;
+    if (compatibility.state === "compatible") throw new Error("Expected confirmation-required compatibility.");
+    await upgraded.confirmExecutionContract(project, {
+      productMode: "agent",
+      conversationId,
+      queueItemId: blocked.items[0]!.queueItemId,
+      expectedRevision: blocked.revision,
+      clientRequestId: "confirm-corruption-test",
+      expectedCreatedContract: compatibility.created,
+      expectedTargetContract: compatibility.target,
+    });
+
+    const raw = new Database(paths.workbenchDbPath);
+    try {
+      raw.prepare("UPDATE conversation_turn_queue_contract_confirmations SET prior_epoch = 99")
+        .run();
+    } finally {
+      raw.close();
+    }
+    expect((await upgraded.read(project, "agent", conversationId)).items[0]?.executionCompatibility.state)
+      .toBe("confirmation-required");
+
+    const repairedPrior = new Database(paths.workbenchDbPath);
+    try {
+      repairedPrior.prepare(`
+        UPDATE conversation_turn_queue_contract_confirmations
+        SET prior_epoch = 1, request_hash = ?
+      `).run("0".repeat(64));
+    } finally {
+      repairedPrior.close();
+    }
+    expect((await upgraded.read(project, "agent", conversationId)).items[0]?.executionCompatibility.state)
+      .toBe("confirmation-required");
+  });
+
   it("reclaims only into an unchanged empty draft and restores the complete queued input", async () => {
     const owner = createOwner();
     const initial = await owner.read(project, "agent", conversationId);

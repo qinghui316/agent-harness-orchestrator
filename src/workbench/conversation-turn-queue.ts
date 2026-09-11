@@ -16,7 +16,10 @@ import type { ManagedProject } from "../types/index.js";
 import { postConversationMessage, prepareConversationMessage } from "./conversation-service.js";
 import type { ConversationTurnRoutingPort } from "./conversation-turn-contract.js";
 import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
-import type { StoredConversationQueuedTurn } from "./persistence/contracts.js";
+import type {
+  StoredConversationQueuedTurn,
+  StoredConversationTurnQueueContractConfirmation,
+} from "./persistence/contracts.js";
 import { ComposerDraftConflictError } from "./persistence/repositories/composer-draft-repository.js";
 import { publishConversationTurnQueueInvalidated } from "./project-live-events.js";
 import type { TopicFileReference, TopicMessageInput } from "./types.js";
@@ -269,7 +272,10 @@ export class ConversationTurnQueueOwner {
           clientRequestId,
         );
         if (replay) {
-          if (replay.requestHash !== requestHash) throw conflict("Queue confirmation clientRequestId was used for different content.");
+          if (replay.requestHash !== requestHash
+            || !this.confirmationMatchesItem(replay, item, target)) {
+            throw conflict("Queue confirmation clientRequestId was used for different content.");
+          }
           return;
         }
         if (queue.revision !== decodeRevision(request.expectedRevision)
@@ -287,7 +293,12 @@ export class ConversationTurnQueueOwner {
           target.family,
           target.epoch,
         );
-        if (existing) return;
+        if (existing) {
+          if (!this.confirmationMatchesItem(existing, item, target)) {
+            throw conflict("Stored Queue execution confirmation is invalid.");
+          }
+          return;
+        }
         const now = new Date().toISOString();
         database.conversationTurnQueues.insertContractConfirmation({
           projectId: paths.projectId,
@@ -298,6 +309,7 @@ export class ConversationTurnQueueOwner {
           targetFamily: target.family,
           targetEpoch: target.epoch,
           clientRequestId,
+          expectedRevision: request.expectedRevision,
           requestHash,
           confirmedAt: now,
         });
@@ -636,14 +648,15 @@ export class ConversationTurnQueueOwner {
       family: item.executionContractFamily,
       epoch: item.executionContractEpoch,
     };
-    if (sameContractRef(created, target)
-      || database.conversationTurnQueues.readContractConfirmation(
+    const confirmation = database.conversationTurnQueues.readContractConfirmation(
         item.projectId,
         item.conversationId,
         item.queueItemId,
         target.family,
         target.epoch,
-      )) {
+      );
+    if (sameContractRef(created, target)
+      || (confirmation && this.confirmationMatchesItem(confirmation, item, target))) {
       return { state: "compatible" };
     }
     return {
@@ -654,6 +667,47 @@ export class ConversationTurnQueueOwner {
       target: { family: target.family, epoch: target.epoch },
       summary: "执行方式已更新，需要确认后发送",
     };
+  }
+
+  private confirmationMatchesItem(
+    confirmation: StoredConversationTurnQueueContractConfirmation,
+    item: StoredConversationQueuedTurn,
+    target: ExecutionContractIdentity,
+  ): boolean {
+    const created = {
+      family: item.executionContractFamily,
+      epoch: item.executionContractEpoch,
+    };
+    if (confirmation.projectId !== item.projectId
+      || confirmation.conversationId !== item.conversationId
+      || confirmation.queueItemId !== item.queueItemId
+      || !sameContractRef(created, {
+        family: confirmation.priorFamily,
+        epoch: confirmation.priorEpoch,
+      })
+      || !sameContractRef(target, {
+        family: confirmation.targetFamily,
+        epoch: confirmation.targetEpoch,
+      })) {
+      return false;
+    }
+    try {
+      decodeRevision(confirmation.expectedRevision);
+    } catch {
+      return false;
+    }
+    return confirmation.requestHash === hashContractConfirmation({
+      projectId: item.projectId,
+      productMode: item.productMode,
+      conversationId: item.conversationId,
+      queueItemId: item.queueItemId,
+      expectedRevision: confirmation.expectedRevision,
+      expectedCreatedContract: created,
+      expectedTargetContract: {
+        family: target.family,
+        epoch: target.epoch,
+      },
+    });
   }
 
   private async readEnqueueReplay(

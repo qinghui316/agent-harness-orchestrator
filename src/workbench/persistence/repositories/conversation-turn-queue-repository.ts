@@ -205,7 +205,8 @@ export class ConversationTurnQueueRepository {
       SELECT project_id AS projectId, conversation_id AS conversationId, queue_item_id AS queueItemId,
         prior_family AS priorFamily, prior_epoch AS priorEpoch,
         target_family AS targetFamily, target_epoch AS targetEpoch,
-        client_request_id AS clientRequestId, request_hash AS requestHash, confirmed_at AS confirmedAt
+        client_request_id AS clientRequestId, expected_revision AS expectedRevision,
+        request_hash AS requestHash, confirmed_at AS confirmedAt
       FROM conversation_turn_queue_contract_confirmations
       WHERE project_id = ? AND conversation_id = ? AND queue_item_id = ?
         AND target_family = ? AND target_epoch = ?
@@ -222,7 +223,8 @@ export class ConversationTurnQueueRepository {
       SELECT project_id AS projectId, conversation_id AS conversationId, queue_item_id AS queueItemId,
         prior_family AS priorFamily, prior_epoch AS priorEpoch,
         target_family AS targetFamily, target_epoch AS targetEpoch,
-        client_request_id AS clientRequestId, request_hash AS requestHash, confirmed_at AS confirmedAt
+        client_request_id AS clientRequestId, expected_revision AS expectedRevision,
+        request_hash AS requestHash, confirmed_at AS confirmedAt
       FROM conversation_turn_queue_contract_confirmations
       WHERE project_id = ? AND conversation_id = ? AND client_request_id = ?
     `).get(projectId, conversationId, clientRequestId) as SqliteRow | undefined;
@@ -233,8 +235,8 @@ export class ConversationTurnQueueRepository {
     this.db.prepare(`
       INSERT INTO conversation_turn_queue_contract_confirmations (
         project_id, conversation_id, queue_item_id, prior_family, prior_epoch,
-        target_family, target_epoch, client_request_id, request_hash, confirmed_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        target_family, target_epoch, client_request_id, expected_revision, request_hash, confirmed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       confirmation.projectId,
       confirmation.conversationId,
@@ -244,6 +246,7 @@ export class ConversationTurnQueueRepository {
       confirmation.targetFamily,
       confirmation.targetEpoch,
       confirmation.clientRequestId,
+      confirmation.expectedRevision,
       confirmation.requestHash,
       confirmation.confirmedAt,
     );
@@ -301,6 +304,7 @@ function mapConfirmation(row: SqliteRow): StoredConversationTurnQueueContractCon
     targetFamily: String(row.targetFamily),
     targetEpoch: Number(row.targetEpoch),
     clientRequestId: String(row.clientRequestId),
+    expectedRevision: String(row.expectedRevision),
     requestHash: String(row.requestHash),
     confirmedAt: String(row.confirmedAt),
   };

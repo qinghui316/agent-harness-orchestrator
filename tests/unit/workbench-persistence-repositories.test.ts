@@ -702,6 +702,40 @@ describe("Workbench persistence owners", () => {
     const migrationSource = await readFile(join(persistenceRoot, "schema-migrations.ts"), "utf8");
     expect(migrationSource.match(/new Database\([^)]*\)/g)).toEqual(['new Database(":memory:")']);
   });
+
+  it("fails closed when a stored Provider Attempt has a malformed execution identity", async () => {
+    const paths = runtimePaths();
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      database.conversations.createConversation(conversation("conversation-1"));
+      for (const attemptId of ["missing-hash", "short-hash", "blank-adapter", "long-adapter"]) {
+        database.providerAttempts.createProviderAttempt(providerAttempt(attemptId, "codex"));
+      }
+    } finally {
+      database.close();
+    }
+
+    const raw = new Database(paths.workbenchDbPath);
+    try {
+      raw.prepare("UPDATE provider_attempts SET execution_policy_hash = NULL WHERE attempt_id = ?").run("missing-hash");
+      raw.prepare("UPDATE provider_attempts SET execution_policy_hash = 'x' WHERE attempt_id = ?").run("short-hash");
+      raw.prepare("UPDATE provider_attempts SET provider_adapter_version = '   ' WHERE attempt_id = ?").run("blank-adapter");
+      raw.prepare("UPDATE provider_attempts SET provider_adapter_version = ? WHERE attempt_id = ?")
+        .run("x".repeat(129), "long-adapter");
+    } finally {
+      raw.close();
+    }
+
+    const reopened = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      for (const attemptId of ["missing-hash", "short-hash", "blank-adapter", "long-adapter"]) {
+        expect(() => reopened.providerAttempts.readProviderAttempt(projectId, attemptId))
+          .toThrow("Provider attempt has invalid execution contract");
+      }
+    } finally {
+      reopened.close();
+    }
+  });
 });
 
 function runtimePaths() {
@@ -744,33 +778,6 @@ function testExecutionContract(
     operationKind: "conversation-turn",
     roleId,
     providerAdapterVersion: "test-adapter-v1",
-  });
-
-  it("fails closed when a stored Provider Attempt has a partial execution identity", async () => {
-    const paths = runtimePaths();
-    const database = await openProjectRuntimeWorkbenchDatabase(paths);
-    try {
-      database.conversations.createConversation(conversation("conversation-1"));
-      database.providerAttempts.createProviderAttempt(providerAttempt("attempt-invalid-contract", "codex"));
-    } finally {
-      database.close();
-    }
-
-    const raw = new Database(paths.workbenchDbPath);
-    try {
-      raw.prepare("UPDATE provider_attempts SET execution_policy_hash = NULL WHERE attempt_id = ?")
-        .run("attempt-invalid-contract");
-    } finally {
-      raw.close();
-    }
-
-    const reopened = await openProjectRuntimeWorkbenchDatabase(paths);
-    try {
-      expect(() => reopened.providerAttempts.readProviderAttempt(projectId, "attempt-invalid-contract"))
-        .toThrow("Provider attempt has invalid execution contract");
-    } finally {
-      reopened.close();
-    }
   });
 }
 

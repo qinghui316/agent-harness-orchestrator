@@ -132,6 +132,7 @@ const schema18To19: WorkbenchSchemaMigration = {
         target_family TEXT NOT NULL,
         target_epoch INTEGER NOT NULL,
         client_request_id TEXT NOT NULL,
+        expected_revision TEXT NOT NULL,
         request_hash TEXT NOT NULL,
         confirmed_at TEXT NOT NULL,
         PRIMARY KEY(project_id, queue_item_id, target_family, target_epoch),
@@ -157,7 +158,15 @@ const schema18To19: WorkbenchSchemaMigration = {
       "execution_contract_family",
       "execution_contract_epoch",
     ]);
-    assertTable(db, "conversation_turn_queue_contract_confirmations");
+    assertColumns(db, "conversation_turn_queue_contract_confirmations", [
+      "prior_family",
+      "prior_epoch",
+      "target_family",
+      "target_epoch",
+      "client_request_id",
+      "expected_revision",
+      "request_hash",
+    ]);
   },
 };
 

@@ -3,6 +3,7 @@ import {
   EXECUTION_CONTRACT_FAMILIES,
   ExecutionContractRegistry,
   resolveExecutionContract,
+  storedExecutionContract,
 } from "../../src/provider-runtime/index.js";
 
 describe("Provider execution contract registry", () => {
@@ -55,6 +56,17 @@ describe("Provider execution contract registry", () => {
       roleId: "coder-agent",
       providerAdapterVersion: "adapter-v1",
     })).toMatchObject({ family: "aho.coder", epoch: 1 });
+  });
+
+  it.each([
+    ["short policy hash", { policyHash: "x" }],
+    ["non-hex policy hash", { policyHash: "g".repeat(64) }],
+    ["blank Adapter version", { providerAdapterVersion: "   " }],
+    ["padded Adapter version", { providerAdapterVersion: " adapter-v1 " }],
+    ["oversized Adapter version", { providerAdapterVersion: "x".repeat(129) }],
+  ])("rejects %s in a versioned stored identity", (_label, patch) => {
+    const valid = resolveExecutionContract({ ...agentTurnInput(), providerAdapterVersion: "adapter-v1" });
+    expect(() => storedExecutionContract({ ...valid, ...patch })).toThrow(/execution contract/i);
   });
 });
 

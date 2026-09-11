@@ -5,6 +5,7 @@ import {
   EXECUTION_CONTRACT_FAMILIES,
   legacyExecutionContract,
   storedExecutionContract,
+  validateExecutionContractIdentity,
   type ExecutionContractFamily,
   type ProviderCapabilitySnapshot,
   type ProviderModelRef,
@@ -248,14 +249,17 @@ function mapStoredExecutionContract(row: SqliteRow): StoredExecutionContractIden
   if (family === "legacy-v0" && epoch === 0 && policyHash === null && providerAdapterVersion === null) {
     return legacyExecutionContract();
   }
-  if (family && EXECUTION_CONTRACT_FAMILIES.includes(family as ExecutionContractFamily)
-    && Number.isSafeInteger(epoch) && epoch > 0 && policyHash && providerAdapterVersion) {
-    return storedExecutionContract({
-      family: family as ExecutionContractFamily,
-      epoch,
-      policyHash,
-      providerAdapterVersion,
-    });
+  if (family && EXECUTION_CONTRACT_FAMILIES.includes(family as ExecutionContractFamily)) {
+    try {
+      return storedExecutionContract(validateExecutionContractIdentity({
+        family,
+        epoch,
+        policyHash,
+        providerAdapterVersion,
+      }));
+    } catch {
+      // The persisted identity is one atomic contract. Any malformed field fails closed below.
+    }
   }
   throw new Error(`Provider attempt has invalid execution contract: ${String(row.attemptId)}`);
 }

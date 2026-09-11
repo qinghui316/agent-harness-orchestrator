@@ -347,6 +347,7 @@ export function applyCurrentWorkbenchSchema(db: Database.Database): void {
       target_family TEXT NOT NULL,
       target_epoch INTEGER NOT NULL,
       client_request_id TEXT NOT NULL,
+      expected_revision TEXT NOT NULL,
       request_hash TEXT NOT NULL,
       confirmed_at TEXT NOT NULL,
       PRIMARY KEY(project_id, queue_item_id, target_family, target_epoch),
