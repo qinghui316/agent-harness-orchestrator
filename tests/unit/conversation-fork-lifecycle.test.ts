@@ -212,13 +212,13 @@ describe("ConversationForkLifecycleOwner", () => {
     const owner = createOwner(forkSession);
     const request = await forkRequest("assistant-2", 2, "fork-request-accepted-repair");
 
-    await expect(owner.fork(project, request)).rejects.toThrow("forced local materialization failure");
+    await expect(owner.fork(project, request)).rejects.toThrow("这个项目的数据完整性检查未通过。");
 
+    const triggerDatabase = new Database(paths.workbenchDbPath);
+    try { triggerDatabase.exec("DROP TRIGGER fail_fork_materialization;"); }
+    finally { triggerDatabase.close(); }
     const database = await openProjectRuntimeWorkbenchDatabase(paths);
     try {
-      const triggerDatabase = new Database(paths.workbenchDbPath);
-      try { triggerDatabase.exec("DROP TRIGGER fail_fork_materialization;"); }
-      finally { triggerDatabase.close(); }
       database.timeline.appendMessage(message("later-source-fact", "system.event", "later", null, null, { graphScopeId }));
     } finally { database.close(); }
 

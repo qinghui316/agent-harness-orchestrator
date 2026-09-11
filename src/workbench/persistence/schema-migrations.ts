@@ -196,6 +196,7 @@ export function validateCurrentWorkbenchSchema(db: Database.Database): void {
 interface SchemaShape {
   readonly tables: ReadonlyMap<string, readonly ColumnShape[]>;
   readonly indexes: ReadonlyMap<string, readonly string[]>;
+  readonly triggers: ReadonlyMap<string, string>;
 }
 
 interface ColumnShape {
@@ -222,34 +223,20 @@ function assertSchemaShape(db: Database.Database, version: number): void {
       throw new Error(`Workbench schema table ${table} has an unexpected index contract.`);
     }
   }
+  if (JSON.stringify([...actual.triggers]) !== JSON.stringify([...expected.triggers])) {
+    throw new Error("Workbench schema has an unexpected trigger contract.");
+  }
   assertCheckConstraintFragments(db, version);
 }
 
 function expectedSchemaShape(version: number): SchemaShape {
   const cached = schemaShapeCache.get(version);
   if (cached) return cached;
+  if (version !== 16 && version !== 17 && version !== 18) throw new Error(`Unsupported Workbench schema contract version: ${version}`);
   const reference = new Database(":memory:");
   try {
     applyCurrentWorkbenchSchema(reference);
-    for (const row of reference.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger'").all() as Array<{ name: string }>) {
-      reference.exec(`DROP TRIGGER IF EXISTS ${quoteIdentifier(row.name)}`);
-    }
-    if (version < 18) {
-      reference.exec(`
-        DROP TABLE conversation_review_operations;
-        ALTER TABLE provider_attempts DROP COLUMN operation_kind;
-        ALTER TABLE conversation_turn_queue_items DROP COLUMN review_target_json;
-        ALTER TABLE conversation_turn_queue_items DROP COLUMN item_kind;
-      `);
-    }
-    if (version < 17) {
-      reference.exec(`
-        DROP TABLE conversation_lifecycle_operations;
-        ALTER TABLE conversations DROP COLUMN lifecycle_revision;
-        ALTER TABLE conversations DROP COLUMN archived_at;
-        ALTER TABLE conversations DROP COLUMN archive_origin;
-      `);
-    }
+    materializeWorkbenchSchemaContract(reference, version);
     const shape = readSchemaShape(reference);
     schemaShapeCache.set(version, shape);
     return shape;
@@ -333,7 +320,109 @@ function readSchemaShape(db: Database.Database): SchemaShape {
     indexes.set(part.table, signatures);
   }
   for (const signatures of indexes.values()) signatures.sort();
-  return { tables, indexes };
+  const triggers = new Map((db.prepare(
+    "SELECT name, sql FROM sqlite_master WHERE type = 'trigger' ORDER BY name",
+  ).all() as Array<{ name: string; sql: string }>).map((row) => [row.name, normalizeSchemaSql(row.sql)] as const));
+  return { tables, indexes, triggers };
+}
+
+export function materializeWorkbenchSchemaContract(db: Database.Database, version: 16 | 17 | 18): void {
+  if (version < 18) {
+    db.exec(`
+      DROP TRIGGER IF EXISTS trg_provider_attempt_agent_turn_mode_insert;
+      DROP TRIGGER IF EXISTS trg_provider_attempt_agent_turn_mode_update;
+      DROP TRIGGER IF EXISTS trg_conversation_turn_queue_item_mode_insert;
+      DROP TRIGGER IF EXISTS trg_conversation_turn_queue_item_mode_update;
+      DROP TRIGGER IF EXISTS trg_conversation_review_identity_insert;
+      DROP TABLE conversation_review_operations;
+      ALTER TABLE provider_attempts DROP COLUMN operation_kind;
+      ALTER TABLE conversation_turn_queue_items DROP COLUMN review_target_json;
+      ALTER TABLE conversation_turn_queue_items DROP COLUMN item_kind;
+      ${LEGACY_EXECUTION_TRIGGER_SQL}
+    `);
+  }
+  if (version < 17) {
+    db.exec(`
+      DROP TRIGGER IF EXISTS trg_conversations_archive_origin_insert;
+      DROP TRIGGER IF EXISTS trg_conversations_archive_origin_update;
+      DROP TRIGGER IF EXISTS trg_conversation_lifecycle_operation_identity_insert;
+      DROP TRIGGER IF EXISTS trg_conversation_turn_queue_block_archive;
+      DROP TABLE conversation_lifecycle_operations;
+      ALTER TABLE conversations DROP COLUMN lifecycle_revision;
+      ALTER TABLE conversations DROP COLUMN archived_at;
+      ALTER TABLE conversations DROP COLUMN archive_origin;
+      ${SCHEMA_16_QUEUE_CANCEL_TRIGGER_SQL}
+    `);
+  }
+  db.pragma(`user_version = ${version}`);
+}
+
+const LEGACY_EXECUTION_TRIGGER_SQL = `
+  CREATE TRIGGER trg_provider_attempt_agent_turn_mode_insert
+  BEFORE INSERT ON provider_attempts
+  WHEN (NEW.product_mode = 'agent' AND (NEW.agent_turn_mode IS NULL OR NEW.agent_turn_mode NOT IN ('default', 'plan')))
+    OR (NEW.product_mode = 'harness' AND NEW.agent_turn_mode IS NOT NULL)
+  BEGIN
+    SELECT RAISE(ABORT, 'ProviderAttempt agent_turn_mode must match product_mode');
+  END;
+  CREATE TRIGGER trg_provider_attempt_agent_turn_mode_update
+  BEFORE UPDATE OF agent_turn_mode ON provider_attempts
+  WHEN (NEW.product_mode = 'agent' AND (NEW.agent_turn_mode IS NULL OR NEW.agent_turn_mode NOT IN ('default', 'plan')))
+    OR (NEW.product_mode = 'harness' AND NEW.agent_turn_mode IS NOT NULL)
+  BEGIN
+    SELECT RAISE(ABORT, 'ProviderAttempt agent_turn_mode must match product_mode');
+  END;
+  CREATE TRIGGER trg_conversation_turn_queue_item_mode_insert
+  BEFORE INSERT ON conversation_turn_queue_items
+  WHEN NOT EXISTS (
+    SELECT 1 FROM conversation_turn_queues
+    WHERE project_id = NEW.project_id AND conversation_id = NEW.conversation_id
+      AND product_mode = NEW.product_mode
+  ) OR (NEW.product_mode = 'agent' AND NEW.agent_turn_mode IS NULL)
+    OR (NEW.product_mode = 'harness' AND (
+      NEW.agent_turn_mode IS NOT NULL OR NEW.agent_model_id IS NOT NULL OR NEW.agent_reasoning_effort IS NOT NULL
+    ))
+  BEGIN
+    SELECT RAISE(ABORT, 'Conversation queued Turn fields must match product_mode');
+  END;
+  CREATE TRIGGER trg_conversation_turn_queue_item_mode_update
+  BEFORE UPDATE OF project_id, conversation_id, product_mode, agent_turn_mode, agent_model_id, agent_reasoning_effort
+    ON conversation_turn_queue_items
+  WHEN NOT EXISTS (
+    SELECT 1 FROM conversation_turn_queues
+    WHERE project_id = NEW.project_id AND conversation_id = NEW.conversation_id
+      AND product_mode = NEW.product_mode
+  ) OR (NEW.product_mode = 'agent' AND NEW.agent_turn_mode IS NULL)
+    OR (NEW.product_mode = 'harness' AND (
+      NEW.agent_turn_mode IS NOT NULL OR NEW.agent_model_id IS NOT NULL OR NEW.agent_reasoning_effort IS NOT NULL
+    ))
+  BEGIN
+    SELECT RAISE(ABORT, 'Conversation queued Turn fields must match product_mode');
+  END;
+`;
+
+const SCHEMA_16_QUEUE_CANCEL_TRIGGER_SQL = `
+  CREATE TRIGGER trg_conversation_turn_queue_cancel_inactive
+  AFTER UPDATE OF state, deleted_at ON conversations
+  WHEN NEW.state <> 'active' OR NEW.deleted_at IS NOT NULL
+  BEGIN
+    UPDATE conversation_turn_queues
+    SET revision = revision + 1, updated_at = NEW.updated_at
+    WHERE project_id = NEW.project_id AND conversation_id = NEW.conversation_id
+      AND EXISTS (
+        SELECT 1 FROM conversation_turn_queue_items
+        WHERE project_id = NEW.project_id AND conversation_id = NEW.conversation_id
+          AND status IN ('queued', 'blocked')
+      );
+    UPDATE conversation_turn_queue_items
+    SET status = 'cancelled', diagnostic = NULL, updated_at = NEW.updated_at
+    WHERE project_id = NEW.project_id AND conversation_id = NEW.conversation_id
+      AND status IN ('queued', 'blocked');
+  END;
+`;
+
+function normalizeSchemaSql(value: string): string {
+  return value.toLowerCase().replaceAll(/\s+/g, "").replaceAll('"', "");
 }
 
 function assertCheckConstraintFragments(db: Database.Database, version: number): void {
@@ -380,8 +469,4 @@ function assertColumns(db: Database.Database, table: string, columns: readonly s
   const existing = new Set((db.prepare(`PRAGMA table_info(${table})`).all() as SqliteRow[]).map((row) => String(row.name)));
   const missing = columns.filter((column) => !existing.has(column));
   if (missing.length > 0) throw new Error(`Workbench schema table ${table} is missing required columns: ${missing.join(", ")}`);
-}
-
-function quoteIdentifier(value: string): string {
-  return `"${value.replaceAll('"', '""')}"`;
 }

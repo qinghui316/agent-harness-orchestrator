@@ -23,6 +23,7 @@ export interface WorkbenchMigrationReceipt {
   fromSchema: number;
   toSchema: number;
   migrationImplementationVersion: number;
+  sourceFileDigest: string;
   sourceDigest: string;
   snapshotDigest: string;
   targetDigest: string | null;
@@ -31,7 +32,7 @@ export interface WorkbenchMigrationReceipt {
   appliedVersions: readonly number[];
   startedAt: string;
   completedAt: string | null;
-  result: "staged" | "completed" | "restored";
+  result: "staged" | "commit-pending" | "completed" | "restored";
 }
 
 interface WorkbenchRecoveryMarker {
@@ -56,6 +57,7 @@ export interface WorkbenchDatabaseUpgradeOptions {
   now?: () => string;
   beforeCheckpoint?: () => void | Promise<void>;
   beforeMigration?: (db: Database.Database) => void;
+  afterCommit?: () => void;
 }
 
 export type WorkbenchDatabaseUpgradeState =
@@ -189,20 +191,27 @@ export async function openSafeWorkbenchConnection(
   let receipt: WorkbenchMigrationReceipt | null = null;
   try {
     await migrationGuard.assertSafe(connection);
-    assertExclusiveMigrationAccess(connection);
     await mkdir(stagingDir, { recursive: true });
     await options.beforeCheckpoint?.();
     assertCheckpointComplete(connection);
-    const sourceDigest = await digestFile(paths.workbenchDbPath);
-    const preservedRecords = capturePreservedRecords(connection);
+    const sourceDataVersion = Number(connection.pragma("data_version", { simple: true }));
     await connection.backup(stagedSnapshotPath);
+    beginExclusiveMigration(connection);
+    const lockedDataVersion = Number(connection.pragma("data_version", { simple: true }));
+    if (lockedDataVersion !== sourceDataVersion) {
+      throw new WorkbenchMigrationBusyError("这个项目的数据在创建升级快照时发生了变化，请稍后重试。");
+    }
+    const sourceFileDigest = await digestFile(paths.workbenchDbPath);
     const snapshotDigest = await digestFile(stagedSnapshotPath);
+    const sourceDigest = digestWorkbenchDatabaseContent(stagedSnapshotPath);
+    const preservedRecords = capturePreservedRecords(connection);
     receipt = {
       schemaVersion: "1.0",
       transactionId,
       fromSchema: inspection.currentVersion,
       toSchema: WORKBENCH_SCHEMA_VERSION,
       migrationImplementationVersion: WORKBENCH_MIGRATION_IMPLEMENTATION_VERSION,
+      sourceFileDigest,
       sourceDigest,
       snapshotDigest,
       targetDigest: null,
@@ -215,16 +224,21 @@ export async function openSafeWorkbenchConnection(
     };
     await writeJsonFile(stagedReceiptPath, receipt);
 
-    beginExclusiveMigration(connection);
     options.beforeMigration?.(connection);
     const appliedVersions = migrateWorkbenchSchema(connection, inspection.currentVersion);
     assertPreservedRecords(connection, preservedRecords);
+    receipt = {
+      ...receipt,
+      appliedVersions,
+      result: "commit-pending",
+    };
+    await writeJsonFile(stagedReceiptPath, receipt);
     connection.exec("COMMIT");
-    const targetDigest = await digestFile(paths.workbenchDbPath);
+    options.afterCommit?.();
+    const targetDigest = await backupConnectionDigest(connection, join(stagingDir, "target.sqlite"));
     receipt = {
       ...receipt,
       targetDigest,
-      appliedVersions,
       completedAt: now(),
       result: "completed",
     };
@@ -241,8 +255,15 @@ export async function openSafeWorkbenchConnection(
       await rm(stagingDir, { recursive: true, force: true });
       throw cause;
     }
+    if ((receipt.result === "commit-pending" || receipt.result === "completed")
+      && isValidCurrentDatabase(paths.workbenchDbPath)) {
+      throw new WorkbenchDatabaseCompatibilityError("recovery-required", "这个项目的数据升级已经提交，正在等待启动校准。", { cause });
+    }
     try {
-      await restoreDatabaseSnapshot(stagedSnapshotPath, paths.workbenchDbPath, transactionId, receipt.sourceDigest);
+      const liveLogicalDigest = await backupDatabaseDigest(paths.workbenchDbPath, upgradePaths.root, transactionId);
+      if (liveLogicalDigest !== receipt.sourceDigest) {
+        await restoreDatabaseSnapshot(stagedSnapshotPath, paths.workbenchDbPath, transactionId, receipt.sourceFileDigest);
+      }
       const restoredDigest = await digestFile(paths.workbenchDbPath);
       const restoredReceipt: WorkbenchMigrationReceipt = {
         ...receipt,
@@ -291,11 +312,13 @@ async function reconcileInterruptedUpgrade(paths: { workbenchDbPath: string }): 
       if (!await pathExists(snapshotPath) || await digestFile(snapshotPath) !== receipt.snapshotDigest) {
         throw new WorkbenchDatabaseCompatibilityError("recovery-required", "这个项目的数据升级快照无法验证。");
       }
+      const liveLogicalDigest = await backupDatabaseDigest(
+        paths.workbenchDbPath,
+        upgradePaths.root,
+        `reconcile-${receipt.transactionId}`,
+      ).catch(() => null);
       if (receipt.result === "completed") {
-        const liveDigest = await digestFile(paths.workbenchDbPath).catch(() => null);
-        if (!receipt.targetDigest || liveDigest !== receipt.targetDigest) {
-          throw new WorkbenchDatabaseCompatibilityError("recovery-required", "当前项目数据与已完成的升级记录不匹配，未替换任何数据。");
-        }
+        if (!receipt.targetDigest) throw new WorkbenchDatabaseCompatibilityError("recovery-required", "已完成的升级记录缺少目标摘要。");
         const current = openValidatedCurrentDatabase(paths.workbenchDbPath);
         current.close();
         await promotePreviousSnapshot(stagingDir, upgradePaths.previousDir);
@@ -303,20 +326,34 @@ async function reconcileInterruptedUpgrade(paths: { workbenchDbPath: string }): 
         await rm(upgradePaths.recoveryMarkerPath, { force: true });
         continue;
       }
-      const liveDigest = await digestFile(paths.workbenchDbPath).catch(() => null);
-      if (receipt.result === "restored" && liveDigest === receipt.snapshotDigest) {
+      if (receipt.result === "commit-pending" && isValidCurrentDatabase(paths.workbenchDbPath)) {
+        if (!liveLogicalDigest) throw new WorkbenchDatabaseCompatibilityError("recovery-required", "已升级的数据无法形成校验摘要。");
+        const completedReceipt: WorkbenchMigrationReceipt = {
+          ...receipt,
+          targetDigest: receipt.targetDigest ?? liveLogicalDigest,
+          completedAt: new Date().toISOString(),
+          result: "completed",
+        };
+        await writeJsonFile(receiptPath, completedReceipt);
+        await promotePreviousSnapshot(stagingDir, upgradePaths.previousDir);
+        await rm(upgradePaths.recoveryDir, { recursive: true, force: true });
+        await rm(upgradePaths.recoveryMarkerPath, { force: true });
+        continue;
+      }
+      const liveFileDigest = await digestFile(paths.workbenchDbPath).catch(() => null);
+      if (receipt.result === "restored" && liveLogicalDigest === receipt.sourceDigest) {
         await promoteRecoveryEvidence(stagingDir, upgradePaths.recoveryDir);
-        await writeRecoveryMarker(upgradePaths.recoveryMarkerPath, receipt, liveDigest, receipt.completedAt ?? new Date().toISOString());
+        if (!liveFileDigest) throw new WorkbenchDatabaseCompatibilityError("recovery-required", "这个项目恢复后的数据无法验证。");
+        await writeRecoveryMarker(upgradePaths.recoveryMarkerPath, receipt, liveFileDigest, receipt.completedAt ?? new Date().toISOString());
         throw new WorkbenchDatabaseCompatibilityError("recovery-required", "这个项目存在未完成的数据升级，原有数据已恢复。");
       }
-      if (receipt.result === "staged" && liveDigest !== receipt.sourceDigest) {
+      if ((receipt.result === "staged" || receipt.result === "commit-pending")
+        && liveLogicalDigest !== receipt.sourceDigest) {
         throw new WorkbenchDatabaseCompatibilityError("recovery-required", "当前项目数据与未完成的升级记录不匹配，未执行自动恢复。");
       }
-      if (liveDigest !== receipt.sourceDigest) {
+      if (liveLogicalDigest !== receipt.sourceDigest || !liveFileDigest) {
         throw new WorkbenchDatabaseCompatibilityError("recovery-required", "当前项目数据与恢复快照不匹配，未执行自动恢复。");
       }
-      await restoreDatabaseSnapshot(snapshotPath, paths.workbenchDbPath, receipt.transactionId, receipt.sourceDigest);
-      const restoredDigest = await digestFile(paths.workbenchDbPath);
       const restoredAt = receipt.completedAt ?? new Date().toISOString();
       const restoredReceipt: WorkbenchMigrationReceipt = {
         ...receipt,
@@ -325,7 +362,7 @@ async function reconcileInterruptedUpgrade(paths: { workbenchDbPath: string }): 
       };
       await writeJsonFile(receiptPath, restoredReceipt);
       await promoteRecoveryEvidence(stagingDir, upgradePaths.recoveryDir);
-      await writeRecoveryMarker(upgradePaths.recoveryMarkerPath, restoredReceipt, restoredDigest, restoredAt);
+      await writeRecoveryMarker(upgradePaths.recoveryMarkerPath, restoredReceipt, liveFileDigest, restoredAt);
       throw new WorkbenchDatabaseCompatibilityError("recovery-required", "这个项目存在未完成的数据升级，原有数据已恢复。");
     }
   } catch (cause) {
@@ -364,11 +401,6 @@ function beginExclusiveMigration(connection: Database.Database): void {
     connection.pragma("busy_timeout = 5000");
     throw new WorkbenchMigrationBusyError("另一个 Beaver Code 实例正在使用这个项目的数据。", { cause });
   }
-}
-
-function assertExclusiveMigrationAccess(connection: Database.Database): void {
-  beginExclusiveMigration(connection);
-  connection.exec("ROLLBACK");
 }
 
 function resolveUpgradePaths(workbenchDbPath: string) {
@@ -458,6 +490,9 @@ async function completeRestoreTransaction(databasePath: string, snapshotPath: st
 
   if (journal.phase === "prepared") {
     if (await pathExists(databasePath)) {
+      if (await pathExists(`${databasePath}-wal`) || await pathExists(`${databasePath}-shm`)) {
+        throw new WorkbenchDatabaseCompatibilityError("recovery-required", "当前项目仍有未合并的数据记录，未执行自动覆盖恢复。");
+      }
       const liveDigest = await digestFile(databasePath);
       if (liveDigest !== journal.expectedLiveDigest) {
         throw new WorkbenchDatabaseCompatibilityError("recovery-required", "当前项目数据已发生变化，未执行自动覆盖恢复。");
@@ -549,10 +584,11 @@ async function reconcileRecoveryStateUnderLock(
     if (receipt.result !== "restored"
       || !await pathExists(snapshotPath)
       || await digestFile(snapshotPath) !== receipt.snapshotDigest
-      || await digestFile(paths.workbenchDbPath).catch(() => null) !== receipt.snapshotDigest) {
+      || await backupDatabaseDigest(paths.workbenchDbPath, upgradePaths.root, `recovery-${receipt.transactionId}`).catch(() => null) !== receipt.sourceDigest) {
       throw new WorkbenchDatabaseCompatibilityError("recovery-required", "这个项目的数据恢复证据无法验证。");
     }
-    await writeRecoveryMarker(upgradePaths.recoveryMarkerPath, receipt, receipt.snapshotDigest, receipt.completedAt ?? new Date().toISOString());
+    const liveFileDigest = await digestFile(paths.workbenchDbPath);
+    await writeRecoveryMarker(upgradePaths.recoveryMarkerPath, receipt, liveFileDigest, receipt.completedAt ?? new Date().toISOString());
     return;
   }
   if (!marker) return;
@@ -616,6 +652,67 @@ async function digestFile(path: string): Promise<string> {
   return hash.digest("hex");
 }
 
+async function backupConnectionDigest(connection: Database.Database, snapshotPath: string): Promise<string> {
+  await rm(snapshotPath, { force: true });
+  try {
+    await connection.backup(snapshotPath);
+    return digestWorkbenchDatabaseContent(snapshotPath);
+  } finally {
+    await rm(snapshotPath, { force: true });
+  }
+}
+
+async function backupDatabaseDigest(databasePath: string, scratchRoot: string, identity: string): Promise<string> {
+  void scratchRoot;
+  void identity;
+  return digestWorkbenchDatabaseContent(databasePath);
+}
+
+export function digestWorkbenchDatabaseContent(path: string): string {
+  const database = new Database(path, { readonly: true, fileMustExist: true });
+  const hash = createHash("sha256");
+  try {
+    hash.update(`user_version\0${String(database.pragma("user_version", { simple: true }))}\0`);
+    hash.update(`application_id\0${String(database.pragma("application_id", { simple: true }))}\0`);
+    const schemaRows = database.prepare(`
+      SELECT type, name, tbl_name AS tableName, sql
+      FROM sqlite_schema
+      WHERE name NOT LIKE 'sqlite_%' OR name = 'sqlite_sequence'
+      ORDER BY type, name
+    `).all() as Array<{ type: string; name: string; tableName: string; sql: string | null }>;
+    for (const row of schemaRows) {
+      hash.update(`schema\0${row.type}\0${row.name}\0${row.tableName}\0${normalizeSchemaSql(row.sql)}\0`);
+    }
+    const tables = schemaRows
+      .filter((row) => row.type === "table")
+      .map((row) => row.name)
+      .sort();
+    for (const table of tables) {
+      const columns = (database.prepare(`PRAGMA table_info(${quoteIdentifier(table)})`).all() as Array<{ name: string }>)
+        .map((column) => column.name);
+      const projections = columns
+        .map((column, index) => (
+          `typeof(${quoteIdentifier(column)}) || ':' || coalesce(hex(CAST(${quoteIdentifier(column)} AS BLOB)), '')`
+          + ` AS ${quoteIdentifier(`value${index}`)}`
+        ))
+        .join(", ");
+      const rows = database.prepare(`SELECT ${projections} FROM ${quoteIdentifier(table)}`).all() as Array<Record<string, string>>;
+      const encodedRows = rows
+        .map((row) => columns.map((_, index) => row[`value${index}`]).join("\0"))
+        .sort();
+      hash.update(`table\0${table}\0${columns.join("\0")}\0`);
+      for (const row of encodedRows) hash.update(`row\0${row}\0`);
+    }
+    return hash.digest("hex");
+  } finally {
+    database.close();
+  }
+}
+
+function normalizeSchemaSql(sql: string | null): string {
+  return sql?.replace(/\s+/g, " ").trim() ?? "";
+}
+
 async function readRecoveryMarker(path: string): Promise<WorkbenchRecoveryMarker | null> {
   try {
     const parsed = JSON.parse(await readFile(path, "utf8")) as Partial<WorkbenchRecoveryMarker>;
@@ -640,6 +737,7 @@ async function readMigrationReceipt(path: string): Promise<WorkbenchMigrationRec
     || !Number.isInteger(parsed.fromSchema)
     || !Number.isInteger(parsed.toSchema)
     || parsed.migrationImplementationVersion !== WORKBENCH_MIGRATION_IMPLEMENTATION_VERSION
+    || !isSha256Digest(parsed.sourceFileDigest)
     || !isSha256Digest(parsed.sourceDigest)
     || !isSha256Digest(parsed.snapshotDigest)
     || !(parsed.targetDigest === null || isSha256Digest(parsed.targetDigest))
@@ -648,7 +746,7 @@ async function readMigrationReceipt(path: string): Promise<WorkbenchMigrationRec
     || !Array.isArray(parsed.appliedVersions)
     || typeof parsed.startedAt !== "string"
     || !(parsed.completedAt === null || typeof parsed.completedAt === "string")
-    || !["staged", "completed", "restored"].includes(String(parsed.result))) {
+    || !["staged", "commit-pending", "completed", "restored"].includes(String(parsed.result))) {
     throw new Error("Invalid Workbench migration receipt.");
   }
   return parsed as WorkbenchMigrationReceipt;
@@ -668,6 +766,13 @@ const PRESERVED_MIGRATION_TABLES = [
   "conversation_fork_operations",
   "conversation_turn_queues",
   "conversation_turn_queue_items",
+  "conversation_change_links",
+  "conversation_graph_scopes",
+  "conversation_lifecycle_operations",
+  "conversation_review_operations",
+  "planning_acceptance_commits",
+  "skill_enablement",
+  "skill_roots",
 ] as const;
 
 interface PreservedRecordSnapshot {
@@ -675,10 +780,13 @@ interface PreservedRecordSnapshot {
   identityDigest: string;
 }
 
-function capturePreservedRecords(database: Database.Database): PreservedRecordSnapshot {
+function capturePreservedRecords(
+  database: Database.Database,
+  tables: readonly string[] = PRESERVED_MIGRATION_TABLES,
+): PreservedRecordSnapshot {
   const counts: Record<string, number> = {};
   const identityHash = createHash("sha256");
-  for (const table of PRESERVED_MIGRATION_TABLES) {
+  for (const table of tables) {
     const exists = database.prepare("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = ?").get(table);
     if (!exists) continue;
     const columns = (database.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string; pk: number }>)
@@ -696,7 +804,7 @@ function capturePreservedRecords(database: Database.Database): PreservedRecordSn
 }
 
 function assertPreservedRecords(database: Database.Database, expected: PreservedRecordSnapshot): void {
-  const actual = capturePreservedRecords(database);
+  const actual = capturePreservedRecords(database, Object.keys(expected.counts));
   if (JSON.stringify(actual.counts) !== JSON.stringify(expected.counts)
     || actual.identityDigest !== expected.identityDigest) {
     throw new Error("Workbench migration changed preserved record identity.");

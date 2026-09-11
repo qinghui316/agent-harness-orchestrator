@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
+import { materializeWorkbenchSchemaContract } from "../../src/workbench/persistence/schema-migrations.js";
 
 const roots: string[] = [];
 
@@ -54,18 +55,7 @@ describe("Conversation Review Schema 18", () => {
     }
 
     const legacy = new Database(paths.workbenchDbPath);
-    legacy.exec(`
-      DROP TRIGGER IF EXISTS trg_provider_attempt_agent_turn_mode_insert;
-      DROP TRIGGER IF EXISTS trg_provider_attempt_agent_turn_mode_update;
-      DROP TRIGGER IF EXISTS trg_conversation_turn_queue_item_mode_insert;
-      DROP TRIGGER IF EXISTS trg_conversation_turn_queue_item_mode_update;
-      DROP TRIGGER IF EXISTS trg_conversation_review_identity_insert;
-      DROP TABLE conversation_review_operations;
-      ALTER TABLE provider_attempts DROP COLUMN operation_kind;
-      ALTER TABLE conversation_turn_queue_items DROP COLUMN review_target_json;
-      ALTER TABLE conversation_turn_queue_items DROP COLUMN item_kind;
-      PRAGMA user_version = 17;
-    `);
+    materializeWorkbenchSchemaContract(legacy, 17);
     legacy.close();
 
     store = await openProjectRuntimeWorkbenchDatabase(paths);

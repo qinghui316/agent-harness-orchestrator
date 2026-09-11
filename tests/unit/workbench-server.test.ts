@@ -19,6 +19,7 @@ import { buildProjectScopedMainAgentPrompt } from "../../src/workbench/main-agen
 import { resolveTopicAttachments } from "../../src/workbench/attachments.js";
 import type { ConversationTurnRoutingPort } from "../../src/workbench/conversation-turn-contract.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
+import { materializeWorkbenchSchemaContract } from "../../src/workbench/persistence/schema-migrations.js";
 import type { ConversationTurnControlOwner } from "../../src/workbench/conversation-turn-control.js";
 import type { ConversationTurnRetryOwner } from "../../src/workbench/conversation-turn-retry.js";
 import type { ConversationContextLifecycleOwner } from "../../src/workbench/conversation-context-lifecycle.js";
@@ -2293,20 +2294,7 @@ describe("workbench server", () => {
     const initialized = await openProjectRuntimeWorkbenchDatabase(paths);
     initialized.close();
     const legacy = new Database(paths.workbenchDbPath);
-    for (const row of legacy.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger'").all() as Array<{ name: string }>) {
-      legacy.exec(`DROP TRIGGER IF EXISTS "${row.name.replaceAll('"', '""')}"`);
-    }
-    legacy.exec(`
-      DROP TABLE conversation_review_operations;
-      ALTER TABLE provider_attempts DROP COLUMN operation_kind;
-      ALTER TABLE conversation_turn_queue_items DROP COLUMN review_target_json;
-      ALTER TABLE conversation_turn_queue_items DROP COLUMN item_kind;
-      DROP TABLE conversation_lifecycle_operations;
-      ALTER TABLE conversations DROP COLUMN lifecycle_revision;
-      ALTER TABLE conversations DROP COLUMN archived_at;
-      ALTER TABLE conversations DROP COLUMN archive_origin;
-    `);
-    legacy.pragma("user_version = 16");
+    materializeWorkbenchSchemaContract(legacy, 16);
     legacy.close();
 
     handle = await startWorkbenchServer(null, { port: 0, staticRoot, store });

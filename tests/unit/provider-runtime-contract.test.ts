@@ -17,7 +17,7 @@ import { claimAgentTask, createAgentTask } from "../../src/agent-task/manager.js
 import { acquireWorkbenchRuntimeMutationLock } from "../../src/workbench/schema-rebuild-gate.js";
 import { resolveProjectSkillProvider } from "../../src/server/workbench/api-router.js";
 import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
-import { initializeCurrentWorkbenchSchema } from "../../src/workbench/persistence/schema-migrations.js";
+import { initializeCurrentWorkbenchSchema, materializeWorkbenchSchemaContract } from "../../src/workbench/persistence/schema-migrations.js";
 
 let root: string;
 
@@ -555,7 +555,7 @@ describe("provider-neutral runtime contract", () => {
     db.pragma("journal_mode = WAL");
     db.exec("BEGIN IMMEDIATE");
     try {
-      await expect(openProjectRuntimeWorkbenchDatabase(memory)).rejects.toThrow("另一个 Beaver Code 实例正在使用");
+      await expect(openProjectRuntimeWorkbenchDatabase(memory)).rejects.toMatchObject({ name: "WorkbenchMigrationBusyError" });
     } finally {
       db.exec("ROLLBACK");
       db.close();
@@ -776,19 +776,6 @@ async function createSchema16Database(path: string): Promise<Database.Database> 
   await mkdir(dirname(path), { recursive: true });
   const database = new Database(path);
   initializeCurrentWorkbenchSchema(database);
-  for (const row of database.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger'").all() as Array<{ name: string }>) {
-    database.exec(`DROP TRIGGER IF EXISTS "${row.name.replaceAll('"', '""')}"`);
-  }
-  database.exec(`
-    DROP TABLE conversation_review_operations;
-    ALTER TABLE provider_attempts DROP COLUMN operation_kind;
-    ALTER TABLE conversation_turn_queue_items DROP COLUMN review_target_json;
-    ALTER TABLE conversation_turn_queue_items DROP COLUMN item_kind;
-    DROP TABLE conversation_lifecycle_operations;
-    ALTER TABLE conversations DROP COLUMN lifecycle_revision;
-    ALTER TABLE conversations DROP COLUMN archived_at;
-    ALTER TABLE conversations DROP COLUMN archive_origin;
-  `);
-  database.pragma("user_version = 16");
+  materializeWorkbenchSchemaContract(database, 16);
   return database;
 }

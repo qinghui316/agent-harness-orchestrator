@@ -9,6 +9,7 @@ import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persist
 import { WorkbenchDatabase } from "../../src/workbench/persistence/database.js";
 import type { StoredTopicMessageWrite } from "../../src/workbench/persistence/contracts.js";
 import { applyCurrentWorkbenchSchema, WORKBENCH_SCHEMA_VERSION } from "../../src/workbench/persistence/schema.js";
+import { materializeWorkbenchSchemaContract } from "../../src/workbench/persistence/schema-migrations.js";
 
 let root: string;
 const projectId = "persistence-owner";
@@ -733,23 +734,7 @@ async function createLegacyWorkbenchDatabase(revision: 16 | 17): Promise<void> {
   const database = new Database(paths.workbenchDbPath);
   try {
     applyCurrentWorkbenchSchema(database);
-    for (const row of database.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger'").all() as Array<{ name: string }>) {
-      database.exec(`DROP TRIGGER IF EXISTS ${row.name}`);
-    }
-    database.exec(`
-      DROP TABLE conversation_review_operations;
-      ALTER TABLE provider_attempts DROP COLUMN operation_kind;
-      ALTER TABLE conversation_turn_queue_items DROP COLUMN review_target_json;
-      ALTER TABLE conversation_turn_queue_items DROP COLUMN item_kind;
-    `);
-    if (revision === 16) {
-      database.exec(`
-        DROP TABLE conversation_lifecycle_operations;
-        ALTER TABLE conversations DROP COLUMN lifecycle_revision;
-        ALTER TABLE conversations DROP COLUMN archived_at;
-        ALTER TABLE conversations DROP COLUMN archive_origin;
-      `);
-    }
+    materializeWorkbenchSchemaContract(database, revision);
     database.prepare(`INSERT INTO conversations (
       project_id, conversation_id, product_mode, agent_turn_mode, title, state, surface_kind,
       bound_change_id, current_graph_scope_id, selected_provider_id, completed_turn_sequence,
@@ -773,7 +758,6 @@ async function createLegacyWorkbenchDatabase(revision: 16 | 17): Promise<void> {
       created_at, updated_at
     ) VALUES (?, ?, ?, 'harness', NULL, ?, 'codex', 'main-agent', 'main', 'legacy-session', ?, '[]', '', 1, 'completed', ?, ?)`)
       .run(projectId, "legacy-conversation", "legacy-attempt", "legacy-graph", '{"providerId":"codex","productMode":"harness"}', now, now);
-    database.pragma(`user_version = ${revision}`);
   } finally {
     database.close();
   }

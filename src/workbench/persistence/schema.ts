@@ -397,22 +397,10 @@ export function applyCurrentWorkbenchSchema(db: Database.Database): void {
     WHERE state = 'archive' AND archive_origin IS NULL;
     UPDATE conversations SET archive_origin = NULL, archived_at = NULL WHERE state = 'active';
   `);
-  db.exec("DELETE FROM skill_roots WHERE source_kind <> 'custom';");
   db.exec(`
-    DELETE FROM conversation_change_links
-    WHERE graph_scope_id IS NOT NULL AND rowid NOT IN (
-      SELECT MAX(rowid) FROM conversation_change_links
-      WHERE graph_scope_id IS NOT NULL
-      GROUP BY project_id, graph_scope_id
-    );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_conversation_change_graph_scope
       ON conversation_change_links(project_id, graph_scope_id)
       WHERE graph_scope_id IS NOT NULL;
-    DELETE FROM conversation_change_links
-    WHERE rowid NOT IN (
-      SELECT MAX(rowid) FROM conversation_change_links
-      GROUP BY project_id, change_id
-    );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_conversation_change_change_id
       ON conversation_change_links(project_id, change_id);
   `);
