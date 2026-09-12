@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 
 const workflow = await read(".github/workflows/windows-update-acceptance.yml");
 const runner = await read("scripts/run-windows-update-acceptance.ps1");
-const certificates = await read("scripts/new-windows-update-acceptance-certificates.ps1");
 const fixture = await read("scripts/desktop-update-acceptance-fixture.mjs");
 const feed = await read("scripts/serve-desktop-update-fixture.mjs");
 const main = await read("src/desktop/main.ts");
@@ -12,7 +11,7 @@ describe("Windows update acceptance boundary", () => {
   it("runs only for the exact candidate branch on a GitHub-hosted runner", () => {
     expect(workflow).toContain("github.ref == 'refs/heads/codex/aho-windows-release-update-foundation-v1'");
     expect(workflow).toContain("BEAVER_UPDATE_ACCEPTANCE_SHA: ${{ github.sha }}");
-    for (const source of [runner, certificates, fixture, feed]) {
+    for (const source of [runner, fixture, feed]) {
       expect(source).toContain('RUNNER_ENVIRONMENT');
       expect(source).toContain('github-hosted');
       expect(source).toContain('GITHUB_REPOSITORY');
@@ -33,7 +32,11 @@ describe("Windows update acceptance boundary", () => {
 
   it("publishes success only after certificate cleanup is verified", () => {
     expect(runner).not.toContain("Start-Job");
-    expect(runner).toContain('120 "Disposable certificate generation"');
+    expect(runner).not.toContain("New-SelfSignedCertificate");
+    expect(runner).toContain('Git\\usr\\bin\\openssl.exe');
+    expect(runner).toContain('"-passout", "env:BEAVER_ACCEPTANCE_CERT_PASSWORD"');
+    expect(runner).toContain('1200 "Old signed package build"');
+    expect(runner).toContain('1200 "New signed package build"');
     expect(runner).toContain('Where-Object Subject -EQ $subject');
     expect(runner.indexOf('if ($passedResult)')).toBeGreaterThan(runner.indexOf('finally {'));
     expect(runner).toContain('A disposable acceptance certificate was not removed.');

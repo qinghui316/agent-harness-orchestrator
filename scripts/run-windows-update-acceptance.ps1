@@ -21,8 +21,8 @@ $feedReady = Join-Path $acceptanceRoot "feed-ready.txt"
 $resultPath = Join-Path $acceptanceRoot "result.json"
 $codePfx = Join-Path $acceptanceRoot "code-signing.pfx"
 $tlsPfx = Join-Path $acceptanceRoot "localhost-tls.pfx"
-$publisher = "CN=Beaver Code Update Test $($env:GITHUB_RUN_ID)"
-$tlsSubject = "CN=Beaver Code Update TLS $($env:GITHUB_RUN_ID)"
+$publisher = "CN=BeaverCodeUpdateTest-$($env:GITHUB_RUN_ID)"
+$tlsSubject = "CN=BeaverCodeUpdateTLS-$($env:GITHUB_RUN_ID)"
 $feedPort = 8443
 $feedUrl = "https://localhost:$feedPort/"
 $oldVersion = "0.1.2"
@@ -58,29 +58,32 @@ function Invoke-HiddenProcess([string]$FilePath, [string[]]$Arguments, [int]$Tim
 }
 
 function New-AcceptanceCertificates([string]$PasswordText, [string]$CodePath, [string]$TlsPath) {
-  $receiptPath = Join-Path $acceptanceRoot "certificates.json"
+  $openssl = Join-Path $env:ProgramFiles "Git\usr\bin\openssl.exe"
+  if (-not (Test-Path -LiteralPath $openssl -PathType Leaf)) { throw "The hosted runner OpenSSL executable is unavailable." }
+  $codeKey = Join-Path $acceptanceRoot "code-signing.key.pem"
+  $codePem = Join-Path $acceptanceRoot "code-signing.pem"
+  $codeCer = Join-Path $acceptanceRoot "code-signing.cer"
+  $tlsKey = Join-Path $acceptanceRoot "localhost-tls.key.pem"
+  $tlsPem = Join-Path $acceptanceRoot "localhost-tls.pem"
+  $tlsCer = Join-Path $acceptanceRoot "localhost-tls.cer"
   $env:BEAVER_ACCEPTANCE_CERT_PASSWORD = $PasswordText
-  $env:BEAVER_ACCEPTANCE_CERT_ROOT = $acceptanceRoot
-  $env:BEAVER_ACCEPTANCE_CODE_SUBJECT = $publisher
-  $env:BEAVER_ACCEPTANCE_TLS_SUBJECT = $tlsSubject
   try {
-    Invoke-HiddenProcess (Join-Path $PSHOME "pwsh.exe") `
-      @("-NoLogo", "-NoProfile", "-NonInteractive", "-File", (Join-Path $repoRoot "scripts\new-windows-update-acceptance-certificates.ps1")) `
-      120 "Disposable certificate generation"
-    if (-not (Test-Path -LiteralPath $receiptPath -PathType Leaf)) {
-      throw "Disposable certificate generation did not return a complete receipt."
-    }
-    $receipt = Get-Content -LiteralPath $receiptPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if (-not $receipt.CodeThumbprint -or -not $receipt.TlsThumbprint `
-      -or $receipt.CodeSubject -ne $publisher -or $receipt.TlsSubject -ne $tlsSubject) {
-      throw "Disposable certificate generation did not return a complete receipt."
-    }
-    return $receipt
+    Invoke-HiddenProcess $openssl @("req", "-x509", "-newkey", "rsa:2048", "-sha256", "-nodes", `
+      "-keyout", $codeKey, "-out", $codePem, "-days", "2", "-subj", "/$publisher", `
+      "-addext", "extendedKeyUsage=codeSigning", "-addext", "keyUsage=digitalSignature") 30 "Code certificate generation"
+    Invoke-HiddenProcess $openssl @("pkcs12", "-export", "-out", $CodePath, "-inkey", $codeKey, `
+      "-in", $codePem, "-passout", "env:BEAVER_ACCEPTANCE_CERT_PASSWORD", "-name", "BeaverCodeUpdateTest") 30 "Code PFX export"
+    Invoke-HiddenProcess $openssl @("x509", "-in", $codePem, "-outform", "DER", "-out", $codeCer) 30 "Code CER export"
+    Invoke-HiddenProcess $openssl @("req", "-x509", "-newkey", "rsa:2048", "-sha256", "-nodes", `
+      "-keyout", $tlsKey, "-out", $tlsPem, "-days", "2", "-subj", "/$tlsSubject", `
+      "-addext", "subjectAltName=DNS:localhost", "-addext", "extendedKeyUsage=serverAuth") 30 "TLS certificate generation"
+    Invoke-HiddenProcess $openssl @("pkcs12", "-export", "-out", $TlsPath, "-inkey", $tlsKey, `
+      "-in", $tlsPem, "-passout", "env:BEAVER_ACCEPTANCE_CERT_PASSWORD", "-name", "BeaverCodeUpdateTLS") 30 "TLS PFX export"
+    Invoke-HiddenProcess $openssl @("x509", "-in", $tlsPem, "-outform", "DER", "-out", $tlsCer) 30 "TLS CER export"
+    return [pscustomobject]@{ CodeCer = $codeCer; TlsCer = $tlsCer }
   } finally {
-    foreach ($name in @("BEAVER_ACCEPTANCE_CERT_PASSWORD", "BEAVER_ACCEPTANCE_CERT_ROOT", `
-      "BEAVER_ACCEPTANCE_CODE_SUBJECT", "BEAVER_ACCEPTANCE_TLS_SUBJECT")) {
-      Remove-Item "Env:$name" -ErrorAction SilentlyContinue
-    }
+    Remove-Item Env:BEAVER_ACCEPTANCE_CERT_PASSWORD -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $codeKey, $tlsKey -Force -ErrorAction SilentlyContinue
   }
 }
 
@@ -172,21 +175,15 @@ try {
   $passwordText = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
   Write-Output "::add-mask::$passwordText"
   $certificateReceipt = New-AcceptanceCertificates $passwordText $codePfx $tlsPfx
-  $certificateThumbprints = @($certificateReceipt.CodeThumbprint, $certificateReceipt.TlsThumbprint)
-  $codeCert = Get-Item -LiteralPath "Cert:\CurrentUser\My\$($certificateReceipt.CodeThumbprint)"
-  $tlsCert = Get-Item -LiteralPath "Cert:\CurrentUser\My\$($certificateReceipt.TlsThumbprint)"
-  $codeCer = Join-Path $acceptanceRoot "code-signing.cer"
-  $tlsCer = Join-Path $acceptanceRoot "localhost-tls.cer"
-  Export-Certificate -Cert $codeCert -FilePath $codeCer | Out-Null
-  Export-Certificate -Cert $tlsCert -FilePath $tlsCer | Out-Null
-  Import-Certificate -FilePath $codeCer -CertStoreLocation "Cert:\CurrentUser\Root" | Out-Null
-  Import-Certificate -FilePath $codeCer -CertStoreLocation "Cert:\CurrentUser\TrustedPublisher" | Out-Null
-  Import-Certificate -FilePath $tlsCer -CertStoreLocation "Cert:\CurrentUser\Root" | Out-Null
+  $codeRoot = Import-Certificate -FilePath $certificateReceipt.CodeCer -CertStoreLocation "Cert:\CurrentUser\Root"
+  $codePublisher = Import-Certificate -FilePath $certificateReceipt.CodeCer -CertStoreLocation "Cert:\CurrentUser\TrustedPublisher"
+  $tlsRoot = Import-Certificate -FilePath $certificateReceipt.TlsCer -CertStoreLocation "Cert:\CurrentUser\Root"
+  $certificateThumbprints = @($codeRoot.Thumbprint, $codePublisher.Thumbprint, $tlsRoot.Thumbprint) | Select-Object -Unique
 
   Push-Location $repoRoot
   try {
     Write-Output "acceptance-stage: build-and-seed"
-    Invoke-Checked "npm.cmd" @("run", "build")
+    Invoke-HiddenProcess "npm.cmd" @("run", "build") 300 "Acceptance build"
     Invoke-Checked "node.exe" @(
       "scripts/desktop-update-acceptance-fixture.mjs", "seed", $fixtureHome, $fixtureProject
     )
@@ -199,13 +196,13 @@ try {
 
     $env:BEAVER_TEST_VERSION = $oldVersion
     Write-Output "acceptance-stage: package-old"
-    Invoke-Checked "npm.cmd" @("run", "package:desktop:win")
+    Invoke-HiddenProcess "npm.cmd" @("run", "package:desktop:win") 1200 "Old signed package build"
     $oldBuiltInstaller = Join-Path $repoRoot "release\desktop\test\Beaver-Code-Test-Setup-$oldVersion-win-x64.exe"
     Copy-Item -LiteralPath $oldBuiltInstaller -Destination $oldRoot -Force
 
     $env:BEAVER_TEST_VERSION = $newVersion
     Write-Output "acceptance-stage: package-new"
-    Invoke-Checked "npm.cmd" @("run", "package:desktop:win")
+    Invoke-HiddenProcess "npm.cmd" @("run", "package:desktop:win") 1200 "New signed package build"
     $newBuiltInstallerName = "Beaver-Code-Test-Setup-$newVersion-win-x64.exe"
     Copy-Item -LiteralPath (Join-Path $repoRoot "release\desktop\test\$newBuiltInstallerName") -Destination $newRoot -Force
     Copy-Item -LiteralPath (Join-Path $repoRoot "release\desktop\test\$newBuiltInstallerName.blockmap") -Destination $newRoot -Force
