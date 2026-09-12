@@ -48,6 +48,23 @@ function Invoke-Checked([string]$Command, [string[]]$Arguments) {
   if ($LASTEXITCODE -ne 0) { throw "Command failed with exit code ${LASTEXITCODE}: $Command" }
 }
 
+function Add-CurrentUserCertificate(
+  [Security.Cryptography.X509Certificates.X509Certificate2]$Certificate,
+  [string]$StoreName
+) {
+  $store = [Security.Cryptography.X509Certificates.X509Store]::new(
+    $StoreName,
+    [Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser
+  )
+  try {
+    $store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+    $store.Add($Certificate)
+  } finally {
+    $store.Close()
+    $store.Dispose()
+  }
+}
+
 function Invoke-HiddenProcess([string]$FilePath, [string[]]$Arguments, [int]$TimeoutSeconds, [string]$Label) {
   $process = Start-Process -FilePath $FilePath -ArgumentList $Arguments -WindowStyle Hidden -PassThru
   if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
@@ -157,10 +174,12 @@ try {
   $tlsCertificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new(
     [IO.File]::ReadAllBytes($tlsCertificatePath)
   )
-  Invoke-Checked "certutil.exe" @("-user", "-f", "-addstore", "Root", $codeCertificatePath)
-  Invoke-Checked "certutil.exe" @("-user", "-f", "-addstore", "TrustedPublisher", $codeCertificatePath)
-  Invoke-Checked "certutil.exe" @("-user", "-f", "-addstore", "Root", $tlsCertificatePath)
+  Add-CurrentUserCertificate $codeCertificate "Root"
+  Add-CurrentUserCertificate $codeCertificate "TrustedPublisher"
+  Add-CurrentUserCertificate $tlsCertificate "Root"
   $certificateThumbprints = @($codeCertificate.Thumbprint, $tlsCertificate.Thumbprint) | Select-Object -Unique
+  $codeCertificate.Dispose()
+  $tlsCertificate.Dispose()
 
   Push-Location $repoRoot
   try {
