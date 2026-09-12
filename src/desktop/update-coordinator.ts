@@ -40,7 +40,7 @@ export class DesktopUpdateCoordinator {
     private readonly installedVersion: string,
     private readonly downloads: DesktopUpdateDownloadPort,
     private readonly host: DesktopUpdateHostPort,
-    private readonly onState: (state: DesktopUpdateState) => void,
+    private readonly onState: (state: DesktopUpdateState) => void | Promise<void>,
   ) {}
 
   read(): DesktopUpdateState { return this.state; }
@@ -71,17 +71,17 @@ export class DesktopUpdateCoordinator {
     let identity: WorkbenchUpdateIdentity | null = null;
     let teardownStarted = false;
     try {
-      this.setState("checking");
+      await this.setState("checking");
       const offered = await this.downloads.check();
       this.assertSession(controller);
       if (!offered || !isNewerStableVersion(offered.version, this.installedVersion)
         || (!manual && offered.version === this.failedVersion)) {
-        this.setState("idle");
+        await this.setState("idle");
         return;
       }
       const artifact = Object.freeze({ ...offered });
       if (!/^[A-Za-z0-9+/]{86}==$/.test(artifact.sha512)) throw new Error("Invalid update artifact.");
-      this.setState("downloading");
+      await this.setState("downloading");
       await this.downloads.download(artifact, controller.signal);
       this.assertSession(controller);
       await this.downloads.revalidate(artifact);
@@ -89,17 +89,17 @@ export class DesktopUpdateCoordinator {
       const generation = this.host.generation();
       if (!generation) throw new Error("Workbench is unavailable for updating.");
       identity = Object.freeze({ updateId: randomUUID(), generation, targetVersion: artifact.version, artifactSha512: artifact.sha512 });
-      this.setState("preparing");
+      await this.setState("preparing");
       const prepared = await this.host.prepare(identity);
       this.assertCurrent(identity, prepared, "prepared", controller);
-      this.setState("stopping");
+      await this.setState("stopping");
       teardownStarted = true;
       const stopped = await this.host.stop(identity);
       this.assertCurrent(identity, stopped, "stopped", controller);
       // Check the cached installer again after the potentially long preparation.
       await this.downloads.revalidate(artifact);
       this.assertCurrent(identity, stopped, "stopped", controller);
-      this.setState("installing");
+      await this.setState("installing");
       await this.downloads.install();
       this.host.authorizeInstallerExit(identity);
     } catch {
@@ -111,7 +111,7 @@ export class DesktopUpdateCoordinator {
           try { await this.host.cancel(identity); } catch { this.recoveryRequired = true; }
         }
       }
-      this.setState("failed");
+      try { await this.setState("failed"); } catch { /* state remains failed if its observer is unavailable */ }
     }
   }
 
@@ -126,8 +126,8 @@ export class DesktopUpdateCoordinator {
       || this.host.generation() !== identity.generation) throw new Error("Update receipt is stale.");
   }
 
-  private setState(state: DesktopUpdateState): void {
+  private async setState(state: DesktopUpdateState): Promise<void> {
     this.state = state;
-    this.onState(state);
+    await this.onState(state);
   }
 }
