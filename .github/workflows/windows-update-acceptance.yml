@@ -31,11 +31,25 @@ jobs:
       - name: Validate acceptance-owned contracts
         run: npx vitest run tests/unit/desktop-build-variant.test.ts tests/unit/nsis-update-adapter.test.ts tests/unit/desktop-update-coordinator.test.ts tests/unit/desktop-update-host-bridge.test.ts tests/unit/workbench-update-request-gate.test.ts tests/unit/workbench-update-lifecycle.test.ts tests/unit/workbench-update-http.test.ts tests/unit/composer-update-save.test.ts tests/unit/renderer-update-participants.test.ts tests/unit/terminal-update-shutdown.test.ts tests/unit/desktop-update-boundary.test.tsx tests/unit/windows-update-acceptance-contract.test.ts
       - name: Build signed old and new packages, update, repair and reinstall
-        shell: pwsh
+        shell: bash
+        timeout-minutes: 75
         env:
           BEAVER_UPDATE_ACCEPTANCE: '1'
           BEAVER_UPDATE_ACCEPTANCE_SHA: ${{ github.sha }}
-        run: ./scripts/run-windows-update-acceptance.ps1
+        run: |
+          set -euo pipefail
+          export BEAVER_ACCEPTANCE_CERT_PASSWORD="$(openssl rand -base64 32)"
+          echo "::add-mask::$BEAVER_ACCEPTANCE_CERT_PASSWORD"
+          cert_root="$RUNNER_TEMP/beaver-update-acceptance"
+          mkdir -p "$cert_root"
+          openssl req -x509 -newkey rsa:2048 -sha256 -nodes -keyout "$cert_root/code-signing.key.pem" -out "$cert_root/code-signing.pem" -days 2 -subj "/CN=BeaverCodeUpdateTest-$GITHUB_RUN_ID" -addext "extendedKeyUsage=codeSigning" -addext "keyUsage=digitalSignature"
+          openssl pkcs12 -export -out "$cert_root/code-signing.pfx" -inkey "$cert_root/code-signing.key.pem" -in "$cert_root/code-signing.pem" -passout env:BEAVER_ACCEPTANCE_CERT_PASSWORD -name BeaverCodeUpdateTest
+          openssl x509 -in "$cert_root/code-signing.pem" -outform DER -out "$cert_root/code-signing.cer"
+          openssl req -x509 -newkey rsa:2048 -sha256 -nodes -keyout "$cert_root/localhost-tls.key.pem" -out "$cert_root/localhost-tls.pem" -days 2 -subj "/CN=BeaverCodeUpdateTLS-$GITHUB_RUN_ID" -addext "subjectAltName=DNS:localhost" -addext "extendedKeyUsage=serverAuth"
+          openssl pkcs12 -export -out "$cert_root/localhost-tls.pfx" -inkey "$cert_root/localhost-tls.key.pem" -in "$cert_root/localhost-tls.pem" -passout env:BEAVER_ACCEPTANCE_CERT_PASSWORD -name BeaverCodeUpdateTLS
+          openssl x509 -in "$cert_root/localhost-tls.pem" -outform DER -out "$cert_root/localhost-tls.cer"
+          rm -f "$cert_root/code-signing.key.pem" "$cert_root/localhost-tls.key.pem"
+          pwsh -NoLogo -NoProfile -NonInteractive -File ./scripts/run-windows-update-acceptance.ps1
       - name: Upload bounded acceptance receipt
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
