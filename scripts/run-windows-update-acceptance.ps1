@@ -23,6 +23,7 @@ $codePfx = Join-Path $acceptanceRoot "code-signing.pfx"
 $tlsPfx = Join-Path $acceptanceRoot "localhost-tls.pfx"
 $publisher = "CN=BeaverCodeUpdateTest-$($env:GITHUB_RUN_ID)"
 $tlsSubject = "CN=BeaverCodeUpdateTLS-$($env:GITHUB_RUN_ID)"
+$rootSubject = "CN=BeaverCodeUpdateRoot-$($env:GITHUB_RUN_ID)"
 $feedPort = 8443
 $feedUrl = "https://localhost:$feedPort/"
 $oldVersion = "0.1.2"
@@ -31,7 +32,7 @@ $codeCert = $null
 $tlsCert = $null
 $feedProcess = $null
 $certificateThumbprints = @()
-$certificateSubjects = @($publisher, $tlsSubject)
+$certificateSubjects = @($publisher, $tlsSubject, $rootSubject)
 $passedResult = $null
 
 function Assert-RunnerChild([string]$Path) {
@@ -170,7 +171,8 @@ try {
   $null = Assert-RunnerChild $acceptanceRoot
   if (-not (Test-Path -LiteralPath $acceptanceRoot -PathType Container) `
     -or (Test-Path -LiteralPath (Split-Path -Parent $fixtureHome))) { throw "The disposable acceptance roots are invalid." }
-  foreach ($path in @($codePfx, $tlsPfx, (Join-Path $acceptanceRoot "code-signing.cer"), `
+  foreach ($path in @($codePfx, $tlsPfx, (Join-Path $acceptanceRoot "root-ca.cer"), `
+    (Join-Path $acceptanceRoot "code-signing.cer"), `
     (Join-Path $acceptanceRoot "localhost-tls.cer"))) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "A disposable acceptance certificate is missing." }
   }
@@ -190,16 +192,20 @@ try {
   Write-Output "::add-mask::$passwordText"
   $codeCertificatePath = Join-Path $acceptanceRoot "code-signing.cer"
   $tlsCertificatePath = Join-Path $acceptanceRoot "localhost-tls.cer"
+  $rootCertificatePath = Join-Path $acceptanceRoot "root-ca.cer"
+  $rootCertificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new(
+    [IO.File]::ReadAllBytes($rootCertificatePath)
+  )
   $codeCertificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new(
     [IO.File]::ReadAllBytes($codeCertificatePath)
   )
   $tlsCertificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new(
     [IO.File]::ReadAllBytes($tlsCertificatePath)
   )
-  Add-MachineCertificate $codeCertificate "Root"
+  Add-MachineCertificate $rootCertificate "Root"
   Add-MachineCertificate $codeCertificate "TrustedPublisher"
-  Add-MachineCertificate $tlsCertificate "Root"
-  $certificateThumbprints = @($codeCertificate.Thumbprint, $tlsCertificate.Thumbprint) | Select-Object -Unique
+  $certificateThumbprints = @($rootCertificate.Thumbprint, $codeCertificate.Thumbprint, $tlsCertificate.Thumbprint) | Select-Object -Unique
+  $rootCertificate.Dispose()
   $codeCertificate.Dispose()
   $tlsCertificate.Dispose()
 
