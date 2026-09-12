@@ -33,8 +33,9 @@ describe("Windows update acceptance boundary", () => {
   it("publishes success only after certificate cleanup is verified", () => {
     expect(runner).not.toContain("Start-Job");
     expect(runner).not.toContain("New-SelfSignedCertificate");
-    expect(runner).toContain('Git\\usr\\bin\\openssl.exe');
-    expect(runner).toContain('"-passout", "env:BEAVER_ACCEPTANCE_CERT_PASSWORD"');
+    expect(workflow).toContain("timeout-minutes: 75");
+    expect(workflow).toContain("openssl req -x509");
+    expect(workflow).toContain("-passout env:BEAVER_ACCEPTANCE_CERT_PASSWORD");
     expect(runner).toContain('1200 "Old signed package build"');
     expect(runner).toContain('1200 "New signed package build"');
     expect(runner).toContain('Where-Object Subject -EQ $subject');

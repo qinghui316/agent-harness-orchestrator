@@ -57,36 +57,6 @@ function Invoke-HiddenProcess([string]$FilePath, [string[]]$Arguments, [int]$Tim
   if ($process.ExitCode -ne 0) { throw "$Label failed with exit code $($process.ExitCode)." }
 }
 
-function New-AcceptanceCertificates([string]$PasswordText, [string]$CodePath, [string]$TlsPath) {
-  $openssl = Join-Path $env:ProgramFiles "Git\usr\bin\openssl.exe"
-  if (-not (Test-Path -LiteralPath $openssl -PathType Leaf)) { throw "The hosted runner OpenSSL executable is unavailable." }
-  $codeKey = Join-Path $acceptanceRoot "code-signing.key.pem"
-  $codePem = Join-Path $acceptanceRoot "code-signing.pem"
-  $codeCer = Join-Path $acceptanceRoot "code-signing.cer"
-  $tlsKey = Join-Path $acceptanceRoot "localhost-tls.key.pem"
-  $tlsPem = Join-Path $acceptanceRoot "localhost-tls.pem"
-  $tlsCer = Join-Path $acceptanceRoot "localhost-tls.cer"
-  $env:BEAVER_ACCEPTANCE_CERT_PASSWORD = $PasswordText
-  try {
-    Invoke-HiddenProcess $openssl @("req", "-x509", "-newkey", "rsa:2048", "-sha256", "-nodes", `
-      "-keyout", $codeKey, "-out", $codePem, "-days", "2", "-subj", "/$publisher", `
-      "-addext", "extendedKeyUsage=codeSigning", "-addext", "keyUsage=digitalSignature") 30 "Code certificate generation"
-    Invoke-HiddenProcess $openssl @("pkcs12", "-export", "-out", $CodePath, "-inkey", $codeKey, `
-      "-in", $codePem, "-passout", "env:BEAVER_ACCEPTANCE_CERT_PASSWORD", "-name", "BeaverCodeUpdateTest") 30 "Code PFX export"
-    Invoke-HiddenProcess $openssl @("x509", "-in", $codePem, "-outform", "DER", "-out", $codeCer) 30 "Code CER export"
-    Invoke-HiddenProcess $openssl @("req", "-x509", "-newkey", "rsa:2048", "-sha256", "-nodes", `
-      "-keyout", $tlsKey, "-out", $tlsPem, "-days", "2", "-subj", "/$tlsSubject", `
-      "-addext", "subjectAltName=DNS:localhost", "-addext", "extendedKeyUsage=serverAuth") 30 "TLS certificate generation"
-    Invoke-HiddenProcess $openssl @("pkcs12", "-export", "-out", $TlsPath, "-inkey", $tlsKey, `
-      "-in", $tlsPem, "-passout", "env:BEAVER_ACCEPTANCE_CERT_PASSWORD", "-name", "BeaverCodeUpdateTLS") 30 "TLS PFX export"
-    Invoke-HiddenProcess $openssl @("x509", "-in", $tlsPem, "-outform", "DER", "-out", $tlsCer) 30 "TLS CER export"
-    return [pscustomobject]@{ CodeCer = $codeCer; TlsCer = $tlsCer }
-  } finally {
-    Remove-Item Env:BEAVER_ACCEPTANCE_CERT_PASSWORD -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath $codeKey, $tlsKey -Force -ErrorAction SilentlyContinue
-  }
-}
-
 function Wait-Until([scriptblock]$Condition, [int]$TimeoutSeconds, [string]$Failure) {
   $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
   do {
@@ -163,21 +133,25 @@ function Get-PersistedDataDigest {
 
 try {
   $null = Assert-RunnerChild $acceptanceRoot
-  if ((Test-Path -LiteralPath $acceptanceRoot) -or (Test-Path -LiteralPath (Split-Path -Parent $fixtureHome))) {
-    throw "The disposable acceptance roots already exist."
+  if (-not (Test-Path -LiteralPath $acceptanceRoot -PathType Container) `
+    -or (Test-Path -LiteralPath (Split-Path -Parent $fixtureHome))) { throw "The disposable acceptance roots are invalid." }
+  foreach ($path in @($codePfx, $tlsPfx, (Join-Path $acceptanceRoot "code-signing.cer"), `
+    (Join-Path $acceptanceRoot "localhost-tls.cer"))) {
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "A disposable acceptance certificate is missing." }
   }
-  New-Item -ItemType Directory -Path $acceptanceRoot -Force | Out-Null
   New-Item -ItemType Directory -Path $oldRoot -Force | Out-Null
   New-Item -ItemType Directory -Path $newRoot -Force | Out-Null
   New-Item -ItemType Directory -Path $installRoot -Force | Out-Null
 
   Write-Output "acceptance-stage: certificates"
-  $passwordText = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+  $passwordText = $env:BEAVER_ACCEPTANCE_CERT_PASSWORD
+  if (-not $passwordText -or $passwordText.Length -lt 32 -or [regex]::IsMatch($passwordText, "[\r\n\0]")) {
+    throw "The disposable certificate password is invalid."
+  }
   Write-Output "::add-mask::$passwordText"
-  $certificateReceipt = New-AcceptanceCertificates $passwordText $codePfx $tlsPfx
-  $codeRoot = Import-Certificate -FilePath $certificateReceipt.CodeCer -CertStoreLocation "Cert:\CurrentUser\Root"
-  $codePublisher = Import-Certificate -FilePath $certificateReceipt.CodeCer -CertStoreLocation "Cert:\CurrentUser\TrustedPublisher"
-  $tlsRoot = Import-Certificate -FilePath $certificateReceipt.TlsCer -CertStoreLocation "Cert:\CurrentUser\Root"
+  $codeRoot = Import-Certificate -FilePath (Join-Path $acceptanceRoot "code-signing.cer") -CertStoreLocation "Cert:\CurrentUser\Root"
+  $codePublisher = Import-Certificate -FilePath (Join-Path $acceptanceRoot "code-signing.cer") -CertStoreLocation "Cert:\CurrentUser\TrustedPublisher"
+  $tlsRoot = Import-Certificate -FilePath (Join-Path $acceptanceRoot "localhost-tls.cer") -CertStoreLocation "Cert:\CurrentUser\Root"
   $certificateThumbprints = @($codeRoot.Thumbprint, $codePublisher.Thumbprint, $tlsRoot.Thumbprint) | Select-Object -Unique
 
   Push-Location $repoRoot
@@ -347,7 +321,7 @@ try {
     "BEAVER_BUILD_CHANNEL", "BEAVER_TEST_VERSION", "BEAVER_TEST_UPDATE_URL", "BEAVER_PUBLISHER_SUBJECT",
     "CSC_LINK", "CSC_KEY_PASSWORD", "BEAVER_UPDATE_FEED_ROOT", "BEAVER_UPDATE_FEED_READY",
     "BEAVER_UPDATE_TLS_PFX", "BEAVER_UPDATE_TLS_PASSWORD", "BEAVER_UPDATE_FEED_PORT",
-    "BEAVER_UPDATE_INSTALLER_NAME", "BEAVER_UPDATE_BLOCKMAP_NAME"
+    "BEAVER_UPDATE_INSTALLER_NAME", "BEAVER_UPDATE_BLOCKMAP_NAME", "BEAVER_ACCEPTANCE_CERT_PASSWORD"
   )) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
 }
 
