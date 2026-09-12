@@ -16,6 +16,8 @@ import {
 } from "../../src/provider-runtime/index.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { WorkbenchUpdateRequestGate } from "../../src/server/workbench/update-request-gate.js";
+import { ConversationTurnControlOwner } from "../../src/workbench/conversation-turn-control.js";
+import { ProviderRegistry } from "../../src/provider-runtime/registry.js";
 
 const projectId = "conversation-turn-queue-project";
 const conversationId = "conversation-agent";
@@ -53,23 +55,28 @@ describe("ConversationTurnQueueOwner", () => {
     let finish!: () => void;
     const held = new Promise<void>((resolve) => { finish = resolve; });
     const requestGate = new WorkbenchUpdateRequestGate();
+    const turnControl = new ConversationTurnControlOwner({
+      providerRegistry: new ProviderRegistry(),
+      projectRuntimeCoordinator: { resolve: async () => ({ state: "onboarding", paths }) } as never,
+    });
+    const releaseObserver = turnControl.subscribeAdmission(() => requestGate.managedExecutionRegistered());
     const lease = requestGate.begin("mutation");
     let admitted = false;
-    const owner = createOwner(async (_project, _conversation, _input, live) => {
-      live?.emit({ event: "run.started", data: {
-        projectId, productMode: "agent", conversationId, graphScopeId: "graph-current",
-        attemptId: "queued-attempt", runId: "queued-run", providerId: "codex", actionType: "chat.ask",
-      } });
+    const registration = {
+      projectId, productMode: "agent" as const, conversationId, graphScopeId: "graph-current",
+      expectedAttemptId: "queued-attempt", runId: "queued-run", providerId: "codex",
+      roleId: "main-agent" as const, canSteer: false,
+    };
+    const owner = createOwner(async () => {
+      turnControl.registerAttempt(registration);
+      admitted = true;
       await held;
+      turnControl.release(registration);
       return {} as never;
     });
     const initial = await owner.read(project, "agent", conversationId);
     const queued = await owner.enqueue(project, queueRequest(initial.revision, initial.executionRevision!));
-    const dispatch = owner.dispatchNext(project, "agent", conversationId, queued.revision, (observedProject, observedConversation, attempt) => {
-      expect([observedProject, observedConversation, attempt]).toEqual([projectId, conversationId, "queued-attempt"]);
-      lease.admittedExecution();
-      admitted = true;
-    });
+    const dispatch = requestGate.runTracked(lease, () => owner.dispatchNext(project, "agent", conversationId, queued.revision));
     await vi.waitFor(() => expect(admitted).toBe(true));
     const release = requestGate.pause("update");
     await requestGate.drain(new AbortController().signal);
@@ -77,6 +84,7 @@ describe("ConversationTurnQueueOwner", () => {
     await dispatch;
     lease.complete("settled");
     release();
+    releaseObserver();
   });
   it("atomically captures a full Agent draft, clears sendable fields, and replays the exact enqueue", async () => {
     const owner = createOwner();

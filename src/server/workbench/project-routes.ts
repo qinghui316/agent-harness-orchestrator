@@ -146,8 +146,7 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
   }
   if (request.method === "POST" && rest === "topics/live") {
     assertRegisteredProject(input);
-    await sendCreateTopicLive(input, request, response, context.turnRouter,
-      (projectId, conversationId, attemptId) => context.markUpdateExecution?.(request, projectId, conversationId, attemptId));
+    await sendCreateTopicLive(input, request, response, context.turnRouter);
     return;
   }
   if (request.method === "POST" && rest === "topics") {
@@ -451,9 +450,6 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
       requireProductMode(typeof body.productMode === "string" ? body.productMode : null),
       decodeURIComponent(turnQueueDispatchMatch[1]),
       requireQueueString(body.expectedRevision, "expectedRevision"),
-      context.updateGate
-        ? (projectId, conversationId, attemptId) => context.markUpdateExecution?.(request, projectId, conversationId, attemptId)
-        : undefined,
     ));
     return;
   }
@@ -508,8 +504,7 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
   if (request.method === "POST" && topicMessagesLiveMatch?.[1]) {
     assertRegisteredProject(input);
     const id = decodeURIComponent(topicMessagesLiveMatch[1]);
-    await sendConversationMessageLive(input, id, request, response, context.turnRouter,
-      (projectId, conversationId, attemptId) => context.markUpdateExecution?.(request, projectId, conversationId, attemptId));
+    await sendConversationMessageLive(input, id, request, response, context.turnRouter);
     return;
   }
   if (request.method === "GET" && /^topics\/[^/]+\/messages(?:\/stream)?$/.test(rest)) {

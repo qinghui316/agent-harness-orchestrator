@@ -77,6 +77,12 @@ type ControlEntry = {
 export class ConversationTurnControlOwner {
   private readonly entries = new Map<string, ControlEntry>();
   private readonly drainWaiters = new Set<() => void>();
+  private readonly admissionObservers = new Set<() => void>();
+
+  subscribeAdmission(observer: () => void): () => void {
+    this.admissionObservers.add(observer);
+    return () => { this.admissionObservers.delete(observer); };
+  }
 
   constructor(private readonly options: {
     providerRegistry: ProviderRegistry;
@@ -99,6 +105,9 @@ export class ConversationTurnControlOwner {
       steers: new Map(),
     });
     this.invalidate(registration);
+    for (const observer of this.admissionObservers) {
+      try { observer(); } catch { /* Transport observation never changes execution authority. */ }
+    }
   }
 
   onTurnStarted = (identity: ProviderTurnStartedIdentity): void => {
