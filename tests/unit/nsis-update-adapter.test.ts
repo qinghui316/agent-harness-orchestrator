@@ -15,7 +15,7 @@ function fixture() {
       cancellationToken: cancellation,
     })),
     downloadUpdate: vi.fn(async () => ["C:/cache/update.exe"]),
-    quitAndInstall: vi.fn(),
+    launchVerifiedUpdate: vi.fn(async () => {}),
   };
   const verifier = { signature: vi.fn(async () => {}), hash: vi.fn(async () => {}) };
   const adapter = new NsisUpdateAdapter(nsis as unknown as ConstructorParameters<typeof NsisUpdateAdapter>[0],
@@ -36,17 +36,17 @@ describe("NSIS adapter security defaults", () => {
     await adapter.download(artifact, new AbortController().signal);
     expect(verifier.signature).toHaveBeenCalledWith("C:/cache/update.exe", "CN=Beaver Publisher", { version: "0.1.3", productName: "Beaver Code" });
     expect(verifier.hash).toHaveBeenCalledWith("C:/cache/update.exe", sha512);
-    adapter.install();
-    expect(nsis.quitAndInstall).toHaveBeenCalledWith(true, true);
-    expect(() => adapter.install()).toThrow();
+    await adapter.install();
+    expect(nsis.launchVerifiedUpdate).toHaveBeenCalledTimes(1);
+    await expect(adapter.install()).rejects.toThrow();
   });
   it("cannot install after verifier failure", async () => {
     const { adapter, verifier, nsis } = fixture();
     const artifact = (await adapter.check())!;
     verifier.signature.mockRejectedValue(new Error("untrusted"));
     await expect(adapter.download(artifact, new AbortController().signal)).rejects.toThrow();
-    expect(() => adapter.install()).toThrow();
-    expect(nsis.quitAndInstall).not.toHaveBeenCalled();
+    await expect(adapter.install()).rejects.toThrow();
+    expect(nsis.launchVerifiedUpdate).not.toHaveBeenCalled();
   });
   it("rejects remote metadata file URLs and wrong architecture before download", async () => {
     const { adapter, nsis } = fixture();
@@ -64,7 +64,7 @@ describe("NSIS adapter security defaults", () => {
     const artifact = (await adapter.check())!;
     await adapter.download(artifact, new AbortController().signal);
     emitError();
-    expect(() => adapter.install()).toThrow();
+    await expect(adapter.install()).rejects.toThrow();
   });
 
   it("passes the check's cancellation token into the actual download", async () => {
@@ -78,7 +78,7 @@ describe("NSIS adapter security defaults", () => {
     await expect(adapter.download(artifact, abort.signal)).rejects.toThrow();
     expect(nsis.downloadUpdate).toHaveBeenCalledWith(cancellation);
     expect(cancellation.cancel).toHaveBeenCalledTimes(1);
-    expect(() => adapter.install()).toThrow();
+    await expect(adapter.install()).rejects.toThrow();
   });
 
   it("rejects a changed offered hash without touching the cached installer", async () => {

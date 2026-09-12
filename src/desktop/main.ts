@@ -51,6 +51,7 @@ let updateState: DesktopUpdateState = "idle";
 let updateTimer: ReturnType<typeof setInterval> | null = null;
 let ordinaryExitRequested = false;
 let systemSessionEnding = false;
+let updatesPausedForRecovery = false;
 
 let window: BrowserWindow | null = null;
 let utility: UtilityProcess | null = null;
@@ -97,7 +98,7 @@ async function startApplication(): Promise<void> {
   const policy = buildInfo.updatePolicy;
   if (app.isPackaged && process.platform === "win32" && process.arch === "x64" && policy && policy.mode !== "disabled") {
     const adapter = await createNsisUpdateAdapter(policy);
-    const bridge = new DesktopUpdateHostBridge(() => ({ child: utility, generation }), () => { quitting = true; });
+    const bridge = new DesktopUpdateHostBridge(() => ({ child: utility, generation }), () => { quitting = true; app.quit(); });
     updateCoordinator = new DesktopUpdateCoordinator(buildInfo.version, adapter, bridge, onUpdateState);
   }
   await log("build", `version=${buildInfo.version} commit=${buildInfo.commit} channel=${buildInfo.channel} platform=${process.platform} arch=${process.arch}`);
@@ -326,6 +327,8 @@ async function showRecovery(diagnostic: DesktopSafeDiagnostic): Promise<void> {
   if (choice.response === 0) {
     updateRuntimeActive = false;
     updateCoordinator?.endSession();
+    updatesPausedForRecovery = Boolean(updateCoordinator);
+    Menu.setApplicationMenu(buildMenu());
     utility?.kill();
     spawnWorkbench();
   } else if (choice.response === 1) {
@@ -351,7 +354,7 @@ function buildMenu(): Menu {
     { label: "视图", submenu: [{ role: "reload", enabled: !updateRuntimeActive }, { role: "resetZoom" }, { role: "zoomIn" }, { role: "zoomOut" }, { type: "separator" }, { role: "togglefullscreen" }, ...(!app.isPackaged ? [{ role: "toggleDevTools" as const }] : [])] },
     { label: "帮助", submenu: [
       { label: `${productName} ${buildInfo.version} · ${buildInfo.commit.slice(0, 8)}`, enabled: false },
-      { label: updateMenuLabel(), enabled: Boolean(updateCoordinator && ["idle", "failed"].includes(updateState)),
+      { label: updateMenuLabel(), enabled: Boolean(updateCoordinator && !updatesPausedForRecovery && ["idle", "failed"].includes(updateState)),
         click: () => { if (ready) void updateCoordinator?.check(true); } },
       { label: "打开诊断目录", click: () => void shell.openPath(desktopDir) },
     ] },
@@ -360,6 +363,7 @@ function buildMenu(): Menu {
 }
 
 function updateMenuLabel(): string {
+  if (updatesPausedForRecovery) return "重启应用后检查更新";
   if (!updateCoordinator) return "当前构建未启用自动更新";
   const labels: Record<DesktopUpdateState, string> = {
     idle: "检查更新", checking: "正在检查更新…", downloading: "正在下载更新…",

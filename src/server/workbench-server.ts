@@ -602,6 +602,11 @@ async function handleRequest(
       endOperation = await desktopHost?.beginOperation?.();
       await handleApi(context, request, response, url);
       outcome = response.statusCode < 500 ? "settled" : "uncertain";
+    } catch (cause) {
+      // Admission/validation rejections have a definite HTTP outcome. Only
+      // genuinely unknown server/transport failures poison the update drain.
+      if (statusForError(cause) < 500) outcome = "settled";
+      throw cause;
     } finally {
       lease?.complete(outcome);
       requestLeases.delete(request);

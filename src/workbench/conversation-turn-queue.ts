@@ -372,11 +372,13 @@ export class ConversationTurnQueueOwner {
     return this.read(project, productMode, conversationId);
   }
 
-  async dispatchNext(project: ManagedProject, productMode: ProductMode, conversationId: string, expectedRevision: string): Promise<ConversationTurnQueueSnapshot> {
+  async dispatchNext(project: ManagedProject, productMode: ProductMode, conversationId: string, expectedRevision: string,
+    onManagedExecution?: (projectId: string, conversationId: string, attemptId: string) => void,
+  ): Promise<ConversationTurnQueueSnapshot> {
     const snapshot = await this.read(project, productMode, conversationId);
     if (snapshot.revision !== expectedRevision) throw conflict("Conversation Turn queue changed before dispatch.");
     if (!snapshot.canDispatch || !snapshot.items[0]) return snapshot;
-    await this.dispatchHead(project, productMode, conversationId, snapshot.items[0].queueItemId, decodeRevision(expectedRevision));
+    await this.dispatchHead(project, productMode, conversationId, snapshot.items[0].queueItemId, decodeRevision(expectedRevision), onManagedExecution);
     return this.read(project, productMode, conversationId);
   }
 
@@ -423,7 +425,9 @@ export class ConversationTurnQueueOwner {
     return reconciled;
   }
 
-  private async dispatchHead(project: ManagedProject, productMode: ProductMode, conversationId: string, queueItemId: string, expectedRevision: number): Promise<void> {
+  private async dispatchHead(project: ManagedProject, productMode: ProductMode, conversationId: string, queueItemId: string, expectedRevision: number,
+    onManagedExecution?: (projectId: string, conversationId: string, attemptId: string) => void,
+  ): Promise<void> {
     const item = await this.claim(project, productMode, conversationId, queueItemId, expectedRevision);
     if (!item) return;
     publishConversationTurnQueueInvalidated(project.id, { conversationId });
@@ -471,7 +475,16 @@ export class ConversationTurnQueueOwner {
       const prepared = productMode === "agent"
         ? await prepare(project, conversationId, message, { turnRouter: this.options.turnRouter })
         : undefined;
-      await post(project, conversationId, message, undefined, { turnRouter: this.options.turnRouter, prepared });
+      await post(project, conversationId, message, onManagedExecution ? {
+        // Queue previously had no transport sink. Observe admission only; do
+        // not introduce another Timeline publisher or change persisted facts.
+        emit(event) {
+          if (event.event === "run.started" && event.data.conversationId && event.data.attemptId) {
+            onManagedExecution(project.id, event.data.conversationId, event.data.attemptId);
+          }
+        },
+        isClosed: () => false,
+      } : undefined, { turnRouter: this.options.turnRouter, prepared });
       await this.settleDispatch(project, item, "dispatched");
     } catch (cause) {
       if (await this.hasDispatchEvidence(project, item)) {
@@ -480,7 +493,7 @@ export class ConversationTurnQueueOwner {
         const revision = await this.settleDispatch(project, item, "queued", 1, boundedDiagnostic(cause));
         const refreshed = await this.read(project, productMode, conversationId);
         if (refreshed.canDispatch && refreshed.items[0]?.queueItemId === item.queueItemId) {
-          await this.dispatchHead(project, productMode, conversationId, item.queueItemId, revision);
+          await this.dispatchHead(project, productMode, conversationId, item.queueItemId, revision, onManagedExecution);
         }
       } else if (isExplicitZeroSideEffectFailure(cause)) {
         await this.settleDispatch(project, item, "blocked", 1, boundedDiagnostic(cause));
