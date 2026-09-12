@@ -17,6 +17,9 @@ import type { ConversationForkLifecycleOwner } from "../../workbench/conversatio
 import type { ConversationTurnQueueOwner } from "../../workbench/conversation-turn-queue.js";
 import type { ConversationLifecycleAction, ConversationLifecycleOwner } from "../../workbench/conversation-lifecycle.js";
 import type { ConversationReviewLifecycleOwner } from "../../workbench/conversation-review-lifecycle.js";
+import type { WorkbenchUpdateLifecycle } from "../../workbench/update-lifecycle.js";
+import type { WorkbenchUpdateRendererChannel } from "./update-renderer-channel.js";
+import type { WorkbenchUpdateRequestGate } from "./update-request-gate.js";
 
 export interface WorkbenchServeOptions {
   host?: string;
@@ -44,6 +47,7 @@ export interface WorkbenchServerHandle {
   url: string;
   snapshot(): Promise<WorkbenchRuntimeSnapshot>;
   close(deadlineMs?: number): Promise<void>;
+  updates?: Pick<WorkbenchUpdateLifecycle, "prepare" | "stop" | "cancel" | "snapshot">;
 }
 
 export interface WorkbenchDesktopHostPort {
@@ -51,6 +55,7 @@ export interface WorkbenchDesktopHostPort {
   cookieName?: string;
   beginOperation?: () => Promise<() => void>;
   openFolder?: () => Promise<FolderDialogResult>;
+  updateGeneration?: string;
 }
 
 export interface WorkbenchRuntimeSnapshot {
@@ -80,6 +85,9 @@ export interface WorkbenchServerContext {
   conversationReview: ConversationReviewLifecycleOwner;
   ensureProjectRecovered: (projectId: string) => Promise<void>;
   desktopHost?: WorkbenchDesktopHostPort;
+  updateChannel?: WorkbenchUpdateRendererChannel;
+  updateGate?: WorkbenchUpdateRequestGate;
+  markUpdateExecution?: (request: IncomingMessage, projectId: string, conversationId: string, attemptId: string) => void;
 }
 
 export interface ConversationLifecycleBody {

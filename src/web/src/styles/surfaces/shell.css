@@ -1,5 +1,36 @@
 /* App shell layout */
 
+.desktop-update-notice {
+  position: fixed;
+  z-index: 1000;
+  inset-block-start: 24px;
+  inset-block-end: auto;
+  inset-inline: 16px;
+  margin-block: 0;
+  margin-inline: auto;
+  max-width: 480px;
+  padding: 16px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-strong);
+  background: var(--bg-app);
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+
+.desktop-update-notice p {
+  margin: 8px 0 0;
+}
+
+.desktop-update-notice::backdrop {
+  background: transparent;
+}
+
+.desktop-update-notice:focus-visible {
+  outline: 2px solid var(--border);
+  outline-offset: 2px;
+}
+
 .app-shell {
   display: grid;
   grid-template-columns: var(--left-sidebar-width, 280px) minmax(0, 1fr);

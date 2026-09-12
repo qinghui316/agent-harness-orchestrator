@@ -146,7 +146,8 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
   }
   if (request.method === "POST" && rest === "topics/live") {
     assertRegisteredProject(input);
-    await sendCreateTopicLive(input, request, response, context.turnRouter);
+    await sendCreateTopicLive(input, request, response, context.turnRouter,
+      (projectId, conversationId, attemptId) => context.markUpdateExecution?.(request, projectId, conversationId, attemptId));
     return;
   }
   if (request.method === "POST" && rest === "topics") {
@@ -504,7 +505,8 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
   if (request.method === "POST" && topicMessagesLiveMatch?.[1]) {
     assertRegisteredProject(input);
     const id = decodeURIComponent(topicMessagesLiveMatch[1]);
-    await sendConversationMessageLive(input, id, request, response, context.turnRouter);
+    await sendConversationMessageLive(input, id, request, response, context.turnRouter,
+      (projectId, conversationId, attemptId) => context.markUpdateExecution?.(request, projectId, conversationId, attemptId));
     return;
   }
   if (request.method === "GET" && /^topics\/[^/]+\/messages(?:\/stream)?$/.test(rest)) {

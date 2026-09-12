@@ -591,3 +591,44 @@ native module layout, architecture exclusions, and source-map exclusions.
 An internal candidate installer may be used for controlled acceptance. The locally retained demo
 installation must be rebuilt from the exact canonical `master` commit after Change close and an
 explicit I2 Integration. Desktop upgrades preserve `~/.agent-harness`.
+
+## 19. Windows Update Foundation
+
+The foundation uses Electron Builder 26 and electron-updater 6.8.9 with NSIS. Ordinary
+packaging explicitly uses `--publish never`. Output is under
+`release/desktop/<internal|test|stable>/`; generated builder configuration is outside
+the packaged source tree.
+
+- With no build environment override, `build:desktop` and `package:desktop:win` produce
+  internal builds with network updating disabled.
+- `BEAVER_BUILD_CHANNEL=test` selects a separate application id, executable, updater
+  cache name and user data. It requires `BEAVER_TEST_UPDATE_URL` (isolated HTTPS),
+  `BEAVER_PUBLISHER_SUBJECT` (exact certificate subject), and signing credentials.
+  Optional `BEAVER_TEST_VERSION` changes only the isolated fixture package version.
+- `BEAVER_BUILD_CHANNEL=stable` requires the exact production publisher and signing
+  configuration. The feed is the project's GitHub Stable releases. It cannot be
+  changed from the UI or an installed application's startup arguments.
+- Signing credentials use Electron Builder's environment inputs (`CSC_LINK` or
+  `WIN_CSC_LINK`, plus the corresponding key password). Never commit a certificate,
+  password or private key. Actual production signing service acceptance is separate.
+- Signed packages require a clean checkout; validation checks Authenticode, exact
+  publisher, trusted timestamp, metadata checksum, and a matching blockmap.
+- Packaging executes the native smoke against modules inside the unpacked ASAR
+  layout, using the matching Electron executable.
+
+Test builds use `~/.beaver-code-update-test/data` and a separate Chromium profile;
+they must never register the developer's real projects. Use disposable Windows
+isolation for certificate trust and installation-fault tests. Do not install the
+test root certificate in the ordinary host's trust store.
+
+The manually dispatched Windows workflow verifies an exact version tag and canonical
+commit, checks the code, packages/signs, and optionally creates a **draft** release.
+Before enabling it, configure required reviewers on the `windows-release`
+environment, signing secrets and publisher identity. Keep `BEAVER_RELEASE_ENABLED`
+unset until the separate signed-release acceptance is complete. A named environment
+in YAML alone does not establish reviewer protection.
+
+An installed 0.1.1 build has no updater. Install a verified updater-enabled release
+manually once. Later releases can use the update channel. An interrupted NSIS
+installation is repaired with a trusted same-version or corrected installer;
+never restore an old database over newer user records or delete application data.

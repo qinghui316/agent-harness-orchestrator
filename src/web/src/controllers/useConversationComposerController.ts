@@ -15,6 +15,8 @@ import { createConversationComposerPortViews } from "./conversation-composer-por
 import { useConversationDraftLifecycle } from "./useConversationDraftLifecycle.js";
 import { useConversationExecutionActions } from "./useConversationExecutionActions.js";
 import { useConversationSubmissionCoordinator } from "./useConversationSubmissionCoordinator.js";
+import { rendererUpdateParticipants } from "./RendererUpdateParticipants.js";
+import { composerDraftContent, effectiveComposerProviderId } from "./conversation-composer-contract.js";
 
 export * from "./conversation-composer-contract.js";
 export type {
@@ -74,6 +76,31 @@ export function useConversationComposerController(
     resources,
     submission,
   );
+  const latestForUpdate = useRef({ draft, resources });
+  latestForUpdate.current = { draft, resources };
+  useEffect(() => rendererUpdateParticipants.register(async (updateId) => {
+    const { draft: currentDraft, resources: currentResources } = latestForUpdate.current;
+    const currentScope = scopeRef.current;
+    if (currentResources.hasPendingUploads()) throw new Error("Attachments are still uploading.");
+    const scopeIdentity = composerScopeIdentity(currentScope);
+    const mutationToken = currentDraft.controller.read().mutationToken;
+    if (currentScope.projectId && currentScope.projectRegistered) {
+      if (!currentDraft.draftLoadedScopeKey) throw new Error("Draft restoration is not complete.");
+      const value = currentDraft.stateRef.current;
+      currentDraft.syncOwner.schedule(composerDraftContent({
+        projectId: currentScope.projectId, productMode: composerProductMode(currentScope),
+        text: value.text, contextRefs: value.contextRefs, attachments: value.attachments,
+        skillOverrides: value.skillOverrides, agentTurnMode: value.agentTurnMode,
+        agentModelId: value.modelId, agentReasoningEffort: value.reasoningEffort,
+        selectedProviderId: effectiveComposerProviderId(currentScope),
+      }));
+    }
+    const receipt = await currentDraft.syncOwner.saveForUpdate(updateId);
+    return () => scopeIdentity === composerScopeIdentity(scopeRef.current)
+      && !latestForUpdate.current.resources.hasPendingUploads()
+      && currentDraft.controller.read().mutationToken === mutationToken
+      && currentDraft.syncOwner.isSaveReceiptCurrent(receipt);
+  }), []);
 
   const agentTurnModeDisabledReason = resolveDraftProviderDisabledReason(scope)
     ?? resolveAgentTurnModeDisabledReason(scope, draft.agentTurnMode)

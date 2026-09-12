@@ -5,7 +5,7 @@ export type { ComposerDraftSettlementGuard } from "./conversation-draft-settleme
 
 export interface ComposerDraftApi {
   load(projectId: string, productMode: ProductMode): Promise<ComposerDraftSnapshot | null>;
-  save(input: ComposerDraftWrite): Promise<ComposerDraftSnapshot>;
+  save(input: ComposerDraftWrite, options?: { updateId: string }): Promise<ComposerDraftSnapshot>;
   delete(input: { projectId: string; productMode: ProductMode; expectedUpdatedAt: string | null }): Promise<boolean>;
 }
 
@@ -27,6 +27,7 @@ interface ScopeState {
   timer: ReturnType<typeof setTimeout> | null;
   chain: Promise<void>;
   localRevision: number;
+  operationRevision: number;
   textMutationRevision: number;
   contextMutationRevisions: Map<string, number>;
   attachmentMutationRevisions: Map<string, number>;
@@ -45,6 +46,16 @@ export interface ComposerDraftCheckpoint {
   projectId: string;
   productMode: ProductMode;
   localRevision: number;
+}
+
+export interface ComposerDraftSaveReceipt {
+  readonly scopes: ReadonlyArray<{
+    readonly projectId: string;
+    readonly productMode: ProductMode;
+    readonly localRevision: number;
+    readonly operationRevision: number;
+    readonly updatedAt: string | null;
+  }>;
 }
 
 export class ComposerDraftSyncOwner {
@@ -85,7 +96,7 @@ export class ComposerDraftSyncOwner {
     }, this.debounceMs);
   }
 
-  async flush(projectId: string, productMode: ProductMode): Promise<string | null> {
+  async flush(projectId: string, productMode: ProductMode, updateId?: string): Promise<string | null> {
     const state = this.state(projectId, productMode);
     if (state.timer) {
       clearTimeout(state.timer);
@@ -97,10 +108,12 @@ export class ComposerDraftSyncOwner {
       if (!content) return state.updatedAt;
       state.pendingContent = null;
       try {
-        const saved = await this.api.save({ ...cloneContent(content), expectedUpdatedAt: state.updatedAt });
+        const write = { ...cloneContent(content), expectedUpdatedAt: state.updatedAt };
+        const saved = updateId ? await this.api.save(write, { updateId }) : await this.api.save(write);
         state.updatedAt = saved.updatedAt;
         return state.updatedAt;
       } catch (cause) {
+        state.pendingContent ??= cloneContent(content);
         this.recordConflict(state, cause);
         throw cause;
       }
@@ -145,6 +158,7 @@ export class ComposerDraftSyncOwner {
         state.updatedAt = result.updatedAt;
         return result;
       } catch (cause) {
+        state.pendingContent ??= cloneContent(settled);
         this.recordConflict(state, cause);
         throw cause;
       }
@@ -200,6 +214,7 @@ export class ComposerDraftSyncOwner {
         state.updatedAt = saved.updatedAt;
         return saved;
       } catch (cause) {
+        state.pendingContent ??= cloneContent(settled);
         this.recordConflict(state, cause);
         throw cause;
       }
@@ -211,6 +226,45 @@ export class ComposerDraftSyncOwner {
       const [projectId, productMode] = key.split("\0") as [string, ProductMode];
       return this.flush(projectId, productMode);
     }));
+  }
+
+  /** Call after the UI edit fence is established; any intervening edit cancels the receipt. */
+  async saveForUpdate(updateId?: string): Promise<ComposerDraftSaveReceipt> {
+    const captured = [...this.scopes.entries()].map(([key, state]) => ({
+      key, state, localRevision: state.localRevision,
+    }));
+    const flushing = captured.map(({ key, state }) => {
+      const [projectId, productMode] = key.split("\0") as [string, ProductMode];
+      const promise = this.flush(projectId, productMode, updateId);
+      return { promise, operationRevision: state.operationRevision };
+    });
+    await Promise.all(flushing.map((item) => item.promise));
+    const receipt: ComposerDraftSaveReceipt = Object.freeze({
+      scopes: Object.freeze(captured.map(({ key, state, localRevision }, index) => {
+        const [projectId, productMode] = key.split("\0") as [string, ProductMode];
+        return Object.freeze({
+          projectId, productMode, localRevision,
+          operationRevision: flushing[index].operationRevision,
+          updatedAt: state.updatedAt,
+        });
+      })),
+    });
+    if (!this.isSaveReceiptCurrent(receipt)) throw new Error("Draft changed during update preparation.");
+    return receipt;
+  }
+
+  isSaveReceiptCurrent(receipt: ComposerDraftSaveReceipt): boolean {
+    const seen = new Set<string>();
+    return receipt.scopes.length === this.scopes.size && receipt.scopes.every((scope) => {
+      const key = scopeKey(scope.projectId, scope.productMode);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      const state = this.scopes.get(key);
+      return Boolean(state && !state.conflict && !state.pendingContent
+        && state.localRevision === scope.localRevision
+        && state.operationRevision === scope.operationRevision
+        && state.updatedAt === scope.updatedAt);
+    });
   }
 
   token(projectId: string, productMode: ProductMode): string | null {
@@ -228,6 +282,7 @@ export class ComposerDraftSyncOwner {
       timer: null,
       chain: Promise.resolve(),
       localRevision: 0,
+      operationRevision: 0,
       textMutationRevision: 0,
       contextMutationRevisions: new Map(),
       attachmentMutationRevisions: new Map(),
@@ -240,6 +295,7 @@ export class ComposerDraftSyncOwner {
 
   private enqueue<T>(projectId: string, productMode: ProductMode, task: () => Promise<T>): Promise<T> {
     const state = this.state(projectId, productMode);
+    state.operationRevision += 1;
     const result = state.chain.then(task, task);
     state.chain = result.then(() => undefined, () => undefined);
     return result;
@@ -259,10 +315,10 @@ export const defaultComposerDraftApi: ComposerDraftApi = {
     const payload = await response.json() as { draft?: ComposerDraftSnapshot | null };
     return payload.draft ?? null;
   },
-  async save(input) {
+  async save(input, options) {
     const response = await fetch(`/api/projects/${encodeURIComponent(input.projectId)}/workbench/composer-draft`, {
       method: "PUT",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...(options ? { "x-beaver-update-id": options.updateId } : {}) },
       body: JSON.stringify(input),
       keepalive: true,
     });

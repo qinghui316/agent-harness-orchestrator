@@ -70,7 +70,8 @@ async function handleApiRequest(context: WorkbenchServerContext, request: Incomi
   if (await handleTerminalApi(context, request, response, url)) return;
 
   if (request.method === "GET" && url.pathname === "/api/app/status") {
-    sendJson(response, 200, { mode: context.input ? "project" : "app", directProjectId: context.input?.project?.id ?? null });
+    sendJson(response, 200, { mode: context.input ? "project" : "app", directProjectId: context.input?.project?.id ?? null,
+      ...(context.updateChannel ? { desktopUpdates: true } : {}) });
     return;
   }
   if (request.method === "GET" && url.pathname === "/api/runtime/diagnostics") {

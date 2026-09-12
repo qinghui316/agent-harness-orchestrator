@@ -25,7 +25,8 @@ describe("Workbench module boundaries", () => {
     expect(main).not.toMatch(/\.\.\/server|\.\.\/workbench|\.\.\/provider-runtime|\.\.\/project-runtime/);
     expect(main).not.toMatch(/ipcRenderer|contextBridge|nodeIntegration:\s*true/);
     expect(main).toContain('window.on("page-title-updated"');
-    expect(main).toContain('window?.setTitle("Beaver Code")');
+    expect(main).toContain('window?.setTitle(productName)');
+    expect(main).toContain('const productName = buildInfo.channel === "test" ? "Beaver Code 更新测试" : "Beaver Code"');
     expect(main).toContain("return value === startupUrl");
     expect(main).not.toContain('return value.startsWith("file:")');
     expect(utility).toContain('from "../server/workbench-server.js"');

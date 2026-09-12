@@ -1,13 +1,15 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseDesktopUpdatePolicy, type DesktopUpdatePolicy } from "./update-policy.js";
 
 export interface DesktopBuildInfo {
   version: string;
   commit: string;
   builtAt: string;
-  channel: "internal";
+  channel: "internal" | "test" | "stable";
   dirty: boolean;
+  updatePolicy?: DesktopUpdatePolicy;
 }
 
 export function readDesktopBuildInfo(path = join(dirname(fileURLToPath(import.meta.url)), "build-info.json")): DesktopBuildInfo {
@@ -22,16 +24,23 @@ export function parseDesktopBuildInfo(value: unknown): DesktopBuildInfo {
     || !/^[0-9a-f]{40}$/.test(value.commit)
     || typeof value.builtAt !== "string"
     || !Number.isFinite(Date.parse(value.builtAt))
-    || value.channel !== "internal"
+    || !["internal", "test", "stable"].includes(String(value.channel))
     || typeof value.dirty !== "boolean") {
     throw new Error("Beaver Code build identity is invalid.");
   }
+  const policy = value.updatePolicy === undefined && value.channel === "internal"
+    ? { mode: "disabled" as const } : parseDesktopUpdatePolicy(value.updatePolicy);
+  if ((value.channel === "internal" && policy.mode !== "disabled")
+    || (value.channel === "test" && policy.mode !== "test")
+    || (value.channel === "stable" && policy.mode !== "stable")
+    || (value.channel !== "internal" && value.dirty)) throw new Error("Beaver Code build identity and update policy disagree.");
   return {
     version: value.version,
     commit: value.commit,
     builtAt: value.builtAt,
-    channel: value.channel,
+    channel: value.channel as DesktopBuildInfo["channel"],
     dirty: value.dirty,
+    ...(value.updatePolicy === undefined ? {} : { updatePolicy: policy }),
   };
 }
 

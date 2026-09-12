@@ -167,6 +167,28 @@ export class TerminalRuntime {
     this.emitter.removeAllListeners();
   }
 
+  /** Update admission waits for actual PTY exits, not merely removal from the map. */
+  async shutdown(deadlineMs = 6_000): Promise<void> {
+    const results = await Promise.allSettled([...this.sessions.values()].map((session) => new Promise<void>((resolvePromise, reject) => {
+      let finished = false;
+      let exitListener: IDisposable | undefined;
+      const finish = (cause?: Error): void => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        exitListener?.dispose();
+        if (cause) reject(cause); else resolvePromise();
+      };
+      const timer = setTimeout(() => finish(new Error("Terminal process did not confirm exit.")), deadlineMs);
+      exitListener = session.pty.onExit(() => finish());
+      try { session.pty.kill(); }
+      catch { finish(new Error("Terminal process could not be stopped.")); }
+    })));
+    const failures = results.flatMap((result) => result.status === "rejected" ? [result.reason] : []);
+    if (failures.length) throw new AggregateError(failures, "Terminal shutdown failed.");
+    this.emitter.removeAllListeners();
+  }
+
   hasSession(projectId: string, terminalId: string): boolean {
     return this.sessions.has(sessionKey(projectId, terminalId));
   }

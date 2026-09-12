@@ -5,13 +5,17 @@ import { join, resolve } from "node:path";
 import process from "node:process";
 import { execFileSync } from "node:child_process";
 import { extractFile, listPackage } from "@electron/asar";
+import { createHash } from "node:crypto";
+import { load } from "js-yaml";
+import { desktopBuildVariant } from "./desktop-build-variant.mjs";
 
 const root = process.cwd();
-const release = resolve(root, process.env.DESKTOP_RELEASE_DIR ?? "release/desktop");
 const packageJson = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
-const escapedVersion = String(packageJson.version).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const variant = desktopBuildVariant(root, packageJson.version);
+const release = resolve(root, process.env.DESKTOP_RELEASE_DIR ?? variant.output);
+const escapedVersion = String(variant.version).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const files = existsSync(release) ? await walk(release) : [];
-const installerPattern = new RegExp(`Beaver-Code-Setup-${escapedVersion}-win-x64\\.exe$`, "i");
+const installerPattern = new RegExp(`${variant.artifactPrefix}-${escapedVersion}-win-x64\\.exe$`, "i");
 const installer = files.find((file) => installerPattern.test(file));
 const asar = files.find((file) => /win-unpacked[\\/]resources[\\/]app\.asar$/i.test(file));
 const unpacked = files.filter((file) => /app\.asar\.unpacked[\\/]node_modules[\\/](better-sqlite3|node-pty)/i.test(file));
@@ -25,18 +29,31 @@ if (!installer) failures.push("Windows x64 NSIS installer was not found.");
 if (!asar) failures.push("Packaged app.asar was not found.");
 for (const pattern of required) if (!unpacked.some((file) => pattern.test(file))) failures.push(`Missing unpacked native resource: ${pattern}`);
 if (nativeBinaries.some((file) => /arm64|darwin|linux/i.test(file))) failures.push("Package contains an unexpected non-Windows or arm64 native binary.");
+for (const binary of nativeBinaries) {
+  const bytes = await readFile(binary);
+  const pe = bytes.length >= 64 ? bytes.readUInt32LE(0x3c) : -1;
+  if (bytes[0] !== 0x4d || bytes[1] !== 0x5a || pe < 0 || pe + 6 > bytes.length
+    || bytes.readUInt32LE(pe) !== 0x00004550 || bytes.readUInt16LE(pe + 4) !== 0x8664) {
+    failures.push("A packaged native resource is not a Windows x64 PE binary.");
+    break;
+  }
+}
 if (installer && (await stat(installer)).size < 1_000_000) failures.push("Installer is unexpectedly small.");
 if (asar) {
   const entries = listPackage(asar, { isPack: false });
   if (entries.some((entry) => entry.endsWith(".map"))) failures.push("Package contains source maps.");
+  if (entries.some((entry) => /\.(?:pfx|p12)$/i.test(entry))) failures.push("Package contains signing certificate material.");
   if (entries.some((entry) => /^[A-Za-z]:[\\/]|^\\\\/.test(entry))) failures.push("Package contains a host absolute archive path.");
   try {
     const buildInfo = JSON.parse(extractFile(asar, join("dist", "desktop", "build-info.json")).toString("utf8"));
     const expectedCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8", windowsHide: true }).trim();
-    if (buildInfo.version !== packageJson.version) failures.push("Packaged build version does not match package.json.");
+    if (buildInfo.version !== variant.version) failures.push("Packaged build version does not match build input.");
     if (buildInfo.commit !== expectedCommit) failures.push("Packaged build commit does not match the current Git commit.");
     if (buildInfo.dirty !== false) failures.push("Packaged build identity is dirty.");
-    if (buildInfo.channel !== "internal") failures.push("Packaged build channel is not internal.");
+    if (buildInfo.channel !== variant.channel) failures.push("Packaged build channel does not match build input.");
+    if (JSON.stringify(buildInfo.updatePolicy) !== JSON.stringify(variant.updatePolicy)) failures.push("Packaged update policy does not match build input.");
+    const { parseDesktopBuildInfo } = await import("../dist/desktop/build-info.js");
+    parseDesktopBuildInfo(buildInfo);
   } catch (cause) {
     failures.push(`Packaged build identity is missing or invalid: ${cause instanceof Error ? cause.message : String(cause)}`);
   }
@@ -53,6 +70,23 @@ if (asar) {
       failures.push(`Package contains a host user path in ${entry}.`);
       break;
     }
+  }
+}
+
+if (variant.channel !== "internal" && installer && asar) {
+  try {
+    const { verifyDesktopUpdateSignature } = await import("../dist/desktop/update-signature.js");
+    await verifyDesktopUpdateSignature(installer, variant.updatePolicy.publisherSubject);
+    const executable = join(asar, "..", "..", variant.channel === "test" ? "BeaverCodeUpdateTest.exe" : "BeaverCode.exe");
+    await verifyDesktopUpdateSignature(executable, variant.updatePolicy.publisherSubject);
+    const latest = load(await readFile(join(release, "latest.yml"), "utf8"));
+    const name = installer.split(/[\\/]/).pop();
+    const metadataFile = latest?.files?.find((file) => file.url === name);
+    const digest = createHash("sha512").update(await readFile(installer)).digest("base64");
+    if (latest?.version !== variant.version || metadataFile?.sha512 !== digest) failures.push("Signed installer and update metadata disagree.");
+    if (!existsSync(installer + ".blockmap")) failures.push("Update blockmap is missing.");
+  } catch {
+    failures.push("Signed update package verification failed.");
   }
 }
 

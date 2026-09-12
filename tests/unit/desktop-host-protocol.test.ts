@@ -27,7 +27,7 @@ describe("desktop host protocol", () => {
     })).toBe(false);
     expect(isDesktopHostMessage({
       type: "bootstrap",
-      protocolVersion: 2,
+      protocolVersion: 1,
       sessionToken: "secret",
       generation: "generation-1",
     })).toBe(false);
@@ -52,6 +52,20 @@ describe("desktop host protocol", () => {
       activeTerminalCount: 0,
       pendingInteractionCount: 0,
     })).toBe(false);
+  });
+
+  it("binds update messages to bounded identity and exact generation", () => {
+    const identity = {
+      updateId: "update-1", generation: "generation-1", targetVersion: "0.1.3",
+      artifactSha512: Buffer.alloc(64, 1).toString("base64"),
+    };
+    const request = { type: "update-request", requestId: "request-1", generation: "generation-1", identity, action: "prepare" };
+    expect(isDesktopHostMessage(request)).toBe(true);
+    expect(isDesktopHostMessage({ ...request, generation: "old" })).toBe(false);
+    expect(isDesktopHostMessage({ ...request, requestId: "x".repeat(129) })).toBe(false);
+    expect(isDesktopHostMessage({ ...request, action: "install" })).toBe(false);
+    expect(isDesktopHostMessage({ type: "update-result", requestId: "request-1", generation: "generation-1", identity, result: "stopped" })).toBe(true);
+    expect(isDesktopHostMessage({ type: "update-result", requestId: "request-1", generation: "generation-1", identity, result: "success" })).toBe(false);
   });
 
   it("redacts local paths and bounds diagnostics", () => {

@@ -40,6 +40,7 @@ async function receive(message: DesktopHostMessage): Promise<void> {
           cookieName: DESKTOP_SESSION_COOKIE,
           beginOperation: beginHostOperation,
           openFolder: requestFolder,
+          updateGeneration: generation,
         },
       });
       post({
@@ -61,6 +62,35 @@ async function receive(message: DesktopHostMessage): Promise<void> {
     return;
   }
   if (message.generation !== generation) return;
+  if (message.type === "update-request") {
+    if (idleTimer) clearInterval(idleTimer);
+    idleTimer = null;
+    try {
+      await revokeIdleLease();
+      const updates = server?.updates;
+      if (!updates) throw new Error("Update lifecycle is unavailable.");
+      if (message.action === "cancel") {
+        await updates.cancel(message.identity);
+        post({ type: "update-result", requestId: message.requestId, generation,
+          identity: message.identity, result: "canceled" });
+        idleTimer = setInterval(() => void refreshIdleLease(), 2_000);
+        idleTimer.unref();
+      } else {
+        const receipt = message.action === "prepare"
+          ? await updates.prepare(message.identity) : await updates.stop(message.identity);
+        post({ type: "update-result", requestId: message.requestId, generation,
+          identity: receipt.identity, result: receipt.status });
+        if (receipt.status === "stopped") {
+          server = null;
+          setTimeout(() => process.exit(0), 50);
+        }
+      }
+    } catch {
+      post({ type: "update-result", requestId: message.requestId, generation,
+        identity: message.identity, result: "failed" });
+    }
+    return;
+  }
   if (message.type === "open-folder-result") {
     const resolve = folderRequests.get(message.requestId);
     if (!resolve) return;
@@ -96,6 +126,8 @@ async function receive(message: DesktopHostMessage): Promise<void> {
 
 async function refreshIdleLease(): Promise<void> {
   if (!server || !generation) return;
+  const updatePhase = server.updates?.snapshot().phase;
+  if (updatePhase && updatePhase !== "idle" && updatePhase !== "canceled") return;
   const observedEpoch = operationGate.captureEpoch();
   if (!operationGate.canGrantIdleLease(observedEpoch)) return;
   if ((await server.snapshot()).state !== "idle"

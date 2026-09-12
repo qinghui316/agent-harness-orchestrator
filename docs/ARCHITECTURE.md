@@ -16,6 +16,17 @@ Agent Harness Orchestrator is a single-package TypeScript CLI plus a local brows
 
 ### Beaver Code desktop composition
 
+The Windows update foundation adds one Desktop Update Coordinator and an NSIS adapter
+in Main. The coordinator depends on a narrow generation/request-bound lifecycle port;
+Workbench owns update preparation, and Renderer draft owners acknowledge stable CAS
+revisions through authenticated HTTP/SSE. Update metadata and signature policy never
+flow into the domain layer. Installation requires both a successful shutdown receipt
+and a normal Utility exit. Ordinary application quit cannot implicitly install an update.
+
+Request draining distinguishes transport writes from already admitted managed execution.
+An SSE header does not prove admission: the topic route must observe existing run
+evidence and a matching Turn Control registration. Uncertain submission blocks updating.
+
 ```text
 Electron Main
   -> window, menu, single instance, native folder dialog, supervision

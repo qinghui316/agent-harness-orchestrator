@@ -101,6 +101,13 @@ export interface ConversationTurnQueueContractConfirmationRequest {
 }
 
 export class ConversationTurnQueueOwner {
+  private readonly dispatchPauses = new Set<symbol>();
+
+  pauseDispatch(): () => void {
+    const token = Symbol();
+    this.dispatchPauses.add(token);
+    return () => { this.dispatchPauses.delete(token); };
+  }
   constructor(private readonly options: {
     projectRuntimeCoordinator: Pick<ProjectRuntimeCoordinatorPort, "resolve">;
     turnRouter: ConversationTurnRoutingPort;
@@ -153,7 +160,7 @@ export class ConversationTurnQueueOwner {
         executionRevision,
         items: publicItems,
         canEnqueue: !disabledReason,
-        canDispatch: Boolean(head?.status === "queued" && head.executionCompatibility.state === "compatible" && !busy),
+        canDispatch: Boolean(!this.dispatchPauses.size && head?.status === "queued" && head.executionCompatibility.state === "compatible" && !busy),
         ...(disabledReason ? { disabledReason } : {}),
       };
     } finally {
@@ -491,6 +498,7 @@ export class ConversationTurnQueueOwner {
     const database = await openProjectRuntimeWorkbenchDatabase(paths);
     try {
       return database.immediateTransaction(() => {
+        if (this.dispatchPauses.size) return null;
         const conversation = database.conversations.readConversation(paths.projectId, conversationId);
         const queue = database.conversationTurnQueues.readQueue(paths.projectId, conversationId);
         const head = database.conversationTurnQueues.listItems(paths.projectId, conversationId)[0];

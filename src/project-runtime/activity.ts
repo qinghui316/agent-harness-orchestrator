@@ -1,4 +1,5 @@
 export class ProjectRuntimeActivityRegistry {
+  private readonly globalPauses = new Set<symbol>();
   private readonly blockedProjects = new Set<string>();
   private readonly activeCountByProject = new Map<string, number>();
   private readonly drainWaiters = new Map<string, Set<() => void>>();
@@ -15,6 +16,12 @@ export class ProjectRuntimeActivityRegistry {
 
   blockProject(projectId: string): void {
     this.blockedProjects.add(projectId);
+  }
+
+  pauseAll(): () => void {
+    const token = Symbol();
+    this.globalPauses.add(token);
+    return () => { this.globalPauses.delete(token); };
   }
 
   async drainProject(projectId: string): Promise<void> {
@@ -46,7 +53,7 @@ export class ProjectRuntimeActivityRegistry {
   }
 
   private assertActive(projectId: string): void {
-    if (!this.blockedProjects.has(projectId)) return;
+    if (!this.globalPauses.size && !this.blockedProjects.has(projectId)) return;
     const error = new Error(`Project runtime is removing and cannot start activity: ${projectId}.`);
     error.name = "Conflict";
     throw error;

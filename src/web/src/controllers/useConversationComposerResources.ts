@@ -28,6 +28,7 @@ interface ComposerResourceDraftPort {
 }
 
 export interface ConversationComposerResources {
+  hasPendingUploads(): boolean;
   skillItems: SkillListItem[];
   activeSkillIds: string[];
   enabledSkillCount: number;
@@ -152,6 +153,7 @@ export function useConversationComposerResources(
     const projectId = scopeRef.current.projectId;
     if (!projectId || files.length === 0) return [];
     const generation = scopeGenerationRef.current;
+    pendingUploads.current += 1;
     try {
       const uploaded = await uploadFilesForProject(projectId, files);
       if (generation !== scopeGenerationRef.current || projectId !== scopeRef.current.projectId) {
@@ -166,6 +168,8 @@ export function useConversationComposerResources(
     } catch (cause) {
       portsRef.current.onError(composerErrorMessage(cause));
       return [];
+    } finally {
+      pendingUploads.current -= 1;
     }
   }, [uploadFilesForProject]);
 
@@ -196,7 +200,10 @@ export function useConversationComposerResources(
     skillRequestGenerationRef.current += 1;
   }, []);
 
+  const pendingUploads = useRef(0);
+
   return {
+    hasPendingUploads: () => pendingUploads.current > 0,
     skillItems,
     activeSkillIds,
     enabledSkillCount: activeSkillIds.length,

@@ -2,8 +2,12 @@
 /* global clearTimeout, console, process, require, setTimeout */
 
 const { app } = require("electron");
-const Database = require("better-sqlite3");
-const pty = require("node-pty");
+const { join, resolve } = require("node:path");
+const { createRequire } = require("node:module");
+const packagedRoot = process.env.BEAVER_NATIVE_PACKAGE_ROOT;
+const load = packagedRoot ? createRequire(join(resolve(packagedRoot), "resources", "app.asar", "package.json")) : require;
+const Database = load("better-sqlite3");
+const pty = load("node-pty");
 
 app.whenReady().then(async () => {
   const database = new Database(":memory:");
