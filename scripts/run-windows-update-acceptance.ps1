@@ -149,10 +149,18 @@ try {
     throw "The disposable certificate password is invalid."
   }
   Write-Output "::add-mask::$passwordText"
-  $codeRoot = Import-Certificate -FilePath (Join-Path $acceptanceRoot "code-signing.cer") -CertStoreLocation "Cert:\CurrentUser\Root"
-  $codePublisher = Import-Certificate -FilePath (Join-Path $acceptanceRoot "code-signing.cer") -CertStoreLocation "Cert:\CurrentUser\TrustedPublisher"
-  $tlsRoot = Import-Certificate -FilePath (Join-Path $acceptanceRoot "localhost-tls.cer") -CertStoreLocation "Cert:\CurrentUser\Root"
-  $certificateThumbprints = @($codeRoot.Thumbprint, $codePublisher.Thumbprint, $tlsRoot.Thumbprint) | Select-Object -Unique
+  $codeCertificatePath = Join-Path $acceptanceRoot "code-signing.cer"
+  $tlsCertificatePath = Join-Path $acceptanceRoot "localhost-tls.cer"
+  $codeCertificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new(
+    [IO.File]::ReadAllBytes($codeCertificatePath)
+  )
+  $tlsCertificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new(
+    [IO.File]::ReadAllBytes($tlsCertificatePath)
+  )
+  Invoke-Checked "certutil.exe" @("-user", "-f", "-addstore", "Root", $codeCertificatePath)
+  Invoke-Checked "certutil.exe" @("-user", "-f", "-addstore", "TrustedPublisher", $codeCertificatePath)
+  Invoke-Checked "certutil.exe" @("-user", "-f", "-addstore", "Root", $tlsCertificatePath)
+  $certificateThumbprints = @($codeCertificate.Thumbprint, $tlsCertificate.Thumbprint) | Select-Object -Unique
 
   Push-Location $repoRoot
   try {
