@@ -49,6 +49,35 @@ function Invoke-HiddenProcess([string]$FilePath, [string[]]$Arguments, [int]$Tim
   if ($process.ExitCode -ne 0) { throw "$Label failed with exit code $($process.ExitCode)." }
 }
 
+function New-AcceptanceCertificates([string]$PasswordText, [string]$CodePath, [string]$TlsPath) {
+  $job = Start-Job -ScriptBlock {
+    param($Publisher, $PlainPassword, $CodePfxPath, $TlsPfxPath)
+    $ErrorActionPreference = "Stop"
+    $securePassword = ConvertTo-SecureString -String $PlainPassword -AsPlainText -Force
+    $expires = [DateTime]::UtcNow.AddDays(2)
+    $code = New-SelfSignedCertificate -Type CodeSigningCert -Subject $Publisher -CertStoreLocation "Cert:\CurrentUser\My" `
+      -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 -KeyExportPolicy Exportable -NotAfter $expires
+    $tls = New-SelfSignedCertificate -DnsName "localhost" -CertStoreLocation "Cert:\CurrentUser\My" `
+      -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 -KeyExportPolicy Exportable -NotAfter $expires
+    Export-PfxCertificate -Cert $code -FilePath $CodePfxPath -Password $securePassword | Out-Null
+    Export-PfxCertificate -Cert $tls -FilePath $TlsPfxPath -Password $securePassword | Out-Null
+    [pscustomobject]@{ CodeThumbprint = $code.Thumbprint; TlsThumbprint = $tls.Thumbprint }
+  } -ArgumentList $publisher, $PasswordText, $CodePath, $TlsPath
+  try {
+    if (-not (Wait-Job -Job $job -Timeout 120)) {
+      Stop-Job -Job $job -ErrorAction SilentlyContinue
+      throw "Disposable certificate generation exceeded its 120-second limit."
+    }
+    $receipt = Receive-Job -Job $job -ErrorAction Stop
+    if ($job.State -ne "Completed" -or -not $receipt.CodeThumbprint -or -not $receipt.TlsThumbprint) {
+      throw "Disposable certificate generation did not return a complete receipt."
+    }
+    return $receipt
+  } finally {
+    Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+  }
+}
+
 function Wait-Until([scriptblock]$Condition, [int]$TimeoutSeconds, [string]$Failure) {
   $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
   do {
@@ -108,16 +137,12 @@ try {
   New-Item -ItemType Directory -Path $newRoot -Force | Out-Null
   New-Item -ItemType Directory -Path $installRoot -Force | Out-Null
 
+  Write-Output "acceptance-stage: certificates"
   $passwordText = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
   Write-Output "::add-mask::$passwordText"
-  $password = ConvertTo-SecureString -String $passwordText -AsPlainText -Force
-  $notAfter = [DateTime]::UtcNow.AddDays(2)
-  $codeCert = New-SelfSignedCertificate -Type CodeSigningCert -Subject $publisher -CertStoreLocation "Cert:\CurrentUser\My" `
-    -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 -KeyExportPolicy Exportable -NotAfter $notAfter
-  $tlsCert = New-SelfSignedCertificate -DnsName "localhost" -CertStoreLocation "Cert:\CurrentUser\My" `
-    -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 -KeyExportPolicy Exportable -NotAfter $notAfter
-  Export-PfxCertificate -Cert $codeCert -FilePath $codePfx -Password $password | Out-Null
-  Export-PfxCertificate -Cert $tlsCert -FilePath $tlsPfx -Password $password | Out-Null
+  $certificateReceipt = New-AcceptanceCertificates $passwordText $codePfx $tlsPfx
+  $codeCert = Get-Item -LiteralPath "Cert:\CurrentUser\My\$($certificateReceipt.CodeThumbprint)"
+  $tlsCert = Get-Item -LiteralPath "Cert:\CurrentUser\My\$($certificateReceipt.TlsThumbprint)"
   $codeCer = Join-Path $acceptanceRoot "code-signing.cer"
   $tlsCer = Join-Path $acceptanceRoot "localhost-tls.cer"
   Export-Certificate -Cert $codeCert -FilePath $codeCer | Out-Null
