@@ -48,13 +48,13 @@ function Invoke-Checked([string]$Command, [string[]]$Arguments) {
   if ($LASTEXITCODE -ne 0) { throw "Command failed with exit code ${LASTEXITCODE}: $Command" }
 }
 
-function Add-CurrentUserCertificate(
+function Add-MachineCertificate(
   [Security.Cryptography.X509Certificates.X509Certificate2]$Certificate,
   [string]$StoreName
 ) {
   $store = [Security.Cryptography.X509Certificates.X509Store]::new(
     $StoreName,
-    [Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser
+    [Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine
   )
   try {
     $store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
@@ -161,6 +161,10 @@ try {
   New-Item -ItemType Directory -Path $installRoot -Force | Out-Null
 
   Write-Output "acceptance-stage: certificates"
+  $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
+  if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    throw "The disposable GitHub-hosted Windows runner is not elevated."
+  }
   $passwordText = $env:BEAVER_ACCEPTANCE_CERT_PASSWORD
   if (-not $passwordText -or $passwordText.Length -lt 32 -or [regex]::IsMatch($passwordText, "[\r\n\0]")) {
     throw "The disposable certificate password is invalid."
@@ -174,9 +178,9 @@ try {
   $tlsCertificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new(
     [IO.File]::ReadAllBytes($tlsCertificatePath)
   )
-  Add-CurrentUserCertificate $codeCertificate "Root"
-  Add-CurrentUserCertificate $codeCertificate "TrustedPublisher"
-  Add-CurrentUserCertificate $tlsCertificate "Root"
+  Add-MachineCertificate $codeCertificate "Root"
+  Add-MachineCertificate $codeCertificate "TrustedPublisher"
+  Add-MachineCertificate $tlsCertificate "Root"
   $certificateThumbprints = @($codeCertificate.Thumbprint, $tlsCertificate.Thumbprint) | Select-Object -Unique
   $codeCertificate.Dispose()
   $tlsCertificate.Dispose()
@@ -320,26 +324,26 @@ try {
   if ($feedProcess -and -not $feedProcess.HasExited) { Stop-Process -Id $feedProcess.Id -Force -ErrorAction SilentlyContinue }
   foreach ($thumbprint in $certificateThumbprints) {
     foreach ($store in @("My", "Root", "TrustedPublisher")) {
-      $target = "Cert:\CurrentUser\$store\$thumbprint"
+      $target = "Cert:\LocalMachine\$store\$thumbprint"
       if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue }
     }
   }
   foreach ($subject in $certificateSubjects) {
     foreach ($store in @("My", "Root", "TrustedPublisher")) {
-      Get-ChildItem "Cert:\CurrentUser\$store" -ErrorAction SilentlyContinue | Where-Object Subject -EQ $subject | `
+      Get-ChildItem "Cert:\LocalMachine\$store" -ErrorAction SilentlyContinue | Where-Object Subject -EQ $subject | `
         Remove-Item -Force -ErrorAction SilentlyContinue
     }
   }
   foreach ($thumbprint in $certificateThumbprints) {
     foreach ($store in @("My", "Root", "TrustedPublisher")) {
-      if (Test-Path -LiteralPath "Cert:\CurrentUser\$store\$thumbprint") {
+      if (Test-Path -LiteralPath "Cert:\LocalMachine\$store\$thumbprint") {
         throw "A disposable acceptance certificate was not removed."
       }
     }
   }
   foreach ($subject in $certificateSubjects) {
     foreach ($store in @("My", "Root", "TrustedPublisher")) {
-      if (Get-ChildItem "Cert:\CurrentUser\$store" -ErrorAction SilentlyContinue | Where-Object Subject -EQ $subject) {
+      if (Get-ChildItem "Cert:\LocalMachine\$store" -ErrorAction SilentlyContinue | Where-Object Subject -EQ $subject) {
         throw "A disposable acceptance certificate subject was not removed."
       }
     }
