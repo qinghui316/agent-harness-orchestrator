@@ -23,9 +23,11 @@ export function validateDesktopSignatureEvidence(
   publisherSubject: string,
   product?: DesktopSignedProduct,
 ): void {
-  if (evidence.status !== 0 || evidence.subject !== publisherSubject || !evidence.timestamped
-    || normalize(evidence.path).toLowerCase() !== normalize(file).toLowerCase()) {
-    throw new Error("Update signature, timestamp or publisher verification failed.");
+  if (evidence.status !== 0) throw new Error("Update signature trust validation failed.");
+  if (evidence.subject !== publisherSubject) throw new Error("Update signature publisher validation failed.");
+  if (!evidence.timestamped) throw new Error("Update signature timestamp validation failed.");
+  if (normalize(evidence.path).toLowerCase() !== normalize(file).toLowerCase()) {
+    throw new Error("Update signature path validation failed.");
   }
   if (product && (evidence.productName !== product.productName
     || (evidence.productVersion !== product.version && evidence.productVersion !== product.version + ".0"))) {
