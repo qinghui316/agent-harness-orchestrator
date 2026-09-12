@@ -35,7 +35,9 @@ describe("Windows update acceptance boundary", () => {
     expect(runner).not.toContain("New-SelfSignedCertificate");
     expect(runner).not.toContain("Import-Certificate");
     expect(runner).not.toContain('certutil.exe');
-    expect(runner).toContain('function Add-CurrentUserCertificate');
+    expect(runner).toContain('function Add-MachineCertificate');
+    expect(runner).toContain('StoreLocation]::LocalMachine');
+    expect(runner).toContain('WindowsBuiltInRole]::Administrator');
     expect(runner).toContain('$store.Add($Certificate)');
     expect(workflow).toContain("timeout-minutes: 75");
     expect(workflow).toContain("openssl req -x509");
