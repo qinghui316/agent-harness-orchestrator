@@ -1,7 +1,11 @@
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-if ($env:GITHUB_ACTIONS -ne "true" -or $env:RUNNER_OS -ne "Windows" -or $env:BEAVER_UPDATE_ACCEPTANCE -ne "1") {
+if ($env:GITHUB_ACTIONS -ne "true" -or $env:RUNNER_ENVIRONMENT -ne "github-hosted" `
+  -or $env:GITHUB_REPOSITORY -ne "qinghui316/agent-harness-orchestrator" `
+  -or $env:GITHUB_REF -ne "refs/heads/codex/aho-windows-release-update-foundation-v1" `
+  -or $env:GITHUB_SHA -ne $env:BEAVER_UPDATE_ACCEPTANCE_SHA `
+  -or $env:RUNNER_OS -ne "Windows" -or $env:BEAVER_UPDATE_ACCEPTANCE -ne "1") {
   throw "Windows update acceptance is restricted to a disposable GitHub-hosted Windows runner."
 }
 
@@ -25,6 +29,8 @@ $newVersion = "0.1.3"
 $codeCert = $null
 $tlsCert = $null
 $feedProcess = $null
+$certificateThumbprints = @()
+$passedResult = $null
 
 function Assert-RunnerChild([string]$Path) {
   $full = [System.IO.Path]::GetFullPath($Path)
@@ -116,13 +122,13 @@ function Install-TestPackage([string]$Installer) {
   Invoke-HiddenProcess $Installer $arguments 180 "NSIS installation"
 }
 
-function Verify-Fixture([string]$ElectronExecutable) {
+function Verify-Fixture([string]$ElectronExecutable, [string]$RuntimeRoot) {
   $previous = $env:ELECTRON_RUN_AS_NODE
   try {
     $env:ELECTRON_RUN_AS_NODE = "1"
     Invoke-Checked $ElectronExecutable @(
       (Join-Path $repoRoot "scripts\desktop-update-acceptance-fixture.mjs"),
-      "verify", $fixtureHome, $fixtureProject
+      "verify", $fixtureHome, $fixtureProject, $RuntimeRoot
     )
   } finally {
     if ($null -eq $previous) { Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue }
@@ -130,8 +136,33 @@ function Verify-Fixture([string]$ElectronExecutable) {
   }
 }
 
+function Start-And-AssertHealthy([string]$Executable, [string]$ExpectedVersion, [string]$ExpectedCommit) {
+  $desktopLog = Join-Path $env:USERPROFILE ".beaver-code-update-test\desktop\desktop.log"
+  if (Test-Path -LiteralPath $desktopLog -PathType Leaf) { Remove-Item -LiteralPath $desktopLog -Force }
+  $process = Start-Process -FilePath $Executable -WindowStyle Hidden -PassThru
+  Wait-Until {
+    if (-not (Test-Path -LiteralPath $desktopLog -PathType Leaf)) { return $false }
+    $content = Get-Content -LiteralPath $desktopLog -Raw -Encoding UTF8
+    return $content.Contains("workbench-ready version=$ExpectedVersion commit=$ExpectedCommit")
+  } 120 "The installed application did not load its packaged Workbench runtime."
+  return $process
+}
+
+function Get-PersistedDataDigest {
+  $files = @(Get-ChildItem -LiteralPath $fixtureHome -Recurse -File | Sort-Object FullName)
+  if ($files.Count -eq 0) { throw "The acceptance data root is empty." }
+  $parts = foreach ($file in $files) {
+    "$($file.FullName.Substring($fixtureHome.Length)):$((Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash)"
+  }
+  $bytes = [Text.Encoding]::UTF8.GetBytes(($parts -join "`n"))
+  return [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes))
+}
+
 try {
   $null = Assert-RunnerChild $acceptanceRoot
+  if ((Test-Path -LiteralPath $acceptanceRoot) -or (Test-Path -LiteralPath (Split-Path -Parent $fixtureHome))) {
+    throw "The disposable acceptance roots already exist."
+  }
   New-Item -ItemType Directory -Path $acceptanceRoot -Force | Out-Null
   New-Item -ItemType Directory -Path $oldRoot -Force | Out-Null
   New-Item -ItemType Directory -Path $newRoot -Force | Out-Null
@@ -141,6 +172,7 @@ try {
   $passwordText = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
   Write-Output "::add-mask::$passwordText"
   $certificateReceipt = New-AcceptanceCertificates $passwordText $codePfx $tlsPfx
+  $certificateThumbprints = @($certificateReceipt.CodeThumbprint, $certificateReceipt.TlsThumbprint)
   $codeCert = Get-Item -LiteralPath "Cert:\CurrentUser\My\$($certificateReceipt.CodeThumbprint)"
   $tlsCert = Get-Item -LiteralPath "Cert:\CurrentUser\My\$($certificateReceipt.TlsThumbprint)"
   $codeCer = Join-Path $acceptanceRoot "code-signing.cer"
@@ -209,15 +241,19 @@ try {
   Write-Output "acceptance-stage: install-old"
   Install-TestPackage $oldInstaller
   $installedExecutable = Join-Path $installRoot "BeaverCodeUpdateTest.exe"
+  $installedRuntime = Join-Path $installRoot "resources\app.asar\dist"
+  $expectedCommit = (& git -C $repoRoot rev-parse HEAD).Trim()
   if (-not (Test-Path -LiteralPath $installedExecutable -PathType Leaf)) { throw "The old test application was not installed." }
 
   $desktopLog = Join-Path $env:USERPROFILE ".beaver-code-update-test\desktop\desktop.log"
+  if (Test-Path -LiteralPath $desktopLog -PathType Leaf) { Remove-Item -LiteralPath $desktopLog -Force }
   Write-Output "acceptance-stage: automatic-update"
   $oldProcess = Start-Process -FilePath $installedExecutable -WindowStyle Hidden -PassThru
   Wait-Until {
     if (-not (Test-Path -LiteralPath $desktopLog -PathType Leaf)) { return $false }
     $content = Get-Content -LiteralPath $desktopLog -Raw -Encoding UTF8
-    return $content.Contains("version=$newVersion") -and $content.Contains("update installing")
+    return $content.Contains("update installing") `
+      -and $content.Contains("workbench-ready version=$newVersion commit=$expectedCommit")
   } 600 "The signed automatic update did not install and restart the application."
 
   $version = (Get-Item -LiteralPath $installedExecutable).VersionInfo.ProductVersion
@@ -232,26 +268,29 @@ try {
   [System.Threading.Thread]::Sleep(8000)
   Stop-AcceptanceApplication $true
   Write-Output "acceptance-stage: verify-updated-data"
-  Verify-Fixture $installedExecutable
+  Verify-Fixture $installedExecutable $installedRuntime
 
   Write-Output "acceptance-stage: repair-install"
   Install-TestPackage $newInstaller
-  Verify-Fixture $installedExecutable
+  $repairProcess = Start-And-AssertHealthy $installedExecutable $newVersion $expectedCommit
+  Stop-AcceptanceApplication $true
+  Verify-Fixture $installedExecutable $installedRuntime
 
   $uninstaller = Get-ChildItem -LiteralPath $installRoot -Filter "Uninstall*.exe" -File | Select-Object -First 1
   if (-not $uninstaller) { throw "The installed uninstaller was not found." }
+  $dataDigestBeforeUninstall = Get-PersistedDataDigest
   Write-Output "acceptance-stage: uninstall"
   Invoke-HiddenProcess $uninstaller.FullName @("/S", "/currentuser") 180 "NSIS uninstall"
   Wait-Until { -not (Test-Path -LiteralPath $installedExecutable -PathType Leaf) } 60 "Uninstall did not remove the application binary."
-  $packagedElectron = Join-Path $repoRoot "release\desktop\test\win-unpacked\BeaverCodeUpdateTest.exe"
-  Verify-Fixture $packagedElectron
+  if ((Get-PersistedDataDigest) -ne $dataDigestBeforeUninstall) { throw "Uninstall changed persisted acceptance data." }
 
   Write-Output "acceptance-stage: reinstall"
   Install-TestPackage $newInstaller
-  Verify-Fixture $installedExecutable
-  Stop-AcceptanceApplication $false
+  $reinstallProcess = Start-And-AssertHealthy $installedExecutable $newVersion $expectedCommit
+  Stop-AcceptanceApplication $true
+  Verify-Fixture $installedExecutable $installedRuntime
 
-  $result = [ordered]@{
+  $passedResult = [ordered]@{
     schema = 1
     result = "passed"
     oldVersion = $oldVersion
@@ -267,8 +306,6 @@ try {
     uninstallPreservedData = $true
     reinstallReadData = $true
   }
-  $result | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $resultPath -Encoding UTF8
-  Write-Output "Windows update acceptance passed."
 } catch {
   if (Test-Path -LiteralPath $acceptanceRoot -PathType Container) {
     [ordered]@{
@@ -283,11 +320,17 @@ try {
 } finally {
   try { Stop-AcceptanceApplication $false } catch { }
   if ($feedProcess -and -not $feedProcess.HasExited) { Stop-Process -Id $feedProcess.Id -Force -ErrorAction SilentlyContinue }
-  foreach ($certificate in @($codeCert, $tlsCert)) {
-    if (-not $certificate) { continue }
+  foreach ($thumbprint in $certificateThumbprints) {
     foreach ($store in @("My", "Root", "TrustedPublisher")) {
-      $target = "Cert:\CurrentUser\$store\$($certificate.Thumbprint)"
+      $target = "Cert:\CurrentUser\$store\$thumbprint"
       if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue }
+    }
+  }
+  foreach ($thumbprint in $certificateThumbprints) {
+    foreach ($store in @("My", "Root", "TrustedPublisher")) {
+      if (Test-Path -LiteralPath "Cert:\CurrentUser\$store\$thumbprint") {
+        throw "A disposable acceptance certificate was not removed."
+      }
     }
   }
   foreach ($name in @(
@@ -296,4 +339,9 @@ try {
     "BEAVER_UPDATE_TLS_PFX", "BEAVER_UPDATE_TLS_PASSWORD", "BEAVER_UPDATE_FEED_PORT",
     "BEAVER_UPDATE_INSTALLER_NAME", "BEAVER_UPDATE_BLOCKMAP_NAME"
   )) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
+}
+
+if ($passedResult) {
+  $passedResult | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $resultPath -Encoding UTF8
+  Write-Output "Windows update acceptance passed."
 }

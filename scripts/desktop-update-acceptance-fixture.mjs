@@ -4,18 +4,18 @@ import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join, resolve } from "node:path";
 import process from "node:process";
-import { ProjectRegistryStore } from "../dist/registry/store.js";
-import { initializeProjectRuntimeSidecar } from "../dist/project-runtime/lifecycle.js";
-import { resolveProjectRuntimePaths } from "../dist/project-runtime/paths.js";
-import { getProjectHarnessSkillScaffoldRoot } from "../dist/template-source/paths.js";
-import { openProjectRuntimeWorkbenchDatabase } from "../dist/workbench/persistence/open-workbench-database.js";
+import { pathToFileURL } from "node:url";
 
-if (process.env.GITHUB_ACTIONS !== "true" || process.env.RUNNER_OS !== "Windows"
+if (process.env.GITHUB_ACTIONS !== "true" || process.env.RUNNER_ENVIRONMENT !== "github-hosted"
+  || process.env.GITHUB_REPOSITORY !== "qinghui316/agent-harness-orchestrator"
+  || process.env.GITHUB_REF !== "refs/heads/codex/aho-windows-release-update-foundation-v1"
+  || process.env.GITHUB_SHA !== process.env.BEAVER_UPDATE_ACCEPTANCE_SHA
+  || process.env.RUNNER_OS !== "Windows"
   || process.env.BEAVER_UPDATE_ACCEPTANCE !== "1") {
   throw new Error("The update data fixture is restricted to the disposable Windows acceptance runner.");
 }
 
-const [mode, homeInput, projectInput] = process.argv.slice(2);
+const [mode, homeInput, projectInput, runtimeInput] = process.argv.slice(2);
 if (!mode || !homeInput || !projectInput) throw new Error("Usage: <seed|verify> <aho-home> <project-root>.");
 const runnerTemp = resolve(required("RUNNER_TEMP"));
 const ahoHome = assertEphemeralHome(homeInput, runnerTemp);
@@ -25,6 +25,15 @@ const conversationId = "update-acceptance-conversation";
 const draftText = "更新验收草稿：必须在自动重启后保留";
 const queueText = "更新验收待发送内容：必须在自动重启后保留";
 const markerPath = join(ahoHome, "update-acceptance-marker.json");
+const runtimeRoot = runtimeInput ? assertRunnerPath(runtimeInput, runnerTemp) : resolve(import.meta.dirname, "..", "dist");
+const [{ ProjectRegistryStore }, { initializeProjectRuntimeSidecar }, { resolveProjectRuntimePaths },
+  { getProjectHarnessSkillScaffoldRoot }, { openProjectRuntimeWorkbenchDatabase }] = await Promise.all([
+  loadRuntime("registry/store.js"),
+  loadRuntime("project-runtime/lifecycle.js"),
+  loadRuntime("project-runtime/paths.js"),
+  loadRuntime("template-source/paths.js"),
+  loadRuntime("workbench/persistence/open-workbench-database.js"),
+]);
 
 if (mode === "seed") await seed();
 else if (mode === "verify") await verify();
@@ -166,4 +175,8 @@ async function writeJson(path, value) {
 
 function digest(value) {
   return createHash("sha256").update(value).digest("hex").slice(0, 16);
+}
+
+function loadRuntime(relativePath) {
+  return import(pathToFileURL(join(runtimeRoot, relativePath)).href);
 }

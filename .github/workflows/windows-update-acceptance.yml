@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   signed-update:
-    if: github.repository == 'qinghui316/agent-harness-orchestrator'
+    if: github.repository == 'qinghui316/agent-harness-orchestrator' && github.ref == 'refs/heads/codex/aho-windows-release-update-foundation-v1'
     runs-on: windows-latest
     timeout-minutes: 90
     steps:
@@ -29,11 +29,12 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Validate acceptance-owned contracts
-        run: npx vitest run tests/unit/desktop-build-variant.test.ts tests/unit/nsis-update-adapter.test.ts tests/unit/desktop-update-coordinator.test.ts tests/unit/desktop-update-host-bridge.test.ts tests/unit/workbench-update-request-gate.test.ts tests/unit/workbench-update-lifecycle.test.ts tests/unit/workbench-update-http.test.ts tests/unit/composer-update-save.test.ts tests/unit/renderer-update-participants.test.ts tests/unit/terminal-update-shutdown.test.ts tests/unit/desktop-update-boundary.test.tsx
+        run: npx vitest run tests/unit/desktop-build-variant.test.ts tests/unit/nsis-update-adapter.test.ts tests/unit/desktop-update-coordinator.test.ts tests/unit/desktop-update-host-bridge.test.ts tests/unit/workbench-update-request-gate.test.ts tests/unit/workbench-update-lifecycle.test.ts tests/unit/workbench-update-http.test.ts tests/unit/composer-update-save.test.ts tests/unit/renderer-update-participants.test.ts tests/unit/terminal-update-shutdown.test.ts tests/unit/desktop-update-boundary.test.tsx tests/unit/windows-update-acceptance-contract.test.ts
       - name: Build signed old and new packages, update, repair and reinstall
         shell: pwsh
         env:
           BEAVER_UPDATE_ACCEPTANCE: '1'
+          BEAVER_UPDATE_ACCEPTANCE_SHA: ${{ github.sha }}
         run: ./scripts/run-windows-update-acceptance.ps1
       - name: Upload bounded acceptance receipt
         if: always()

@@ -5,7 +5,11 @@ import { basename, extname, resolve } from "node:path";
 import process from "node:process";
 import { URL } from "node:url";
 
-if (process.env.GITHUB_ACTIONS !== "true" || process.env.RUNNER_OS !== "Windows"
+if (process.env.GITHUB_ACTIONS !== "true" || process.env.RUNNER_ENVIRONMENT !== "github-hosted"
+  || process.env.GITHUB_REPOSITORY !== "qinghui316/agent-harness-orchestrator"
+  || process.env.GITHUB_REF !== "refs/heads/codex/aho-windows-release-update-foundation-v1"
+  || process.env.GITHUB_SHA !== process.env.BEAVER_UPDATE_ACCEPTANCE_SHA
+  || process.env.RUNNER_OS !== "Windows"
   || process.env.BEAVER_UPDATE_ACCEPTANCE !== "1") {
   throw new Error("The update fixture server is restricted to the disposable Windows acceptance runner.");
 }
