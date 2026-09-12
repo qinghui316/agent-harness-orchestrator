@@ -33,6 +33,8 @@ describe("Windows update acceptance boundary", () => {
   it("publishes success only after certificate cleanup is verified", () => {
     expect(runner).not.toContain("Start-Job");
     expect(runner).not.toContain("New-SelfSignedCertificate");
+    expect(runner).not.toContain("Import-Certificate");
+    expect(runner).toContain('Invoke-Checked "certutil.exe" @("-user", "-f", "-addstore"');
     expect(workflow).toContain("timeout-minutes: 75");
     expect(workflow).toContain("openssl req -x509");
     expect(workflow).toContain("export MSYS2_ARG_CONV_EXCL='*'");
