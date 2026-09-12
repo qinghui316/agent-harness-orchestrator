@@ -38,6 +38,7 @@ jobs:
           BEAVER_UPDATE_ACCEPTANCE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          export MSYS2_ARG_CONV_EXCL='*'
           export BEAVER_ACCEPTANCE_CERT_PASSWORD="$(openssl rand -base64 32)"
           echo "::add-mask::$BEAVER_ACCEPTANCE_CERT_PASSWORD"
           cert_root="$RUNNER_TEMP/beaver-update-acceptance"
