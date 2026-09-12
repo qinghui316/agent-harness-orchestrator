@@ -76,9 +76,10 @@ if (asar) {
 if (variant.channel !== "internal" && installer && asar) {
   try {
     const { verifyDesktopUpdateSignature } = await import("../dist/desktop/update-signature.js");
-    await verifyDesktopUpdateSignature(installer, variant.updatePolicy.publisherSubject);
+    const product = { version: variant.version, productName: variant.config.productName };
+    await verifyDesktopUpdateSignature(installer, variant.updatePolicy.publisherSubject, product);
     const executable = join(asar, "..", "..", variant.channel === "test" ? "BeaverCodeUpdateTest.exe" : "BeaverCode.exe");
-    await verifyDesktopUpdateSignature(executable, variant.updatePolicy.publisherSubject);
+    await verifyDesktopUpdateSignature(executable, variant.updatePolicy.publisherSubject, product);
     const latest = load(await readFile(join(release, "latest.yml"), "utf8"));
     const name = installer.split(/[\\/]/).pop();
     const metadataFile = latest?.files?.find((file) => file.url === name);

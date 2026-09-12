@@ -34,7 +34,7 @@ describe("NSIS adapter security defaults", () => {
     const { adapter, verifier, nsis } = fixture();
     const artifact = (await adapter.check())!;
     await adapter.download(artifact, new AbortController().signal);
-    expect(verifier.signature).toHaveBeenCalledWith("C:/cache/update.exe", "CN=Beaver Publisher");
+    expect(verifier.signature).toHaveBeenCalledWith("C:/cache/update.exe", "CN=Beaver Publisher", { version: "0.1.3", productName: "Beaver Code" });
     expect(verifier.hash).toHaveBeenCalledWith("C:/cache/update.exe", sha512);
     adapter.install();
     expect(nsis.quitAndInstall).toHaveBeenCalledWith(true, true);

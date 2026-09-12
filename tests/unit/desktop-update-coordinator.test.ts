@@ -46,6 +46,10 @@ describe("signature evidence", () => {
       expect(() => validateDesktopSignatureEvidence({ ...evidence, ...patch }, evidence.path, evidence.subject)).toThrow();
     }
   });
+  it("rejects renamed older installers even if their publisher is valid", () => {
+    expect(() => validateDesktopSignatureEvidence({ ...evidence, productVersion: "0.1.2", productName: "Beaver Code" },
+      evidence.path, evidence.subject, { version: "0.1.3", productName: "Beaver Code" })).toThrow("product or version");
+  });
 });
 
 describe("desktop update coordinator", () => {
