@@ -120,7 +120,9 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
   const productModeActivity = options.productModeActivity ?? new ProductModeActivityProjectionOwner();
   const updateGate = options.desktopHost?.updateGeneration ? new WorkbenchUpdateRequestGate() : undefined;
   const updateChannel = updateGate ? new WorkbenchUpdateRendererChannel() : undefined;
-  const requestLeases = new WeakMap<IncomingMessage, ReturnType<WorkbenchUpdateRequestGate["begin"]>>();
+  const releaseAdmissionObserver = updateGate
+    ? turnControl.subscribeAdmission(() => updateGate.managedExecutionRegistered())
+    : () => {};
   const startup = await projectRuntimeCoordinator.reconcileStartup();
   const restoredInput = await restoreDirectProjectInput(input, store);
   const composedInput = restoredInput
@@ -213,12 +215,6 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
     desktopHost: options.desktopHost,
     updateGate,
     updateChannel,
-    markUpdateExecution: (request, projectId, conversationId, attemptId) => {
-      const lease = requestLeases.get(request);
-      if (!lease || turnControl.state(projectId, conversationId, attemptId).state === "idle") return;
-      lease.admittedExecution();
-      requestLeases.delete(request);
-    },
   };
   const sockets = new Set<Socket>();
   const responses = new Set<ServerResponse>();
@@ -231,7 +227,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
       sendJson(response, 503, { error: "Beaver Code is closing." });
       return;
     }
-    const operation = handleRequest(context, request, response, requestLeases)
+    const operation = handleRequest(context, request, response)
       .catch((error: unknown) => {
         sendJson(response, statusForError(error), { error: error instanceof Error ? error.message : String(error) });
       })
@@ -245,6 +241,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
   let runtimeCleanup: Promise<void> | null = null;
   let strictUpdateShutdown = false;
   const cleanupRuntime = (): Promise<void> => runtimeCleanup ??= (async () => {
+    releaseAdmissionObserver();
     const failures: unknown[] = [];
     try {
       await providerRegistry.shutdownAll("Workbench server stopped.");
@@ -576,7 +573,6 @@ function workbenchRecoveryIssue(cause: unknown): import("../project-runtime/coor
 
 async function handleRequest(
   context: WorkbenchServerContext, request: IncomingMessage, response: ServerResponse,
-  requestLeases: WeakMap<IncomingMessage, ReturnType<WorkbenchUpdateRequestGate["begin"]>>,
 ): Promise<void> {
   const url = new URL(request.url ?? "/", "http://localhost");
   if (url.pathname.startsWith("/api/")) {
@@ -596,11 +592,11 @@ async function handleRequest(
       request.method === "GET" ? "read" : isDraftSave ? "draft-save" : "mutation",
       typeof header === "string" ? header : undefined,
     );
-    if (lease) requestLeases.set(request, lease);
     let outcome: "settled" | "uncertain" = "uncertain";
     try {
       endOperation = await desktopHost?.beginOperation?.();
-      await handleApi(context, request, response, url);
+      if (lease && context.updateGate) await context.updateGate.runTracked(lease, () => handleApi(context, request, response, url));
+      else await handleApi(context, request, response, url);
       outcome = response.statusCode < 500 ? "settled" : "uncertain";
     } catch (cause) {
       // Admission/validation rejections have a definite HTTP outcome. Only
@@ -609,7 +605,6 @@ async function handleRequest(
       throw cause;
     } finally {
       lease?.complete(outcome);
-      requestLeases.delete(request);
       endOperation?.();
     }
     return;

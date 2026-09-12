@@ -53,7 +53,12 @@ export class ProjectRuntimeActivityRegistry {
   }
 
   private assertActive(projectId: string): void {
-    if (!this.globalPauses.size && !this.blockedProjects.has(projectId)) return;
+    if (this.globalPauses.size) {
+      const error = new Error("Workbench is preparing an update.");
+      error.name = "Conflict";
+      throw error;
+    }
+    if (!this.blockedProjects.has(projectId)) return;
     const error = new Error(`Project runtime is removing and cannot start activity: ${projectId}.`);
     error.name = "Conflict";
     throw error;

@@ -1,7 +1,54 @@
 import { describe, expect, it } from "vitest";
 import { WorkbenchUpdateRequestGate } from "../../src/server/workbench/update-request-gate.js";
+import { ConversationTurnControlOwner } from "../../src/workbench/conversation-turn-control.js";
+import { ProviderRegistry } from "../../src/provider-runtime/registry.js";
 
 describe("update request admission and drain", () => {
+  it.each(["review", "retry", "queued-review"])("observes %s registration in its own async request scope", async (kind) => {
+    const gate = new WorkbenchUpdateRequestGate();
+    const control = new ConversationTurnControlOwner({
+      providerRegistry: new ProviderRegistry(),
+      projectRuntimeCoordinator: { resolve: async () => { throw new Error("not needed for registration"); } },
+    });
+    const unsubscribe = control.subscribeAdmission(() => gate.managedExecutionRegistered());
+    const lease = gate.begin("mutation");
+    let finish!: () => void;
+    const held = new Promise<void>((resolve) => { finish = resolve; });
+    const registration = {
+      projectId: "project", productMode: "agent" as const, conversationId: kind,
+      expectedAttemptId: kind, providerId: "codex", graphScopeId: "graph", runId: kind,
+      roleId: "main-agent" as const, canSteer: false,
+    };
+    const executing = gate.runTracked(lease, async () => {
+      await Promise.resolve();
+      control.registerAttempt(registration);
+      await held;
+      control.release(registration);
+    });
+    gate.pause("update");
+    await gate.drain(new AbortController().signal);
+    finish();
+    await executing;
+    lease.complete("settled");
+    unsubscribe();
+  });
+
+  it("does not attribute an unrelated async registration to a pending request", async () => {
+    const gate = new WorkbenchUpdateRequestGate();
+    const lease = gate.begin("mutation");
+    let finish!: () => void;
+    const held = new Promise<void>((resolve) => { finish = resolve; });
+    const request = gate.runTracked(lease, async () => { await held; lease.complete("settled"); });
+    gate.pause("update");
+    gate.managedExecutionRegistered();
+    let drained = false;
+    const drain = gate.drain(new AbortController().signal).then(() => { drained = true; });
+    await Promise.resolve();
+    expect(drained).toBe(false);
+    finish();
+    await request;
+    await drain;
+  });
   it("allows only exact transaction draft saves during the fence", () => {
     const gate = new WorkbenchUpdateRequestGate();
     gate.pause("update");

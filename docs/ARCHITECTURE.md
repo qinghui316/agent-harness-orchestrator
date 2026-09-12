@@ -24,8 +24,11 @@ flow into the domain layer. Installation requires both a successful shutdown rec
 and a normal Utility exit. Ordinary application quit cannot implicitly install an update.
 
 Request draining distinguishes transport writes from already admitted managed execution.
-An SSE header does not prove admission: the topic route must observe existing run
-evidence and a matching Turn Control registration. Uncertain submission blocks updating.
+An SSE header does not prove admission: the existing Turn Control Owner emits a narrow
+registration notification. A server-only async request context attributes that fact to
+the correct request, covering ordinary, queued, Review and Retry execution without
+route-specific observers. Workbench has no dependency on that transport context.
+Uncertain submission blocks updating.
 
 ```text
 Electron Main

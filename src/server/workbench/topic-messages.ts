@@ -90,7 +90,6 @@ export async function sendCreateTopicLive(
   request: IncomingMessage,
   response: ServerResponse,
   turnRouter: ConversationTurnRoutingPort,
-  onManagedExecution?: (projectId: string, conversationId: string, attemptId: string) => void,
 ): Promise<void> {
   const body = await readCreateTopicBody(request);
   const prepared = await prepareWorkbenchConversation(input.project, body, { turnRouter });
@@ -100,9 +99,6 @@ export async function sendCreateTopicLive(
   const sink: WorkbenchLiveSink = {
     emit(event): void {
       if (event.event === "topic.created") conversationId = event.data.conversationId;
-      if (event.event === "run.started" && event.data.conversationId && event.data.attemptId) {
-        onManagedExecution?.(input.project.id, event.data.conversationId, event.data.attemptId);
-      }
       downstream.emit(event);
     },
     isClosed: () => downstream.isClosed?.() ?? false,
@@ -127,23 +123,13 @@ export async function sendConversationMessageLive(
   request: IncomingMessage,
   response: ServerResponse,
   turnRouter: ConversationTurnRoutingPort,
-  onManagedExecution?: (projectId: string, conversationId: string, attemptId: string) => void,
 ): Promise<void> {
   const message = await readTopicMessageBody(request);
   const prepared = message.productMode === "agent" && !message.agentSurfaceId
     ? await prepareConversationMessage(input.project, conversationId, message, { turnRouter })
     : undefined;
   const sse = createSseResponse(response);
-  const downstream = createLiveSink(sse, input.project.id);
-  const sink: WorkbenchLiveSink = {
-    emit(event) {
-      if (event.event === "run.started" && event.data.conversationId && event.data.attemptId) {
-        onManagedExecution?.(input.project.id, event.data.conversationId, event.data.attemptId);
-      }
-      downstream.emit(event);
-    },
-    isClosed: () => downstream.isClosed?.() ?? false,
-  };
+  const sink = createLiveSink(sse, input.project.id);
   let resolvedConversationId = conversationId;
   try {
     const result = await postConversationMessage(input.project, resolvedConversationId, message, sink, { turnRouter, prepared });

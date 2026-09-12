@@ -87,7 +87,6 @@ export interface WorkbenchServerContext {
   desktopHost?: WorkbenchDesktopHostPort;
   updateChannel?: WorkbenchUpdateRendererChannel;
   updateGate?: WorkbenchUpdateRequestGate;
-  markUpdateExecution?: (request: IncomingMessage, projectId: string, conversationId: string, attemptId: string) => void;
 }
 
 export interface ConversationLifecycleBody {

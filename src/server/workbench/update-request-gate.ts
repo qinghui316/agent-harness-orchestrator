@@ -1,9 +1,17 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
+export interface WorkbenchUpdateRequestLease {
+  admittedExecution(): void;
+  complete(outcome: "settled" | "uncertain"): void;
+}
+
 /**
  * HTTP lifecycle bookkeeping, not Conversation truth. A live request may leave
  * the mutation drain only after its domain owner has admitted managed execution.
  * Merely setting a text/event-stream header is never sufficient.
  */
 export class WorkbenchUpdateRequestGate {
+  private readonly requestScope = new AsyncLocalStorage<WorkbenchUpdateRequestLease>();
   private pausedBy: string | null = null;
   private readonly mutations = new Set<symbol>();
   private readonly waiters = new Set<() => void>();
@@ -23,10 +31,15 @@ export class WorkbenchUpdateRequestGate {
     };
   }
 
-  begin(kind: "read" | "mutation" | "draft-save", updateId?: string): {
-    admittedExecution(): void;
-    complete(outcome: "settled" | "uncertain"): void;
-  } {
+  runTracked<T>(lease: WorkbenchUpdateRequestLease, operation: () => Promise<T>): Promise<T> {
+    return this.requestScope.run(lease, operation);
+  }
+
+  managedExecutionRegistered(): void {
+    this.requestScope.getStore()?.admittedExecution();
+  }
+
+  begin(kind: "read" | "mutation" | "draft-save", updateId?: string): WorkbenchUpdateRequestLease {
     if (this.pausedBy && kind !== "read" && !(kind === "draft-save" && updateId === this.pausedBy)) {
       throw conflict("Workbench is preparing an update.");
     }
@@ -42,7 +55,8 @@ export class WorkbenchUpdateRequestGate {
     };
     return {
       admittedExecution: () => {
-        if (complete || promoted || kind !== "mutation") throw conflict("Request has no promotable mutation.");
+        if (complete || promoted) return;
+        if (kind !== "mutation") throw conflict("Request has no promotable mutation.");
         promoted = true;
         release();
       },
