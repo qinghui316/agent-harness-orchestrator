@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { connect as connectSocket, type Socket } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { ProjectRegistryStore } from "../../src/registry/store.js";
 import { ProviderRegistry } from "../../src/provider-runtime/registry.js";
@@ -9,14 +10,17 @@ import { startWorkbenchServer, type WorkbenchServerHandle } from "../../src/serv
 let root: string | undefined;
 let server: WorkbenchServerHandle | undefined;
 let streamAbort: AbortController | undefined;
+let keepAliveSocket: Socket | undefined;
 const identity = { updateId: "test-update", generation: "test-generation", targetVersion: "0.1.3", artifactSha512: Buffer.alloc(64, 1).toString("base64") };
 const cookie = "beaver_code_session=test-token";
 
 afterEach(async () => {
   streamAbort?.abort();
+  keepAliveSocket?.destroy();
   if (server?.server.listening) await server.close();
   if (root) await rm(root, { recursive: true, force: true, maxRetries: 5 });
   server = undefined;
+  keepAliveSocket = undefined;
 });
 
 async function start() {
@@ -113,6 +117,38 @@ describe("real update HTTP/SSE composition", () => {
     const actions = await connect(handle);
     await handle.updates!.prepare(identity);
     expect(await handle.updates!.stop(identity)).toMatchObject({ status: "stopped" });
+    expect(actions).toEqual(["prepare", "confirm"]);
+    expect(handle.server.listening).toBe(false);
+  });
+
+  it("does not let a renderer keep-alive connection consume the update shutdown deadline", async () => {
+    const handle = await start();
+    const actions = await connect(handle);
+    const origin = new URL(handle.url);
+    keepAliveSocket = connectSocket(Number(origin.port), origin.hostname);
+    await new Promise<void>((resolve, reject) => {
+      keepAliveSocket!.once("connect", resolve);
+      keepAliveSocket!.once("error", reject);
+    });
+    keepAliveSocket.write([
+      "GET /api/app/status HTTP/1.1",
+      `Host: ${origin.host}`,
+      `Cookie: ${cookie}`,
+      "Connection: keep-alive",
+      "",
+      "",
+    ].join("\r\n"));
+    await new Promise<void>((resolve, reject) => {
+      const onData = (chunk: Buffer): void => {
+        if (!chunk.toString("utf8").includes("200 OK")) return;
+        keepAliveSocket!.off("error", reject);
+        resolve();
+      };
+      keepAliveSocket!.on("data", onData);
+      keepAliveSocket!.once("error", reject);
+    });
+    await handle.updates!.prepare(identity);
+    await expect(handle.updates!.stop(identity)).resolves.toMatchObject({ status: "stopped" });
     expect(actions).toEqual(["prepare", "confirm"]);
     expect(handle.server.listening).toBe(false);
   });

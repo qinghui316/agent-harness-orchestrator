@@ -30,7 +30,7 @@ export type DesktopHostMessage =
   | { type: "shutdown"; requestId: string; generation: string; reason: "app-quit" | "window-close" | "restart" | "host-failure"; deadlineMs: number }
   | { type: "shutdown-complete"; requestId: string; generation: string; diagnostic?: DesktopSafeDiagnostic }
   | { type: "update-request"; requestId: string; generation: string; identity: WorkbenchUpdateIdentity; action: "prepare" | "stop" | "cancel" }
-  | { type: "update-result"; requestId: string; generation: string; identity: WorkbenchUpdateIdentity; result: "prepared" | "stopped" | "canceled" | "failed" };
+  | { type: "update-result"; requestId: string; generation: string; identity: WorkbenchUpdateIdentity; result: "prepared" | "stopped" | "canceled" | "failed"; diagnostic?: DesktopSafeDiagnostic };
 
 export function isDesktopHostMessage(value: unknown): value is DesktopHostMessage {
   if (!isRecord(value) || typeof value.type !== "string" || typeof value.generation !== "string") return false;
@@ -41,7 +41,8 @@ export function isDesktopHostMessage(value: unknown): value is DesktopHostMessag
         || value.generation !== value.identity.generation) return false;
       return value.type === "update-request"
         ? ["prepare", "stop", "cancel"].includes(String(value.action))
-        : ["prepared", "stopped", "canceled", "failed"].includes(String(value.result));
+        : ["prepared", "stopped", "canceled", "failed"].includes(String(value.result))
+          && (value.diagnostic === undefined || isDiagnostic(value.diagnostic));
     }
     case "bootstrap": return value.protocolVersion === DESKTOP_PROTOCOL_VERSION && isNonEmpty(value.sessionToken);
     case "ready": return value.protocolVersion === DESKTOP_PROTOCOL_VERSION && isLoopbackOrigin(value.origin);

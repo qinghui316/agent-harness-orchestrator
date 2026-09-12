@@ -118,7 +118,14 @@ export class WorkbenchUpdateLifecycle {
 
   private async runShutdown(transaction: UpdateTransaction): Promise<WorkbenchUpdateReceipt> {
     try {
-      await withinDeadline(() => this.ports.shutdown(this.limits.shutdownMs, transaction.abort.signal), this.limits.shutdownMs, transaction.abort.signal);
+      // The shutdown port owns the product deadline. This outer watchdog only
+      // invalidates a broken port that ignores it and therefore needs a small
+      // scheduling envelope instead of racing the same timer.
+      await withinDeadline(
+        () => this.ports.shutdown(this.limits.shutdownMs, transaction.abort.signal),
+        this.limits.shutdownMs + shutdownWatchdogEnvelope(this.limits.shutdownMs),
+        transaction.abort.signal,
+      );
       if (this.current !== transaction || this.phase !== "shutting-down") throw conflict("Update shutdown is stale.");
       this.phase = "stopped";
       // Keep admission fenced until process exit. Installing is the host's responsibility.
@@ -153,6 +160,10 @@ export class WorkbenchUpdateLifecycle {
       throw conflict("Update preparation is no longer current.");
     }
   }
+}
+
+function shutdownWatchdogEnvelope(deadlineMs: number): number {
+  return Math.max(1, Math.min(250, Math.ceil(deadlineMs / 8)));
 }
 
 async function withinDeadline<T>(operation: () => Promise<T>, ms: number, signal?: AbortSignal): Promise<T> {

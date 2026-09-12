@@ -65,6 +65,8 @@ describe("desktop host protocol", () => {
     expect(isDesktopHostMessage({ ...request, requestId: "x".repeat(129) })).toBe(false);
     expect(isDesktopHostMessage({ ...request, action: "install" })).toBe(false);
     expect(isDesktopHostMessage({ type: "update-result", requestId: "request-1", generation: "generation-1", identity, result: "stopped" })).toBe(true);
+    expect(isDesktopHostMessage({ type: "update-result", requestId: "request-1", generation: "generation-1", identity, result: "failed", diagnostic: safeDiagnostic("shutdown", "closing local connections") })).toBe(true);
+    expect(isDesktopHostMessage({ type: "update-result", requestId: "request-1", generation: "generation-1", identity, result: "failed", diagnostic: { stage: "shutdown", summary: "x".repeat(401) } })).toBe(false);
     expect(isDesktopHostMessage({ type: "update-result", requestId: "request-1", generation: "generation-1", identity, result: "success" })).toBe(false);
   });
 

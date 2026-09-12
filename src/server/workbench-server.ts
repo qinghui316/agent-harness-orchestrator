@@ -281,6 +281,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
     }),
     async close(deadlineMs = 8_000) {
       acceptingRequests = false;
+      let shutdownStage = "reading registered projects";
       const registered = await store.listProjects();
       const directProject = composedInput?.project;
       const projectIds = new Set(registered.map((project) => project.id));
@@ -288,6 +289,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
       for (const projectId of projectIds) defaultProjectRuntimeActivityRegistry.blockProject(projectId);
       const closing = (async () => {
         const failures: unknown[] = [];
+        shutdownStage = "interrupting active work";
         const interruptionResults = await Promise.allSettled([
           turnControl.interruptAll("Beaver Code is closing."),
           ...providerRegistry.listActiveTurns()
@@ -302,6 +304,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
           if (contentType.startsWith("text/event-stream") && !response.writableEnded) response.end();
         }
         if (failures.length === 0) {
+          shutdownStage = "draining active work";
           const drainResults = await Promise.allSettled([
             turnControl.drain(),
             ...[...projectIds].map((projectId) => defaultProjectRuntimeActivityRegistry.drainProject(projectId)),
@@ -312,17 +315,21 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
           }
         }
         try {
+          shutdownStage = "stopping runtime processes";
           await cleanupRuntime();
         } catch (cause) {
           appendShutdownFailure(failures, cause);
         }
         try {
+          shutdownStage = "closing local connections";
           await new Promise<void>((resolve, reject) => {
             server.close((error) => error ? reject(error) : resolve());
-            // Every handler has drained and SSE has ended. Close keep-alive
-            // sockets explicitly; a finished SSE must not hold the host open.
+            // Every handler has drained and SSE has ended. The renderer remains
+            // alive until the Utility receipt reaches Electron Main, so a
+            // Chromium keep-alive peer must not be allowed to delay that receipt.
             server.closeIdleConnections();
-            for (const socket of sockets) socket.end();
+            server.closeAllConnections();
+            for (const socket of sockets) socket.destroy();
           });
         } catch (cause) {
           appendShutdownFailure(failures, cause);
@@ -335,7 +342,9 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
         await Promise.race([
           closing,
           new Promise<never>((_, reject) => {
-            timeout = setTimeout(() => reject(new Error("Workbench shutdown deadline exceeded.")), Math.max(1, deadlineMs));
+            timeout = setTimeout(() => reject(new Error(
+              `Workbench shutdown deadline exceeded while ${shutdownStage}.`,
+            )), Math.max(1, deadlineMs));
           }),
         ]);
         completed = true;

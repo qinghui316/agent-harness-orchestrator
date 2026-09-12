@@ -14,8 +14,9 @@ function fixture() {
   const bridge = new DesktopUpdateHostBridge(() => ({ child, generation: "g1" }), authorize);
   return {
     bridge, authorize, events,
-    respond: (result: "prepared" | "stopped" | "failed") => events.emit("message", {
+    respond: (result: "prepared" | "stopped" | "failed", diagnostic?: Extract<DesktopHostMessage, { type: "update-result" }>["diagnostic"]) => events.emit("message", {
       type: "update-result", requestId: sent!.requestId, identity, generation: "g1", result,
+      ...(diagnostic ? { diagnostic } : {}),
     }),
     exit: (code: number) => { child = null; events.emit("exit", code); },
   };
@@ -45,5 +46,11 @@ describe("desktop update process evidence", () => {
     exit(0);
     await rejected;
     expect(authorize).not.toHaveBeenCalled();
+  });
+  it("surfaces only the bounded Utility diagnostic when shutdown fails", async () => {
+    const { bridge, respond } = fixture();
+    const stopping = bridge.stop(identity);
+    respond("failed", { stage: "shutdown", summary: "Workbench shutdown deadline exceeded while closing local connections." });
+    await expect(stopping).rejects.toThrow("closing local connections");
   });
 });
