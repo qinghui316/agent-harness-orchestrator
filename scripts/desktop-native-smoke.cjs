@@ -1,7 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 /* global clearTimeout, console, process, require, setTimeout */
 
-const { app } = require("electron");
 const { join, resolve } = require("node:path");
 const { createRequire } = require("node:module");
 const packagedRoot = process.env.BEAVER_NATIVE_PACKAGE_ROOT;
@@ -9,7 +8,7 @@ const load = packagedRoot ? createRequire(join(resolve(packagedRoot), "resources
 const Database = load("better-sqlite3");
 const pty = load("node-pty");
 
-app.whenReady().then(async () => {
+async function main() {
   const database = new Database(":memory:");
   database.exec("CREATE TABLE smoke (value TEXT NOT NULL)");
   database.prepare("INSERT INTO smoke (value) VALUES (?)").run("sqlite-ok");
@@ -37,8 +36,10 @@ app.whenReady().then(async () => {
   });
   if (!output.includes("pty-ok")) throw new Error("Electron PTY smoke failed.");
   console.log("Electron native SQLite and PTY smoke passed.");
-  app.exit(0);
-}).catch((cause) => {
+  process.exit(0);
+}
+
+main().catch((cause) => {
   console.error(cause);
-  app.exit(1);
+  process.exit(1);
 });
