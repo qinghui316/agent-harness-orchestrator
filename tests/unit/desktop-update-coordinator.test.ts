@@ -45,6 +45,8 @@ describe("signature evidence", () => {
     for (const patch of [{ status: 1 }, { path: "C:/different.exe" }, { subject: "CN=Other" }, { timestamped: false }]) {
       expect(() => validateDesktopSignatureEvidence({ ...evidence, ...patch }, evidence.path, evidence.subject)).toThrow();
     }
+    expect(() => validateDesktopSignatureEvidence({ ...evidence, timestamped: false }, evidence.path, evidence.subject))
+      .toThrow("Update signature timestamp validation failed.");
   });
   it("rejects renamed older installers even if their publisher is valid", () => {
     expect(() => validateDesktopSignatureEvidence({ ...evidence, productVersion: "0.1.2", productName: "Beaver Code" },

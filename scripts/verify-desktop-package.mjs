@@ -86,8 +86,10 @@ if (variant.channel !== "internal" && installer && asar) {
     const digest = createHash("sha512").update(await readFile(installer)).digest("base64");
     if (latest?.version !== variant.version || metadataFile?.sha512 !== digest) failures.push("Signed installer and update metadata disagree.");
     if (!existsSync(installer + ".blockmap")) failures.push("Update blockmap is missing.");
-  } catch {
-    failures.push("Signed update package verification failed.");
+  } catch (cause) {
+    failures.push(`Signed update package verification failed: ${
+      cause instanceof Error ? cause.message : "unknown verification error"
+    }`);
   }
 }
 
