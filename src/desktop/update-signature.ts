@@ -5,6 +5,7 @@ import { isAbsolute, join, normalize } from "node:path";
 
 export interface DesktopSignatureEvidence {
   readonly status: number;
+  readonly statusMessage?: string;
   readonly path: string;
   readonly subject: string;
   readonly timestamped: boolean;
@@ -23,7 +24,10 @@ export function validateDesktopSignatureEvidence(
   publisherSubject: string,
   product?: DesktopSignedProduct,
 ): void {
-  if (evidence.status !== 0) throw new Error(`Update signature trust validation failed with status ${evidence.status}.`);
+  if (evidence.status !== 0) {
+    const detail = evidence.statusMessage?.replace(/\s+/g, " ").trim().slice(0, 240);
+    throw new Error(`Update signature trust validation failed with status ${evidence.status}.${detail ? ` ${detail}` : ""}`);
+  }
   if (evidence.subject !== publisherSubject) throw new Error("Update signature publisher validation failed.");
   if (!evidence.timestamped) throw new Error("Update signature timestamp validation failed.");
   if (normalize(evidence.path).toLowerCase() !== normalize(file).toLowerCase()) {
@@ -51,7 +55,7 @@ export async function verifyDesktopUpdateSignature(file: string, publisherSubjec
     "$signature = Get-AuthenticodeSignature -LiteralPath $env:BEAVER_UPDATE_VERIFY_FILE",
     "if ($null -eq $signature) { throw 'Signature unavailable' }",
     "$version = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($env:BEAVER_UPDATE_VERIFY_FILE)",
-    "@{ status = [int]$signature.Status; path = $signature.Path; subject = $signature.SignerCertificate.Subject; timestamped = ($null -ne $signature.TimeStamperCertificate); productVersion = $version.ProductVersion; productName = $version.ProductName } | ConvertTo-Json -Compress",
+    "@{ status = [int]$signature.Status; statusMessage = $signature.StatusMessage; path = $signature.Path; subject = $signature.SignerCertificate.Subject; timestamped = ($null -ne $signature.TimeStamperCertificate); productVersion = $version.ProductVersion; productName = $version.ProductName } | ConvertTo-Json -Compress",
   ].join("; ");
   const output = await new Promise<string>((resolve, reject) => {
     execFile(join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
@@ -69,7 +73,8 @@ export async function verifyDesktopUpdateSignature(file: string, publisherSubjec
   if (!evidence || typeof evidence !== "object") throw new Error("Windows signature evidence is missing.");
   const record = evidence as Record<string, unknown>;
   if (typeof record.status !== "number" || typeof record.path !== "string"
-    || typeof record.subject !== "string" || typeof record.timestamped !== "boolean") {
+    || typeof record.subject !== "string" || typeof record.timestamped !== "boolean"
+    || (record.statusMessage !== undefined && typeof record.statusMessage !== "string")) {
     throw new Error("Windows signature evidence is incomplete.");
   }
   validateDesktopSignatureEvidence(record as unknown as DesktopSignatureEvidence, file, publisherSubject, product);

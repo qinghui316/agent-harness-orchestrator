@@ -50,6 +50,8 @@ describe("signature evidence", () => {
       .toThrow("Update signature timestamp validation failed.");
     expect(() => validateDesktopSignatureEvidence({ ...evidence, status: 4 }, evidence.path, evidence.subject))
       .toThrow("Update signature trust validation failed with status 4.");
+    expect(() => validateDesktopSignatureEvidence({ ...evidence, status: 1, statusMessage: "  bounded   detail  " }, evidence.path, evidence.subject))
+      .toThrow("Update signature trust validation failed with status 1. bounded detail");
   });
   it("rejects renamed older installers even if their publisher is valid", () => {
     expect(() => validateDesktopSignatureEvidence({ ...evidence, productVersion: "0.1.2", productName: "Beaver Code" },
