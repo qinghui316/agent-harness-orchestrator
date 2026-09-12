@@ -34,7 +34,7 @@ for (const name of ["latest.yml", required("BEAVER_UPDATE_INSTALLER_NAME"), requ
 const server = createServer({ pfx, passphrase, minVersion: "TLSv1.2" }, async (request, response) => {
   try {
     const url = new URL(request.url ?? "/", "https://localhost");
-    const file = url.search || url.hash ? null : allowed.get(url.pathname);
+    const file = url.hash || !isAllowedQuery(url) ? null : allowed.get(url.pathname);
     if ((request.method !== "GET" && request.method !== "HEAD") || !file) {
       response.writeHead(404, { "Cache-Control": "no-store", "Content-Type": "text/plain; charset=utf-8" });
       response.end("Not found.");
@@ -84,4 +84,11 @@ function required(name) {
   const value = process.env[name];
   if (!value || /[\r\n\0]/.test(value)) throw new Error(`Missing or invalid ${name}.`);
   return value;
+}
+
+function isAllowedQuery(url) {
+  if (!url.search) return true;
+  const noCache = url.searchParams.get("noCache");
+  return url.pathname === "/latest.yml" && url.searchParams.size === 1
+    && typeof noCache === "string" && /^[0-9a-v]+$/.test(noCache);
 }

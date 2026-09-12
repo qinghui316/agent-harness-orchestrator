@@ -55,6 +55,16 @@ describe("Windows update acceptance boundary", () => {
     expect(runner.indexOf('if ($passedResult)')).toBeGreaterThan(runner.indexOf('finally {'));
     expect(runner).toContain('A disposable acceptance certificate was not removed.');
   });
+
+  it("serves the updater cache-busted channel request and emits bounded failure evidence", () => {
+    expect(feed).toContain('url.searchParams.get("noCache")');
+    expect(feed).toContain('url.pathname === "/latest.yml" && url.searchParams.size === 1');
+    expect(feed).toContain('/^[0-9a-v]+$/.test(noCache)');
+    expect(runner).toContain('if ($content.Contains(" update failed"))');
+    expect(runner).toContain('function Write-SafeUpdateLogEvidence');
+    expect(runner).toContain('Get-Content -LiteralPath $desktopLog -Tail 120');
+    expect(runner).toContain('$_ -match " (build|workbench-ready|update|update-failed|startup-failed|utility-exit) "');
+  });
 });
 
 async function read(path: string): Promise<string> {
