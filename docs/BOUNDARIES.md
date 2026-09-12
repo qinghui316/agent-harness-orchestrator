@@ -581,6 +581,25 @@ Decisions:
 
 ## 6A.1 Beaver Code Electron Desktop Boundary
 
+Windows update transactions use desktop protocol V2. Main owns version checks, downloads,
+signature verification and installer invocation; existing Workbench owners still own
+Draft, Queue, Provider, Terminal and persistence. Renderer only supplies exact save
+acknowledgements and has no installation API.
+
+Preparation fences new mutations and Queue dispatch while permitting transaction-bound
+draft PUTs. It saves every edited scope, checks revisions again before shutdown, and
+interrupts managed work through existing owners. Failed/unknown receipts, forced exits
+and timeouts never grant installation authority. No Provider request is replayed.
+
+The accepted restart policy is automatic, without a confirmation countdown, only after
+safe preparation succeeds. Third-party programs' unsaved Terminal buffers cannot be
+saved by Beaver Code. Windows session-end cancels installation admission.
+
+Internal builds disable network updates; test builds isolate identity/data/trust;
+Stable packages require production signing acceptance. NSIS interruption recovery
+repairs application binaries without deleting data. It is not an atomic installer or
+a promise of bidirectional database compatibility.
+
 Beaver Code uses Electron as its single desktop host direction. The existing
 Node/TypeScript Core remains the owner of Workbench, Provider, SQLite, Terminal,
 Harness workflow truth, and product orchestration. Tauri/Rust is not a parallel

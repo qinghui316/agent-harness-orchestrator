@@ -1,5 +1,17 @@
 # Workbench
 
+## Desktop update preparation
+
+In an updater-enabled desktop build, verified downloads automatically enter a bounded
+save-and-restart flow. The work surface is temporarily non-editable while its existing
+draft owners save all scopes through CAS. Uploads, stale revisions or uncertain requests
+cancel update preparation. The Help menu provides checking/retry and diagnostic access.
+Internal builds show that updating is disabled; ordinary Web Workbench has no installer.
+
+An active Agent/AHO/Review task is interrupted through its existing runtime owner only
+after preparation succeeds. Queued input and application-owned history survive restart.
+Terminal programs are ended; their unsaved in-process buffers are outside draft storage.
+
 The current Workbench reads one Shared Conversation and one canonical timeline.
 Provider events are persisted before `timeline.patch` is emitted; the browser
 upserts the same canonical cell identity and snapshots only calibrate it. The

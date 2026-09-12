@@ -44,6 +44,9 @@ import { WorkbenchDatabaseCompatibilityError } from "../workbench/persistence/sc
 import { inspectWorkbenchDatabaseUpgradeState } from "../workbench/persistence/database-upgrade.js";
 import { WORKBENCH_SCHEMA_VERSION } from "../workbench/persistence/schema.js";
 import { WorkbenchMigrationBusyError } from "../workbench/persistence/migration-errors.js";
+import { WorkbenchUpdateLifecycle } from "../workbench/update-lifecycle.js";
+import { WorkbenchUpdateRequestGate } from "./workbench/update-request-gate.js";
+import { WorkbenchUpdateRendererChannel } from "./workbench/update-renderer-channel.js";
 
 export type { WorkbenchServeOptions, WorkbenchServerHandle } from "./workbench/types.js";
 export { executeWorkbenchAction } from "./workbench/actions.js";
@@ -115,6 +118,9 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
     providerRegistry,
   });
   const productModeActivity = options.productModeActivity ?? new ProductModeActivityProjectionOwner();
+  const updateGate = options.desktopHost?.updateGeneration ? new WorkbenchUpdateRequestGate() : undefined;
+  const updateChannel = updateGate ? new WorkbenchUpdateRendererChannel() : undefined;
+  const requestLeases = new WeakMap<IncomingMessage, ReturnType<WorkbenchUpdateRequestGate["begin"]>>();
   const startup = await projectRuntimeCoordinator.reconcileStartup();
   const restoredInput = await restoreDirectProjectInput(input, store);
   const composedInput = restoredInput
@@ -205,6 +211,14 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
     conversationReview,
     ensureProjectRecovered,
     desktopHost: options.desktopHost,
+    updateGate,
+    updateChannel,
+    markUpdateExecution: (request, projectId, conversationId, attemptId) => {
+      const lease = requestLeases.get(request);
+      if (!lease || turnControl.state(projectId, conversationId, attemptId).state === "idle") return;
+      lease.admittedExecution();
+      requestLeases.delete(request);
+    },
   };
   const sockets = new Set<Socket>();
   const responses = new Set<ServerResponse>();
@@ -217,7 +231,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
       sendJson(response, 503, { error: "Beaver Code is closing." });
       return;
     }
-    const operation = handleRequest(context, request, response)
+    const operation = handleRequest(context, request, response, requestLeases)
       .catch((error: unknown) => {
         sendJson(response, statusForError(error), { error: error instanceof Error ? error.message : String(error) });
       })
@@ -229,15 +243,20 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
     socket.once("close", () => sockets.delete(socket));
   });
   let runtimeCleanup: Promise<void> | null = null;
+  let strictUpdateShutdown = false;
   const cleanupRuntime = (): Promise<void> => runtimeCleanup ??= (async () => {
     const failures: unknown[] = [];
     try {
       await providerRegistry.shutdownAll("Workbench server stopped.");
+      if (strictUpdateShutdown && providerRegistry.runtimeLiveness().liveHostCount !== 0) {
+        throw new Error("Provider processes have not confirmed exit.");
+      }
     } catch (cause) {
       appendShutdownFailure(failures, cause);
     }
     try {
-      terminalRuntime.cleanup();
+      if (strictUpdateShutdown) await terminalRuntime.shutdown();
+      else terminalRuntime.cleanup();
     } catch (cause) {
       appendShutdownFailure(failures, cause);
     }
@@ -249,7 +268,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
   await new Promise<void>((resolvePromise) => server.listen(port, host, resolvePromise));
   const address = server.address();
   const actualPort = typeof address === "object" && address ? address.port : port;
-  return {
+  const handle: WorkbenchServerHandle = {
     server,
     url: `http://${host}:${actualPort}`,
     snapshot: () => readRuntimeSnapshot({
@@ -265,10 +284,6 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
     }),
     async close(deadlineMs = 8_000) {
       acceptingRequests = false;
-      for (const response of responses) {
-        const contentType = String(response.getHeader("content-type") ?? "");
-        if (contentType.startsWith("text/event-stream") && !response.writableEnded) response.end();
-      }
       const registered = await store.listProjects();
       const directProject = composedInput?.project;
       const projectIds = new Set(registered.map((project) => project.id));
@@ -284,6 +299,10 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
         ]);
         for (const result of interruptionResults) {
           if (result.status === "rejected") appendShutdownFailure(failures, result.reason);
+        }
+        for (const response of responses) {
+          const contentType = String(response.getHeader("content-type") ?? "");
+          if (contentType.startsWith("text/event-stream") && !response.writableEnded) response.end();
         }
         if (failures.length === 0) {
           const drainResults = await Promise.allSettled([
@@ -301,7 +320,13 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
           appendShutdownFailure(failures, cause);
         }
         try {
-          await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+          await new Promise<void>((resolve, reject) => {
+            server.close((error) => error ? reject(error) : resolve());
+            // Every handler has drained and SSE has ended. Close keep-alive
+            // sockets explicitly; a finished SSE must not hold the host open.
+            server.closeIdleConnections();
+            for (const socket of sockets) socket.end();
+          });
         } catch (cause) {
           appendShutdownFailure(failures, cause);
         }
@@ -328,6 +353,28 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
       }
     },
   };
+  if (updateGate && updateChannel && options.desktopHost?.updateGeneration) {
+    handle.updates = new WorkbenchUpdateLifecycle({
+      pauseNewWork: (identity) => {
+        const releaseRequests = updateGate.pause(identity.updateId);
+        const releaseQueue = conversationTurnQueue.pauseDispatch();
+        const releaseRuntime = defaultProjectRuntimeActivityRegistry.pauseAll();
+        return () => { releaseRuntime(); releaseQueue(); releaseRequests(); };
+      },
+      prepareRenderer: (identity, signal) => updateChannel.request("prepare", identity, signal),
+      drainMutations: (signal) => updateGate.drain(signal),
+      cancelRenderer: (identity) => updateChannel.request("cancel", identity),
+      shutdown: async (deadlineMs, signal) => {
+        const identity = handle.updates?.snapshot().identity;
+        if (!identity) throw new Error("Update preparation is missing.");
+        await updateChannel.request("confirm", identity, signal);
+        if (signal.aborted) throw new Error("Update shutdown was canceled.");
+        strictUpdateShutdown = true;
+        await handle.close(deadlineMs);
+      },
+    }, options.desktopHost.updateGeneration);
+  }
+  return handle;
 }
 
 function appendShutdownFailure(failures: unknown[], cause: unknown): void {
@@ -527,18 +574,37 @@ function workbenchRecoveryIssue(cause: unknown): import("../project-runtime/coor
   };
 }
 
-async function handleRequest(context: WorkbenchServerContext, request: IncomingMessage, response: ServerResponse): Promise<void> {
+async function handleRequest(
+  context: WorkbenchServerContext, request: IncomingMessage, response: ServerResponse,
+  requestLeases: WeakMap<IncomingMessage, ReturnType<WorkbenchUpdateRequestGate["begin"]>>,
+): Promise<void> {
   const url = new URL(request.url ?? "/", "http://localhost");
   if (url.pathname.startsWith("/api/")) {
     const desktopHost = context.desktopHost;
     let endOperation: (() => void) | undefined;
     if (desktopHost) {
       assertDesktopSession(request, desktopHost.sessionToken, desktopHost.cookieName);
-      endOperation = await desktopHost.beginOperation?.();
     }
+    if (context.updateChannel && await context.updateChannel.handle(request, response, url)) return;
+    if (context.updateGate?.paused && request.method === "GET" && url.pathname !== "/api/app/status") {
+      sendJson(response, 409, { error: "正在保存并更新，请稍候。" });
+      return;
+    }
+    const isDraftSave = request.method === "PUT" && /^\/api\/projects\/[^/]+\/workbench\/composer-draft$/.test(url.pathname);
+    const header = request.headers["x-beaver-update-id"];
+    const lease = context.updateGate?.begin(
+      request.method === "GET" ? "read" : isDraftSave ? "draft-save" : "mutation",
+      typeof header === "string" ? header : undefined,
+    );
+    if (lease) requestLeases.set(request, lease);
+    let outcome: "settled" | "uncertain" = "uncertain";
     try {
+      endOperation = await desktopHost?.beginOperation?.();
       await handleApi(context, request, response, url);
+      outcome = response.statusCode < 500 ? "settled" : "uncertain";
     } finally {
+      lease?.complete(outcome);
+      requestLeases.delete(request);
       endOperation?.();
     }
     return;

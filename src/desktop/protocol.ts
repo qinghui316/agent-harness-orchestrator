@@ -1,4 +1,6 @@
-export const DESKTOP_PROTOCOL_VERSION = 1 as const;
+import { isWorkbenchUpdateIdentity, type WorkbenchUpdateIdentity } from "../types/workbench-update.js";
+
+export const DESKTOP_PROTOCOL_VERSION = 2 as const;
 export const DESKTOP_SESSION_COOKIE = "beaver_code_session";
 
 export interface DesktopSafeDiagnostic {
@@ -15,8 +17,8 @@ export interface DesktopRuntimeSnapshot {
 }
 
 export type DesktopHostMessage =
-  | { type: "bootstrap"; protocolVersion: 1; sessionToken: string; generation: string }
-  | { type: "ready"; protocolVersion: 1; origin: string; generation: string }
+  | { type: "bootstrap"; protocolVersion: 2; sessionToken: string; generation: string }
+  | { type: "ready"; protocolVersion: 2; origin: string; generation: string }
   | { type: "startup-failed"; generation: string; diagnostic: DesktopSafeDiagnostic }
   | { type: "read-quit-snapshot"; requestId: string; generation: string }
   | ({ type: "quit-snapshot"; requestId: string; generation: string } & DesktopRuntimeSnapshot)
@@ -26,11 +28,21 @@ export type DesktopHostMessage =
   | { type: "idle-lease-revoked"; generation: string; leaseId: string; requestId: string }
   | { type: "idle-lease-revoke-ack"; generation: string; leaseId: string; requestId: string }
   | { type: "shutdown"; requestId: string; generation: string; reason: "app-quit" | "window-close" | "restart" | "host-failure"; deadlineMs: number }
-  | { type: "shutdown-complete"; requestId: string; generation: string; diagnostic?: DesktopSafeDiagnostic };
+  | { type: "shutdown-complete"; requestId: string; generation: string; diagnostic?: DesktopSafeDiagnostic }
+  | { type: "update-request"; requestId: string; generation: string; identity: WorkbenchUpdateIdentity; action: "prepare" | "stop" | "cancel" }
+  | { type: "update-result"; requestId: string; generation: string; identity: WorkbenchUpdateIdentity; result: "prepared" | "stopped" | "canceled" | "failed" };
 
 export function isDesktopHostMessage(value: unknown): value is DesktopHostMessage {
   if (!isRecord(value) || typeof value.type !== "string" || typeof value.generation !== "string") return false;
   switch (value.type) {
+    case "update-request":
+    case "update-result": {
+      if (!isBoundedId(value.requestId) || !isWorkbenchUpdateIdentity(value.identity)
+        || value.generation !== value.identity.generation) return false;
+      return value.type === "update-request"
+        ? ["prepare", "stop", "cancel"].includes(String(value.action))
+        : ["prepared", "stopped", "canceled", "failed"].includes(String(value.result));
+    }
     case "bootstrap": return value.protocolVersion === DESKTOP_PROTOCOL_VERSION && isNonEmpty(value.sessionToken);
     case "ready": return value.protocolVersion === DESKTOP_PROTOCOL_VERSION && isLoopbackOrigin(value.origin);
     case "startup-failed": return isDiagnostic(value.diagnostic);
@@ -76,4 +88,5 @@ function isLoopbackOrigin(value: unknown): value is string {
 
 function isCount(value: unknown): boolean { return Number.isInteger(value) && Number(value) >= 0; }
 function isNonEmpty(value: unknown): value is string { return typeof value === "string" && value.length > 0; }
+function isBoundedId(value: unknown): value is string { return typeof value === "string" && /^[A-Za-z0-9_:-]{1,128}$/.test(value); }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null; }

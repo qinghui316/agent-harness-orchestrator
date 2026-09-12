@@ -28,15 +28,29 @@ import {
 import { normalizeWindowState, type DesktopWindowState } from "./window-state.js";
 import { parseOfficeRendererConsoleDiagnostic } from "./renderer-diagnostic.js";
 import { readDesktopBuildInfo } from "./build-info.js";
+import { DesktopUpdateCoordinator, type DesktopUpdateState } from "./update-coordinator.js";
+import { DesktopUpdateHostBridge } from "./update-host-bridge.js";
+import { createNsisUpdateAdapter } from "./nsis-update-adapter.js";
 
-const desktopDir = join(homedir(), ".agent-harness", "desktop");
+const buildInfo = readDesktopBuildInfo();
+const productName = buildInfo.channel === "test" ? "Beaver Code 更新测试" : "Beaver Code";
+if (buildInfo.channel === "test") {
+  process.env.AHO_HOME = join(homedir(), ".beaver-code-update-test", "data");
+  app.setPath("userData", join(app.getPath("appData"), "BeaverCodeUpdateTest"));
+}
+const desktopDir = join(homedir(), buildInfo.channel === "test" ? ".beaver-code-update-test" : ".agent-harness", "desktop");
 const statePath = join(desktopDir, "window-state.json");
 const logPath = join(desktopDir, "desktop.log");
 const utilityEntry = fileURLToPath(new URL("./utility.js", import.meta.url));
 const startupPage = fileURLToPath(new URL("./startup.html", import.meta.url));
 const startupUrl = pathToFileURL(startupPage).href;
 const recovery = new DesktopRecoveryController();
-const buildInfo = readDesktopBuildInfo();
+let updateCoordinator: DesktopUpdateCoordinator | null = null;
+let updateRuntimeActive = false;
+let updateState: DesktopUpdateState = "idle";
+let updateTimer: ReturnType<typeof setInterval> | null = null;
+let ordinaryExitRequested = false;
+let systemSessionEnding = false;
 
 let window: BrowserWindow | null = null;
 let utility: UtilityProcess | null = null;
@@ -55,7 +69,7 @@ else {
   app.on("second-instance", (_event, argv) => {
     focusWindow();
     const directory = findDirectoryArgument(argv);
-    if (directory) void registerDirectory(directory);
+    if (directory && !updateRuntimeActive) void registerDirectory(directory);
   });
   app.whenReady().then(startApplication).catch((cause) => {
     void log("startup-failed", cause);
@@ -69,7 +83,7 @@ app.on("before-quit", (event) => {
   void requestShutdown("app-quit");
 });
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") void requestShutdown("window-close");
+  if (!quitting && process.platform !== "darwin") void requestShutdown("window-close");
 });
 app.on("activate", () => {
   if (window) focusWindow();
@@ -78,7 +92,14 @@ app.on("activate", () => {
 
 async function startApplication(): Promise<void> {
   await mkdir(desktopDir, { recursive: true });
-  app.setName("Beaver Code");
+  app.setName(productName);
+  app.setAppUserModelId(buildInfo.channel === "test" ? "com.agentharness.desktop.update-test" : "com.agentharness.desktop");
+  const policy = buildInfo.updatePolicy;
+  if (app.isPackaged && process.platform === "win32" && process.arch === "x64" && policy && policy.mode !== "disabled") {
+    const adapter = await createNsisUpdateAdapter(policy);
+    const bridge = new DesktopUpdateHostBridge(() => ({ child: utility, generation }), () => { quitting = true; });
+    updateCoordinator = new DesktopUpdateCoordinator(buildInfo.version, adapter, bridge, onUpdateState);
+  }
   await log("build", `version=${buildInfo.version} commit=${buildInfo.commit} channel=${buildInfo.channel} platform=${process.platform} arch=${process.arch}`);
   Menu.setApplicationMenu(buildMenu());
   await createWindow();
@@ -97,7 +118,7 @@ async function createWindow(): Promise<void> {
     minHeight: 700,
     show: false,
     backgroundColor: "#ecf4f6",
-    title: "Beaver Code",
+    title: productName,
     webPreferences: {
       session: browserSession,
       contextIsolation: true,
@@ -124,7 +145,7 @@ async function createWindow(): Promise<void> {
   });
   window.on("page-title-updated", (event) => {
     event.preventDefault();
-    window?.setTitle("Beaver Code");
+    window?.setTitle(productName);
   });
   window.on("close", (event) => {
     if (quitting) return;
@@ -132,6 +153,8 @@ async function createWindow(): Promise<void> {
     void requestShutdown("window-close");
   });
   window.on("closed", () => { window = null; });
+  window.on("query-session-end", () => { systemSessionEnding = true; updateCoordinator?.endSession(); });
+  window.on("session-end", () => { systemSessionEnding = true; updateCoordinator?.endSession(); });
   window.on("resize", saveWindowStateSoon);
   window.on("move", saveWindowStateSoon);
   await window.loadFile(startupPage);
@@ -182,6 +205,11 @@ async function receiveUtilityMessage(source: UtilityProcess, message: unknown): 
       path: "/",
     });
     await window.loadURL(origin);
+    if (updateCoordinator && !updateTimer) {
+      setTimeout(() => { if (ready && !quitting) void updateCoordinator?.check(); }, 60_000).unref();
+      updateTimer = setInterval(() => { if (ready && !quitting) void updateCoordinator?.check(); }, 6 * 60 * 60 * 1000);
+      updateTimer.unref();
+    }
     const smokeExitMs = Number(process.env.BEAVER_CODE_SMOKE_EXIT_MS ?? "");
     if (Number.isInteger(smokeExitMs) && smokeExitMs >= 250 && smokeExitMs <= 30_000) {
       setTimeout(() => void requestShutdown("app-quit"), smokeExitMs).unref();
@@ -232,6 +260,7 @@ async function handleUtilityExit(source: UtilityProcess, code: number): Promise<
   if (source !== utility) return;
   clearStartupTimer();
   utility = null;
+  if (updateRuntimeActive) return;
   if (quitting) return;
   const decision = recovery.unexpectedExit(generation ?? "", !ready);
   await log("utility-exit", `code=${code} decision=${decision}`);
@@ -248,7 +277,10 @@ async function handleUtilityExit(source: UtilityProcess, code: number): Promise<
 
 async function requestShutdown(reason: Extract<DesktopHostMessage, { type: "shutdown" }>["reason"]): Promise<void> {
   if (shutdownPromise) return shutdownPromise;
+  ordinaryExitRequested = true;
   quitting = true;
+  updateCoordinator?.endSession();
+  if (updateTimer) clearInterval(updateTimer);
   shutdownPromise = (async () => {
     await saveWindowState();
     const child = utility;
@@ -292,6 +324,8 @@ async function showRecovery(diagnostic: DesktopSafeDiagnostic): Promise<void> {
     noLink: true,
   });
   if (choice.response === 0) {
+    updateRuntimeActive = false;
+    updateCoordinator?.endSession();
     utility?.kill();
     spawnWorkbench();
   } else if (choice.response === 1) {
@@ -307,17 +341,49 @@ function buildMenu(): Menu {
     {
       label: "文件",
       submenu: [
-        { label: "打开项目…", accelerator: "CmdOrCtrl+O", click: () => void requestOpenFolder() },
+        { label: "打开项目…", accelerator: "CmdOrCtrl+O", enabled: !updateRuntimeActive, click: () => void requestOpenFolder() },
         { type: "separator" },
         { label: "关闭窗口", role: "close" },
         { label: "退出 Beaver Code", click: () => void requestShutdown("app-quit") },
       ],
     },
     { label: "编辑", submenu: [{ role: "undo" }, { role: "redo" }, { type: "separator" }, { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" }] },
-    { label: "视图", submenu: [{ role: "reload" }, { role: "resetZoom" }, { role: "zoomIn" }, { role: "zoomOut" }, { type: "separator" }, { role: "togglefullscreen" }, ...(!app.isPackaged ? [{ role: "toggleDevTools" as const }] : [])] },
-    { label: "帮助", submenu: [{ label: `Beaver Code ${buildInfo.version} · ${buildInfo.commit.slice(0, 8)}`, enabled: false }, { label: "打开诊断目录", click: () => void shell.openPath(desktopDir) }] },
+    { label: "视图", submenu: [{ role: "reload", enabled: !updateRuntimeActive }, { role: "resetZoom" }, { role: "zoomIn" }, { role: "zoomOut" }, { type: "separator" }, { role: "togglefullscreen" }, ...(!app.isPackaged ? [{ role: "toggleDevTools" as const }] : [])] },
+    { label: "帮助", submenu: [
+      { label: `${productName} ${buildInfo.version} · ${buildInfo.commit.slice(0, 8)}`, enabled: false },
+      { label: updateMenuLabel(), enabled: Boolean(updateCoordinator && ["idle", "failed"].includes(updateState)),
+        click: () => { if (ready) void updateCoordinator?.check(true); } },
+      { label: "打开诊断目录", click: () => void shell.openPath(desktopDir) },
+    ] },
   ];
   return Menu.buildFromTemplate(template);
+}
+
+function updateMenuLabel(): string {
+  if (!updateCoordinator) return "当前构建未启用自动更新";
+  const labels: Record<DesktopUpdateState, string> = {
+    idle: "检查更新", checking: "正在检查更新…", downloading: "正在下载更新…",
+    preparing: "正在保存…", stopping: "正在准备重启…", installing: "正在安装更新…", failed: "重试检查更新",
+  };
+  return labels[updateState];
+}
+
+function onUpdateState(state: DesktopUpdateState): void {
+  updateState = state;
+  if (state === "preparing") updateRuntimeActive = true;
+  if (state === "stopping") ready = false;
+  void log("update", state);
+  if (state === "failed") {
+    if (ordinaryExitRequested || systemSessionEnding) return;
+    quitting = false;
+    void log("update-failed", JSON.stringify(updateCoordinator?.diagnostic()));
+    if (!ready || !utility || updateCoordinator?.diagnostic().recoveryRequired) {
+      void showRecovery({ stage: "runtime", summary: "更新暂未完成。", recovery: "请查看诊断信息后重新启动工作台。" });
+    } else {
+      updateRuntimeActive = false;
+    }
+  }
+  Menu.setApplicationMenu(buildMenu());
 }
 
 async function requestOpenFolder(): Promise<void> {
