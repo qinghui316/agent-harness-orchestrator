@@ -42,9 +42,12 @@ export async function verifyDesktopUpdateSignature(file: string, publisherSubjec
   }
   const systemRoot = process.env.SystemRoot;
   if (!systemRoot || !isAbsolute(systemRoot)) throw new Error("Windows verification runtime is unavailable.");
+  const securityModule = join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "Modules",
+    "Microsoft.PowerShell.Security", "Microsoft.PowerShell.Security.psd1");
   const script = [
     "$ErrorActionPreference = 'Stop'",
     "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)",
+    "Import-Module -Name $env:BEAVER_UPDATE_VERIFY_MODULE -Force",
     "$signature = Get-AuthenticodeSignature -LiteralPath $env:BEAVER_UPDATE_VERIFY_FILE",
     "if ($null -eq $signature) { throw 'Signature unavailable' }",
     "$version = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($env:BEAVER_UPDATE_VERIFY_FILE)",
@@ -54,7 +57,7 @@ export async function verifyDesktopUpdateSignature(file: string, publisherSubjec
     execFile(join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
       ["-NoProfile", "-NonInteractive", "-Command", script],
       { windowsHide: true, timeout: 20_000, maxBuffer: 16_384, encoding: "utf8",
-        env: { ...process.env, BEAVER_UPDATE_VERIFY_FILE: file } },
+        env: { ...process.env, BEAVER_UPDATE_VERIFY_FILE: file, BEAVER_UPDATE_VERIFY_MODULE: securityModule } },
       (error, stdout, stderr) => {
         if (error || stderr.trim()) reject(new Error("Windows signature verification did not succeed."));
         else resolve(stdout);

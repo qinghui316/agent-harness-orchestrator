@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { DesktopUpdateCoordinator, type DesktopUpdateDownloadPort, type DesktopUpdateHostPort } from "../../src/desktop/update-coordinator.js";
 import { isNewerStableVersion, parseDesktopUpdatePolicy } from "../../src/desktop/update-policy.js";
@@ -55,6 +56,11 @@ describe("signature evidence", () => {
 });
 
 describe("desktop update coordinator", () => {
+  it("loads the Windows signature module explicitly instead of relying on module autoload", () => {
+    const source = readFileSync(new URL("../../src/desktop/update-signature.ts", import.meta.url), "utf8");
+    expect(source).toContain("Microsoft.PowerShell.Security.psd1");
+    expect(source).toContain("Import-Module -Name $env:BEAVER_UPDATE_VERIFY_MODULE -Force");
+  });
   it("installs once only after both exact receipts and final artifact verification", async () => {
     const { owner, host, downloads, onState } = fixture();
     const first = owner.check();
