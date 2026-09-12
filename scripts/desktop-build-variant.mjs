@@ -47,7 +47,10 @@ export function desktopBuildVariant(root, packageVersion, env = process.env) {
           rfc3161TimeStampServer: "http://timestamp.digicert.com",
         } } : { signExecutable: false }),
       },
-      nsis: { shortcutName: test ? "Beaver Code Update Test" : "Beaver Code" },
+      nsis: {
+        shortcutName: test ? "Beaver Code Update Test" : "Beaver Code",
+        ...(test ? { runAfterFinish: false } : {}),
+      },
       publish: !signing ? null : channel === "test"
         ? { provider: "generic", url: updatePolicy.feedUrl }
         : { provider: "github", owner: "qinghui316", repo: "agent-harness-orchestrator", releaseType: "draft" },

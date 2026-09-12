@@ -207,7 +207,8 @@ async function receiveUtilityMessage(source: UtilityProcess, message: unknown): 
     });
     await window.loadURL(origin);
     if (updateCoordinator && !updateTimer) {
-      setTimeout(() => { if (ready && !quitting) void updateCoordinator?.check(); }, 60_000).unref();
+      const initialCheckDelayMs = buildInfo.channel === "test" ? 2_000 : 60_000;
+      setTimeout(() => { if (ready && !quitting) void updateCoordinator?.check(); }, initialCheckDelayMs).unref();
       updateTimer = setInterval(() => { if (ready && !quitting) void updateCoordinator?.check(); }, 6 * 60 * 60 * 1000);
       updateTimer.unref();
     }

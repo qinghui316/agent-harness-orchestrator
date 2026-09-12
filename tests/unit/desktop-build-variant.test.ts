@@ -21,6 +21,7 @@ describe("desktop build channel isolation", () => {
     expect(variant.config.appId).toBe("com.agentharness.desktop.update-test");
     expect(variant.config.extraMetadata.name).toBe("beaver-code-update-test");
     expect(variant.config.win.forceCodeSigning).toBe(true);
+    expect(variant.config.nsis.runAfterFinish).toBe(false);
     expect(JSON.stringify(variant)).not.toContain("private-password");
     expect(JSON.stringify(variant)).not.toContain("private-certificate");
   });
