@@ -45,6 +45,9 @@ describe("Windows update acceptance boundary", () => {
     expect(workflow).toContain("-passout env:BEAVER_ACCEPTANCE_CERT_PASSWORD");
     expect(runner).toContain('1200 "Old signed package build"');
     expect(runner).toContain('1200 "New signed package build"');
+    expect(runner).toContain('-RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath');
+    expect(runner).toContain('Get-Content -LiteralPath $path -Tail 120');
+    expect(runner).toContain('$safeLine.Replace($passwordText, "[REDACTED]")');
     expect(runner).toContain('Where-Object Subject -EQ $subject');
     expect(runner.indexOf('if ($passedResult)')).toBeGreaterThan(runner.indexOf('finally {'));
     expect(runner).toContain('A disposable acceptance certificate was not removed.');

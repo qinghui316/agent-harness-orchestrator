@@ -66,12 +66,30 @@ function Add-MachineCertificate(
 }
 
 function Invoke-HiddenProcess([string]$FilePath, [string[]]$Arguments, [int]$TimeoutSeconds, [string]$Label) {
-  $process = Start-Process -FilePath $FilePath -ArgumentList $Arguments -WindowStyle Hidden -PassThru
-  if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-    Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-    throw "$Label exceeded its ${TimeoutSeconds}-second limit."
+  $logToken = [Guid]::NewGuid().ToString("N")
+  $stdoutPath = Join-Path $acceptanceRoot "process-$logToken.stdout.log"
+  $stderrPath = Join-Path $acceptanceRoot "process-$logToken.stderr.log"
+  try {
+    $process = Start-Process -FilePath $FilePath -ArgumentList $Arguments -WindowStyle Hidden -PassThru `
+      -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+      Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+      throw "$Label exceeded its ${TimeoutSeconds}-second limit."
+    }
+    if ($process.ExitCode -ne 0) {
+      foreach ($path in @($stdoutPath, $stderrPath)) {
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+        foreach ($line in @(Get-Content -LiteralPath $path -Tail 120 -Encoding UTF8)) {
+          $safeLine = [string]$line
+          if ($passwordText) { $safeLine = $safeLine.Replace($passwordText, "[REDACTED]") }
+          Write-Output $safeLine
+        }
+      }
+      throw "$Label failed with exit code $($process.ExitCode)."
+    }
+  } finally {
+    Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
   }
-  if ($process.ExitCode -ne 0) { throw "$Label failed with exit code $($process.ExitCode)." }
 }
 
 function Wait-Until([scriptblock]$Condition, [int]$TimeoutSeconds, [string]$Failure) {
