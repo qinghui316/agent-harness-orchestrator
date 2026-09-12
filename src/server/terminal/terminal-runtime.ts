@@ -171,16 +171,17 @@ export class TerminalRuntime {
   async shutdown(deadlineMs = 6_000): Promise<void> {
     const results = await Promise.allSettled([...this.sessions.values()].map((session) => new Promise<void>((resolvePromise, reject) => {
       let finished = false;
-      let exitListener: IDisposable | undefined;
+      const exitListener: { current?: IDisposable } = {};
       const finish = (cause?: Error): void => {
         if (finished) return;
         finished = true;
         clearTimeout(timer);
-        exitListener?.dispose();
+        exitListener.current?.dispose();
         if (cause) reject(cause); else resolvePromise();
       };
       const timer = setTimeout(() => finish(new Error("Terminal process did not confirm exit.")), deadlineMs);
-      exitListener = session.pty.onExit(() => finish());
+      exitListener.current = session.pty.onExit(() => finish());
+      if (finished) exitListener.current.dispose();
       try { session.pty.kill(); }
       catch { finish(new Error("Terminal process could not be stopped.")); }
     })));

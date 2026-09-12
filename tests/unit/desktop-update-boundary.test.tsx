@@ -4,15 +4,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DesktopUpdateBoundary } from "../../src/web/src/shell/DesktopUpdateBoundary.js";
 import { rendererUpdateParticipants } from "../../src/web/src/controllers/RendererUpdateParticipants.js";
 
-let current: FakeEvents | null;
 let unregister: (() => void) | undefined;
 class FakeEvents extends EventTarget {
+  static current: FakeEvents | null = null;
   onerror: (() => void) | null = null;
-  constructor() { super(); current = this; }
+  constructor() { super(); FakeEvents.current = this; }
   close() {}
 }
 beforeEach(() => {
-  current = null;
+  FakeEvents.current = null;
   vi.stubGlobal("EventSource", FakeEvents);
   vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(
     url === "/api/app/status" ? { desktopUpdates: true } : { accepted: true },
@@ -22,7 +22,7 @@ beforeEach(() => {
 afterEach(() => { unregister?.(); cleanup(); vi.unstubAllGlobals(); });
 async function send(action: "prepare" | "confirm" | "cancel") {
   await act(async () => {
-    current!.dispatchEvent(new MessageEvent("update", { data: JSON.stringify({
+    FakeEvents.current!.dispatchEvent(new MessageEvent("update", { data: JSON.stringify({
       requestId: "request-" + action, connectionId: "connection",
       action, identity: { updateId: "update" },
     }) }));
@@ -32,8 +32,8 @@ describe("desktop update save boundary", () => {
   it("freezes the surface until save acknowledgement and restores it on cancel", async () => {
     unregister = rendererUpdateParticipants.register(async () => () => true);
     const { container } = render(<DesktopUpdateBoundary><input aria-label="草稿" defaultValue="待保存内容" /></DesktopUpdateBoundary>);
-    await waitFor(() => expect(current).not.toBeNull());
-    act(() => current!.dispatchEvent(new MessageEvent("connected", { data: JSON.stringify({ connectionId: "connection" }) })));
+    await waitFor(() => expect(FakeEvents.current).not.toBeNull());
+    act(() => FakeEvents.current!.dispatchEvent(new MessageEvent("connected", { data: JSON.stringify({ connectionId: "connection" }) })));
     await send("prepare");
     expect(container.firstElementChild?.hasAttribute("inert")).toBe(true);
     expect(screen.getByRole("dialog").textContent).toContain("正在保存并更新");

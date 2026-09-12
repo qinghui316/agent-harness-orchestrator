@@ -2,6 +2,7 @@ import type { NsisUpdater } from "electron-updater";
 import type { DesktopUpdateArtifact, DesktopUpdateDownloadPort } from "./update-coordinator.js";
 import type { DesktopUpdatePolicy } from "./update-policy.js";
 import { verifyDesktopUpdateHash, verifyDesktopUpdateSignature } from "./update-signature.js";
+import type { DesktopSignedProduct } from "./update-signature.js";
 
 type EnabledPolicy = Exclude<DesktopUpdatePolicy, { mode: "disabled" }>;
 type NsisPort = Pick<NsisUpdater,
@@ -10,7 +11,7 @@ type NsisPort = Pick<NsisUpdater,
   "checkForUpdates" | "downloadUpdate" | "quitAndInstall" | "on">;
 
 export interface DesktopArtifactVerifier {
-  signature(file: string, publisherSubject: string): Promise<void>;
+  signature(file: string, publisherSubject: string, product: DesktopSignedProduct): Promise<void>;
   hash(file: string, sha512: string): Promise<void>;
 }
 
@@ -40,7 +41,8 @@ export class NsisUpdateAdapter implements DesktopUpdateDownloadPort {
     nsis.logger = null;
     nsis.on("error", () => { this.errored = true; this.validated = false; });
     nsis.verifyUpdateCodeSignature = async (_publishers, file) => {
-      await this.verifier.signature(file, this.policy.publisherSubject);
+      if (!this.offered) throw new Error("No update artifact has been offered.");
+      await this.verifier.signature(file, this.policy.publisherSubject, this.product(this.offered.version));
       return null;
     };
   }
@@ -90,7 +92,7 @@ export class NsisUpdateAdapter implements DesktopUpdateDownloadPort {
     const cached = this.cached;
     if (!cached || !sameArtifact(cached.artifact, artifact)) throw new Error("Update cache does not match the requested artifact.");
     // This check is unconditional even if app-update.yml is absent or lacks publisherName.
-    await this.verifier.signature(cached.path, this.policy.publisherSubject);
+    await this.verifier.signature(cached.path, this.policy.publisherSubject, this.product(artifact.version));
     await this.verifier.hash(cached.path, artifact.sha512);
     if (this.errored || this.cached !== cached) throw new Error("Update cache became invalid.");
     this.validated = true;
@@ -108,6 +110,10 @@ export class NsisUpdateAdapter implements DesktopUpdateDownloadPort {
 
   private assertArtifact(artifact: DesktopUpdateArtifact): void {
     if (!this.offered || !sameArtifact(this.offered, artifact)) throw new Error("Update artifact changed after checking.");
+  }
+
+  private product(version: string): DesktopSignedProduct {
+    return { version, productName: this.policy.mode === "test" ? "Beaver Code Update Test" : "Beaver Code" };
   }
 }
 
