@@ -131,7 +131,7 @@ describe("Workbench update-only lifecycle admission", () => {
     ports.shutdown.mockReturnValue(held.promise);
     const stop = owner.stop(identity);
     const rejected = expect(stop).rejects.toThrow("deadline");
-    await vi.advanceTimersByTimeAsync(9);
+    await vi.advanceTimersByTimeAsync(10);
     await rejected;
     held.resolve();
     await Promise.resolve();

@@ -52,7 +52,10 @@ export class DesktopUpdateHostBridge implements DesktopUpdateHostPort {
       const onMessage = (value: unknown): void => {
         if (!isDesktopHostMessage(value) || value.type !== "update-result" || value.requestId !== requestId
           || value.generation !== generation || !sameWorkbenchUpdate(identity, value.identity)) return;
-        if (value.result !== expected) { finish(new Error("Workbench update preparation failed.")); return; }
+        if (value.result !== expected) {
+          finish(new Error(value.diagnostic?.summary ?? "Workbench update preparation failed."));
+          return;
+        }
         acknowledged = true;
         if (action !== "stop") finish();
       };

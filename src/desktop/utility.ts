@@ -85,9 +85,10 @@ async function receive(message: DesktopHostMessage): Promise<void> {
           setTimeout(() => process.exit(0), 50);
         }
       }
-    } catch {
+    } catch (cause) {
       post({ type: "update-result", requestId: message.requestId, generation,
-        identity: message.identity, result: "failed" });
+        identity: message.identity, result: "failed",
+        diagnostic: safeDiagnostic("shutdown", cause, "请重新启动工作台后重试更新。") });
     }
     return;
   }
