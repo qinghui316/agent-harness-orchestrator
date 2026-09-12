@@ -206,6 +206,7 @@ async function receiveUtilityMessage(source: UtilityProcess, message: unknown): 
       path: "/",
     });
     await window.loadURL(origin);
+    await log("workbench-ready", `version=${buildInfo.version} commit=${buildInfo.commit}`);
     if (updateCoordinator && !updateTimer) {
       const initialCheckDelayMs = buildInfo.channel === "test" ? 2_000 : 60_000;
       setTimeout(() => { if (ready && !quitting) void updateCoordinator?.check(); }, initialCheckDelayMs).unref();
