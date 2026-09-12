@@ -40,6 +40,15 @@ function Invoke-Checked([string]$Command, [string[]]$Arguments) {
   if ($LASTEXITCODE -ne 0) { throw "Command failed with exit code ${LASTEXITCODE}: $Command" }
 }
 
+function Invoke-HiddenProcess([string]$FilePath, [string[]]$Arguments, [int]$TimeoutSeconds, [string]$Label) {
+  $process = Start-Process -FilePath $FilePath -ArgumentList $Arguments -WindowStyle Hidden -PassThru
+  if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+    Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    throw "$Label exceeded its ${TimeoutSeconds}-second limit."
+  }
+  if ($process.ExitCode -ne 0) { throw "$Label failed with exit code $($process.ExitCode)." }
+}
+
 function Wait-Until([scriptblock]$Condition, [int]$TimeoutSeconds, [string]$Failure) {
   $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
   do {
@@ -75,8 +84,7 @@ function Stop-AcceptanceApplication([bool]$RequireGraceful) {
 
 function Install-TestPackage([string]$Installer) {
   $arguments = @("/S", "/currentuser", "/D=$installRoot")
-  $process = Start-Process -FilePath $Installer -ArgumentList $arguments -WindowStyle Hidden -Wait -PassThru
-  if ($process.ExitCode -ne 0) { throw "NSIS installation failed with exit code $($process.ExitCode)." }
+  Invoke-HiddenProcess $Installer $arguments 180 "NSIS installation"
 }
 
 function Verify-Fixture([string]$ElectronExecutable) {
@@ -120,6 +128,7 @@ try {
 
   Push-Location $repoRoot
   try {
+    Write-Output "acceptance-stage: build-and-seed"
     Invoke-Checked "npm.cmd" @("run", "build")
     Invoke-Checked "node.exe" @(
       "scripts/desktop-update-acceptance-fixture.mjs", "seed", $fixtureHome, $fixtureProject
@@ -132,11 +141,13 @@ try {
     $env:CSC_KEY_PASSWORD = $passwordText
 
     $env:BEAVER_TEST_VERSION = $oldVersion
+    Write-Output "acceptance-stage: package-old"
     Invoke-Checked "npm.cmd" @("run", "package:desktop:win")
     $oldBuiltInstaller = Join-Path $repoRoot "release\desktop\test\Beaver-Code-Test-Setup-$oldVersion-win-x64.exe"
     Copy-Item -LiteralPath $oldBuiltInstaller -Destination $oldRoot -Force
 
     $env:BEAVER_TEST_VERSION = $newVersion
+    Write-Output "acceptance-stage: package-new"
     Invoke-Checked "npm.cmd" @("run", "package:desktop:win")
     $newBuiltInstallerName = "Beaver-Code-Test-Setup-$newVersion-win-x64.exe"
     Copy-Item -LiteralPath (Join-Path $repoRoot "release\desktop\test\$newBuiltInstallerName") -Destination $newRoot -Force
@@ -162,6 +173,7 @@ try {
   $env:BEAVER_UPDATE_FEED_PORT = "$feedPort"
   $env:BEAVER_UPDATE_INSTALLER_NAME = $newInstallerName
   $env:BEAVER_UPDATE_BLOCKMAP_NAME = $newBlockmapName
+  Write-Output "acceptance-stage: start-feed"
   $feedProcess = Start-Process -FilePath "node.exe" -ArgumentList @((Join-Path $repoRoot "scripts\serve-desktop-update-fixture.mjs")) `
     -WindowStyle Hidden -PassThru
   Wait-Until { Test-Path -LiteralPath $feedReady -PathType Leaf } 30 "The isolated HTTPS update feed did not start."
@@ -169,11 +181,13 @@ try {
     Remove-Item "Env:$name" -ErrorAction SilentlyContinue
   }
 
+  Write-Output "acceptance-stage: install-old"
   Install-TestPackage $oldInstaller
   $installedExecutable = Join-Path $installRoot "BeaverCodeUpdateTest.exe"
   if (-not (Test-Path -LiteralPath $installedExecutable -PathType Leaf)) { throw "The old test application was not installed." }
 
   $desktopLog = Join-Path $env:USERPROFILE ".beaver-code-update-test\desktop\desktop.log"
+  Write-Output "acceptance-stage: automatic-update"
   $oldProcess = Start-Process -FilePath $installedExecutable -WindowStyle Hidden -PassThru
   Wait-Until {
     if (-not (Test-Path -LiteralPath $desktopLog -PathType Leaf)) { return $false }
@@ -192,19 +206,22 @@ try {
   }
   [System.Threading.Thread]::Sleep(8000)
   Stop-AcceptanceApplication $true
+  Write-Output "acceptance-stage: verify-updated-data"
   Verify-Fixture $installedExecutable
 
+  Write-Output "acceptance-stage: repair-install"
   Install-TestPackage $newInstaller
   Verify-Fixture $installedExecutable
 
   $uninstaller = Get-ChildItem -LiteralPath $installRoot -Filter "Uninstall*.exe" -File | Select-Object -First 1
   if (-not $uninstaller) { throw "The installed uninstaller was not found." }
-  $uninstall = Start-Process -FilePath $uninstaller.FullName -ArgumentList @("/S", "/currentuser") -WindowStyle Hidden -Wait -PassThru
-  if ($uninstall.ExitCode -ne 0) { throw "Uninstall failed with exit code $($uninstall.ExitCode)." }
+  Write-Output "acceptance-stage: uninstall"
+  Invoke-HiddenProcess $uninstaller.FullName @("/S", "/currentuser") 180 "NSIS uninstall"
   Wait-Until { -not (Test-Path -LiteralPath $installedExecutable -PathType Leaf) } 60 "Uninstall did not remove the application binary."
   $packagedElectron = Join-Path $repoRoot "release\desktop\test\win-unpacked\BeaverCodeUpdateTest.exe"
   Verify-Fixture $packagedElectron
 
+  Write-Output "acceptance-stage: reinstall"
   Install-TestPackage $newInstaller
   Verify-Fixture $installedExecutable
   Stop-AcceptanceApplication $false
