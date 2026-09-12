@@ -19,8 +19,11 @@ run(process.execPath, [npmCli, "run", "build:desktop"]);
 run(process.execPath, ["scripts/generate-desktop-build-info.mjs", "--require-clean"]);
 run(process.execPath, [resolve(root, "node_modules", "electron-builder", "cli.js"), "--config", configPath, "--win", "nsis", "--x64", "--publish", "never"]);
 run(process.execPath, ["scripts/verify-desktop-package.mjs"]);
-run(resolve(root, "node_modules", "electron", "dist", "electron.exe"), ["scripts/desktop-native-smoke.cjs"], {
-  ...process.env, BEAVER_NATIVE_PACKAGE_ROOT: resolve(variant.output, "win-unpacked"),
+const packagedRoot = resolve(variant.output, "win-unpacked");
+run(resolve(packagedRoot, variant.config.win.executableName + ".exe"), ["scripts/desktop-native-smoke.cjs"], {
+  ...process.env,
+  BEAVER_NATIVE_PACKAGE_ROOT: packagedRoot,
+  ELECTRON_RUN_AS_NODE: "1",
 });
 
 function run(command, args, env = process.env) {
