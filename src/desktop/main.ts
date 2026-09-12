@@ -374,15 +374,15 @@ function updateMenuLabel(): string {
   return labels[updateState];
 }
 
-function onUpdateState(state: DesktopUpdateState): void {
+async function onUpdateState(state: DesktopUpdateState): Promise<void> {
   updateState = state;
   if (state === "preparing") updateRuntimeActive = true;
   if (state === "stopping") ready = false;
-  void log("update", state);
+  await log("update", state);
   if (state === "failed") {
     if (ordinaryExitRequested || systemSessionEnding) return;
     quitting = false;
-    void log("update-failed", JSON.stringify(updateCoordinator?.diagnostic()));
+    await log("update-failed", JSON.stringify(updateCoordinator?.diagnostic()));
     if (!ready || !utility || updateCoordinator?.diagnostic().recoveryRequired) {
       void showRecovery({ stage: "runtime", summary: "更新暂未完成。", recovery: "请查看诊断信息后重新启动工作台。" });
     } else {

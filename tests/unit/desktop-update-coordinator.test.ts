@@ -77,6 +77,30 @@ describe("desktop update coordinator", () => {
     await owner.check(true);
     expect(downloads.install).toHaveBeenCalledTimes(1);
   });
+  it("persists the installing state before launching the installer", async () => {
+    const { downloads, host } = fixture();
+    let releaseInstalling!: () => void;
+    const installingPersisted = new Promise<void>((resolve) => { releaseInstalling = resolve; });
+    const onState = vi.fn((state: string) => state === "installing" ? installingPersisted : undefined);
+    const owner = new DesktopUpdateCoordinator("0.1.2", downloads, host, onState);
+    const check = owner.check();
+    await vi.waitFor(() => expect(onState).toHaveBeenCalledWith("installing"));
+    expect(downloads.install).not.toHaveBeenCalled();
+    releaseInstalling();
+    await check;
+    expect(downloads.install).toHaveBeenCalledTimes(1);
+  });
+  it("does not launch the installer when the installing state cannot be persisted", async () => {
+    const { downloads, host } = fixture();
+    const owner = new DesktopUpdateCoordinator("0.1.2", downloads, host, async (state) => {
+      if (state === "installing") throw new Error("log unavailable");
+    });
+    await owner.check();
+    expect(owner.read()).toBe("failed");
+    expect(owner.diagnostic()).toEqual({ stage: "installing", recoveryRequired: true });
+    expect(downloads.install).not.toHaveBeenCalled();
+    expect(host.authorizeInstallerExit).not.toHaveBeenCalled();
+  });
   it("signature/checksum failure never stops the Workbench", async () => {
     const { owner, host, downloads } = fixture();
     vi.mocked(downloads.revalidate).mockRejectedValue(new Error("signature"));
