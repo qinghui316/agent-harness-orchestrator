@@ -41,6 +41,9 @@ describe("Windows update acceptance boundary", () => {
     expect(runner).toContain('$store.Add($Certificate)');
     expect(workflow).toContain("timeout-minutes: 75");
     expect(workflow).toContain("openssl req -x509");
+    expect(workflow).toContain('basicConstraints=critical,CA:TRUE');
+    expect(workflow).toContain('basicConstraints=critical,CA:FALSE');
+    expect(workflow).toContain('-certfile "$cert_root/root-ca.pem"');
     expect(workflow).toContain("export MSYS2_ARG_CONV_EXCL='*'");
     expect(workflow).toContain("-passout env:BEAVER_ACCEPTANCE_CERT_PASSWORD");
     expect(runner).toContain('1200 "Old signed package build"');
