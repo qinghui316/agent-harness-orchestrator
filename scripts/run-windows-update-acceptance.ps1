@@ -21,7 +21,8 @@ $feedReady = Join-Path $acceptanceRoot "feed-ready.txt"
 $resultPath = Join-Path $acceptanceRoot "result.json"
 $codePfx = Join-Path $acceptanceRoot "code-signing.pfx"
 $tlsPfx = Join-Path $acceptanceRoot "localhost-tls.pfx"
-$publisher = "CN=Beaver Code Update Test"
+$publisher = "CN=Beaver Code Update Test $($env:GITHUB_RUN_ID)"
+$tlsSubject = "CN=Beaver Code Update TLS $($env:GITHUB_RUN_ID)"
 $feedPort = 8443
 $feedUrl = "https://localhost:$feedPort/"
 $oldVersion = "0.1.2"
@@ -30,6 +31,7 @@ $codeCert = $null
 $tlsCert = $null
 $feedProcess = $null
 $certificateThumbprints = @()
+$certificateSubjects = @($publisher, $tlsSubject)
 $passedResult = $null
 
 function Assert-RunnerChild([string]$Path) {
@@ -56,31 +58,29 @@ function Invoke-HiddenProcess([string]$FilePath, [string[]]$Arguments, [int]$Tim
 }
 
 function New-AcceptanceCertificates([string]$PasswordText, [string]$CodePath, [string]$TlsPath) {
-  $job = Start-Job -ScriptBlock {
-    param($Publisher, $PlainPassword, $CodePfxPath, $TlsPfxPath)
-    $ErrorActionPreference = "Stop"
-    $securePassword = ConvertTo-SecureString -String $PlainPassword -AsPlainText -Force
-    $expires = [DateTime]::UtcNow.AddDays(2)
-    $code = New-SelfSignedCertificate -Type CodeSigningCert -Subject $Publisher -CertStoreLocation "Cert:\CurrentUser\My" `
-      -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 -KeyExportPolicy Exportable -NotAfter $expires
-    $tls = New-SelfSignedCertificate -DnsName "localhost" -CertStoreLocation "Cert:\CurrentUser\My" `
-      -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 -KeyExportPolicy Exportable -NotAfter $expires
-    Export-PfxCertificate -Cert $code -FilePath $CodePfxPath -Password $securePassword | Out-Null
-    Export-PfxCertificate -Cert $tls -FilePath $TlsPfxPath -Password $securePassword | Out-Null
-    [pscustomobject]@{ CodeThumbprint = $code.Thumbprint; TlsThumbprint = $tls.Thumbprint }
-  } -ArgumentList $publisher, $PasswordText, $CodePath, $TlsPath
+  $receiptPath = Join-Path $acceptanceRoot "certificates.json"
+  $env:BEAVER_ACCEPTANCE_CERT_PASSWORD = $PasswordText
+  $env:BEAVER_ACCEPTANCE_CERT_ROOT = $acceptanceRoot
+  $env:BEAVER_ACCEPTANCE_CODE_SUBJECT = $publisher
+  $env:BEAVER_ACCEPTANCE_TLS_SUBJECT = $tlsSubject
   try {
-    if (-not (Wait-Job -Job $job -Timeout 120)) {
-      Stop-Job -Job $job -ErrorAction SilentlyContinue
-      throw "Disposable certificate generation exceeded its 120-second limit."
+    Invoke-HiddenProcess (Join-Path $PSHOME "pwsh.exe") `
+      @("-NoLogo", "-NoProfile", "-NonInteractive", "-File", (Join-Path $repoRoot "scripts\new-windows-update-acceptance-certificates.ps1")) `
+      120 "Disposable certificate generation"
+    if (-not (Test-Path -LiteralPath $receiptPath -PathType Leaf)) {
+      throw "Disposable certificate generation did not return a complete receipt."
     }
-    $receipt = Receive-Job -Job $job -ErrorAction Stop
-    if ($job.State -ne "Completed" -or -not $receipt.CodeThumbprint -or -not $receipt.TlsThumbprint) {
+    $receipt = Get-Content -LiteralPath $receiptPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if (-not $receipt.CodeThumbprint -or -not $receipt.TlsThumbprint `
+      -or $receipt.CodeSubject -ne $publisher -or $receipt.TlsSubject -ne $tlsSubject) {
       throw "Disposable certificate generation did not return a complete receipt."
     }
     return $receipt
   } finally {
-    Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+    foreach ($name in @("BEAVER_ACCEPTANCE_CERT_PASSWORD", "BEAVER_ACCEPTANCE_CERT_ROOT", `
+      "BEAVER_ACCEPTANCE_CODE_SUBJECT", "BEAVER_ACCEPTANCE_TLS_SUBJECT")) {
+      Remove-Item "Env:$name" -ErrorAction SilentlyContinue
+    }
   }
 }
 
@@ -326,10 +326,23 @@ try {
       if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue }
     }
   }
+  foreach ($subject in $certificateSubjects) {
+    foreach ($store in @("My", "Root", "TrustedPublisher")) {
+      Get-ChildItem "Cert:\CurrentUser\$store" -ErrorAction SilentlyContinue | Where-Object Subject -EQ $subject | `
+        Remove-Item -Force -ErrorAction SilentlyContinue
+    }
+  }
   foreach ($thumbprint in $certificateThumbprints) {
     foreach ($store in @("My", "Root", "TrustedPublisher")) {
       if (Test-Path -LiteralPath "Cert:\CurrentUser\$store\$thumbprint") {
         throw "A disposable acceptance certificate was not removed."
+      }
+    }
+  }
+  foreach ($subject in $certificateSubjects) {
+    foreach ($store in @("My", "Root", "TrustedPublisher")) {
+      if (Get-ChildItem "Cert:\CurrentUser\$store" -ErrorAction SilentlyContinue | Where-Object Subject -EQ $subject) {
+        throw "A disposable acceptance certificate subject was not removed."
       }
     }
   }
