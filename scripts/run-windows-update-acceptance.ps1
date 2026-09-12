@@ -157,6 +157,23 @@ function Start-And-AssertHealthy([string]$Executable, [string]$ExpectedVersion, 
   return $process
 }
 
+function Write-SafeUpdateLogEvidence {
+  $desktopLog = Join-Path $env:USERPROFILE ".beaver-code-update-test\desktop\desktop.log"
+  if (-not (Test-Path -LiteralPath $desktopLog -PathType Leaf)) {
+    Write-Output "acceptance-update-log: [missing]"
+    return
+  }
+  $paths = @($repoRoot, $acceptanceRoot, $installRoot, $env:USERPROFILE) | Where-Object { $_ }
+  $lines = @(Get-Content -LiteralPath $desktopLog -Tail 120 -Encoding UTF8 | Where-Object {
+    $_ -match " (build|workbench-ready|update|update-failed|startup-failed|utility-exit) "
+  })
+  foreach ($line in $lines) {
+    $safe = $line
+    foreach ($path in $paths) { $safe = $safe.Replace($path, "[PATH]") }
+    Write-Output "acceptance-update-log: $safe"
+  }
+}
+
 function Get-PersistedDataDigest {
   $files = @(Get-ChildItem -LiteralPath $fixtureHome -Recurse -File | Sort-Object FullName)
   if ($files.Count -eq 0) { throw "The acceptance data root is empty." }
@@ -278,6 +295,7 @@ try {
   Wait-Until {
     if (-not (Test-Path -LiteralPath $desktopLog -PathType Leaf)) { return $false }
     $content = Get-Content -LiteralPath $desktopLog -Raw -Encoding UTF8
+    if ($content.Contains(" update failed")) { throw "The installed application reported an update failure." }
     return $content.Contains("update installing") `
       -and $content.Contains("workbench-ready version=$newVersion commit=$expectedCommit")
   } 600 "The signed automatic update did not install and restart the application."
@@ -333,6 +351,7 @@ try {
     reinstallReadData = $true
   }
 } catch {
+  Write-SafeUpdateLogEvidence
   if (Test-Path -LiteralPath $acceptanceRoot -PathType Container) {
     [ordered]@{
       schema = 1
