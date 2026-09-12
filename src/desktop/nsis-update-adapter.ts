@@ -8,7 +8,7 @@ type EnabledPolicy = Exclude<DesktopUpdatePolicy, { mode: "disabled" }>;
 type NsisPort = Pick<NsisUpdater,
   "autoDownload" | "autoInstallOnAppQuit" | "autoRunAppAfterInstall" | "allowPrerelease" |
   "allowDowngrade" | "disableWebInstaller" | "verifyUpdateCodeSignature" | "logger" |
-  "checkForUpdates" | "downloadUpdate" | "quitAndInstall" | "on">;
+  "checkForUpdates" | "downloadUpdate" | "on"> & { launchVerifiedUpdate(): Promise<void> };
 
 export interface DesktopArtifactVerifier {
   signature(file: string, publisherSubject: string, product: DesktopSignedProduct): Promise<void>;
@@ -98,13 +98,13 @@ export class NsisUpdateAdapter implements DesktopUpdateDownloadPort {
     this.validated = true;
   }
 
-  install(): void {
+  async install(): Promise<void> {
     if (this.installStarted || this.errored || !this.validated || !this.cached) {
       throw new Error("Update installer has no current verified artifact.");
     }
     this.installStarted = true;
     this.validated = false;
-    this.nsis.quitAndInstall(true, true);
+    await this.nsis.launchVerifiedUpdate();
     if (this.errored) throw new Error("Update installer could not be started.");
   }
 
@@ -121,7 +121,27 @@ export async function createNsisUpdateAdapter(policy: EnabledPolicy): Promise<Ns
   // Load the CJS package only inside the Electron host, never the Workbench process.
   const module = await import("electron-updater");
   const sdk = module.default;
-  const nsis = new sdk.NsisUpdater(policy.mode === "stable"
+  class ReceiptNsisUpdater extends sdk.NsisUpdater {
+    private launchReceipt: Promise<boolean> | null = null;
+
+    protected override doInstall(options: { isSilent: boolean; isForceRunAfter: boolean; isAdminRightsRequired: boolean }): boolean {
+      // Reuse BaseUpdater's verified cache and NSIS installer. Adapt only the
+      // launch boundary: no elevation/ShellExecute fallback and no early quit.
+      const installer = this.installerPath;
+      if (!installer || options.isAdminRightsRequired || !options.isSilent || !options.isForceRunAfter) return false;
+      this.launchReceipt = super.spawnLog(installer, ["--updated", "/S", "--force-run"]);
+      return true;
+    }
+
+    async launchVerifiedUpdate(): Promise<void> {
+      this.launchReceipt = null;
+      // Mature NSIS install machinery without BaseUpdater's premature app.quit.
+      const started = this.install(true, true);
+      if (!started || !this.launchReceipt) throw new Error("Update installer did not start.");
+      if (await this.launchReceipt !== true) throw new Error("Update installer launch was not confirmed.");
+    }
+  }
+  const nsis = new ReceiptNsisUpdater(policy.mode === "stable"
     ? { provider: "github", owner: policy.owner, repo: policy.repo }
     : { provider: "generic", url: policy.feedUrl });
   return new NsisUpdateAdapter(nsis, policy);

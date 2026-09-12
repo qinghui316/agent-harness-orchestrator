@@ -451,6 +451,9 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
       requireProductMode(typeof body.productMode === "string" ? body.productMode : null),
       decodeURIComponent(turnQueueDispatchMatch[1]),
       requireQueueString(body.expectedRevision, "expectedRevision"),
+      context.updateGate
+        ? (projectId, conversationId, attemptId) => context.markUpdateExecution?.(request, projectId, conversationId, attemptId)
+        : undefined,
     ));
     return;
   }

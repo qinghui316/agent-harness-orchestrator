@@ -12,7 +12,7 @@ export interface DesktopUpdateDownloadPort {
   check(): Promise<DesktopUpdateArtifact | null>;
   download(artifact: DesktopUpdateArtifact, signal: AbortSignal): Promise<void>;
   revalidate(artifact: DesktopUpdateArtifact): Promise<void>;
-  install(): void;
+  install(): Promise<void>;
 }
 
 export interface DesktopUpdateHostPort {
@@ -99,9 +99,9 @@ export class DesktopUpdateCoordinator {
       // Check the cached installer again after the potentially long preparation.
       await this.downloads.revalidate(artifact);
       this.assertCurrent(identity, stopped, "stopped", controller);
-      this.host.authorizeInstallerExit(identity);
       this.setState("installing");
-      this.downloads.install();
+      await this.downloads.install();
+      this.host.authorizeInstallerExit(identity);
     } catch {
       this.failureStage = this.state;
       this.recoveryRequired = teardownStarted;

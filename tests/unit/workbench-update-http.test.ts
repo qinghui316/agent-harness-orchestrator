@@ -67,6 +67,17 @@ async function connect(handle: WorkbenchServerHandle, ok = true) {
 }
 
 describe("real update HTTP/SSE composition", () => {
+  it("does not poison later update preparation after a definite bad request", async () => {
+    const handle = await start();
+    const rejected = await fetch(handle.url + "/api/projects", {
+      method: "POST", headers: { Cookie: cookie, Origin: handle.url, "content-type": "application/json" },
+      body: "{invalid",
+    });
+    expect(rejected.status).toBe(400);
+    await connect(handle);
+    await expect(handle.updates!.prepare(identity)).resolves.toMatchObject({ status: "prepared" });
+    await handle.updates!.cancel(identity);
+  });
   it("requires authentication and hides update installation actions from HTTP", async () => {
     const handle = await start();
     expect((await fetch(handle.url + "/api/desktop/update/events")).status).toBe(403);

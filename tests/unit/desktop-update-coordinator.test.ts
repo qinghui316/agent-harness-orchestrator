@@ -7,7 +7,7 @@ const artifact = { version: "0.1.3", sha512: Buffer.alloc(64, 2).toString("base6
 function fixture() {
   const downloads: DesktopUpdateDownloadPort = {
     check: vi.fn(async () => artifact), download: vi.fn(async () => {}),
-    revalidate: vi.fn(async () => {}), install: vi.fn(),
+    revalidate: vi.fn(async () => {}), install: vi.fn(async () => {}),
   };
   const host: DesktopUpdateHostPort = {
     generation: vi.fn(() => "generation"),
@@ -117,5 +117,16 @@ describe("desktop update coordinator", () => {
     vi.mocked(downloads.revalidate).mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("tampered"));
     await owner.check();
     expect(downloads.install).not.toHaveBeenCalled();
+  });
+  it("does not authorize app quit when installer launch fails asynchronously", async () => {
+    const { owner, downloads, host } = fixture();
+    vi.mocked(downloads.install).mockImplementation(async () => {
+      await Promise.resolve();
+      throw new Error("spawn failed");
+    });
+    await owner.check();
+    expect(owner.read()).toBe("failed");
+    expect(owner.diagnostic()).toEqual({ stage: "installing", recoveryRequired: true });
+    expect(host.authorizeInstallerExit).not.toHaveBeenCalled();
   });
 });
