@@ -335,7 +335,7 @@ try {
     throw "Repair restored an unexpected application payload."
   }
   if ((Get-PersistedDataDigest) -ne $dataDigestBeforeRepair) { throw "Repair changed persisted acceptance data." }
-  Remove-Item -LiteralPath $corruptedAsar -Force
+  if (Test-Path -LiteralPath $corruptedAsar) { throw "Repair left the controlled corrupted payload behind." }
   $repairProcess = Start-And-AssertHealthy $installedExecutable $newVersion $expectedCommit
   Stop-AcceptanceApplication $true
   Verify-Fixture $installedExecutable $installedRuntime
