@@ -18,6 +18,7 @@ interface DiscoveredPath {
   providerId: string;
   discoveryPath: string;
   targetPath: string;
+  enforceDiscoveryName: boolean;
 }
 
 export interface ProjectHarnessDiscovery {
@@ -72,7 +73,7 @@ export async function discoverProjectHarness(
     throw new Error(`Project Harness manifest skill_name does not match its physical directory: ${skillRoot}`);
   }
   for (const candidate of group) {
-    if (basename(candidate.discoveryPath) !== manifest.skill_name) {
+    if (candidate.enforceDiscoveryName && basename(candidate.discoveryPath) !== manifest.skill_name) {
       throw new Error(`Project Harness discovery name does not match manifest skill_name: ${candidate.discoveryPath}`);
     }
   }
@@ -121,7 +122,12 @@ async function discoverRoute(
     const skillExists = existsSync(join(skillRoot, "SKILL.md"));
     if (manifestExists && !skillExists) throw new Error("Project Harness SKILL.md is required when its manifest exists.");
     if (!manifestExists || !skillExists) return [];
-    return [{ providerId: route.providerId, discoveryPath: skillRoot, targetPath: skillRoot }];
+    return [{
+      providerId: route.providerId,
+      discoveryPath: skillRoot,
+      targetPath: await realpath(skillRoot),
+      enforceDiscoveryName: false,
+    }];
   }
   return discoverProviderPaths(projectRoot, route.providerId, route.relativeRoot);
 }
@@ -144,7 +150,7 @@ async function discoverProviderPaths(
       throw new Error("Project Harness SKILL.md is required when its manifest exists.");
     }
     if (!manifestExists || !skillExists) continue;
-    found.push({ providerId, discoveryPath, targetPath: await realpath(discoveryPath) });
+    found.push({ providerId, discoveryPath, targetPath: await realpath(discoveryPath), enforceDiscoveryName: true });
   }
   return found;
 }
