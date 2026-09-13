@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -129,7 +129,9 @@ describe("Skill-native CLI flow", () => {
     await runCli(["harness", "doctor", "repo", "--json"]);
 
     const registry = JSON.parse(await readFile(join(homeDir, "registry.json"), "utf8"));
-    expect(registry.projects).toEqual([expect.objectContaining({ id: "repo", path: repoDir })]);
+    expect(registry.projects).toEqual([
+      expect.objectContaining({ id: "repo", path: await realpath(repoDir) }),
+    ]);
     await expect(stat(join(repoDir, ".agent-harness", "project.json"))).rejects.toMatchObject({ code: "ENOENT" });
     expect(existsSync(join(repoDir, "harness"))).toBe(false);
   });
@@ -213,7 +215,7 @@ describe("Skill-native CLI flow", () => {
 
     const database = await openProjectRuntimeWorkbenchDatabase(resolveProjectRuntimePaths("repo", homeDir));
     expect(database.skills.listSkillRoots("repo")).toEqual([
-      expect.objectContaining({ rootPath: skillRoot, sourceKind: "custom" }),
+      expect.objectContaining({ rootPath: await realpath(skillRoot), sourceKind: "custom" }),
     ]);
     expect(database.skills.listSkillEnablement("repo")).toEqual([
       expect.objectContaining({ skillId: "pricing-helper", scope: "project", enabled: true }),
