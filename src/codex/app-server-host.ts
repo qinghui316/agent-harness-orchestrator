@@ -241,6 +241,7 @@ export class CodexAppServerHost {
   async dispose(
     reason = "Codex app-server Host was explicitly cleaned up.",
     exitDeadlineMs = 5_000,
+    waitForLeases = true,
   ): Promise<void> {
     const previouslyTerminating = [...this.terminatingChildren].map((child) => withTimeout(
       waitForProcessExit(child),
@@ -272,7 +273,11 @@ export class CodexAppServerHost {
     } finally {
       processExit = this.terminateChild(child, exitDeadlineMs);
     }
-    await Promise.all([this.waitForDrain(), processExit, ...previouslyTerminating]);
+    await Promise.all([
+      ...(waitForLeases ? [this.waitForDrain()] : []),
+      processExit,
+      ...previouslyTerminating,
+    ]);
   }
 
   waitForDrain(): Promise<void> {
@@ -585,7 +590,7 @@ export class CodexAppServerHostRegistry {
   }
 
   async disposeAll(reason?: string, exitDeadlineMs?: number): Promise<void> {
-    await Promise.all([...this.hosts.values()].map((host) => host.dispose(reason, exitDeadlineMs)));
+    await Promise.all([...this.hosts.values()].map((host) => host.dispose(reason, exitDeadlineMs, false)));
     this.hosts.clear();
     this.projectHostKeys.clear();
     this.projectIdByHostKey.clear();
