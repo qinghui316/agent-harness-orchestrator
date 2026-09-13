@@ -99,4 +99,12 @@ describe("Beaver Code signed update manifest", () => {
     const request = vi.fn(async () => new Response(responses.shift(), { status: 200 }));
     await expect(new GitHubBeaverUpdateManifestClient(trust, request as typeof fetch).latest()).rejects.toThrow("blockmap");
   });
+
+  it("bounds a stalled response body and cancels the request", async () => {
+    const request = vi.fn(async () => new Response(
+      new ReadableStream<Uint8Array>({ start() { /* deliberately never closes */ } }), { status: 200 }));
+    const client = new GitHubBeaverUpdateManifestClient(trust, request as typeof fetch, 20);
+    await expect(client.latest()).rejects.toThrow("timed out");
+    expect((request.mock.calls[0]?.[1] as RequestInit | undefined)?.signal?.aborted).toBe(true);
+  });
 });

@@ -11,9 +11,9 @@ export interface DesktopUpdateArtifact {
 }
 
 export interface DesktopUpdateDownloadPort {
-  check(): Promise<DesktopUpdateArtifact | null>;
+  check(signal: AbortSignal): Promise<DesktopUpdateArtifact | null>;
   download(artifact: DesktopUpdateArtifact, signal: AbortSignal): Promise<void>;
-  revalidate(artifact: DesktopUpdateArtifact): Promise<void>;
+  revalidate(artifact: DesktopUpdateArtifact, signal: AbortSignal): Promise<void>;
   install(): Promise<void>;
 }
 
@@ -95,7 +95,7 @@ export class DesktopUpdateCoordinator {
     this.readyArtifact = null;
     try {
       await this.setState("checking");
-      const offered = await this.downloads.check();
+      const offered = await this.downloads.check(controller.signal);
       this.assertSession(controller);
       if (!offered || !isNewerStableVersion(offered.version, this.installedVersion)
         || (!manual && offered.version === this.failedVersion)) {
@@ -107,7 +107,7 @@ export class DesktopUpdateCoordinator {
       await this.setState("downloading");
       await this.downloads.download(artifact, controller.signal);
       this.assertSession(controller);
-      await this.downloads.revalidate(artifact);
+      await this.downloads.revalidate(artifact, controller.signal);
       this.assertSession(controller);
       this.readyArtifact = artifact;
       await this.setState("ready-to-install");
@@ -123,7 +123,7 @@ export class DesktopUpdateCoordinator {
     this.failureStage = null;
     this.recoveryRequired = false;
     try {
-      await this.downloads.revalidate(artifact);
+      await this.downloads.revalidate(artifact, controller.signal);
       this.assertSession(controller);
       const generation = this.host.generation();
       if (!generation) throw new Error("Workbench is unavailable for updating.");
@@ -136,7 +136,7 @@ export class DesktopUpdateCoordinator {
       const stopped = await this.host.stop(identity);
       this.assertCurrent(identity, stopped, "stopped", controller);
       // Check the cached installer again after the potentially long preparation.
-      await this.downloads.revalidate(artifact);
+      await this.downloads.revalidate(artifact, controller.signal);
       this.assertCurrent(identity, stopped, "stopped", controller);
       await this.setState("installing");
       await this.downloads.install();

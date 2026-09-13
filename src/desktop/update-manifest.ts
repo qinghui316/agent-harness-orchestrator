@@ -35,8 +35,8 @@ export interface VerifiedBeaverUpdateManifest {
 }
 
 export interface BeaverUpdateManifestPort {
-  latest(): Promise<VerifiedBeaverUpdateManifest>;
-  exact(expected: VerifiedBeaverUpdateManifest): Promise<void>;
+  latest(signal?: AbortSignal): Promise<VerifiedBeaverUpdateManifest>;
+  exact(expected: VerifiedBeaverUpdateManifest, signal?: AbortSignal): Promise<void>;
 }
 
 const STABLE_OWNER = "qinghui316";
@@ -122,42 +122,73 @@ export function parseBeaverWindowsUpdateManifest(value: unknown): BeaverWindowsU
 
 export class GitHubBeaverUpdateManifestClient implements BeaverUpdateManifestPort {
   private readonly keys: readonly BeaverUpdatePublicKey[];
-  constructor(keys: readonly BeaverUpdatePublicKey[], private readonly request: typeof fetch = fetch) {
+  constructor(
+    keys: readonly BeaverUpdatePublicKey[],
+    private readonly request: typeof fetch = fetch,
+    private readonly timeoutMs = 30_000,
+  ) {
     this.keys = parseBeaverUpdatePublicKeys(keys);
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 120_000) {
+      throw new Error("Update metadata timeout is invalid.");
+    }
   }
 
-  async latest(): Promise<VerifiedBeaverUpdateManifest> {
-    return this.read("latest/download");
+  async latest(signal?: AbortSignal): Promise<VerifiedBeaverUpdateManifest> {
+    return this.withDeadline(signal, (boundedSignal) => this.read("latest/download", boundedSignal));
   }
 
-  async exact(expected: VerifiedBeaverUpdateManifest): Promise<void> {
-    const current = await this.read(`download/${expected.manifest.tag}`);
+  async exact(expected: VerifiedBeaverUpdateManifest, signal?: AbortSignal): Promise<void> {
+    const current = await this.withDeadline(signal,
+      (boundedSignal) => this.read(`download/${expected.manifest.tag}`, boundedSignal));
     if (current.manifestSha256 !== expected.manifestSha256
       || JSON.stringify(current.manifest) !== JSON.stringify(expected.manifest)) {
       throw new Error("The published update changed after download.");
     }
   }
 
-  private async read(release: string): Promise<VerifiedBeaverUpdateManifest> {
+  private async read(release: string, signal: AbortSignal): Promise<VerifiedBeaverUpdateManifest> {
     const root = `https://github.com/${STABLE_OWNER}/${STABLE_REPO}/releases/${release}`;
     const [manifest, signature] = await Promise.all([
-      fetchBounded(`${root}/${BEAVER_UPDATE_MANIFEST_ASSET}`, 65_536, this.request),
-      fetchBounded(`${root}/${BEAVER_UPDATE_SIGNATURE_ASSET}`, 4_096, this.request),
+      fetchBounded(`${root}/${BEAVER_UPDATE_MANIFEST_ASSET}`, 65_536, this.request, signal),
+      fetchBounded(`${root}/${BEAVER_UPDATE_SIGNATURE_ASSET}`, 4_096, this.request, signal),
     ]);
     const verified = verifyBeaverUpdateManifest(manifest, signature, this.keys);
-    const blockmap = await fetchBoundedHash(`${root}/${verified.manifest.blockmap.name}`, 134_217_728, this.request);
+    const blockmap = await fetchBoundedHash(
+      `${root}/${verified.manifest.blockmap.name}`, 134_217_728, this.request, signal);
     if (blockmap.size !== verified.manifest.blockmap.size || blockmap.sha512 !== verified.manifest.blockmap.sha512) {
       throw new Error("Signed update blockmap is invalid.");
     }
     return verified;
   }
+
+  private async withDeadline<T>(external: AbortSignal | undefined, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    const controller = new AbortController();
+    let timedOut = false;
+    const abort = () => controller.abort();
+    if (external?.aborted) abort();
+    else external?.addEventListener("abort", abort, { once: true });
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, this.timeoutMs);
+    try {
+      return await operation(controller.signal);
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error(timedOut ? "Update metadata request timed out." : "Update metadata request was canceled.");
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+      external?.removeEventListener("abort", abort);
+    }
+  }
 }
 
-async function fetchBoundedHash(url: string, limit: number, request: typeof fetch): Promise<{ size: number; sha512: string }> {
+async function fetchBoundedHash(
+  url: string, limit: number, request: typeof fetch, signal: AbortSignal,
+): Promise<{ size: number; sha512: string }> {
   let current = new URL(url);
   for (let redirects = 0; redirects <= 5; redirects += 1) {
     assertAllowedUrl(current);
-    const response = await request(current, { redirect: "manual", headers: { Accept: "application/octet-stream" } });
+    const response = await request(current, { redirect: "manual", headers: { Accept: "application/octet-stream" }, signal });
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.get("location");
       if (!location || redirects === 5) throw new Error("Update metadata redirect is invalid.");
@@ -171,7 +202,7 @@ async function fetchBoundedHash(url: string, limit: number, request: typeof fetc
     let total = 0;
     const reader = response.body.getReader();
     while (true) {
-      const result = await reader.read();
+      const result = await readWithSignal(reader, signal);
       if (result.done) break;
       total += result.value.byteLength;
       if (total > limit) { await reader.cancel(); throw new Error("Update metadata is too large."); }
@@ -182,11 +213,13 @@ async function fetchBoundedHash(url: string, limit: number, request: typeof fetc
   throw new Error("Update metadata redirect is invalid.");
 }
 
-async function fetchBounded(url: string, limit: number, request: typeof fetch): Promise<Uint8Array> {
+async function fetchBounded(
+  url: string, limit: number, request: typeof fetch, signal: AbortSignal,
+): Promise<Uint8Array> {
   let current = new URL(url);
   for (let redirects = 0; redirects <= 5; redirects += 1) {
     assertAllowedUrl(current);
-    const response = await request(current, { redirect: "manual", headers: { Accept: "application/octet-stream" } });
+    const response = await request(current, { redirect: "manual", headers: { Accept: "application/octet-stream" }, signal });
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.get("location");
       if (!location || redirects === 5) throw new Error("Update metadata redirect is invalid.");
@@ -200,7 +233,7 @@ async function fetchBounded(url: string, limit: number, request: typeof fetch): 
     let total = 0;
     const reader = response.body.getReader();
     while (true) {
-      const result = await reader.read();
+      const result = await readWithSignal(reader, signal);
       if (result.done) break;
       total += result.value.byteLength;
       if (total > limit) { await reader.cancel(); throw new Error("Update metadata is too large."); }
@@ -212,6 +245,20 @@ async function fetchBounded(url: string, limit: number, request: typeof fetch): 
     return result;
   }
   throw new Error("Update metadata redirect is invalid.");
+}
+
+async function readWithSignal(
+  reader: ReadableStreamDefaultReader<Uint8Array>, signal: AbortSignal,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  if (signal.aborted) throw new Error("Update metadata request was canceled.");
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      void reader.cancel().catch(() => undefined);
+      reject(new Error("Update metadata request was canceled."));
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    void reader.read().then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+  });
 }
 
 function assertAllowedUrl(url: URL): void {

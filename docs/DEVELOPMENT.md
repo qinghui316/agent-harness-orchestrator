@@ -624,10 +624,11 @@ isolation for certificate trust and installation-fault tests. Do not install the
 test root certificate in the ordinary host's trust store.
 
 The release workflow is tag-triggered. It verifies the exact version tag and canonical Commit,
-checks the code, builds the package, creates and re-downloads a draft, independently verifies every
-asset, and publishes only after the protected `windows-release` Environment grants access. Configure
-required reviewers, Ed25519 secrets, key identity, and the release switch before enabling it. A named
-Environment in YAML alone does not establish reviewer protection.
+checks the code, then uses the protected `windows-signing` Environment to build, sign, create, and
+re-download a draft. A separate `windows-release` Environment grants the human-reviewed publication
+step only after the exact draft exists; that step re-verifies every asset before publication.
+Configure required reviewers, Ed25519 secrets, key identity, and the release switch before enabling
+it. A named Environment in YAML alone does not establish reviewer protection.
 
 An installed 0.1.2 build has no network updater. Install verified 0.1.3 manually once; use 0.1.4 to
 prove the first real update. Download completion shows a non-blocking choice and never restarts the

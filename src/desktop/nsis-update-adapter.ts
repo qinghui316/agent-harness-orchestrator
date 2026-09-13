@@ -54,14 +54,16 @@ export class NsisUpdateAdapter implements DesktopUpdateDownloadPort {
     };
   }
 
-  async check(): Promise<DesktopUpdateArtifact | null> {
+  async check(signal: AbortSignal = new AbortController().signal): Promise<DesktopUpdateArtifact | null> {
+    if (signal.aborted) throw new Error("Update check was canceled.");
     this.offered = null;
     this.validated = false;
     this.errored = false;
     this.cancellation = undefined;
     this.signedManifest = null;
     const signed = this.policy.mode === "stable"
-      ? await this.requireManifests().latest() : null;
+      ? await this.requireManifests().latest(signal) : null;
+    if (signal.aborted) throw new Error("Update check was canceled.");
     const result = await this.nsis.checkForUpdates();
     if (this.errored) throw new Error("Update check failed.");
     if (!result?.isUpdateAvailable) return null;
@@ -101,21 +103,23 @@ export class NsisUpdateAdapter implements DesktopUpdateDownloadPort {
         throw new Error("Update download did not complete.");
       }
       this.cached = { artifact: Object.freeze({ ...artifact }), path: files[0] };
-      await this.revalidate(artifact);
+      await this.revalidate(artifact, signal);
     } finally {
       signal.removeEventListener("abort", cancel);
     }
   }
 
-  async revalidate(artifact: DesktopUpdateArtifact): Promise<void> {
+  async revalidate(artifact: DesktopUpdateArtifact, signal: AbortSignal = new AbortController().signal): Promise<void> {
     this.validated = false;
+    if (signal.aborted) throw new Error("Update validation was canceled.");
     this.assertArtifact(artifact);
     const cached = this.cached;
     if (!cached || !sameArtifact(cached.artifact, artifact)) throw new Error("Update cache does not match the requested artifact.");
     if (this.policy.mode === "stable") {
       const signed = this.signedManifest;
       if (!signed || signed.manifestSha256 !== artifact.manifestSha256) throw new Error("Signed update offer is no longer current.");
-      await this.requireManifests().exact(signed);
+      await this.requireManifests().exact(signed, signal);
+      if (signal.aborted) throw new Error("Update validation was canceled.");
       if (await this.verifier.size(cached.path) !== signed.manifest.installer.size) throw new Error("Update installer size is invalid.");
       if (this.policy.authenticodePublisher) {
         await this.verifier.signature(cached.path, this.policy.authenticodePublisher, this.product(artifact.version));
@@ -125,6 +129,7 @@ export class NsisUpdateAdapter implements DesktopUpdateDownloadPort {
       await this.verifier.signature(cached.path, this.policy.publisherSubject, this.product(artifact.version));
     }
     await this.verifier.hash(cached.path, artifact.sha512);
+    if (signal.aborted) throw new Error("Update validation was canceled.");
     if (this.errored || this.cached !== cached) throw new Error("Update cache became invalid.");
     this.validated = true;
   }

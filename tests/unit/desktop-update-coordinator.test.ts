@@ -160,9 +160,13 @@ describe("desktop update coordinator", () => {
   });
   it("rechecks cached files after shutdown", async () => {
     const { owner, downloads } = fixture();
-    vi.mocked(downloads.revalidate).mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("tampered"));
+    vi.mocked(downloads.revalidate)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("timed out"));
     await owner.check();
     await owner.installReady();
+    expect(owner.diagnostic()).toEqual({ stage: "stopping", recoveryRequired: true });
     expect(downloads.install).not.toHaveBeenCalled();
   });
   it("does not authorize app quit when installer launch fails asynchronously", async () => {

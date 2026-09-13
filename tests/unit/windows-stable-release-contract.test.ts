@@ -11,9 +11,13 @@ describe("Windows stable release contract", () => {
     expect(workflow).toContain("tags:\n      - 'v*'");
     expect(workflow).toContain("github.repository == 'qinghui316/beaver-code'");
     expect(workflow).toContain("environment: windows-release");
+    expect(workflow).toContain("environment: windows-signing");
     expect(workflow).toContain("BEAVER_RELEASE_ENABLED");
     expect(workflow).toContain("--draft --verify-tag");
     expect(workflow).toContain("--draft=false --latest");
+    expect(workflow.indexOf("environment: windows-signing")).toBeLessThan(workflow.indexOf("environment: windows-release"));
+    expect(workflow.indexOf("Create verified draft")).toBeLessThan(workflow.indexOf("environment: windows-release"));
+    expect(workflow.indexOf("Re-download and verify the approved draft")).toBeLessThan(workflow.indexOf("Publish immutable latest release"));
     expect(workflow).not.toContain("qinghui316/agent-harness-orchestrator");
     expect(packageJson.repository?.url).toBe("git+https://github.com/qinghui316/beaver-code.git");
   });
@@ -26,6 +30,16 @@ describe("Windows stable release contract", () => {
     expect(workflow).toContain("node scripts/verify-update-release.mjs");
     expect(buildVariant).toContain('repo: "beaver-code"');
     expect(buildVariant).toContain('src/desktop/update-public-keys.json');
+  });
+
+  it("keeps signing secrets out of build, packager, verifier and native-smoke children", async () => {
+    const packageScript = await read("scripts/package-desktop-win.mjs");
+    const environmentScript = await read("scripts/update-signing-environment.mjs");
+    expect(packageScript).toContain("withoutUpdateSigningSecrets(process.env)");
+    expect(packageScript).toContain('run(process.execPath, ["scripts/generate-update-manifest.mjs"]);');
+    expect(environmentScript).toContain('"BEAVER_UPDATE_SIGNING_PRIVATE_KEY"');
+    expect(environmentScript).toContain('"BEAVER_UPDATE_SIGNING_KEY_PASSWORD"');
+    expect(environmentScript).toContain('"BEAVER_UPDATE_SIGNING_KEY_ID"');
   });
 
   it("documents bootstrap, withdrawal and forward-only repair", () => {
