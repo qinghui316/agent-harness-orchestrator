@@ -47,9 +47,13 @@ describe("ProjectLifecycleMutationGate", () => {
     const lease = await gate.acquire("project-one", shortPath);
 
     await expect(gate.acquire(null, projectPath)).rejects.toThrow(/already in progress/);
+    lease.markRemoved("project-one");
     lease.release();
     const nextLease = await gate.acquire(null, projectPath);
     expect(nextLease).toMatchObject({ release: expect.any(Function) });
+    expect(nextLease.removedProjectId()).toBe("project-one");
+    nextLease.markRegistered();
+    expect(nextLease.removedProjectId()).toBeNull();
     nextLease.release();
   });
 });

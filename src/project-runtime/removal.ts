@@ -132,36 +132,39 @@ export class ProjectRemovalFence {
 
 export const defaultProjectRemovalFence = new ProjectRemovalFence();
 
+export interface ProjectLifecycleMutationLease {
+  removedProjectId(): string | null;
+  markRemoved(projectId: string): void;
+  markRegistered(): void;
+  release(): void;
+}
+
 export class ProjectLifecycleMutationGate {
   private readonly activeKeys = new Set<string>();
   private readonly removedProjectIdByPath = new Map<string, string>();
 
-  async acquire(projectId: string | null, projectPath: string): Promise<{ release(): void }> {
-    const keys = [await lifecyclePathKey(projectPath), ...(projectId ? [`id:${projectId}`] : [])];
+  async acquire(projectId: string | null, projectPath: string): Promise<ProjectLifecycleMutationLease> {
+    const pathKey = await lifecyclePathKey(projectPath);
+    const keys = [pathKey, ...(projectId ? [`id:${projectId}`] : [])];
     if (keys.some((key) => this.activeKeys.has(key))) {
       throw conflict(`Project registration or removal is already in progress for ${projectId ?? projectPath}.`);
     }
     for (const key of keys) this.activeKeys.add(key);
     let released = false;
     return {
+      removedProjectId: () => this.removedProjectIdByPath.get(pathKey) ?? null,
+      markRemoved: (removedProjectId) => {
+        this.removedProjectIdByPath.set(pathKey, removedProjectId);
+      },
+      markRegistered: () => {
+        this.removedProjectIdByPath.delete(pathKey);
+      },
       release: () => {
         if (released) return;
         released = true;
         for (const key of keys) this.activeKeys.delete(key);
       },
     };
-  }
-
-  async markRemoved(projectId: string, projectPath: string): Promise<void> {
-    this.removedProjectIdByPath.set(await lifecyclePathKey(projectPath), projectId);
-  }
-
-  async removedProjectId(projectPath: string): Promise<string | null> {
-    return this.removedProjectIdByPath.get(await lifecyclePathKey(projectPath)) ?? null;
-  }
-
-  async markRegistered(projectPath: string): Promise<void> {
-    this.removedProjectIdByPath.delete(await lifecyclePathKey(projectPath));
   }
 }
 
