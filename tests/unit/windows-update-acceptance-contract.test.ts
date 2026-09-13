@@ -28,6 +28,9 @@ describe("Windows update acceptance boundary", () => {
     expect(runner).toContain('Verify-Fixture $installedExecutable $installedRuntime');
     expect(fixture).not.toContain('from "../dist/');
     expect(fixture).toContain('loadRuntime("workbench/persistence/open-workbench-database.js")');
+    expect(fixture).toContain('loadRuntime("provider-runtime/execution-contract.js")');
+    expect(fixture).toContain('defaultExecutionContractRegistry.read("agent.turn")');
+    expect(fixture).not.toContain('executionContractFamily: "agent-conversation"');
   });
 
   it("publishes success only after certificate cleanup is verified", () => {
@@ -54,6 +57,8 @@ describe("Windows update acceptance boundary", () => {
     expect(runner).toContain('Where-Object Subject -EQ $subject');
     expect(runner.indexOf('if ($passedResult)')).toBeGreaterThan(runner.indexOf('finally {'));
     expect(runner).toContain('A disposable acceptance certificate was not removed.');
+    expect(runner).toContain('$process = Start-Process -FilePath $Executable -PassThru');
+    expect(runner).not.toContain('$process = Start-Process -FilePath $Executable -WindowStyle Hidden -PassThru');
   });
 
   it("serves the updater cache-busted channel request and emits bounded failure evidence", () => {
