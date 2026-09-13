@@ -108,6 +108,7 @@ export class CodexAppServerHost {
   private activeTurnId: string | null = null;
   private activeLeaseCount = 0;
   private readonly drainWaiters = new Set<() => void>();
+  private readonly terminatingChildren = new Set<ChildProcess>();
 
   constructor(cwd: string) {
     this.cwd = resolve(cwd);
@@ -233,7 +234,19 @@ export class CodexAppServerHost {
     return Boolean(this.child && this.initialized && this.closedChildParents.get(childThreadId) === parentThreadId);
   }
 
-  dispose(reason = "Codex app-server Host was explicitly cleaned up."): void {
+  liveProcessCount(): number {
+    return this.terminatingChildren.size + (this.child && !hasProcessExited(this.child) ? 1 : 0);
+  }
+
+  async dispose(
+    reason = "Codex app-server Host was explicitly cleaned up.",
+    exitDeadlineMs = 5_000,
+  ): Promise<void> {
+    const previouslyTerminating = [...this.terminatingChildren].map((child) => withTimeout(
+      waitForProcessExit(child),
+      exitDeadlineMs,
+      `Codex app-server Host ${this.hostId} did not confirm process exit within ${exitDeadlineMs}ms.`,
+    ));
     const error = new Error(reason);
     const child = this.child;
     const handlers = this.handlers;
@@ -251,13 +264,15 @@ export class CodexAppServerHost {
     this.childParents.clear();
     this.closedChildParents.clear();
     this.rejectPending(error);
+    let processExit: Promise<void> = Promise.resolve();
     try {
       if (handlers) notifyExitSafely(handlers, error);
       for (const auxiliary of auxiliaryHandlers) notifyExitSafely(auxiliary, error);
       for (const metadata of metadataHandlers) notifyExitSafely(metadata, error);
     } finally {
-      terminateProcessTree(child);
+      processExit = this.terminateChild(child, exitDeadlineMs);
     }
+    await Promise.all([this.waitForDrain(), processExit, ...previouslyTerminating]);
   }
 
   waitForDrain(): Promise<void> {
@@ -318,9 +333,21 @@ export class CodexAppServerHost {
     } catch (error) {
       const failure = error instanceof Error ? error : new Error(String(error));
       this.failGeneration(failure, generation);
-      terminateProcessTree(child);
+      await this.terminateChild(child, 5_000);
       throw failure;
     }
+  }
+
+  private async terminateChild(child: ChildProcess | null, exitDeadlineMs: number): Promise<void> {
+    if (!child || hasProcessExited(child)) return;
+    this.terminatingChildren.add(child);
+    const exited = waitForProcessExit(child).finally(() => this.terminatingChildren.delete(child));
+    terminateProcessTree(child);
+    await withTimeout(
+      exited,
+      exitDeadlineMs,
+      `Codex app-server Host ${this.hostId} did not confirm process exit within ${exitDeadlineMs}ms.`,
+    );
   }
 
   private request(
@@ -461,6 +488,8 @@ export class CodexAppServerHost {
     this.busy = false;
     this.activeThreadId = null;
     this.activeTurnId = null;
+    this.activeLeaseCount = 0;
+    this.resolveDrainWaiters();
     handlers?.onExit(error);
     for (const auxiliary of auxiliaryHandlers) auxiliary.onExit(error);
     for (const metadata of metadataHandlers) metadata.onExit(error);
@@ -474,6 +503,10 @@ export class CodexAppServerHost {
   private releaseLease(): void {
     this.activeLeaseCount = Math.max(0, this.activeLeaseCount - 1);
     if (this.activeLeaseCount !== 0) return;
+    this.resolveDrainWaiters();
+  }
+
+  private resolveDrainWaiters(): void {
     for (const resolvePromise of this.drainWaiters) resolvePromise();
     this.drainWaiters.clear();
   }
@@ -519,6 +552,10 @@ export class CodexAppServerHostRegistry {
     return [...this.hosts.values()].map((host) => host.snapshot());
   }
 
+  liveProcessCount(): number {
+    return [...this.hosts.values()].reduce((total, host) => total + host.liveProcessCount(), 0);
+  }
+
   hasLiveChild(cwd: string, parentThreadId: string, childThreadId: string): boolean {
     return this.hosts.get(normalizeHostKey(cwd))?.hasLiveChild(parentThreadId, childThreadId) ?? false;
   }
@@ -527,29 +564,28 @@ export class CodexAppServerHostRegistry {
     return this.hosts.get(normalizeHostKey(cwd))?.hasClosedChild(parentThreadId, childThreadId) ?? false;
   }
 
-  dispose(cwd: string, reason?: string): void {
+  async dispose(cwd: string, reason?: string, exitDeadlineMs?: number): Promise<void> {
     const key = normalizeHostKey(cwd);
-    this.hosts.get(key)?.dispose(reason);
+    await this.hosts.get(key)?.dispose(reason, exitDeadlineMs);
     this.hosts.delete(key);
     this.unbindHostKey(key);
   }
 
-  async disposeProject(projectId: string, reason?: string): Promise<void> {
+  async disposeProject(projectId: string, reason?: string, exitDeadlineMs?: number): Promise<void> {
     const keys = [...(this.projectHostKeys.get(projectId) ?? [])];
     const hosts = keys.flatMap((key) => {
       const host = this.hosts.get(key);
       return host ? [host] : [];
     });
-    for (const host of hosts) host.dispose(reason);
+    await Promise.all(hosts.map((host) => host.dispose(reason, exitDeadlineMs)));
     for (const key of keys) {
       this.hosts.delete(key);
       this.unbindHostKey(key);
     }
-    await Promise.all(hosts.map((host) => host.waitForDrain()));
   }
 
-  disposeAll(reason?: string): void {
-    for (const host of this.hosts.values()) host.dispose(reason);
+  async disposeAll(reason?: string, exitDeadlineMs?: number): Promise<void> {
+    await Promise.all([...this.hosts.values()].map((host) => host.dispose(reason, exitDeadlineMs)));
     this.hosts.clear();
     this.projectHostKeys.clear();
     this.projectIdByHostKey.clear();
@@ -618,9 +654,32 @@ function terminateProcessTree(child: ChildProcess | null): void {
     spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
       windowsHide: true,
       stdio: "ignore",
+      timeout: 2_000,
     });
   }
   child.kill();
+}
+
+function hasProcessExited(child: ChildProcess): boolean {
+  return child.exitCode !== null && child.exitCode !== undefined
+    || child.signalCode !== null && child.signalCode !== undefined;
+}
+
+function waitForProcessExit(child: ChildProcess): Promise<void> {
+  if (hasProcessExited(child)) return Promise.resolve();
+  return new Promise<void>((resolvePromise) => {
+    let settled = false;
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      child.off("exit", finish);
+      child.off("close", finish);
+      resolvePromise();
+    };
+    child.once("exit", finish);
+    child.once("close", finish);
+    if (hasProcessExited(child)) finish();
+  });
 }
 
 function notifyExitSafely(handlers: CodexAppServerHostHandlers, error: Error): void {

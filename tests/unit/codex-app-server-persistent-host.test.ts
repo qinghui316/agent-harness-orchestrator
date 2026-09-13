@@ -20,7 +20,7 @@ const tempDirs: string[] = [];
 beforeEach(() => spawnMock.mockReset());
 afterEach(async () => {
   vi.useRealTimers();
-  defaultCodexAppServerHostRegistry.disposeAll("persistent Host test cleanup");
+  await defaultCodexAppServerHostRegistry.disposeAll("persistent Host test cleanup");
   await Promise.all(tempDirs.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
@@ -431,7 +431,7 @@ describe("Codex persistent app-server Host", () => {
     expect(restarted.pid).toBe(4202);
     expect(() => restarted.assertChild("thread-main", "thread-hume")).toThrow("not available");
     restarted.release();
-    host.dispose("test cleanup");
+    await host.dispose("test cleanup");
   });
 
   it("closes the exact native Child and rejects later continuation without another process", async () => {
@@ -499,7 +499,47 @@ describe("Codex persistent app-server Host", () => {
     expect(first.hostId).not.toBe(second.hostId);
     first.release();
     second.release();
-    registry.disposeAll("test cleanup");
+    await registry.disposeAll("test cleanup");
+  });
+
+  it("retains Provider liveness until every terminated Host confirms OS process exit", async () => {
+    const cwd = await tempDir();
+    const server = new PersistentCollaborationServer(4421);
+    server.holdProcessExitOnKill();
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+    const registry = new CodexAppServerHostRegistry();
+    const lease = await registry.hostFor(cwd)
+      .acquire({ onLine: () => undefined, onStderr: () => undefined, onExit: () => undefined });
+    lease.release();
+
+    let completed = false;
+    const shutdown = registry.disposeAll("update shutdown", 2_000).then(() => { completed = true; });
+    await vi.waitFor(() => expect(server.killCount).toBe(1));
+    expect(completed).toBe(false);
+    expect(registry.liveProcessCount()).toBe(1);
+
+    server.confirmProcessExit();
+    await shutdown;
+    expect(completed).toBe(true);
+    expect(registry.liveProcessCount()).toBe(0);
+  });
+
+  it("fails shutdown when a terminated Host does not confirm OS process exit by the deadline", async () => {
+    const cwd = await tempDir();
+    const server = new PersistentCollaborationServer(4422);
+    server.holdProcessExitOnKill();
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+    const registry = new CodexAppServerHostRegistry();
+    const lease = await registry.hostFor(cwd)
+      .acquire({ onLine: () => undefined, onStderr: () => undefined, onExit: () => undefined });
+    lease.release();
+
+    await expect(registry.disposeAll("update shutdown", 10)).rejects.toThrow("did not confirm process exit");
+    expect(registry.liveProcessCount()).toBe(1);
+    await expect(registry.disposeAll("update shutdown retry", 10)).rejects.toThrow("did not confirm process exit");
+    expect(registry.liveProcessCount()).toBe(1);
+    server.confirmProcessExit();
+    await vi.waitFor(() => expect(registry.liveProcessCount()).toBe(0));
   });
 
   it("stops and drains every canonical and worktree Host owned by one project", async () => {
@@ -537,7 +577,7 @@ describe("Codex persistent app-server Host", () => {
     expect(registry.snapshots()).toEqual([expect.objectContaining({ cwd: otherProjectCwd })]);
 
     otherLease.release();
-    registry.disposeAll("test cleanup");
+    await registry.disposeAll("test cleanup");
   });
 
   it("runs model discovery without taking or disposing the active Turn lease", async () => {
@@ -979,6 +1019,8 @@ class PersistentCollaborationServer extends EventEmitter {
   private nextResumeError: string | null = null;
   private holdFork = false;
   private holdReview = false;
+  private holdProcessExit = false;
+  private processExitConfirmed = false;
   private misdirectArchiveNotification = false;
   private forkTurns = ["turn-history-1", "turn-history-2", "turn-history-3"];
 
@@ -1002,7 +1044,18 @@ class PersistentCollaborationServer extends EventEmitter {
     this.killCount += 1;
     this.stdout.end();
     this.stderr.end();
+    if (!this.holdProcessExit) queueMicrotask(() => this.confirmProcessExit());
     return true;
+  }
+
+  holdProcessExitOnKill(): void {
+    this.holdProcessExit = true;
+  }
+
+  confirmProcessExit(): void {
+    if (this.processExitConfirmed) return;
+    this.processExitConfirmed = true;
+    this.emit("close", 0);
   }
 
   crash(): void {

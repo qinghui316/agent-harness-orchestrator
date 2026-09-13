@@ -33,6 +33,17 @@ describe("Windows update acceptance boundary", () => {
     expect(fixture).not.toContain('executionContractFamily: "agent-conversation"');
   });
 
+  it("injects a controlled installed-app fault and proves repair restores code without changing data", () => {
+    expect(runner).toContain('acceptance-stage: inject-install-fault');
+    expect(runner).toContain('resources\\app.asar.acceptance-corrupt');
+    expect(runner).toContain('Move-Item -LiteralPath $installedAsar -Destination $corruptedAsar');
+    expect(runner).toContain('$expectedAsarHash = (Get-FileHash -LiteralPath $installedAsar -Algorithm SHA256).Hash');
+    expect(runner).toContain('$dataDigestBeforeRepair = Get-PersistedDataDigest');
+    expect(runner).toContain('Repair restored an unexpected application payload.');
+    expect(runner).toContain('Repair changed persisted acceptance data.');
+    expect(runner).toContain('repairRecoveredCorruptedApp = $true');
+  });
+
   it("publishes success only after certificate cleanup is verified", () => {
     expect(runner).not.toContain("Start-Job");
     expect(runner).not.toContain("New-SelfSignedCertificate");
