@@ -10,6 +10,8 @@ describe("project git status helpers", () => {
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), "aho-project-git-"));
     await git(tempDir, ["init"]);
+    await git(tempDir, ["config", "user.name", "AHO Test"]);
+    await git(tempDir, ["config", "user.email", "aho-test@example.invalid"]);
     await writeFile(join(tempDir, "package.json"), "{}\n", "utf8");
     await git(tempDir, ["add", "."]);
     await git(tempDir, ["commit", "-m", "baseline"]);

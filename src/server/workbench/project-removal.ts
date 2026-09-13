@@ -186,7 +186,7 @@ export class WorkbenchProjectRemovalService implements WorkbenchProjectRemovalPo
 
   async remove(projectId: string, request: WorkbenchProjectRemovalRequest): Promise<ProjectRemovalResult> {
     const project = await requireRegisteredProject(this.store, projectId);
-    const lifecycleLease = this.lifecycleMutations.acquire(project.id, project.path);
+    const lifecycleLease = await this.lifecycleMutations.acquire(project.id, project.path);
     try {
       const result = await this.coordinator.remove({
         projectId: project.id,
@@ -195,7 +195,7 @@ export class WorkbenchProjectRemovalService implements WorkbenchProjectRemovalPo
         confirmationToken: request.confirmationToken,
         confirmed: request.confirmed,
       });
-      this.lifecycleMutations.markRemoved(project.id, project.path);
+      await this.lifecycleMutations.markRemoved(project.id, project.path);
       return result;
     } finally {
       lifecycleLease.release();
@@ -220,8 +220,8 @@ export class WorkbenchProjectRemovalService implements WorkbenchProjectRemovalPo
     projectPath: string,
     operation: () => Promise<T>,
   ): Promise<T> {
-    const lifecycleLease = this.lifecycleMutations.acquire(null, projectPath);
-    const removedProjectId = this.lifecycleMutations.removedProjectId(projectPath);
+    const lifecycleLease = await this.lifecycleMutations.acquire(null, projectPath);
+    const removedProjectId = await this.lifecycleMutations.removedProjectId(projectPath);
     if (removedProjectId) {
       this.runtimeActivities.activateProject(removedProjectId);
       this.databaseLeases.activateProject(removedProjectId);
@@ -229,7 +229,7 @@ export class WorkbenchProjectRemovalService implements WorkbenchProjectRemovalPo
     try {
       const result = await operation();
       this.activateAfterRegistration(result.project.id);
-      this.lifecycleMutations.markRegistered(projectPath);
+      await this.lifecycleMutations.markRegistered(projectPath);
       return result;
     } catch (error) {
       if (removedProjectId) {

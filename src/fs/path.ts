@@ -1,5 +1,5 @@
 import { homedir, platform } from "node:os";
-import { basename, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { realpath, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
 
@@ -28,6 +28,24 @@ export async function resolveExistingDirectory(input: string): Promise<string> {
 export function normalizeForCompare(path: string): string {
   const normalized = resolve(path);
   return platform() === "win32" ? normalized.toLowerCase() : normalized;
+}
+
+export async function resolvePhysicalPathIdentity(path: string): Promise<string> {
+  const absolute = resolve(path);
+  const missing: string[] = [];
+  let current = absolute;
+  while (true) {
+    try {
+      const physical = await realpath(current);
+      return normalizeForCompare(resolve(physical, ...missing));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      const parent = dirname(current);
+      if (parent === current) throw error;
+      missing.unshift(basename(current));
+      current = parent;
+    }
+  }
 }
 
 export function defaultProjectName(path: string): string {
