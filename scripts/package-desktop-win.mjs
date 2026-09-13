@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import process from "node:process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { desktopBuildVariant } from "./desktop-build-variant.mjs";
+import { removePriorChannelReleaseAssets } from "./desktop-release-assets.mjs";
 import { withoutUpdateSigningSecrets } from "./update-signing-environment.mjs";
 
 const root = process.cwd();
@@ -14,6 +15,7 @@ const variant = desktopBuildVariant(root, manifest.version);
 const unprivilegedEnvironment = withoutUpdateSigningSecrets(process.env);
 const configPath = resolve(root, "release", "desktop", "builder-" + variant.channel + ".json");
 await mkdir(resolve(root, "release", "desktop"), { recursive: true });
+await removePriorChannelReleaseAssets(variant.output, variant.artifactPrefix);
 await writeFile(configPath, JSON.stringify(variant.config, null, 2), "utf8");
 
 run(process.execPath, ["scripts/generate-desktop-build-info.mjs", "--require-clean"], unprivilegedEnvironment);

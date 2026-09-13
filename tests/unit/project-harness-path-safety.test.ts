@@ -72,20 +72,22 @@ describe("project Harness path safety", () => {
 
   it.runIf(process.platform === "win32")(
     "accepts an ordinary physical path addressed through its Windows 8.3 alias",
-    async () => {
+    async ({ skip }) => {
       const base = await mkdtemp(join(tmpdir(), "aho-physical-short-path-alias-"));
       cleanup.push(base);
       const nested = join(base, "ordinary-physical-directory", "nested");
       await mkdir(nested, { recursive: true });
 
       const shortPath = await windowsShortPath(nested);
+      if (!shortPath) skip("Windows 8.3 aliases are unavailable on this volume.");
+      expect(normalize(shortPath)).not.toBe(normalize(nested));
       await expect(assertNoLinkedPathAncestors(shortPath, "runtime-owned path")).resolves.toBeUndefined();
       expect(normalize(await realpath(shortPath))).toBe(normalize(await realpath(nested)));
     },
   );
 });
 
-async function windowsShortPath(path: string): Promise<string> {
+async function windowsShortPath(path: string): Promise<string | null> {
   const command = process.env.ComSpec ?? "cmd.exe";
   const { stdout } = await execFileAsync(command, ["/d", "/c", `for %I in (${path}) do @echo %~sI`], {
     encoding: "utf8",
@@ -93,7 +95,7 @@ async function windowsShortPath(path: string): Promise<string> {
   });
   const value = stdout.trim().replace(/^"|"$/g, "");
   if (!value) throw new Error(`Windows did not return an 8.3-compatible path for ${path}.`);
-  return value;
+  return normalize(value) === normalize(path) ? null : value;
 }
 
 function normalize(path: string): string {

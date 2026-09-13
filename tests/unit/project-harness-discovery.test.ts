@@ -121,12 +121,14 @@ describe("project Harness discovery", () => {
 
   it.runIf(process.platform === "win32")(
     "treats a Windows 8.3 alias and long route as one physical Harness",
-    async () => {
+    async ({ skip }) => {
       const project = await createProject("same-target-short-alias");
       const skill = join(project, ".agents", "skills", "sample-a1b2-harness");
       await createSkill(skill, "sample-a1b2-harness", "sample-a1b2");
       const canonicalProject = await realpath(project);
       const shortSkill = await windowsShortPath(skill);
+      if (!shortSkill) skip("Windows 8.3 aliases are unavailable on this volume.");
+      expect(shortSkill.toLowerCase()).not.toBe(skill.toLowerCase());
       const policy: ProjectHarnessDiscoveryPolicy = {
         routes: [
           { providerId: "codex", relativeRoot: projectRelativePath(".agents/skills"), required: true },
@@ -241,7 +243,7 @@ async function createSkill(root: string, skillName: string, projectId: string): 
   }, null, 2)}\n`, "utf8");
 }
 
-async function windowsShortPath(path: string): Promise<string> {
+async function windowsShortPath(path: string): Promise<string | null> {
   const command = process.env.ComSpec ?? "cmd.exe";
   const { stdout } = await execFileAsync(command, ["/d", "/c", `for %I in (${path}) do @echo %~sI`], {
     encoding: "utf8",
@@ -249,5 +251,5 @@ async function windowsShortPath(path: string): Promise<string> {
   });
   const value = stdout.trim().replace(/^"|"$/g, "");
   if (!value) throw new Error(`Windows did not return an 8.3-compatible path for ${path}.`);
-  return value;
+  return value.toLowerCase() === path.toLowerCase() ? null : value;
 }
