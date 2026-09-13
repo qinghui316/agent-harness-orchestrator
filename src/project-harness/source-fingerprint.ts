@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { lstat, readFile, readdir } from "node:fs/promises";
+import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { promisify } from "node:util";
 import { join, relative, resolve } from "node:path";
 import { projectRelativePath } from "./contracts.js";
@@ -62,18 +62,19 @@ export class SourceFingerprintSnapshot {
       try {
         const info = await lstat(path);
         if (info.isSymbolicLink()) throw new Error("source is a link or Junction");
+        const physicalPath = await realpath(path);
         if (info.isDirectory()) {
-          this.results.set(source, { source, status: "current", fingerprint: await fingerprintDirectory(path) });
+          this.results.set(source, { source, status: "current", fingerprint: await fingerprintDirectory(physicalPath) });
           continue;
         }
         if (!info.isFile()) {
           this.results.set(source, { source, status: "invalid", fingerprint: null });
           continue;
         }
-        const relativeToGit = gitRoot && isWithin(path, gitRoot)
-          ? relative(gitRoot, path).replace(/\\/g, "/")
+        const relativeToGit = gitRoot && isWithin(physicalPath, gitRoot)
+          ? relative(gitRoot, physicalPath).replace(/\\/g, "/")
           : null;
-        records.push({ source, path, relativeToGit });
+        records.push({ source, path: physicalPath, relativeToGit });
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") {
           this.results.set(source, { source, status: "missing", fingerprint: null });
@@ -124,8 +125,9 @@ export class SourceFingerprintSnapshot {
       this.gitRoot = null;
       return null;
     }
-    const candidate = resolve(result.stdout.toString("utf8").trim());
-    this.gitRoot = isWithin(projectRoot, candidate) ? candidate : null;
+    const candidate = await realpath(resolve(result.stdout.toString("utf8").trim()));
+    const physicalProjectRoot = await realpath(projectRoot);
+    this.gitRoot = isWithin(physicalProjectRoot, candidate) ? candidate : null;
     return this.gitRoot;
   }
 

@@ -1,5 +1,5 @@
-import { lstat } from "node:fs/promises";
-import { isAbsolute, parse, relative, resolve, sep } from "node:path";
+import { lstat, realpath } from "node:fs/promises";
+import { basename, dirname, isAbsolute, parse, relative, resolve, sep } from "node:path";
 import type { OwnedArtifactRef } from "./contracts.js";
 
 export interface OwnedArtifactRoots {
@@ -32,6 +32,25 @@ export async function assertNoLinkedPathAncestors(path: string, label: string): 
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
       throw error;
+    }
+  }
+}
+
+export async function physicalPathIdentity(path: string, label: string): Promise<string> {
+  const absolute = resolve(path);
+  await assertNoLinkedPathAncestors(absolute, label);
+  const missing: string[] = [];
+  let current = absolute;
+  while (true) {
+    try {
+      const physical = await realpath(current);
+      return normalizePath(resolve(physical, ...missing));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      const parent = dirname(current);
+      if (parent === current) throw error;
+      missing.unshift(basename(current));
+      current = parent;
     }
   }
 }
