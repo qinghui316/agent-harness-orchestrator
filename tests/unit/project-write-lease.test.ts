@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { applyWorktree } from "../../src/apply/apply-discard.js";
 import { projectExecutionRuntimePort } from "../../src/project-runtime/execution-ports.js";
 import {
@@ -127,8 +127,13 @@ describe("project write lease", () => {
 
   it("keeps a live scoped writer renewed and exposes ownership loss after a successful action", async () => {
     let competing: Awaited<ReturnType<typeof claimProjectWriteLeaseAtPath>> | undefined;
-    await withProjectWriteLeaseAtPath(databasePath, { holderId: "renewed", ttlMs: 300 }, async () => {
-      await new Promise((resolve) => setTimeout(resolve, 450));
+    await withProjectWriteLeaseAtPath(databasePath, { holderId: "renewed", ttlMs: 5_000 }, async () => {
+      const initial = await readProjectWriteLeaseAtPath(databasePath);
+      await vi.waitFor(async () => {
+        const current = await readProjectWriteLeaseAtPath(databasePath);
+        expect(current?.holderId).toBe("renewed");
+        expect(current?.heartbeatAt).not.toBe(initial?.heartbeatAt);
+      }, { timeout: 20_000, interval: 50 });
       competing = await claimProjectWriteLeaseAtPath(databasePath, { holderId: "competing", ttlMs: 1_000 });
     });
     expect(competing).toBeNull();
