@@ -39,6 +39,7 @@ describe("Windows stable release contract", () => {
     const packageScript = await read("scripts/package-desktop-win.mjs");
     const environmentScript = await read("scripts/update-signing-environment.mjs");
     expect(packageScript).toContain("withoutUpdateSigningSecrets(process.env)");
+    expect(packageScript).toContain("removePriorChannelReleaseAssets(variant.output, variant.artifactPrefix)");
     expect(packageScript).toContain('run(process.execPath, ["scripts/generate-update-manifest.mjs"]);');
     expect(environmentScript).toContain('"BEAVER_UPDATE_SIGNING_PRIVATE_KEY"');
     expect(environmentScript).toContain('"BEAVER_UPDATE_SIGNING_KEY_PASSWORD"');

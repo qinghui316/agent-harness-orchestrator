@@ -1,10 +1,17 @@
+import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { readFile, readdir } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 const root = join(process.cwd(), "templates", "system-skills");
 const skillRoot = join(root, "aho-harness-engineering");
+const cleanup: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(cleanup.splice(0).map((path) => rm(path, { recursive: true, force: true })));
+});
 
 async function readSkillFiles(): Promise<string> {
   const paths = [join(skillRoot, "SKILL.md"), join(skillRoot, "agents", "openai.yaml")];
@@ -66,18 +73,29 @@ describe("AHO Harness engineering Skill", () => {
   });
 
   it("passes the repository-local Skill frontmatter contract", async () => {
-    const skill = await readFile(join(skillRoot, "SKILL.md"), "utf8");
-    const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(skill);
-    expect(match).not.toBeNull();
-    const fields = new Map((match?.[1] ?? "").split(/\r?\n/).map((line) => {
-      const separator = line.indexOf(":");
-      return [line.slice(0, separator).trim(), line.slice(separator + 1).trim()] as const;
-    }));
-    expect([...fields.keys()].sort()).toEqual(["description", "name"]);
-    expect(fields.get("name")).toBe("aho-harness-engineering");
-    expect(fields.get("name")).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
-    expect(fields.get("description")).toBeTruthy();
-    expect(fields.get("description")?.length).toBeLessThanOrEqual(1024);
-    expect(skill.slice(match?.[0].length ?? 0)).not.toMatch(/^ {0,3}\[TODO:[^\n]*\]\s*$/m);
+    expect(validateSkill(skillRoot)).toMatchObject({ status: 0 });
+  });
+
+  it("rejects malformed YAML and invalid typed Skill metadata locally", async () => {
+    const fixtures = [
+      "---\nname: valid-name\ndescription: [broken\n---\nBody\n",
+      "---\nname: valid-name\ndescription:\n  - not\n  - text\n---\nBody\n",
+      `---\nname: ${"a".repeat(65)}\ndescription: useful\n---\nBody\n`,
+      "---\nname: valid-name\ndescription: use <internal> details\n---\nBody\n",
+    ];
+    for (const [index, content] of fixtures.entries()) {
+      const fixture = await mkdtemp(join(tmpdir(), `aho-invalid-skill-${index}-`));
+      cleanup.push(fixture);
+      await writeFile(join(fixture, "SKILL.md"), content, "utf8");
+      expect(validateSkill(fixture).status).not.toBe(0);
+    }
   });
 });
+
+function validateSkill(path: string): ReturnType<typeof spawnSync> {
+  return spawnSync(process.execPath, [join(process.cwd(), "scripts", "validate-skill-package.mjs"), path], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    windowsHide: true,
+  });
+}
