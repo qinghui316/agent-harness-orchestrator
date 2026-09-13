@@ -41,7 +41,7 @@ jobs:
       - run: npm run lint:frontend-boundaries
       - run: npm run lint:ui-language
       - run: npm run lint:ui-styles
-      - run: npm test
+      - run: npm run test:ci
 
   internal:
     if: github.event_name == 'workflow_dispatch' && github.repository == 'qinghui316/beaver-code'
