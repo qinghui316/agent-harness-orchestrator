@@ -508,9 +508,8 @@ describe("Codex persistent app-server Host", () => {
     server.holdProcessExitOnKill();
     spawnMock.mockReturnValue(server as unknown as ChildProcess);
     const registry = new CodexAppServerHostRegistry();
-    const lease = await registry.hostFor(cwd)
+    await registry.hostFor(cwd)
       .acquire({ onLine: () => undefined, onStderr: () => undefined, onExit: () => undefined });
-    lease.release();
 
     let completed = false;
     const shutdown = registry.disposeAll("update shutdown", 2_000).then(() => { completed = true; });
