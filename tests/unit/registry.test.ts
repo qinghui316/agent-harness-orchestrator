@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getAhoHome } from "../../src/fs/path.js";
 import { ProjectRegistryStore } from "../../src/registry/store.js";
+import { windowsShortPath } from "../helpers/windows-short-path.js";
 
 let tempDir: string;
 
@@ -124,5 +125,33 @@ describe("ProjectRegistryStore", () => {
 
     await expect(store.registerProject({ path: secondPath, name: "two", projectId: "ahoacc1" }))
       .rejects.toThrow("Project id is already registered");
+  });
+
+  it("treats Windows long and 8.3 paths to one project as the same registration", async () => {
+    if (process.platform !== "win32") return;
+    const store = new ProjectRegistryStore(join(tempDir, "home"));
+    const projectPath = join(tempDir, "registry-physical-project-with-long-name");
+    await mkdir(projectPath, { recursive: true });
+    const shortPath = await windowsShortPath(projectPath);
+    if (!shortPath) return;
+
+    const first = await store.registerProject({
+      path: shortPath,
+      name: "Physical Project",
+      projectId: "physical-project",
+    });
+    const second = await store.registerProject({
+      path: projectPath,
+      name: "Physical Project",
+      projectId: "physical-project",
+    });
+
+    expect(second.created).toBe(false);
+    expect(second.project.id).toBe(first.project.id);
+    expect(await store.resolveProject(projectPath)).toMatchObject({
+      id: first.project.id,
+      path: first.project.path,
+    });
+    expect(await store.listProjects()).toHaveLength(1);
   });
 });

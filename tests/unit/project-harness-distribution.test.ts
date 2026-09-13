@@ -41,7 +41,9 @@ describe("project Harness Runtime distribution", () => {
     expect(nonNodeImports).toEqual([]);
     expect(source).toContain("runProjectHarnessDailyCommand");
 
-    const runtime = await import(`${pathToFileURL(builtEntry).href}?test=${Date.now()}`) as {
+    const runtimeUrl = pathToFileURL(builtEntry);
+    runtimeUrl.searchParams.set("test", String(Date.now()));
+    const runtime = await import(/* @vite-ignore */ runtimeUrl.href) as {
       describeProjectHarnessDailyRuntime(skillRoot: string): Promise<{
         projectId: string;
         revision: number;

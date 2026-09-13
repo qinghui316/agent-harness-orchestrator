@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, rename, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import { resolvePhysicalPathIdentity } from "../fs/path.js";
 import { resolveWithinPhysicalRoot } from "../project-harness/path-safety.js";
 import type { ProjectRuntimePaths } from "./paths.js";
 import { resolveProjectRuntimePaths } from "./paths.js";
@@ -135,8 +136,8 @@ export class ProjectLifecycleMutationGate {
   private readonly activeKeys = new Set<string>();
   private readonly removedProjectIdByPath = new Map<string, string>();
 
-  acquire(projectId: string | null, projectPath: string): { release(): void } {
-    const keys = [lifecyclePathKey(projectPath), ...(projectId ? [`id:${projectId}`] : [])];
+  async acquire(projectId: string | null, projectPath: string): Promise<{ release(): void }> {
+    const keys = [await lifecyclePathKey(projectPath), ...(projectId ? [`id:${projectId}`] : [])];
     if (keys.some((key) => this.activeKeys.has(key))) {
       throw conflict(`Project registration or removal is already in progress for ${projectId ?? projectPath}.`);
     }
@@ -151,16 +152,16 @@ export class ProjectLifecycleMutationGate {
     };
   }
 
-  markRemoved(projectId: string, projectPath: string): void {
-    this.removedProjectIdByPath.set(lifecyclePathKey(projectPath), projectId);
+  async markRemoved(projectId: string, projectPath: string): Promise<void> {
+    this.removedProjectIdByPath.set(await lifecyclePathKey(projectPath), projectId);
   }
 
-  removedProjectId(projectPath: string): string | null {
-    return this.removedProjectIdByPath.get(lifecyclePathKey(projectPath)) ?? null;
+  async removedProjectId(projectPath: string): Promise<string | null> {
+    return this.removedProjectIdByPath.get(await lifecyclePathKey(projectPath)) ?? null;
   }
 
-  markRegistered(projectPath: string): void {
-    this.removedProjectIdByPath.delete(lifecyclePathKey(projectPath));
+  async markRegistered(projectPath: string): Promise<void> {
+    this.removedProjectIdByPath.delete(await lifecyclePathKey(projectPath));
   }
 }
 
@@ -348,7 +349,6 @@ function conflict(message: string): Error {
   return error;
 }
 
-function lifecyclePathKey(projectPath: string): string {
-  const normalized = resolve(projectPath);
-  return `path:${process.platform === "win32" ? normalized.toLowerCase() : normalized}`;
+async function lifecyclePathKey(projectPath: string): Promise<string> {
+  return `path:${await resolvePhysicalPathIdentity(projectPath)}`;
 }

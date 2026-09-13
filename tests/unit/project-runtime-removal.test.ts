@@ -6,9 +6,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   ProjectRemovalCoordinator,
   ProjectRemovalFence,
+  ProjectLifecycleMutationGate,
   type ProjectRemovalLifecyclePort,
 } from "../../src/project-runtime/removal.js";
 import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
+import { windowsShortPath } from "../helpers/windows-short-path.js";
 
 const roots: string[] = [];
 
@@ -29,6 +31,26 @@ describe("ProjectRemovalFence", () => {
     expect(readded).toBeGreaterThan(removalGeneration);
     expect(() => fence.assertCurrent("project-one", initial)).toThrow(/stale/);
     expect(fence.capture("project-one")).toBe(readded);
+  });
+});
+
+describe("ProjectLifecycleMutationGate", () => {
+  it("serializes Windows long and 8.3 aliases for the same project path", async () => {
+    if (process.platform !== "win32") return;
+    const root = await mkdtemp(join(tmpdir(), "aho-removal-gate-long-path-"));
+    roots.push(root);
+    const projectPath = join(root, "project-source-with-long-name");
+    await mkdir(projectPath);
+    const shortPath = await windowsShortPath(projectPath);
+    if (!shortPath) return;
+    const gate = new ProjectLifecycleMutationGate();
+    const lease = await gate.acquire("project-one", shortPath);
+
+    await expect(gate.acquire(null, projectPath)).rejects.toThrow(/already in progress/);
+    lease.release();
+    const nextLease = await gate.acquire(null, projectPath);
+    expect(nextLease).toMatchObject({ release: expect.any(Function) });
+    nextLease.release();
   });
 });
 
