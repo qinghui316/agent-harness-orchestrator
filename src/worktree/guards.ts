@@ -1,8 +1,8 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
-import { getAhoHome, normalizeForCompare } from "../fs/path.js";
+import { getAhoHome } from "../fs/path.js";
 import { gitText } from "../project/git.js";
-import { resolveWithinPhysicalRoot } from "../project-harness/path-safety.js";
+import { resolveWithinPhysicalRoot, samePhysicalPath } from "../project-harness/path-safety.js";
 import { getGlobalWorktreeCheckoutRoot, type WorktreeMetadataPort } from "./paths.js";
 import type { WorktreeMetadata } from "../types/index.js";
 
@@ -61,8 +61,13 @@ export async function assertWorktreeMetadataScope(
   const registered = worktreeList
     .split("\0")
     .filter((field) => field.startsWith("worktree "))
-    .map((field) => normalizeForCompare(field.slice("worktree ".length)));
-  if (!registered.includes(normalizeForCompare(checkoutPath))) {
+    .map((field) => field.slice("worktree ".length));
+  const matchesRegisteredWorktree = (await Promise.all(registered.map((registeredPath) => samePhysicalPath(
+    registeredPath,
+    checkoutPath,
+    "registered Git worktree",
+  ).catch(() => false)))).some(Boolean);
+  if (!matchesRegisteredWorktree) {
     throw new WorktreeMetadataScopeError(
       `Worktree checkout path is not registered to this project: ${metadata.checkoutPath}.`,
     );
