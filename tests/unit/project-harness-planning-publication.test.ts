@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -33,6 +33,7 @@ import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persist
 import { bindProviderThreadFixture } from "../helpers/provider-thread-fixture.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
+import { windowsShortPath } from "../helpers/windows-short-path.js";
 
 const cleanup: string[] = [];
 
@@ -471,6 +472,49 @@ describe("project Harness planning publication", () => {
     expect(existsSync(backupPath)).toBe(false);
     expect(existsSync(join(fixture.sidecarRoot, "transactions", "planning", `${transactionId}.json`))).toBe(false);
     expect(await readProjectHarnessLane(fixture.lane(fixture.graphScopeId))).toEqual(lane);
+  });
+
+  it("recovers an uncommitted planning journal through a distinct Windows 8.3 Skill root alias", async ({ skip }) => {
+    const fixture = await createFixture();
+    const root = resolve(fixture.skillRoot, "..");
+    const shortRoot = await windowsShortPath(root);
+    if (!shortRoot) skip("Windows 8.3 aliases are unavailable on this volume.");
+    expect(shortRoot.toLowerCase()).not.toBe(root.toLowerCase());
+    const commits = commitFixture();
+    const input = proposal("Return ok.", "proposal-short-root");
+    const accepted = await publish(fixture, input, commits.ports);
+    const activePath = fixture.active(accepted.changeId);
+    const record = (await listProjectHarnessChanges(fixture.skillRoot))[0];
+    const lane = await readProjectHarnessLane(fixture.lane(fixture.graphScopeId));
+    const transactionId = `${accepted.changeId}-short-root`;
+    const physicalRoot = join(fixture.skillRoot, "state", "changes", ".transactions");
+    const backupPath = join(physicalRoot, `${transactionId}.backup`);
+    const stagingPath = join(physicalRoot, `${transactionId}.staging`);
+    await cp(activePath, backupPath, { recursive: true });
+    await writeFile(join(activePath, "spec.md"), "# partial replacement\n", "utf8");
+    await writePlanningJournal(fixture, {
+      id: transactionId,
+      phase: "swapped",
+      changeId: accepted.changeId,
+      claimToken: record.claim_token,
+      laneId: record.lane_id,
+      activePath,
+      stagingPath,
+      backupPath,
+      record,
+      lane,
+    });
+    const alias = (path: string) => join(shortRoot, relative(root, path));
+    const aliasFixture = {
+      ...fixture,
+      skillRoot: alias(fixture.skillRoot),
+      registry: { ...fixture.registry, skillRoot: alias(fixture.registry.skillRoot) },
+    };
+
+    await publish(aliasFixture, { ...input, boundChangeId: accepted.changeId }, commits.ports);
+
+    expect(await readFile(join(activePath, "spec.md"), "utf8")).toContain("AC-001");
+    expect(existsSync(backupPath)).toBe(false);
   });
 });
 

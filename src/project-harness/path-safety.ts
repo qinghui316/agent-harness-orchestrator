@@ -55,6 +55,14 @@ export async function physicalPathIdentity(path: string, label: string): Promise
   }
 }
 
+export async function samePhysicalPath(left: string, right: string, label: string): Promise<boolean> {
+  const [leftIdentity, rightIdentity] = await Promise.all([
+    physicalPathIdentity(left, `${label} left path`),
+    physicalPathIdentity(right, `${label} right path`),
+  ]);
+  return leftIdentity === rightIdentity;
+}
+
 export async function resolveOwnedArtifactPath(
   roots: OwnedArtifactRoots,
   artifact: OwnedArtifactRef,
