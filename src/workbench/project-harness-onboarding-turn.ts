@@ -27,6 +27,7 @@ import { defaultProjectRuntimeActivityRegistry } from "../project-runtime/activi
 
 export interface RunProjectHarnessOnboardingTurnOptions {
   providerRegistry: Pick<ProviderRegistry, "requireProfiles">;
+  compiledRuntimeEntry?: string;
 }
 
 export function runProjectHarnessOnboardingTurn(
@@ -56,7 +57,7 @@ async function runProjectHarnessOnboardingTurnActivity(
   options: RunProjectHarnessOnboardingTurnOptions,
 ): Promise<TopicThreadEntry> {
   const registry = options.providerRegistry;
-  const workspace = await createOnboardingRuntime(project, state);
+  const workspace = await createOnboardingRuntime(project, state, options.compiledRuntimeEntry);
   const database = await openProjectRuntimeWorkbenchDatabase(state.paths);
   const conversation = database.conversations.readConversation(project.id, conversationId);
   if (!conversation) {
@@ -336,6 +337,7 @@ async function runProjectHarnessOnboardingTurnActivity(
 async function createOnboardingRuntime(
   project: ManagedProject,
   state: Extract<ProjectRuntimeState, { state: "onboarding" }>,
+  compiledRuntimeEntry?: string,
 ) {
   const executions = new WorkbenchProjectHarnessOnboardingExecutionStore(project.id, project.path, state.paths);
   const unavailable: ProjectHarnessCommandPort = {
@@ -363,7 +365,7 @@ async function createOnboardingRuntime(
     onboarding: {
       executions,
       scaffoldRoot: getProjectHarnessSkillScaffoldRoot(),
-      compiledRuntimeEntry: getCompiledProjectHarnessRuntimeEntry(),
+      compiledRuntimeEntry: compiledRuntimeEntry ?? getCompiledProjectHarnessRuntimeEntry(),
     },
   });
   return { executions, runtime, workspace };

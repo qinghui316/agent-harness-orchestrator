@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 
 const retiredLoopName = ["goal", "loop"].join("-");
 const retiredFiles = [
@@ -155,11 +155,33 @@ describe("Workbench module boundaries", () => {
 });
 
 function rgOutput(args: string[]): string {
-  try {
-    return execFileSync("rg", args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
-  } catch (error) {
-    const status = (error as { status?: number }).status;
-    if (status === 1) return "";
-    throw error;
+  const mode = args[0];
+  const pattern = args[1];
+  const roots = args.slice(2);
+  if ((mode !== "-n" && mode !== "-l") || !pattern || roots.length === 0) {
+    throw new Error(`Unsupported source scan arguments: ${args.join(" ")}`);
+  }
+  const matcher = new RegExp(pattern);
+  const matches: string[] = [];
+  for (const root of roots) visit(root);
+  return matches.join("\n");
+
+  function visit(path: string): void {
+    if (!existsSync(path)) return;
+    for (const entry of readdirSync(path, { withFileTypes: true })) {
+      const candidate = join(path, entry.name);
+      if (entry.isDirectory()) {
+        visit(candidate);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const normalized = candidate.replaceAll("\\", "/");
+      const matchingLines = readFileSync(candidate, "utf8").split(/\r?\n/)
+        .map((line, index) => ({ line, number: index + 1 }))
+        .filter(({ line }) => matcher.test(line));
+      if (matchingLines.length === 0) continue;
+      if (mode === "-l") matches.push(normalized);
+      else matches.push(...matchingLines.map(({ line, number }) => `${normalized}:${number}:${line}`));
+    }
   }
 }

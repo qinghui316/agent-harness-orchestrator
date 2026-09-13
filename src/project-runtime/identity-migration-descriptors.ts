@@ -9,7 +9,7 @@ import {
 import type { ManagedProject } from "../types/index.js";
 import type { ProjectHarnessDiscoveryPolicy } from "../project-harness/contracts.js";
 import type { ProjectRegistryStore } from "../registry/store.js";
-import { normalizeForCompare } from "../fs/path.js";
+import { physicalPathIdentity, samePhysicalPath } from "../project-harness/path-safety.js";
 import { parseJsonText } from "../fs/json.js";
 import type {
   MigrateProjectIdentityOptions,
@@ -42,7 +42,11 @@ export async function buildProjectIdentityRecoveryDocuments(
     throw new Error("Identity recovery journal does not match the supported Registry and sidecar descriptor set.");
   }
   const registryDocument = registryDocuments[0]!;
-  if (normalizeForCompare(registryDocument.sourcePath) !== normalizeForCompare(store.registryPath)) {
+  if (!await samePhysicalPath(
+    registryDocument.sourcePath,
+    store.registryPath,
+    "identity recovery Registry path",
+  )) {
     throw new Error("Identity recovery journal Registry path is not caller-owned.");
   }
   const { projectRoot, registryIndex } = await resolveRegistryProjectOwner(store.registryPath, journal);
@@ -52,7 +56,11 @@ export async function buildProjectIdentityRecoveryDocuments(
   }
   assertRequiredProjectHarnessBindings(discovery, discoveryPolicy);
   const manifestPath = join(discovery.handle.skillRoot, "state", "manifest.json");
-  if (normalizeForCompare(journal.manifestPath) !== normalizeForCompare(manifestPath)) {
+  if (!await samePhysicalPath(
+    journal.manifestPath,
+    manifestPath,
+    "identity recovery project Harness manifest",
+  )) {
     throw new Error("Identity recovery journal manifest is not owned by the discovered project Harness.");
   }
   const documents: ProjectIdentityJsonDocument[] = [
@@ -64,7 +72,11 @@ export async function buildProjectIdentityRecoveryDocuments(
     },
   ];
   for (const document of sidecarDocuments) {
-    const relativePath = relative(journal.sourceSidecarRoot, document.sourcePath).replace(/\\/g, "/");
+    const [sourceSidecarIdentity, documentIdentity] = await Promise.all([
+      physicalPathIdentity(journal.sourceSidecarRoot, "identity recovery source sidecar"),
+      physicalPathIdentity(document.sourcePath, "identity recovery sidecar document"),
+    ]);
+    const relativePath = relative(sourceSidecarIdentity, documentIdentity).replace(/\\/g, "/");
     if (!relativePath || isAbsolute(relativePath) || relativePath === ".." || relativePath.startsWith("../")) {
       throw new Error("Identity recovery journal sidecar document is outside the source sidecar.");
     }
@@ -177,7 +189,7 @@ async function resolveRegistryProjectOwner(
       projectRoot: resolve(String(matches[0]!.project.path)),
       registryIndex: matches[0]!.index,
     };
-    owners.set(`${normalizeForCompare(owner.projectRoot)}\0${owner.registryIndex}`, owner);
+    owners.set(`${await physicalPathIdentity(owner.projectRoot, "identity recovery Registry project")}\0${owner.registryIndex}`, owner);
   }
   if (owners.size === 1) return [...owners.values()][0]!;
   throw new Error("Identity recovery cannot bind the journal to one exact Registry project record.");

@@ -31,6 +31,7 @@ describe("Workbench Skill-native project Harness onboarding", () => {
     cleanup.push(root);
     const projectRoot = join(root, "project");
     const ahoHome = join(root, "aho-home");
+    const compiledRuntimeEntry = await writeCompiledRuntimeFixture(root);
     await mkdir(projectRoot);
     const store = new ProjectRegistryStore(ahoHome);
     const coordinator = new ProjectRuntimeCoordinator({
@@ -77,7 +78,7 @@ describe("Workbench Skill-native project Harness onboarding", () => {
       registered,
       conversationId,
       "Create a verified empty project Harness.",
-      { providerRegistry },
+      { providerRegistry, compiledRuntimeEntry },
       undefined,
     );
 
@@ -121,7 +122,7 @@ describe("Workbench Skill-native project Harness onboarding", () => {
       fixture.registered,
       fixture.conversationId,
       "Create a verified empty project Harness.",
-      { providerRegistry },
+      { providerRegistry, compiledRuntimeEntry: fixture.compiledRuntimeEntry },
       undefined,
     );
 
@@ -160,7 +161,7 @@ describe("Workbench Skill-native project Harness onboarding", () => {
       fixture.registered,
       fixture.conversationId,
       "Create a verified empty project Harness.",
-      { providerRegistry },
+      { providerRegistry, compiledRuntimeEntry: fixture.compiledRuntimeEntry },
       undefined,
     );
     expect(first.status).toBe("failed");
@@ -176,7 +177,7 @@ describe("Workbench Skill-native project Harness onboarding", () => {
       fixture.registered,
       fixture.conversationId,
       "Retry the reviewed publication from the current source.",
-      { providerRegistry },
+      { providerRegistry, compiledRuntimeEntry: fixture.compiledRuntimeEntry },
       undefined,
     );
 
@@ -316,6 +317,7 @@ async function createFlowFixture() {
   cleanup.push(root);
   const projectRoot = join(root, "project");
   const ahoHome = join(root, "aho-home");
+  const compiledRuntimeEntry = await writeCompiledRuntimeFixture(root);
   await mkdir(projectRoot);
   const store = new ProjectRegistryStore(ahoHome);
   const coordinator = new ProjectRuntimeCoordinator({
@@ -354,7 +356,17 @@ async function createFlowFixture() {
   } finally {
     database.close();
   }
-  return { root, projectRoot, ahoHome, coordinator, registered, conversationId, graphScopeId };
+  return { root, projectRoot, ahoHome, coordinator, registered, conversationId, graphScopeId, compiledRuntimeEntry };
+}
+
+async function writeCompiledRuntimeFixture(root: string): Promise<string> {
+  const compiledRuntimeEntry = join(root, "runtime.mjs");
+  await writeFile(
+    compiledRuntimeEntry,
+    "export async function runProjectHarnessDailyCommand() { return {}; }\n",
+    "utf8",
+  );
+  return compiledRuntimeEntry;
 }
 
 function capabilitySnapshot(providerId: string): ProviderCapabilitySnapshot {
