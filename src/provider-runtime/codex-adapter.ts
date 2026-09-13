@@ -19,8 +19,7 @@ export const codexProviderDescriptor: ProviderDescriptor = {
   runtime: {
     liveness: () => ({
       providerId: CODEX_PROVIDER_ID,
-      liveHostCount: defaultCodexAppServerHostRegistry.snapshots()
-        .filter((snapshot) => snapshot.pid !== null && snapshot.state !== "stopped").length,
+      liveHostCount: defaultCodexAppServerHostRegistry.liveProcessCount(),
     }),
     shutdown: (reason) => defaultCodexAppServerHostRegistry.disposeAll(reason),
     shutdownProject: (project, reason) => defaultCodexAppServerHostRegistry.disposeProject(project.projectId, reason),

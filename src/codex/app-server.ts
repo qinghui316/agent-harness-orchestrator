@@ -1794,7 +1794,7 @@ async function captureCodexAppServerStartupError(): Promise<string | null> {
     return error instanceof Error ? error.message : String(error);
   } finally {
     lease?.release();
-    defaultCodexAppServerHostRegistry.dispose(dir, "Codex app-server startup capability check completed.");
+    await defaultCodexAppServerHostRegistry.dispose(dir, "Codex app-server startup capability check completed.");
     await rm(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   }
 }

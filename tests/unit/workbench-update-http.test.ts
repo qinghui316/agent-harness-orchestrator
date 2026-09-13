@@ -5,6 +5,7 @@ import { connect as connectSocket, type Socket } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { ProjectRegistryStore } from "../../src/registry/store.js";
 import { ProviderRegistry } from "../../src/provider-runtime/registry.js";
+import type { ProviderDescriptor } from "../../src/provider-runtime/contracts.js";
 import { startWorkbenchServer, type WorkbenchServerHandle } from "../../src/server/workbench-server.js";
 
 let root: string | undefined;
@@ -119,6 +120,33 @@ describe("real update HTTP/SSE composition", () => {
     expect(await handle.updates!.stop(identity)).toMatchObject({ status: "stopped" });
     expect(actions).toEqual(["prepare", "confirm"]);
     expect(handle.server.listening).toBe(false);
+  });
+
+  it("refuses the stopped receipt while a Provider process has not confirmed exit", async () => {
+    root = await mkdtemp(join(tmpdir(), "aho-update-provider-exit-"));
+    const providerRegistry = new ProviderRegistry();
+    providerRegistry.register({
+      id: "held-provider",
+      displayName: "Held Provider",
+      runtime: {
+        liveness: () => ({ providerId: "held-provider", liveHostCount: 1 }),
+        shutdown: async () => undefined,
+        shutdownProject: async () => undefined,
+      },
+      conversation: { getActiveTurn: () => null, listActiveTurns: () => [] },
+    } as unknown as ProviderDescriptor);
+    server = await startWorkbenchServer(null, {
+      port: 0,
+      store: new ProjectRegistryStore(root),
+      providerRegistry,
+      desktopHost: { sessionToken: "test-token", updateGeneration: identity.generation },
+    });
+    const actions = await connect(server);
+    await server.updates!.prepare(identity);
+
+    await expect(server.updates!.stop(identity)).rejects.toThrow("Workbench shutdown failed");
+    expect(actions).toEqual(["prepare", "confirm"]);
+    expect(server.updates!.snapshot().phase).toBe("recovery-required");
   });
 
   it("does not let a renderer keep-alive connection consume the update shutdown deadline", async () => {

@@ -316,8 +316,26 @@ try {
   Write-Output "acceptance-stage: verify-updated-data"
   Verify-Fixture $installedExecutable $installedRuntime
 
-  Write-Output "acceptance-stage: repair-install"
+  Write-Output "acceptance-stage: inject-install-fault"
+  $installedAsar = Assert-RunnerChild (Join-Path $installRoot "resources\app.asar")
+  $corruptedAsar = Assert-RunnerChild (Join-Path $installRoot "resources\app.asar.acceptance-corrupt")
+  if (-not (Test-Path -LiteralPath $installedAsar -PathType Leaf)) { throw "The installed application payload is missing before fault injection." }
+  if (Test-Path -LiteralPath $corruptedAsar) { throw "The controlled corruption marker already exists." }
+  $expectedAsarHash = (Get-FileHash -LiteralPath $installedAsar -Algorithm SHA256).Hash
+  $dataDigestBeforeRepair = Get-PersistedDataDigest
+  Move-Item -LiteralPath $installedAsar -Destination $corruptedAsar
+  if ((Test-Path -LiteralPath $installedAsar -PathType Leaf) -or -not (Test-Path -LiteralPath $corruptedAsar -PathType Leaf)) {
+    throw "The controlled application payload fault was not established."
+  }
+
+  Write-Output "acceptance-stage: repair-corrupted-install"
   Install-TestPackage $newInstaller
+  if (-not (Test-Path -LiteralPath $installedAsar -PathType Leaf)) { throw "Repair did not restore the application payload." }
+  if ((Get-FileHash -LiteralPath $installedAsar -Algorithm SHA256).Hash -ne $expectedAsarHash) {
+    throw "Repair restored an unexpected application payload."
+  }
+  if ((Get-PersistedDataDigest) -ne $dataDigestBeforeRepair) { throw "Repair changed persisted acceptance data." }
+  Remove-Item -LiteralPath $corruptedAsar -Force
   $repairProcess = Start-And-AssertHealthy $installedExecutable $newVersion $expectedCommit
   Stop-AcceptanceApplication $true
   Verify-Fixture $installedExecutable $installedRuntime
@@ -349,6 +367,7 @@ try {
     persistedDraft = $true
     persistedQueue = $true
     repairInstall = $true
+    repairRecoveredCorruptedApp = $true
     uninstallPreservedData = $true
     reinstallReadData = $true
   }
