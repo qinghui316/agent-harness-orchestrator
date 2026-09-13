@@ -27,12 +27,14 @@ const queueText = "更新验收待发送内容：必须在自动重启后保留"
 const markerPath = join(ahoHome, "update-acceptance-marker.json");
 const runtimeRoot = runtimeInput ? assertRunnerPath(runtimeInput, runnerTemp) : resolve(import.meta.dirname, "..", "dist");
 const [{ ProjectRegistryStore }, { initializeProjectRuntimeSidecar }, { resolveProjectRuntimePaths },
-  { getProjectHarnessSkillScaffoldRoot }, { openProjectRuntimeWorkbenchDatabase }] = await Promise.all([
+  { getProjectHarnessSkillScaffoldRoot }, { openProjectRuntimeWorkbenchDatabase },
+  { defaultExecutionContractRegistry }] = await Promise.all([
   loadRuntime("registry/store.js"),
   loadRuntime("project-runtime/lifecycle.js"),
   loadRuntime("project-runtime/paths.js"),
   loadRuntime("template-source/paths.js"),
   loadRuntime("workbench/persistence/open-workbench-database.js"),
+  loadRuntime("provider-runtime/execution-contract.js"),
 ]);
 
 if (mode === "seed") await seed();
@@ -92,6 +94,7 @@ async function seed() {
   }] });
   const database = await openProjectRuntimeWorkbenchDatabase(paths);
   try {
+    const queueExecutionContract = defaultExecutionContractRegistry.read("agent.turn");
     database.conversations.createConversation({
       projectId, conversationId, productMode: "agent", agentTurnMode: "default",
       agentModelId: null, agentReasoningEffort: null, title: "更新验收会话", state: "active",
@@ -108,8 +111,8 @@ async function seed() {
       projectId, conversationId, productMode: "agent", queueItemId: "queue-update-acceptance",
       clientRequestId: "client-update-acceptance", requestHash: "hash-update-acceptance", position: 1,
       status: "blocked", retryCount: 0, predecessorExecutionRevision: "revision-update-acceptance",
-      dispatchRequestId: "dispatch-update-acceptance", executionContractFamily: "agent-conversation",
-      executionContractEpoch: 1, itemKind: "conversation-turn", reviewTargetJson: null, text: queueText,
+      dispatchRequestId: "dispatch-update-acceptance", executionContractFamily: queueExecutionContract.family,
+      executionContractEpoch: queueExecutionContract.epoch, itemKind: "conversation-turn", reviewTargetJson: null, text: queueText,
       contextRefsJson: "[]", attachmentIdsJson: "[]", skillOverridesJson: "{}", providerId: "codex",
       agentTurnMode: "default", agentModelId: null, agentReasoningEffort: null,
       diagnostic: "等待验收恢复", createdAt: now, updatedAt: now, dispatchedAt: null,

@@ -148,7 +148,9 @@ function Verify-Fixture([string]$ElectronExecutable, [string]$RuntimeRoot) {
 function Start-And-AssertHealthy([string]$Executable, [string]$ExpectedVersion, [string]$ExpectedCommit) {
   $desktopLog = Join-Path $env:USERPROFILE ".beaver-code-update-test\desktop\desktop.log"
   if (Test-Path -LiteralPath $desktopLog -PathType Leaf) { Remove-Item -LiteralPath $desktopLog -Force }
-  $process = Start-Process -FilePath $Executable -WindowStyle Hidden -PassThru
+  # Repair/reinstall acceptance must exercise the real window-close lifecycle.
+  # A hidden top-level window does not expose a reliable CloseMainWindow handle.
+  $process = Start-Process -FilePath $Executable -PassThru
   Wait-Until {
     if (-not (Test-Path -LiteralPath $desktopLog -PathType Leaf)) { return $false }
     $content = Get-Content -LiteralPath $desktopLog -Raw -Encoding UTF8
