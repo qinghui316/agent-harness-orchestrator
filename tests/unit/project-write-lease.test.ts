@@ -129,12 +129,17 @@ describe("project write lease", () => {
     let competing: Awaited<ReturnType<typeof claimProjectWriteLeaseAtPath>> | undefined;
     await withProjectWriteLeaseAtPath(databasePath, { holderId: "renewed", ttlMs: 5_000 }, async () => {
       const initial = await readProjectWriteLeaseAtPath(databasePath);
+      let renewed: Awaited<ReturnType<typeof readProjectWriteLeaseAtPath>> = null;
       await vi.waitFor(async () => {
-        const current = await readProjectWriteLeaseAtPath(databasePath);
-        expect(current?.holderId).toBe("renewed");
-        expect(current?.heartbeatAt).not.toBe(initial?.heartbeatAt);
+        renewed = await readProjectWriteLeaseAtPath(databasePath);
+        expect(renewed?.holderId).toBe("renewed");
+        expect(Date.parse(renewed?.expiresAt ?? "")).toBeGreaterThan(Date.parse(initial?.expiresAt ?? ""));
       }, { timeout: 20_000, interval: 50 });
-      competing = await claimProjectWriteLeaseAtPath(databasePath, { holderId: "competing", ttlMs: 1_000 });
+      competing = await claimProjectWriteLeaseAtPath(
+        databasePath,
+        { holderId: "competing", ttlMs: 1_000 },
+        new Date(Date.parse(initial?.expiresAt ?? "") + 1),
+      );
     });
     expect(competing).toBeNull();
 
