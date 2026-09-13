@@ -44,6 +44,19 @@ describe("command-scoped source fingerprint snapshot", () => {
     expect(await after.digest(["src/a.ts"])).not.toBe(beforeDigest);
   });
 
+  it.runIf(process.platform === "win32")(
+    "uses Git batching when the project is addressed through a Windows 8.3 alias",
+    async ({ skip }) => {
+      const project = await createGitProject();
+      const shortProject = windowsShortPath(project);
+      if (!shortProject) skip("Windows 8.3 aliases are unavailable on this volume.");
+      expect(shortProject.toLowerCase()).not.toBe(project.toLowerCase());
+      const snapshot = new SourceFingerprintSnapshot({ projectRoot: shortProject });
+      expect((await snapshot.result("src/a.ts")).fingerprint).toMatch(/^[a-f0-9]{64}$/);
+      expect(snapshot.gitCallCount).toBe(3);
+    },
+  );
+
   it("falls back to content identity outside Git and reports missing sources", async () => {
     const project = await mkdtemp(join(tmpdir(), "aho-source-snapshot-"));
     cleanup.push(project);
@@ -79,4 +92,16 @@ function runGit(cwd: string, args: readonly string[]) {
     stdout: result.stdout ?? Buffer.alloc(0),
     stderr: result.stderr ?? Buffer.alloc(0),
   };
+}
+
+function windowsShortPath(path: string): string | null {
+  const command = process.env.ComSpec ?? "cmd.exe";
+  const result = spawnSync(command, ["/d", "/c", `for %I in (${path}) do @echo %~sI`], {
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  if (result.status !== 0) throw new Error(result.stderr || "Windows short-path lookup failed.");
+  const value = result.stdout.trim().replace(/^"|"$/g, "");
+  if (!value) throw new Error(`Windows did not return an 8.3-compatible path for ${path}.`);
+  return value.toLowerCase() === path.toLowerCase() ? null : value;
 }

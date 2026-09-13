@@ -14,6 +14,7 @@ import { fingerprintProjectHarness, fingerprintProjectHarnessContent } from "../
 import {
   assertNoLinkedPathAncestors,
   assertPhysicalDirectory,
+  physicalPathIdentity,
   resolveWithinPhysicalRoot,
 } from "../project-harness/path-safety.js";
 import {
@@ -275,7 +276,7 @@ async function recoverPendingProjectHarnessChangeAbandonmentsLocked(
     }
     const journalPath = await resolveWithinPhysicalRoot(root, entry.name, "Change abandon transaction journal");
     let journal = await readJournal(journalPath);
-    assertRecoveryBinding(resolution, journal, journalPath);
+    await assertRecoveryBinding(resolution, journal, journalPath);
     await assertRecoveryArtifactSafety(resolution, journal);
     if (journal.stage === "completed") {
       await assertPublishedState(resolution, journal);
@@ -733,7 +734,7 @@ async function assertPublishedState(
   resolution: ProjectRuntimeResolution,
   journal: ProjectHarnessChangeAbandonmentJournal,
 ): Promise<void> {
-  assertRecoveryBinding(resolution, journal, journalPath(resolution, journal.transactionId));
+  await assertRecoveryBinding(resolution, journal, journalPath(resolution, journal.transactionId));
   if (existsSync(journal.activeEvidenceRoot) || !existsSync(journal.archiveEvidenceRoot)) {
     throw new Error("Published Change abandon evidence state is invalid.");
   }
@@ -1091,7 +1092,7 @@ async function recoverAbandonmentPreparations(
       throw new Error(`Invalid Change abandon preparation record: ${path}.`);
     }
     const preparation = value as ProjectHarnessChangeAbandonmentPreparation;
-    assertPreparationBinding(resolution, preparation, path);
+    await assertPreparationBinding(resolution, preparation, path);
     if (!existsSync(journalPath(resolution, preparation.transactionId))) {
       await removeCandidateRoot(preparation.candidateRoot);
     }
@@ -1129,18 +1130,18 @@ async function readJournal(path: string): Promise<ProjectHarnessChangeAbandonmen
   return value as ProjectHarnessChangeAbandonmentJournal;
 }
 
-function assertRecoveryBinding(
+async function assertRecoveryBinding(
   resolution: ProjectRuntimeResolution,
   journal: ProjectHarnessChangeAbandonmentJournal,
   path: string,
-): void {
+): Promise<void> {
   const expectedPath = journalPath(resolution, journal.transactionId);
   if (journal.projectId !== resolution.harness.projectId
     || journal.skillName !== resolution.harness.skillName
-    || resolve(journal.projectRoot) !== resolve(resolution.projectRoot)
-    || resolve(journal.skillRoot) !== resolve(resolution.harness.skillRoot)
-    || resolve(journal.sidecarRoot) !== resolve(resolution.paths.sidecarRoot)
-    || resolve(path) !== resolve(expectedPath)
+    || !await samePhysicalPath(journal.projectRoot, resolution.projectRoot, "Change abandon project root")
+    || !await samePhysicalPath(journal.skillRoot, resolution.harness.skillRoot, "Change abandon Skill root")
+    || !await samePhysicalPath(journal.sidecarRoot, resolution.paths.sidecarRoot, "Change abandon sidecar root")
+    || !await samePhysicalPath(path, expectedPath, "Change abandon journal path")
     || basename(path) !== `${journal.transactionId}.json`) {
     throw new Error("Change abandon recovery journal does not match current project authority.");
   }
@@ -1150,8 +1151,8 @@ function assertRecoveryBinding(
     dirname(resolution.harness.skillRoot),
     `.${resolution.harness.skillName}.${journal.transactionId}.abandon-candidate`,
   );
-  if (resolve(journal.candidateRoot) !== resolve(expectedCandidate)
-    || resolve(journal.previousEvidenceRoot) !== resolve(join(expectedCandidate, "previous-active-evidence"))) {
+  if (!await samePhysicalPath(journal.candidateRoot, expectedCandidate, "Change abandon candidate root")
+    || !await samePhysicalPath(journal.previousEvidenceRoot, join(expectedCandidate, "previous-active-evidence"), "Change abandon prior evidence root")) {
     throw new Error("Change abandon recovery staging paths do not match transaction authority.");
   }
   const expectedActive = join(resolution.harness.skillRoot, "state", "changes", "active", journal.changeId);
@@ -1171,11 +1172,11 @@ function assertRecoveryBinding(
     `${canonicalProjectHarnessId(journal.laneId, "Change abandon journal Lane id")}.json`,
   );
   const expectedIndex = join(resolution.harness.skillRoot, "state", "changes", "INDEX.json");
-  if (resolve(journal.activeEvidenceRoot) !== resolve(expectedActive)
-    || resolve(journal.archiveEvidenceRoot) !== resolve(expectedArchive)
-    || resolve(journal.changeRecordPath) !== resolve(expectedChangeRecord)
-    || resolve(journal.lanePath) !== resolve(expectedLane)
-    || resolve(journal.indexPath) !== resolve(expectedIndex)) {
+  if (!await samePhysicalPath(journal.activeEvidenceRoot, expectedActive, "Change abandon active evidence")
+    || !await samePhysicalPath(journal.archiveEvidenceRoot, expectedArchive, "Change abandon archived evidence")
+    || !await samePhysicalPath(journal.changeRecordPath, expectedChangeRecord, "Change abandon record")
+    || !await samePhysicalPath(journal.lanePath, expectedLane, "Change abandon Lane")
+    || !await samePhysicalPath(journal.indexPath, expectedIndex, "Change abandon index")) {
     throw new Error("Change abandon recovery artifact paths do not match current Skill authority.");
   }
   if (journal.conversationBefore.projectId !== journal.projectId
@@ -1205,11 +1206,11 @@ function assertRecoveryBinding(
   }
 }
 
-function assertPreparationBinding(
+async function assertPreparationBinding(
   resolution: ProjectRuntimeResolution,
   preparation: ProjectHarnessChangeAbandonmentPreparation,
   path: string,
-): void {
+): Promise<void> {
   assertTransactionId(preparation.transactionId);
   const expectedPath = join(
     abandonmentTransactionsRoot(resolution),
@@ -1221,11 +1222,11 @@ function assertPreparationBinding(
   );
   if (preparation.projectId !== resolution.harness.projectId
     || preparation.skillName !== resolution.harness.skillName
-    || resolve(preparation.projectRoot) !== resolve(resolution.projectRoot)
-    || resolve(preparation.skillRoot) !== resolve(resolution.harness.skillRoot)
-    || resolve(preparation.sidecarRoot) !== resolve(resolution.paths.sidecarRoot)
-    || resolve(preparation.candidateRoot) !== resolve(expectedCandidate)
-    || resolve(path) !== resolve(expectedPath)) {
+    || !await samePhysicalPath(preparation.projectRoot, resolution.projectRoot, "Change abandon preparation project root")
+    || !await samePhysicalPath(preparation.skillRoot, resolution.harness.skillRoot, "Change abandon preparation Skill root")
+    || !await samePhysicalPath(preparation.sidecarRoot, resolution.paths.sidecarRoot, "Change abandon preparation sidecar root")
+    || !await samePhysicalPath(preparation.candidateRoot, expectedCandidate, "Change abandon preparation candidate root")
+    || !await samePhysicalPath(path, expectedPath, "Change abandon preparation path")) {
     throw new Error("Change abandon preparation record does not match current project authority.");
   }
 }
@@ -1243,11 +1244,21 @@ async function assertRecoveryArtifactSafety(
   ] as const;
   for (const [absolute, relativePath, label] of expected) {
     const safe = await resolveWithinPhysicalRoot(resolution.harness.skillRoot, relativePath, label);
-    if (resolve(safe) !== resolve(absolute)) throw new Error(`${label} path changed after journal validation.`);
+    if (!await samePhysicalPath(safe, absolute, `${label} identity`)) {
+      throw new Error(`${label} path changed after journal validation.`);
+    }
   }
   if (existsSync(journal.candidateRoot)) {
     await assertPhysicalTree(journal.candidateRoot, "Change abandon candidate");
   }
+}
+
+async function samePhysicalPath(left: string, right: string, label: string): Promise<boolean> {
+  const [leftIdentity, rightIdentity] = await Promise.all([
+    physicalPathIdentity(left, label),
+    physicalPathIdentity(right, label),
+  ]);
+  return leftIdentity === rightIdentity;
 }
 
 function assertTransactionId(value: string): void {

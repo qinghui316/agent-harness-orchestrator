@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { projectSkillArtifact } from "../../src/project-harness/contracts.js";
 import {
   assertNoLinkedPathAncestors,
+  physicalPathIdentity,
   resolveOwnedArtifactPath,
   resolveWithinPhysicalRoot,
 } from "../../src/project-harness/path-safety.js";
@@ -83,6 +84,10 @@ describe("project Harness path safety", () => {
       expect(normalize(shortPath)).not.toBe(normalize(nested));
       await expect(assertNoLinkedPathAncestors(shortPath, "runtime-owned path")).resolves.toBeUndefined();
       expect(normalize(await realpath(shortPath))).toBe(normalize(await realpath(nested)));
+      await expect(physicalPathIdentity(shortPath, "short alias identity"))
+        .resolves.toBe(await physicalPathIdentity(nested, "long path identity"));
+      await expect(physicalPathIdentity(join(shortPath, "missing", "file.txt"), "missing short descendant"))
+        .resolves.toBe(await physicalPathIdentity(join(nested, "missing", "file.txt"), "missing long descendant"));
     },
   );
 });

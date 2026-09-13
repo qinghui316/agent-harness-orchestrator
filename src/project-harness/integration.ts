@@ -16,7 +16,7 @@ import {
   type ProjectHarnessContractRecord,
 } from "./change.js";
 import { readProjectHarnessManifest } from "./manifest.js";
-import { assertPhysicalDirectory, resolveWithinPhysicalRoot } from "./path-safety.js";
+import { assertPhysicalDirectory, physicalPathIdentity, resolveWithinPhysicalRoot } from "./path-safety.js";
 import {
   canonicalProjectHarnessId,
   createExclusiveRegistryRecord,
@@ -1098,10 +1098,13 @@ async function isGitWorktreeRegistered(
   git: ProjectHarnessGitPort,
 ): Promise<boolean> {
   const result = await gitChecked(projectRoot, ["worktree", "list", "--porcelain", "-z"], git);
-  const expected = normalizeIdentity(worktree);
-  return result.stdout.split("\0")
-    .filter((field) => field.startsWith("worktree "))
-    .some((field) => normalizeIdentity(field.slice("worktree ".length)) === expected);
+  const expected = await physicalPathIdentity(worktree, "Integration worktree identity");
+  for (const field of result.stdout.split("\0").filter((candidate) => candidate.startsWith("worktree "))) {
+    if (await physicalPathIdentity(field.slice("worktree ".length), "registered Git worktree identity") === expected) {
+      return true;
+    }
+  }
+  return false;
 }
 
 async function detachIntegrationDiscoveryLinks(worktree: string, skillRoot: string, skillName: string): Promise<string[]> {
