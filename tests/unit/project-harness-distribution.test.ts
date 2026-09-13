@@ -2,7 +2,6 @@ import { execFile } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -41,16 +40,21 @@ describe("project Harness Runtime distribution", () => {
     expect(nonNodeImports).toEqual([]);
     expect(source).toContain("runProjectHarnessDailyCommand");
 
-    const runtimeUrl = pathToFileURL(builtEntry);
-    runtimeUrl.searchParams.set("test", String(Date.now()));
-    const runtime = await import(/* @vite-ignore */ runtimeUrl.href) as {
-      describeProjectHarnessDailyRuntime(skillRoot: string): Promise<{
-        projectId: string;
-        revision: number;
-        contentFingerprint: string;
-      }>;
+    const { stdout } = await execFileAsync(process.execPath, [
+      "--input-type=module",
+      "--eval",
+      `import { pathToFileURL } from "node:url";
+const runtime = await import(pathToFileURL(process.argv[1]).href);
+const description = await runtime.describeProjectHarnessDailyRuntime(process.argv[2]);
+process.stdout.write(JSON.stringify(description));`,
+      builtEntry,
+      fixture.skillRoot,
+    ]);
+    const description = JSON.parse(stdout) as {
+      projectId: string;
+      revision: number;
+      contentFingerprint: string;
     };
-    const description = await runtime.describeProjectHarnessDailyRuntime(fixture.skillRoot);
     expect(description.projectId).toBe("sample-a1");
     expect(description.revision).toBe(3);
     expect(description.contentFingerprint).toMatch(/^[a-f0-9]{64}$/);
