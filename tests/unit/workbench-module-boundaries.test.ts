@@ -163,11 +163,13 @@ function rgOutput(args: string[]): string {
   }
   const matcher = new RegExp(pattern);
   const matches: string[] = [];
-  for (const root of roots) visit(root);
+  for (const root of roots) {
+    if (!existsSync(root)) throw new Error(`Source scan root does not exist: ${root}`);
+    visit(root);
+  }
   return matches.join("\n");
 
   function visit(path: string): void {
-    if (!existsSync(path)) return;
     for (const entry of readdirSync(path, { withFileTypes: true })) {
       const candidate = join(path, entry.name);
       if (entry.isDirectory()) {

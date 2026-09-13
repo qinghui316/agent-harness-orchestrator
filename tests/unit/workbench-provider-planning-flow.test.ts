@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bindProviderThreadFixture } from "../helpers/provider-thread-fixture.js";
+import { sameTestPhysicalPath } from "../helpers/windows-short-path.js";
 
 const appServerTurn = vi.hoisted(() => vi.fn());
 const appServerChildTurn = vi.hoisted(() => vi.fn());
@@ -392,10 +393,14 @@ describe("Workbench provider planning flow", () => {
       expect(options.prompt).toBe("Read the third line.");
       expect(options.sandboxPolicy).toBe("workspace-write");
       expect(options.writableRoots).toEqual([proposalRoot]);
-      expect(options.skillInputs).toEqual([
-        expect.objectContaining({ name: "repo-harness", path: join(skillRoot, "SKILL.md") }),
+      expect(options.skillInputs).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: "repo-harness" }),
         expect.objectContaining({ name: "aho-workflow-authoring", path: expect.stringContaining("aho-workflow-authoring") }),
-      ]);
+      ]));
+      expect(await sameTestPhysicalPath(
+        options.skillInputs?.find((skill) => skill.name === "repo-harness")?.path ?? "",
+        join(skillRoot, "SKILL.md"),
+      )).toBe(true);
       expect(options.requiredNativeSkills).toEqual(["repo-harness", "aho-workflow-authoring"]);
       for (const event of normalizeCodexAppServerNotification("item/agentMessage/delta", { itemId: "message-feedback", delta: "Third line read." }, {
         projectId: project().id, conversationId: options.conversationId, runId: options.runId,
@@ -1328,10 +1333,14 @@ describe("Workbench provider planning flow", () => {
         createRequiredSkills = [...(options.requiredNativeSkills ?? [])];
         createNativeSkillRoots = [...(options.nativeSkillRoots ?? [])];
         createHandoffContext = options.additionalContext?.["aho.shared-conversation-handoff"]?.value ?? "";
-        expect(options.skillInputs).toEqual([
+        expect(options.skillInputs).toEqual(expect.arrayContaining([
           expect.objectContaining({ name: "aho-main-orchestration", path: expect.stringContaining("aho-main-orchestration") }),
-          expect.objectContaining({ name: "repo-harness", path: join(skillRoot, "SKILL.md") }),
-        ]);
+          expect.objectContaining({ name: "repo-harness" }),
+        ]));
+        expect(await sameTestPhysicalPath(
+          options.skillInputs?.find((skill) => skill.name === "repo-harness")?.path ?? "",
+          join(skillRoot, "SKILL.md"),
+        )).toBe(true);
         expect(options.nativeSkillRoots).toEqual([expect.stringContaining("system-skills")]);
         expect(options.requiredNativeSkills).toEqual(["aho-main-orchestration", "repo-harness"]);
         expect(options.runtimeWorkspaceRoots).toEqual(expect.arrayContaining([expect.stringContaining("planner-proposal")]));

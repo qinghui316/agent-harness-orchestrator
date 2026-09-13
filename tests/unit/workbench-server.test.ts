@@ -30,6 +30,7 @@ import type { ConversationLifecycleOwner } from "../../src/workbench/conversatio
 import type { ConversationReviewLifecycleOwner } from "../../src/workbench/conversation-review-lifecycle.js";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
 import { createFakeCodexRuntime } from "../helpers/fake-codex-runtime.js";
+import { sameTestPhysicalPath } from "../helpers/windows-short-path.js";
 import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
 import { ProviderRegistry } from "../../src/provider-runtime/registry.js";
 import type { ProviderDescriptor } from "../../src/provider-runtime/contracts.js";
@@ -976,7 +977,8 @@ describe("workbench server", () => {
     });
     expect(addedRoot.ok).toBe(true);
     const listed = await getJson<{ roots: Array<{ rootPath: string }>; skills: Array<{ skillId: string; sourceKind: string; contentHash: string; providerBindings: Array<{ providerId: string; status: string }> }> }>(`${handle!.url}/api/projects/repo/skills?productMode=harness&providerId=codex`);
-    expect(listed.roots.some((root) => root.rootPath === skillRoot)).toBe(true);
+    expect((await Promise.all(listed.roots.map((root) => sameTestPhysicalPath(root.rootPath, skillRoot))))
+      .some(Boolean)).toBe(true);
     const pricing = listed.skills.find((skill) => skill.skillId === "pricing-helper");
     const system = listed.skills.find((skill) => skill.skillId === "aho-harness-engineering");
     expect(pricing).toMatchObject({ skillId: "pricing-helper", sourceKind: "custom" });
@@ -1506,7 +1508,7 @@ describe("workbench server", () => {
         body: JSON.stringify({ terminalId: "term-1", cols: 90, rows: 30 }),
       });
       expect(opened.ok).toBe(true);
-      expect(fakePty.cwd).toBe(tempDir);
+      expect(await sameTestPhysicalPath(fakePty.cwd, tempDir)).toBe(true);
       expect(fakePty.cols).toBe(90);
       expect(fakePty.rows).toBe(30);
 
