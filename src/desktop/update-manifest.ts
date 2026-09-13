@@ -178,6 +178,9 @@ export class GitHubBeaverUpdateManifestClient implements BeaverUpdateManifestPor
     } finally {
       clearTimeout(timer);
       external?.removeEventListener("abort", abort);
+      // A sibling request can still be blocked after Promise.all has already
+      // rejected. Always terminate the operation-owned signal before returning.
+      controller.abort();
     }
   }
 }

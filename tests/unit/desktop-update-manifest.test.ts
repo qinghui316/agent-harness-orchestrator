@@ -107,4 +107,23 @@ describe("Beaver Code signed update manifest", () => {
     await expect(client.latest()).rejects.toThrow("timed out");
     expect((request.mock.calls[0]?.[1] as RequestInit | undefined)?.signal?.aborted).toBe(true);
   });
+
+  it("aborts a pending sibling request when another metadata request fails immediately", async () => {
+    let siblingAborted = false;
+    const request = vi.fn(async (_input: URL | RequestInfo, init?: RequestInit) => {
+      if (request.mock.calls.length === 1) return new Response(null, { status: 404 });
+      return new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        const abort = () => {
+          siblingAborted = true;
+          reject(new DOMException("Aborted", "AbortError"));
+        };
+        if (signal?.aborted) abort();
+        else signal?.addEventListener("abort", abort, { once: true });
+      });
+    });
+    await expect(new GitHubBeaverUpdateManifestClient(trust, request as typeof fetch).latest())
+      .rejects.toThrow("unavailable");
+    expect(siblingAborted).toBe(true);
+  });
 });

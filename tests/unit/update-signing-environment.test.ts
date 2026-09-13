@@ -8,6 +8,9 @@ describe("desktop update signing environment", () => {
       BEAVER_UPDATE_SIGNING_PRIVATE_KEY: "private",
       BEAVER_UPDATE_SIGNING_KEY_PASSWORD: "password",
       BEAVER_UPDATE_SIGNING_KEY_ID: "key-id",
+      beaver_update_signing_private_key: "lower-private",
+      Beaver_Update_Signing_Key_Password: "mixed-password",
+      beaver_UPDATE_signing_KEY_id: "mixed-key-id",
     })).toEqual({ PATH: "safe" });
   });
 });

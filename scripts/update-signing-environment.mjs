@@ -6,6 +6,9 @@ const SIGNING_ENVIRONMENT_KEYS = Object.freeze([
 
 export function withoutUpdateSigningSecrets(source) {
   const result = { ...source };
-  for (const key of SIGNING_ENVIRONMENT_KEYS) delete result[key];
+  const protectedKeys = new Set(SIGNING_ENVIRONMENT_KEYS.map((key) => key.toUpperCase()));
+  for (const key of Object.keys(result)) {
+    if (protectedKeys.has(key.toUpperCase())) delete result[key];
+  }
   return result;
 }
