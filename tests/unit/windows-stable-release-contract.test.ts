@@ -18,6 +18,9 @@ describe("Windows stable release contract", () => {
     expect(workflow.indexOf("environment: windows-signing")).toBeLessThan(workflow.indexOf("environment: windows-release"));
     expect(workflow.indexOf("Create verified draft")).toBeLessThan(workflow.indexOf("environment: windows-release"));
     expect(workflow.indexOf("Re-download and verify the approved draft")).toBeLessThan(workflow.indexOf("Publish immutable latest release"));
+    const publishJob = workflow.slice(workflow.indexOf("\n  release:\n"));
+    expect(publishJob.indexOf("Build release verifier from the approved source"))
+      .toBeLessThan(publishJob.indexOf("Re-download and verify the approved draft"));
     expect(workflow).not.toContain("qinghui316/agent-harness-orchestrator");
     expect(packageJson.repository?.url).toBe("git+https://github.com/qinghui316/beaver-code.git");
   });

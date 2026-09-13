@@ -140,6 +140,8 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
+      - name: Build release verifier from the approved source
+        run: npm run build
       - name: Re-download and verify the approved draft
         shell: pwsh
         env:
