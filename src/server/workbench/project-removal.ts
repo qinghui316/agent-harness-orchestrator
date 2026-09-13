@@ -195,7 +195,7 @@ export class WorkbenchProjectRemovalService implements WorkbenchProjectRemovalPo
         confirmationToken: request.confirmationToken,
         confirmed: request.confirmed,
       });
-      await this.lifecycleMutations.markRemoved(project.id, project.path);
+      lifecycleLease.markRemoved(project.id);
       return result;
     } finally {
       lifecycleLease.release();
@@ -221,15 +221,16 @@ export class WorkbenchProjectRemovalService implements WorkbenchProjectRemovalPo
     operation: () => Promise<T>,
   ): Promise<T> {
     const lifecycleLease = await this.lifecycleMutations.acquire(null, projectPath);
-    const removedProjectId = await this.lifecycleMutations.removedProjectId(projectPath);
-    if (removedProjectId) {
-      this.runtimeActivities.activateProject(removedProjectId);
-      this.databaseLeases.activateProject(removedProjectId);
-    }
+    let removedProjectId: string | null = null;
     try {
+      removedProjectId = lifecycleLease.removedProjectId();
+      if (removedProjectId) {
+        this.runtimeActivities.activateProject(removedProjectId);
+        this.databaseLeases.activateProject(removedProjectId);
+      }
       const result = await operation();
       this.activateAfterRegistration(result.project.id);
-      await this.lifecycleMutations.markRegistered(projectPath);
+      lifecycleLease.markRegistered();
       return result;
     } catch (error) {
       if (removedProjectId) {
