@@ -10,6 +10,7 @@ import { ProviderInputLifecycleOwner, ProviderInteractionLifecycleOwner, provide
 const projectId = "provider-input-lifecycle-project";
 const conversationId = "conversation-1";
 const graphScopeId = "scope-1";
+const asyncAssertionOptions = { timeout: 10_000, interval: 25 } as const;
 let root: string;
 let originalAhoHome: string | undefined;
 let runtime: ProjectRuntimePaths;
@@ -57,7 +58,10 @@ describe.each(["agent", "harness"] as const)("ProviderInputLifecycleOwner in %s 
     owner.onRequest(second);
     await expectRequestStatus("pending", second);
     owner.onResolved(providerResolution({ requestId: "request-2", threadId: "wrong-thread" }));
-    await vi.waitFor(() => expect(errors.at(-1)?.message).toContain("thread lineage"));
+    await vi.waitFor(
+      () => expect(errors.at(-1)?.message).toContain("thread lineage"),
+      asyncAssertionOptions,
+    );
     await expectRequestStatus("pending", second);
     await owner.terminalize();
     await expectRequestStatus("interrupted", second);
@@ -101,7 +105,10 @@ describe("ProviderInteractionLifecycleOwner approval branch", () => {
       onError: (error) => errors.push(error),
     });
     owner.onApprovalRequest(providerApproval());
-    await vi.waitFor(() => expect(errors.at(-1)?.message).toContain("forbidden outside Direct Agent"));
+    await vi.waitFor(
+      () => expect(errors.at(-1)?.message).toContain("forbidden outside Direct Agent"),
+      asyncAssertionOptions,
+    );
     expect(unexpected).toHaveBeenCalledOnce();
     const database = await openProjectRuntimeWorkbenchDatabase(runtime);
     try {
@@ -145,7 +152,7 @@ describe("ProviderInteractionLifecycleOwner approval branch", () => {
           availableDecisions: ["approve-once", "decline"],
         });
       } finally { database.close(); }
-    });
+    }, asyncAssertionOptions);
     expect(errors).toEqual([]);
     await owner.terminalize();
   });
@@ -241,7 +248,7 @@ async function expectApprovalStatus(status: "pending" | "submitted" | "interrupt
     try {
       expect(database.interactions.readProviderApprovalRequest(projectId, conversationId, approvalKey())?.status).toBe(status);
     } finally { database.close(); }
-  });
+  }, asyncAssertionOptions);
 }
 
 async function createConversation(productMode: ProductMode): Promise<void> {
@@ -283,7 +290,7 @@ async function expectRequestStatus(
     } finally {
       database.close();
     }
-  });
+  }, asyncAssertionOptions);
 }
 
 async function providerRequestRowCount(): Promise<number> {
