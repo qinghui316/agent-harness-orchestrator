@@ -5,6 +5,7 @@ import { lstat, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { parseJsonText, writeJsonFile } from "../fs/json.js";
 import { assertPortableProjectId } from "../project-harness/project-id.js";
+import { samePhysicalPath } from "../project-harness/path-safety.js";
 import {
   assertExactSiblingPaths,
   assertIdentityMigrationPhysicalDirectory,
@@ -227,8 +228,8 @@ export async function recoverPendingProjectIdentityMigrations(
     }
     const journalPath = join(transactionDirectory, "journal.json");
     const journal = await readJournal(journalPath);
-    if (!samePath(dirname(journal.sourceSidecarRoot), projectsRoot)
-      || !samePath(dirname(journal.targetSidecarRoot), projectsRoot)) {
+    if (!await samePhysicalPath(dirname(journal.sourceSidecarRoot), projectsRoot, "identity migration source projects root")
+      || !await samePhysicalPath(dirname(journal.targetSidecarRoot), projectsRoot, "identity migration target projects root")) {
       throw new Error(`Identity migration journal sidecars are outside the canonical projects root: ${journalPath}`);
     }
     if (journal.stage === "completed" || journal.stage === "rolled-back") continue;
@@ -776,16 +777,16 @@ async function assertJournalMatchesRecoveryOptions(
   journal: ProjectIdentityMigrationJournal,
   options: RecoverProjectIdentityMigrationOptions,
 ): Promise<void> {
-  assertJournalPaths(journal, options.journalPath);
+  await assertJournalPaths(journal, options.journalPath);
   assertPortableProjectId(options.sourceProjectId, "expected source project id");
   assertPortableProjectId(options.targetProjectId, "expected target project id");
   if (journal.sourceProjectId !== options.sourceProjectId || journal.targetProjectId !== options.targetProjectId) {
     throw new Error("Identity migration journal project ids do not match the expected recovery identity.");
   }
   const manifestPath = await assertIdentityMigrationPhysicalFile(options.manifestPath, "expected project Harness manifest");
-  if (!samePath(journal.manifestPath, manifestPath)
-    || !samePath(journal.sourceSidecarRoot, options.sourceSidecarRoot)
-    || !samePath(journal.targetSidecarRoot, options.targetSidecarRoot)) {
+  if (!await samePhysicalPath(journal.manifestPath, manifestPath, "identity migration manifest")
+    || !await samePhysicalPath(journal.sourceSidecarRoot, options.sourceSidecarRoot, "identity migration source sidecar")
+    || !await samePhysicalPath(journal.targetSidecarRoot, options.targetSidecarRoot, "identity migration target sidecar")) {
     throw new Error("Identity migration journal paths do not match the expected recovery inputs.");
   }
   await assertCanonicalManifest(manifestPath, options.targetProjectId);
@@ -806,15 +807,17 @@ async function assertJournalMatchesRecoveryOptions(
     const expected = expectedDocuments[index];
     const actual = journal.documents[index];
     if (actual.kind !== expected.kind || actual.scope !== expected.scope
-      || !samePath(actual.sourcePath, expected.sourcePath) || !samePath(actual.stagedPath, expected.stagedPath)
-      || !sameNullablePath(actual.backupPath, expected.backupPath) || actual.required !== expected.required
+      || !await samePhysicalPath(actual.sourcePath, expected.sourcePath, "identity migration source document")
+      || !await samePhysicalPath(actual.stagedPath, expected.stagedPath, "identity migration staged document")
+      || !await sameNullablePhysicalPath(actual.backupPath, expected.backupPath, "identity migration backup document")
+      || actual.required !== expected.required
       || !sameStrings(actual.allowedIdentityPaths, expected.allowedIdentityPaths)) {
       throw new Error("Identity migration journal document set does not match the expected recovery inputs.");
     }
   }
 }
 
-function assertJournalPaths(journal: ProjectIdentityMigrationJournal, suppliedJournalPath: string): void {
+async function assertJournalPaths(journal: ProjectIdentityMigrationJournal, suppliedJournalPath: string): Promise<void> {
   assertPortableProjectId(journal.sourceProjectId, "journal source project id");
   assertPortableProjectId(journal.targetProjectId, "journal target project id");
   if (!PORTABLE_TRANSACTION_ID.test(journal.transactionId)) throw new Error("Identity migration journal transaction id is invalid.");
@@ -827,9 +830,10 @@ function assertJournalPaths(journal: ProjectIdentityMigrationJournal, suppliedJo
   const expectedJournal = join(parent, ".identity-transactions", journal.transactionId, "journal.json");
   const expectedStaged = join(parent, `.${journal.targetProjectId}.${journal.transactionId}.staged`);
   const expectedPrevious = join(parent, `.${journal.sourceProjectId}.${journal.transactionId}.previous`);
-  if (resolve(suppliedJournalPath) !== resolve(expectedJournal) || resolve(journal.journalPath) !== resolve(expectedJournal)
-    || resolve(journal.stagedSidecarRoot) !== resolve(expectedStaged)
-    || resolve(journal.previousSidecarRoot) !== resolve(expectedPrevious)) {
+  if (!await samePhysicalPath(suppliedJournalPath, expectedJournal, "identity migration supplied journal")
+    || !await samePhysicalPath(journal.journalPath, expectedJournal, "identity migration recorded journal")
+    || !await samePhysicalPath(journal.stagedSidecarRoot, expectedStaged, "identity migration staged sidecar")
+    || !await samePhysicalPath(journal.previousSidecarRoot, expectedPrevious, "identity migration previous sidecar")) {
     throw new Error("Identity migration journal contains unexpected transaction paths.");
   }
   for (const document of journal.documents) {
@@ -861,16 +865,12 @@ function isJournalDocument(value: unknown): value is ProjectIdentityMigrationDoc
       || document.state === "published-with-sidecar" || document.state === "published");
 }
 
-function sameNullablePath(left: string | null, right: string | null): boolean {
-  return left === null || right === null ? left === right : samePath(left, right);
-}
-
-function samePath(left: string, right: string): boolean {
-  const leftPath = resolve(left);
-  const rightPath = resolve(right);
-  return process.platform === "win32"
-    ? leftPath.toLowerCase() === rightPath.toLowerCase()
-    : leftPath === rightPath;
+async function sameNullablePhysicalPath(
+  left: string | null,
+  right: string | null,
+  label: string,
+): Promise<boolean> {
+  return left === null || right === null ? left === right : samePhysicalPath(left, right, label);
 }
 
 function sameStrings(left: readonly string[], right: readonly string[]): boolean {

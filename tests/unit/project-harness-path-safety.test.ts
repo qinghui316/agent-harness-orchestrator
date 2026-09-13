@@ -10,6 +10,7 @@ import {
   physicalPathIdentity,
   resolveOwnedArtifactPath,
   resolveWithinPhysicalRoot,
+  samePhysicalPath,
 } from "../../src/project-harness/path-safety.js";
 
 const cleanup: string[] = [];
@@ -69,6 +70,21 @@ describe("project Harness path safety", () => {
 
     await expect(assertNoLinkedPathAncestors(join(linked, "nested"), "runtime-owned path"))
       .rejects.toThrow(/traverses a link or Junction/);
+  });
+
+  it("fails closed when physical identity comparison traverses a link or Junction", async () => {
+    const base = await mkdtemp(join(tmpdir(), "aho-physical-identity-link-"));
+    cleanup.push(base);
+    const target = join(base, "target");
+    const linked = join(base, "linked");
+    await mkdir(join(target, "nested"), { recursive: true });
+    await symlink(target, linked, process.platform === "win32" ? "junction" : "dir");
+
+    await expect(samePhysicalPath(
+      join(linked, "nested"),
+      join(target, "nested"),
+      "recovery authority",
+    )).rejects.toThrow(/link or Junction/);
   });
 
   it.runIf(process.platform === "win32")(

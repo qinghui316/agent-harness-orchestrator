@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -11,6 +11,7 @@ import {
   type ProjectIdentityMigrationJournal,
 } from "../../src/project-runtime/identity-migration.js";
 import { renameIdentityMigrationPath } from "../../src/project-runtime/identity-migration-fs.js";
+import { windowsShortPath } from "../helpers/windows-short-path.js";
 
 const SOURCE_ID = "aho-self";
 const TARGET_ID = "agent-harness-orchestrator-a6ad344cbe4e";
@@ -68,6 +69,34 @@ describe("project identity migration Windows rename and recovery", () => {
     );
 
     expect(recovered).toEqual([expect.objectContaining({ stage: "rolled-back" })]);
+    expect(existsSync(fixture.sourceSidecarRoot)).toBe(true);
+    expect(existsSync(fixture.targetSidecarRoot)).toBe(false);
+  });
+
+  it("recovers a persisted journal when startup uses a distinct Windows 8.3 root alias", async ({ skip }) => {
+    const fixture = await createRecoveryFixture("recover-short-root", "target-sidecar-published");
+    const root = resolve(dirname(fixture.registryPath));
+    const shortRoot = await windowsShortPath(root);
+    if (!shortRoot) skip("Windows 8.3 aliases are unavailable on this volume.");
+    expect(shortRoot.toLowerCase()).not.toBe(root.toLowerCase());
+    await rename(fixture.sourceSidecarRoot, fixture.previousSidecarRoot);
+    await rename(fixture.stagedSidecarRoot, fixture.targetSidecarRoot);
+    await writeJournal(fixture.journalPath, fixture.journal);
+
+    const alias = (path: string) => join(shortRoot, relative(root, path));
+    const recovered = await recoverProjectIdentityMigration({
+      ...fixture.recoveryOptions,
+      journalPath: alias(fixture.journalPath),
+      manifestPath: alias(fixture.recoveryOptions.manifestPath),
+      sourceSidecarRoot: alias(fixture.sourceSidecarRoot),
+      targetSidecarRoot: alias(fixture.targetSidecarRoot),
+      jsonDocuments: fixture.recoveryOptions.jsonDocuments.map((document) => ({
+        ...document,
+        path: alias(document.path),
+      })),
+    });
+
+    expect(recovered.stage).toBe("rolled-back");
     expect(existsSync(fixture.sourceSidecarRoot)).toBe(true);
     expect(existsSync(fixture.targetSidecarRoot)).toBe(false);
   });

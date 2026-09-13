@@ -8,7 +8,7 @@ import {
   PROJECT_HARNESS_DYNAMIC_PATHS,
 } from "./fingerprint.js";
 import { readProjectHarnessManifest } from "./manifest.js";
-import { assertPhysicalDirectory } from "./path-safety.js";
+import { assertPhysicalDirectory, samePhysicalPath } from "./path-safety.js";
 import { projectHarnessSharedWriterRoot, withProjectHarnessWriterLock } from "./writer-lock.js";
 
 export type ProjectHarnessPublicationStage =
@@ -209,15 +209,15 @@ export async function recoverProjectHarnessPublication(
   options: RecoverProjectHarnessPublicationOptions,
 ): Promise<ProjectHarnessPublicationJournal> {
   const initial = await readProjectHarnessPublicationJournal(options.journalPath);
-  assertJournalInsideSidecar(options.sidecarRoot, options.journalPath);
-  assertRecoveryBinding(initial, options);
+  await assertJournalInsideSidecar(options.sidecarRoot, options.journalPath);
+  await assertRecoveryBinding(initial, options);
   return withProjectHarnessWriterLock(projectHarnessSharedWriterRoot(options.sidecarRoot), {
     projectId: initial.projectId,
     ownerId: options.ownerId,
     operation: "migrate",
   }, async () => {
     let journal = await readProjectHarnessPublicationJournal(options.journalPath);
-    assertRecoveryBinding(journal, options);
+    await assertRecoveryBinding(journal, options);
     assertJournalSiblingPaths(journal);
     if (journal.stage === "completed") {
       await verifyPublishedCandidate(journal);
@@ -496,22 +496,26 @@ function assertJournalSiblingPaths(journal: ProjectHarnessPublicationJournal): v
   }
 }
 
-function assertJournalInsideSidecar(sidecarRoot: string, journalPath: string): void {
+async function assertJournalInsideSidecar(sidecarRoot: string, journalPath: string): Promise<void> {
   const transactionsRoot = resolve(sidecarRoot, "transactions");
-  const rel = relative(transactionsRoot, resolve(journalPath));
-  if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || rel.includes(sep)) {
+  if (basename(journalPath) === journalPath
+    || !await samePhysicalPath(dirname(journalPath), transactionsRoot, "project Harness publication journal owner")) {
     throw new Error(`Project Harness publication journal is outside the sidecar transactions root: ${journalPath}`);
   }
 }
 
-function assertRecoveryBinding(
+async function assertRecoveryBinding(
   journal: ProjectHarnessPublicationJournal,
   options: RecoverProjectHarnessPublicationOptions,
-): void {
+): Promise<void> {
   if (journal.projectId !== options.expectedProjectId) {
     throw new Error("Project Harness publication journal project identity does not match recovery authority.");
   }
-  if (resolve(journal.currentSkillRoot) !== resolve(options.expectedCurrentSkillRoot)) {
+  if (!await samePhysicalPath(
+    journal.currentSkillRoot,
+    options.expectedCurrentSkillRoot,
+    "project Harness publication recovery Skill root",
+  )) {
     throw new Error("Project Harness publication journal Skill root does not match recovery authority.");
   }
   if (journal.skillName !== basename(options.expectedCurrentSkillRoot)

@@ -1,5 +1,5 @@
 import { cp, mkdtemp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -11,6 +11,7 @@ import {
   recoverProjectHarnessPublication,
   type ProjectHarnessPublicationJournal,
 } from "../../src/project-harness/publication.js";
+import { windowsShortPath } from "../helpers/windows-short-path.js";
 
 const cleanup: string[] = [];
 
@@ -74,6 +75,31 @@ describe("project Harness atomic publication", () => {
       expectedProjectId: "sample-a1",
       expectedCurrentSkillRoot: fixture.current,
     });
+    expect(recovered.stage).toBe("rolled-back");
+    expect(await readFile(join(fixture.current, "static.txt"), "utf8")).toBe("current\n");
+  });
+
+  it("recovers a persisted publication through a distinct Windows 8.3 root alias", async ({ skip }) => {
+    const fixture = await createFixture();
+    const root = resolve(fixture.current, "../..");
+    const shortRoot = await windowsShortPath(root);
+    if (!shortRoot) skip("Windows 8.3 aliases are unavailable on this volume.");
+    expect(shortRoot.toLowerCase()).not.toBe(root.toLowerCase());
+    const journal = await prepareCrashJournal(fixture, "recover-short-root");
+    await cp(fixture.candidate, journal.stagedCandidateRoot, { recursive: true, force: false });
+    await rename(fixture.current, journal.previousRoot);
+    journal.stage = "current-moved";
+    await writeJournal(fixture.sidecar, journal);
+    const alias = (path: string) => join(shortRoot, relative(root, path));
+
+    const recovered = await recoverProjectHarnessPublication({
+      sidecarRoot: alias(fixture.sidecar),
+      journalPath: alias(journalPath(fixture.sidecar, journal.transactionId)),
+      ownerId: "recovery-owner",
+      expectedProjectId: "sample-a1",
+      expectedCurrentSkillRoot: alias(fixture.current),
+    });
+
     expect(recovered.stage).toBe("rolled-back");
     expect(await readFile(join(fixture.current, "static.txt"), "utf8")).toBe("current\n");
   });

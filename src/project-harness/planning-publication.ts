@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { mkdir, readFile, readdir, rename, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import { buildAcMap, parseAcceptanceCriteria, parseTasks } from "../ecl/anchors.js";
 import { atomicWriteFile, writeJsonFile } from "../fs/json.js";
@@ -45,7 +45,7 @@ import {
   type ProjectHarnessLaneRecord,
   type ProjectHarnessRegistryContext,
 } from "./registry.js";
-import { assertPhysicalDirectory, resolveWithinPhysicalRoot } from "./path-safety.js";
+import { assertPhysicalDirectory, resolveWithinPhysicalRoot, samePhysicalPath } from "./path-safety.js";
 import { projectHarnessSharedWriterRoot, withProjectHarnessWriterLock } from "./writer-lock.js";
 
 export interface AcceptedPlanningPackage {
@@ -473,9 +473,9 @@ function supersessionReason(transactionId: string): string {
   return `Planning proposal superseded by transaction ${transactionId}.`;
 }
 
-function assertTransactionPath(root: string, candidate: string): void {
-  const scoped = relative(resolve(root), resolve(candidate));
-  if (!scoped || scoped.startsWith("..") || isAbsolute(scoped)) {
+async function assertTransactionPath(root: string, candidate: string): Promise<void> {
+  const expectedParent = dirname(resolve(candidate));
+  if (!await samePhysicalPath(root, expectedParent, "planning publication transaction owner")) {
     throw new Error(`Planning publication transaction path escaped its owner root: ${candidate}`);
   }
 }
@@ -939,13 +939,13 @@ async function assertProjectHarnessPlanningTransaction(
     throw new Error(`Planning publication journal identity is inconsistent: ${filename}.`);
   }
   const physicalRoot = resolve(context.registry.skillRoot, "state", "changes", ".transactions");
-  assertTransactionPath(physicalRoot, transaction.staging_path);
-  assertTransactionPath(physicalRoot, transaction.backup_path);
+  await assertTransactionPath(physicalRoot, transaction.staging_path);
+  await assertTransactionPath(physicalRoot, transaction.backup_path);
   const activeRoot = resolve(context.registry.skillRoot, "state", "changes", "active");
-  assertTransactionPath(activeRoot, transaction.active_path);
-  if (!samePhysicalPath(transaction.active_path, resolve(activeRoot, transaction.change_id))
-    || !samePhysicalPath(transaction.staging_path, resolve(physicalRoot, `${transaction.id}.staging`))
-    || !samePhysicalPath(transaction.backup_path, resolve(physicalRoot, `${transaction.id}.backup`))) {
+  await assertTransactionPath(activeRoot, transaction.active_path);
+  if (!await samePhysicalPath(transaction.active_path, resolve(activeRoot, transaction.change_id), "planning publication active evidence")
+    || !await samePhysicalPath(transaction.staging_path, resolve(physicalRoot, `${transaction.id}.staging`), "planning publication staging evidence")
+    || !await samePhysicalPath(transaction.backup_path, resolve(physicalRoot, `${transaction.id}.backup`), "planning publication backup evidence")) {
     throw new Error("Planning publication journal paths do not match its bound transaction identity.");
   }
   for (const [path, label] of [
@@ -955,14 +955,6 @@ async function assertProjectHarnessPlanningTransaction(
   ] as const) {
     if (existsSync(path)) await assertPhysicalDirectory(path, label);
   }
-}
-
-function samePhysicalPath(left: string, right: string): boolean {
-  const normalizedLeft = resolve(left);
-  const normalizedRight = resolve(right);
-  return process.platform === "win32"
-    ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase()
-    : normalizedLeft === normalizedRight;
 }
 
 function trailingNewline(value: string): string {
