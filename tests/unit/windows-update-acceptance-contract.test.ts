@@ -41,6 +41,7 @@ describe("Windows update acceptance boundary", () => {
     expect(runner).toContain('$dataDigestBeforeRepair = Get-PersistedDataDigest');
     expect(runner).toContain('Repair restored an unexpected application payload.');
     expect(runner).toContain('Repair changed persisted acceptance data.');
+    expect(runner).toContain('Repair left the controlled corrupted payload behind.');
     expect(runner).toContain('repairRecoveredCorruptedApp = $true');
   });
 
