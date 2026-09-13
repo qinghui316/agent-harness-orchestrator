@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -66,18 +65,19 @@ describe("AHO Harness engineering Skill", () => {
     expect(content).not.toMatch(/external-local|repo-local|memory root|memory-root|allowedTargets/i);
   });
 
-  it("passes the Skill Creator validator", () => {
-    const validator = join(
-      process.env.USERPROFILE ?? "",
-      ".codex",
-      "skills",
-      ".system",
-      "skill-creator",
-      "scripts",
-      "quick_validate.py",
-    );
-    expect(existsSync(validator)).toBe(true);
-    const output = execFileSync("python", [validator, skillRoot], { encoding: "utf8" });
-    expect(output).toContain("Skill is valid!");
+  it("passes the repository-local Skill frontmatter contract", async () => {
+    const skill = await readFile(join(skillRoot, "SKILL.md"), "utf8");
+    const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(skill);
+    expect(match).not.toBeNull();
+    const fields = new Map((match?.[1] ?? "").split(/\r?\n/).map((line) => {
+      const separator = line.indexOf(":");
+      return [line.slice(0, separator).trim(), line.slice(separator + 1).trim()] as const;
+    }));
+    expect([...fields.keys()].sort()).toEqual(["description", "name"]);
+    expect(fields.get("name")).toBe("aho-harness-engineering");
+    expect(fields.get("name")).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+    expect(fields.get("description")).toBeTruthy();
+    expect(fields.get("description")?.length).toBeLessThanOrEqual(1024);
+    expect(skill.slice(match?.[0].length ?? 0)).not.toMatch(/^ {0,3}\[TODO:[^\n]*\]\s*$/m);
   });
 });

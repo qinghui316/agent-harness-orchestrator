@@ -1,7 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
-import { lstat, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
-import { assertPhysicalDirectory, resolveWithinPhysicalRoot } from "./path-safety.js";
+import {
+  assertNoLinkedPathAncestors,
+  assertPhysicalDirectory,
+  resolveWithinPhysicalRoot,
+} from "./path-safety.js";
 
 export const PROJECT_HARNESS_DAILY_COMMANDS = [
   "doctor",
@@ -131,9 +135,7 @@ async function readCompiledRuntimeEntry(path: string): Promise<string> {
   if (!/\.(?:m?js)$/i.test(absolute)) {
     throw new Error(`Compiled project Harness Runtime entry must be JavaScript: ${absolute}`);
   }
-  if (normalizeForIdentity(await realpath(absolute)) !== normalizeForIdentity(absolute)) {
-    throw new Error(`Compiled project Harness Runtime entry must not traverse a link or Junction: ${absolute}`);
-  }
+  await assertNoLinkedPathAncestors(absolute, "Compiled project Harness Runtime entry");
   const source = await readFile(absolute, "utf8");
   if (source.trim().length === 0) {
     throw new Error(`Compiled project Harness Runtime entry is empty: ${absolute}`);
@@ -158,11 +160,6 @@ function assertSelfContainedModule(source: string): void {
     if (/^["'][^"']+["']$/.test(expression)) continue;
     throw new Error(`Compiled project Harness Runtime must not use computed module loading: ${expression}`);
   }
-}
-
-function normalizeForIdentity(path: string): string {
-  const normalized = resolve(path).replace(/\\/g, "/").replace(/\/+$/, "");
-  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 
 async function writeDistribution(root: string, runtimeSource: string, runtimeSha256: string): Promise<void> {

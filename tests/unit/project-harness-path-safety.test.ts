@@ -1,6 +1,8 @@
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { execFile } from "node:child_process";
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import { projectSkillArtifact } from "../../src/project-harness/contracts.js";
 import {
@@ -10,6 +12,7 @@ import {
 } from "../../src/project-harness/path-safety.js";
 
 const cleanup: string[] = [];
+const execFileAsync = promisify(execFile);
 
 afterEach(async () => {
   await Promise.all(cleanup.splice(0).map((path) => rm(path, { recursive: true, force: true })));
@@ -66,4 +69,33 @@ describe("project Harness path safety", () => {
     await expect(assertNoLinkedPathAncestors(join(linked, "nested"), "runtime-owned path"))
       .rejects.toThrow(/traverses a link or Junction/);
   });
+
+  it.runIf(process.platform === "win32")(
+    "accepts an ordinary physical path addressed through its Windows 8.3 alias",
+    async () => {
+      const base = await mkdtemp(join(tmpdir(), "aho-physical-short-path-alias-"));
+      cleanup.push(base);
+      const nested = join(base, "ordinary-physical-directory", "nested");
+      await mkdir(nested, { recursive: true });
+
+      const shortPath = await windowsShortPath(nested);
+      await expect(assertNoLinkedPathAncestors(shortPath, "runtime-owned path")).resolves.toBeUndefined();
+      expect(normalize(await realpath(shortPath))).toBe(normalize(await realpath(nested)));
+    },
+  );
 });
+
+async function windowsShortPath(path: string): Promise<string> {
+  const command = process.env.ComSpec ?? "cmd.exe";
+  const { stdout } = await execFileAsync(command, ["/d", "/c", `for %I in (${path}) do @echo %~sI`], {
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  const value = stdout.trim().replace(/^"|"$/g, "");
+  if (!value) throw new Error(`Windows did not return an 8.3-compatible path for ${path}.`);
+  return value;
+}
+
+function normalize(path: string): string {
+  return resolve(path).toLowerCase();
+}

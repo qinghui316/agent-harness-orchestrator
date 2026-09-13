@@ -1,6 +1,8 @@
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   assertRequiredProjectHarnessBindings,
@@ -11,6 +13,7 @@ import { projectRelativePath, type ProjectHarnessDiscoveryPolicy } from "../../s
 import { hashProjectHarnessProviderContent } from "../../src/project-harness/provider-content-hash.js";
 
 const cleanup: string[] = [];
+const execFileAsync = promisify(execFile);
 
 afterEach(async () => {
   await Promise.all(cleanup.splice(0).map((path) => rm(path, { recursive: true, force: true })));
@@ -116,6 +119,28 @@ describe("project Harness discovery", () => {
     expect(discovered.binding.providers.every((binding) => binding.sameTarget)).toBe(true);
   });
 
+  it.runIf(process.platform === "win32")(
+    "treats a Windows 8.3 alias and long route as one physical Harness",
+    async () => {
+      const project = await createProject("same-target-short-alias");
+      const skill = join(project, ".agents", "skills", "sample-a1b2-harness");
+      await createSkill(skill, "sample-a1b2-harness", "sample-a1b2");
+      const canonicalProject = await realpath(project);
+      const shortSkill = await windowsShortPath(skill);
+      const policy: ProjectHarnessDiscoveryPolicy = {
+        routes: [
+          { providerId: "codex", relativeRoot: projectRelativePath(".agents/skills"), required: true },
+          { providerId: "aho", skillRoot: shortSkill, required: true },
+        ],
+      };
+
+      const discovered = await discoverProjectHarness(canonicalProject, policy);
+      if (!discovered) throw new Error("Expected aliased multi-Host discovery.");
+      expect(discovered.binding.providers.every((binding) => binding.sameTarget)).toBe(true);
+      expect(await realpath(discovered.handle.skillRoot)).toBe(await realpath(skill));
+    },
+  );
+
   it("rejects multiple bindings with conflicting targets or fingerprints", async () => {
     const project = await createProject("conflict");
     await createSkill(join(project, ".agents", "skills", "sample-a1b2-harness"), "sample-a1b2-harness", "sample-a1b2");
@@ -214,4 +239,15 @@ async function createSkill(root: string, skillName: string, projectId: string): 
     skill_revision: 27,
     analysis_status: "complete",
   }, null, 2)}\n`, "utf8");
+}
+
+async function windowsShortPath(path: string): Promise<string> {
+  const command = process.env.ComSpec ?? "cmd.exe";
+  const { stdout } = await execFileAsync(command, ["/d", "/c", `for %I in (${path}) do @echo %~sI`], {
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  const value = stdout.trim().replace(/^"|"$/g, "");
+  if (!value) throw new Error(`Windows did not return an 8.3-compatible path for ${path}.`);
+  return value;
 }

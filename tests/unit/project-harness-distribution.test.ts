@@ -126,7 +126,7 @@ describe("project Harness Runtime distribution", () => {
     await expect(installProjectHarnessRuntimeDistribution({
       skillRoot: fixture.skillRoot,
       compiledRuntimeEntry: linkedEntry,
-    })).rejects.toThrow(/must not traverse a link or Junction/);
+    })).rejects.toThrow(/traverses a link or Junction/);
   });
 
   it.each([

@@ -630,10 +630,10 @@ step only after the exact draft exists; that step re-verifies every asset before
 Configure required reviewers, Ed25519 secrets, key identity, and the release switch before enabling
 it. A named Environment in YAML alone does not establish reviewer protection.
 
-An installed 0.1.2 build has no network updater. Install verified 0.1.3 manually once; use 0.1.4 to
-prove the first real update. Download completion shows a non-blocking choice and never restarts the
-application until the user chooses it. An interrupted NSIS
-installation is repaired with a trusted same-version or corrected installer;
+An installed 0.1.2 build has no network updater. Install verified 0.1.4 manually once; use a later
+patch to prove the first real update. Download completion shows a non-blocking choice and never
+restarts the application until the user chooses it. An interrupted NSIS installation is repaired
+with a trusted same-version or corrected installer;
 never restore an old database over newer user records or delete application data.
 
 The operational key ceremony, GitHub setup, publication, withdrawal, and forward-repair procedure
