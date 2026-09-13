@@ -18,6 +18,7 @@ run(process.execPath, ["scripts/generate-desktop-build-info.mjs", "--require-cle
 run(process.execPath, [npmCli, "run", "build:desktop"]);
 run(process.execPath, ["scripts/generate-desktop-build-info.mjs", "--require-clean"]);
 run(process.execPath, [resolve(root, "node_modules", "electron-builder", "cli.js"), "--config", configPath, "--win", "nsis", "--x64", "--publish", "never"]);
+if (variant.channel === "stable") run(process.execPath, ["scripts/generate-update-manifest.mjs"]);
 run(process.execPath, ["scripts/verify-desktop-package.mjs"]);
 const packagedRoot = resolve(variant.output, "win-unpacked");
 run(resolve(packagedRoot, variant.config.win.executableName + ".exe"), ["scripts/desktop-native-smoke.cjs"], {

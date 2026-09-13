@@ -1,45 +1,38 @@
-name: Windows desktop package
+name: Windows desktop release
+
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
-    inputs:
-      tag:
-        description: Exact canonical version tag
-        required: true
-        type: string
-      commit:
-        description: Full canonical commit SHA
-        required: true
-        type: string
-      channel:
-        type: choice
-        options: [internal, stable]
-        default: internal
-      create_draft:
-        description: Create a signed draft release after verification
-        type: boolean
-        default: false
+
 permissions:
   contents: read
+
 concurrency:
   group: windows-desktop-release
   cancel-in-progress: false
+
 jobs:
   verify:
+    if: github.repository == 'qinghui316/beaver-code'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ inputs.commit }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '24'
           cache: npm
-      - run: node scripts/verify-desktop-release-input.mjs
-        env:
-          BEAVER_RELEASE_TAG: ${{ inputs.tag }}
-          BEAVER_RELEASE_COMMIT: ${{ inputs.commit }}
+      - name: Verify exact release identity
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $env:BEAVER_RELEASE_TAG = '${{ github.ref_name }}'
+          $env:BEAVER_RELEASE_COMMIT = (git rev-parse HEAD).Trim()
+          node scripts/verify-desktop-release-input.mjs
       - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
@@ -49,7 +42,32 @@ jobs:
       - run: npm run lint:ui-language
       - run: npm run lint:ui-styles
       - run: npm test
-  package:
+
+  internal:
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'qinghui316/beaver-code'
+    needs: verify
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run package:desktop:win
+        env:
+          BEAVER_BUILD_CHANNEL: internal
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: beaver-code-windows-internal
+          if-no-files-found: error
+          path: release/desktop/internal/*.exe
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/') && github.repository == 'qinghui316/beaver-code'
     needs: verify
     runs-on: windows-latest
     environment: windows-release
@@ -58,45 +76,59 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ inputs.commit }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '24'
           cache: npm
-      - run: node scripts/verify-desktop-release-input.mjs
-        env:
-          BEAVER_RELEASE_TAG: ${{ inputs.tag }}
-          BEAVER_RELEASE_COMMIT: ${{ inputs.commit }}
-      - run: npm ci
-      - name: Build, sign and verify without publishing
-        run: npm run package:desktop:win
-        env:
-          BEAVER_BUILD_CHANNEL: ${{ inputs.channel }}
-          BEAVER_PUBLISHER_SUBJECT: ${{ vars.BEAVER_PUBLISHER_SUBJECT }}
-          CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: windows-desktop-${{ inputs.channel }}
-          if-no-files-found: error
-          path: |
-            release/desktop/${{ inputs.channel }}/*.exe
-            release/desktop/${{ inputs.channel }}/*.exe.blockmap
-            release/desktop/${{ inputs.channel }}/latest.yml
-            dist/desktop/build-info.json
-      - name: Create verified draft only
-        if: inputs.channel == 'stable' && inputs.create_draft
+      - name: Verify release is enabled and unused
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_ENABLED: ${{ vars.BEAVER_RELEASE_ENABLED }}
-          RELEASE_TAG: ${{ inputs.tag }}
-          RELEASE_COMMIT: ${{ inputs.commit }}
         run: |
-          if ($env:RELEASE_ENABLED -ne 'true') { throw 'Production signing and release acceptance are not enabled.' }
-          $releaseFiles = Get-ChildItem -LiteralPath release/desktop/stable -File | Where-Object { $_.Name -match '\.exe$|\.exe\.blockmap$|^latest\.yml$' }
-          if ($releaseFiles.Count -ne 3) { throw 'Release assets are incomplete.' }
-          & gh release create $env:RELEASE_TAG --draft --verify-tag --target $env:RELEASE_COMMIT --title "Beaver Code $env:RELEASE_TAG" --notes "Windows x64" @($releaseFiles.FullName)
+          if ($env:RELEASE_ENABLED -ne 'true') { throw 'Stable Beaver Code releases are not enabled.' }
+          gh release view '${{ github.ref_name }}' --repo '${{ github.repository }}' 2>$null
+          if ($LASTEXITCODE -eq 0) { throw 'This release tag already exists and cannot be replaced.' }
+          exit 0
+      - run: npm ci
+      - name: Build and independently sign stable update
+        run: npm run package:desktop:win
+        env:
+          BEAVER_BUILD_CHANNEL: stable
+          BEAVER_UPDATE_SIGNING_PRIVATE_KEY: ${{ secrets.BEAVER_UPDATE_SIGNING_PRIVATE_KEY }}
+          BEAVER_UPDATE_SIGNING_KEY_PASSWORD: ${{ secrets.BEAVER_UPDATE_SIGNING_KEY_PASSWORD }}
+          BEAVER_UPDATE_SIGNING_KEY_ID: ${{ vars.BEAVER_UPDATE_SIGNING_KEY_ID }}
+      - name: Create verified draft
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $assets = Get-ChildItem -LiteralPath release/desktop/stable -File | Where-Object {
+            $_.Name -match '\.exe$|\.exe\.blockmap$|^latest\.yml$|^beaver-update-win-x64\.json(?:\.sig)?$|^release-receipt\.json$|^SHA256SUMS\.txt$'
+          }
+          if ($assets.Count -ne 7) { throw 'Stable release assets are incomplete.' }
+          $commit = (git rev-parse HEAD).Trim()
+          gh release create '${{ github.ref_name }}' --repo '${{ github.repository }}' --draft --verify-tag `
+            --target $commit --title 'Beaver Code ${{ github.ref_name }}' --generate-notes @($assets.FullName)
           if ($LASTEXITCODE -ne 0) { throw 'Draft release creation failed.' }
+      - name: Re-download and verify the draft assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BEAVER_BUILD_CHANNEL: stable
+        run: |
+          $download = Join-Path $env:RUNNER_TEMP 'beaver-release-verification'
+          New-Item -ItemType Directory -Path $download | Out-Null
+          gh release download '${{ github.ref_name }}' --repo '${{ github.repository }}' --dir $download
+          if ($LASTEXITCODE -ne 0) { throw 'Draft release download failed.' }
+          $env:DESKTOP_RELEASE_DIR = $download
+          node scripts/verify-update-release.mjs
+      - name: Publish immutable latest release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release edit '${{ github.ref_name }}' --repo '${{ github.repository }}' --draft=false --latest
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed.' }

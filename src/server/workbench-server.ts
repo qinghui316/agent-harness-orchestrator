@@ -119,7 +119,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
   });
   const productModeActivity = options.productModeActivity ?? new ProductModeActivityProjectionOwner();
   const updateGate = options.desktopHost?.updateGeneration ? new WorkbenchUpdateRequestGate() : undefined;
-  const updateChannel = updateGate ? new WorkbenchUpdateRendererChannel() : undefined;
+  const updateChannel = updateGate ? new WorkbenchUpdateRendererChannel(options.desktopHost?.chooseUpdate) : undefined;
   const releaseAdmissionObserver = updateGate
     ? turnControl.subscribeAdmission(() => updateGate.managedExecutionRegistered())
     : () => {};
@@ -360,7 +360,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
     },
   };
   if (updateGate && updateChannel && options.desktopHost?.updateGeneration) {
-    handle.updates = new WorkbenchUpdateLifecycle({
+    const lifecycle = new WorkbenchUpdateLifecycle({
       pauseNewWork: (identity) => {
         const releaseRequests = updateGate.pause(identity.updateId);
         const releaseQueue = conversationTurnQueue.pauseDispatch();
@@ -379,6 +379,13 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
         await handle.close(deadlineMs);
       },
     }, options.desktopHost.updateGeneration);
+    handle.updates = {
+      prepare: (identity) => lifecycle.prepare(identity),
+      stop: (identity) => lifecycle.stop(identity),
+      cancel: (identity) => lifecycle.cancel(identity),
+      snapshot: () => lifecycle.snapshot(),
+      publishOffer: (offer) => updateChannel.publishOffer(offer),
+    };
   }
   return handle;
 }

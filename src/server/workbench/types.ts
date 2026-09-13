@@ -18,6 +18,7 @@ import type { ConversationTurnQueueOwner } from "../../workbench/conversation-tu
 import type { ConversationLifecycleAction, ConversationLifecycleOwner } from "../../workbench/conversation-lifecycle.js";
 import type { ConversationReviewLifecycleOwner } from "../../workbench/conversation-review-lifecycle.js";
 import type { WorkbenchUpdateLifecycle } from "../../workbench/update-lifecycle.js";
+import type { DesktopUpdateChoice, DesktopUpdateOffer } from "../../types/workbench-update.js";
 import type { WorkbenchUpdateRendererChannel } from "./update-renderer-channel.js";
 import type { WorkbenchUpdateRequestGate } from "./update-request-gate.js";
 
@@ -47,7 +48,9 @@ export interface WorkbenchServerHandle {
   url: string;
   snapshot(): Promise<WorkbenchRuntimeSnapshot>;
   close(deadlineMs?: number): Promise<void>;
-  updates?: Pick<WorkbenchUpdateLifecycle, "prepare" | "stop" | "cancel" | "snapshot">;
+  updates?: Pick<WorkbenchUpdateLifecycle, "prepare" | "stop" | "cancel" | "snapshot"> & {
+    publishOffer(offer: DesktopUpdateOffer | null): void;
+  };
 }
 
 export interface WorkbenchDesktopHostPort {
@@ -56,6 +59,7 @@ export interface WorkbenchDesktopHostPort {
   beginOperation?: () => Promise<() => void>;
   openFolder?: () => Promise<FolderDialogResult>;
   updateGeneration?: string;
+  chooseUpdate?: (offerId: string, action: DesktopUpdateChoice) => void;
 }
 
 export interface WorkbenchRuntimeSnapshot {

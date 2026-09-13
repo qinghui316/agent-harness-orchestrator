@@ -4,6 +4,13 @@
 
 Beaver Code is the public desktop product name. It is a local-first Agent Development OS with two shared Workbench modes: Agent mode for direct development and AHO mode for governed multi-Agent collaboration. `Agent Harness Orchestrator` remains the project and kernel name; `AHO` is the collaboration mode, not the desktop host name.
 
+Windows stable distribution uses GitHub Releases from `qinghui316/beaver-code`. Beaver Code checks
+in the background, verifies a product-owned Ed25519 release signature, and keeps the Workbench
+usable after download. Installation begins only when the user chooses “重新启动并更新”. The first
+network-update-capable build is 0.1.3 and therefore requires one manual installation; 0.1.4 is the
+first planned end-to-end automatic-update proof. Windows Authenticode remains a separate release
+hardening step and does not weaken the independent update-signature requirement.
+
 It manages requirements, project understanding, demand conversations, internal Changes/Workpads, specs, plans, TaskGraphs, coding runs, validation, review, and Harness evolution across local code projects. Its core purpose is to let a developer ask for work in natural language while keeping every meaningful state transition traceable to human intent, accepted artifacts, evidence, and gates.
 
 AHO is not a generic multi-agent framework, ticket board, or chat UI. Multi-agent orchestration is a core execution layer, but the product kernel remains project-linked durable memory plus Spec-Anchored execution.

@@ -2,8 +2,8 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 if ($env:GITHUB_ACTIONS -ne "true" -or $env:RUNNER_ENVIRONMENT -ne "github-hosted" `
-  -or $env:GITHUB_REPOSITORY -ne "qinghui316/agent-harness-orchestrator" `
-  -or $env:GITHUB_REF -ne "refs/heads/codex/aho-windows-release-update-foundation-v1" `
+  -or $env:GITHUB_REPOSITORY -ne "qinghui316/beaver-code" `
+  -or $env:GITHUB_REF -notin @("refs/heads/master", "refs/heads/codex/aho-windows-github-independent-update-signing-v1") `
   -or $env:GITHUB_SHA -ne $env:BEAVER_UPDATE_ACCEPTANCE_SHA `
   -or $env:RUNNER_OS -ne "Windows" -or $env:BEAVER_UPDATE_ACCEPTANCE -ne "1") {
   throw "Windows update acceptance is restricted to a disposable GitHub-hosted Windows runner."
@@ -292,7 +292,8 @@ try {
 
   $desktopLog = Join-Path $env:USERPROFILE ".beaver-code-update-test\desktop\desktop.log"
   if (Test-Path -LiteralPath $desktopLog -PathType Leaf) { Remove-Item -LiteralPath $desktopLog -Force }
-  Write-Output "acceptance-stage: automatic-update"
+  $env:BEAVER_TEST_AUTO_ACCEPT_UPDATE = "1"
+  Write-Output "acceptance-stage: prompted-update"
   $oldProcess = Start-Process -FilePath $installedExecutable -WindowStyle Hidden -PassThru
   Wait-Until {
     if (-not (Test-Path -LiteralPath $desktopLog -PathType Leaf)) { return $false }
@@ -300,13 +301,13 @@ try {
     if ($content.Contains(" update failed")) { throw "The installed application reported an update failure." }
     return $content.Contains("update installing") `
       -and $content.Contains("workbench-ready version=$newVersion commit=$expectedCommit")
-  } 600 "The signed automatic update did not install and restart the application."
+  } 600 "The signed prompted update did not install and restart the application."
 
   $version = (Get-Item -LiteralPath $installedExecutable).VersionInfo.ProductVersion
   if ($version -ne "${newVersion}.0" -and $version -ne $newVersion) { throw "Installed executable version is not the update version." }
   $log = Get-Content -LiteralPath $desktopLog -Raw -Encoding UTF8
   foreach ($state in @("checking", "downloading", "preparing", "stopping", "installing")) {
-    if (-not $log.Contains("update $state")) { throw "Automatic update did not record the $state state." }
+    if (-not $log.Contains("update $state")) { throw "Prompted update did not record the $state state." }
   }
   if (-not $oldProcess.HasExited) {
     Wait-Until { $oldProcess.Refresh(); $oldProcess.HasExited } 60 "The old application process did not exit after authorizing the installer."
@@ -361,8 +362,8 @@ try {
     newVersion = $newVersion
     commit = (& git -C $repoRoot rev-parse HEAD).Trim()
     signedPublisher = $publisher
-    automaticUpdate = $true
-    automaticRestartObserved = $true
+    promptedUpdate = $true
+    explicitInstallEntryPointObserved = $true
     persistedConversation = $true
     persistedDraft = $true
     persistedQueue = $true
@@ -416,7 +417,8 @@ try {
     "BEAVER_BUILD_CHANNEL", "BEAVER_TEST_VERSION", "BEAVER_TEST_UPDATE_URL", "BEAVER_PUBLISHER_SUBJECT",
     "CSC_LINK", "CSC_KEY_PASSWORD", "BEAVER_UPDATE_FEED_ROOT", "BEAVER_UPDATE_FEED_READY",
     "BEAVER_UPDATE_TLS_PFX", "BEAVER_UPDATE_TLS_PASSWORD", "BEAVER_UPDATE_FEED_PORT",
-    "BEAVER_UPDATE_INSTALLER_NAME", "BEAVER_UPDATE_BLOCKMAP_NAME", "BEAVER_ACCEPTANCE_CERT_PASSWORD"
+    "BEAVER_UPDATE_INSTALLER_NAME", "BEAVER_UPDATE_BLOCKMAP_NAME", "BEAVER_ACCEPTANCE_CERT_PASSWORD",
+    "BEAVER_TEST_AUTO_ACCEPT_UPDATE"
   )) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
 }
 

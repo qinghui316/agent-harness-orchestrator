@@ -7,6 +7,8 @@ export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
   const [failed, setFailed] = useState(false);
   const notice = useRef<HTMLDialogElement>(null);
   const focusBeforeUpdate = useRef<HTMLElement | null>(null);
+  const [offer, setOffer] = useState<{ offerId: string; version: string; releaseUrl: string } | null>(null);
+  const [choosing, setChoosing] = useState(false);
   useLayoutEffect(() => {
     if (frozen && notice.current && !notice.current.open) notice.current.showModal();
     if (!frozen) focusBeforeUpdate.current?.focus();
@@ -29,6 +31,10 @@ export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
       events.addEventListener("connected", (event) => {
         const value = JSON.parse((event as MessageEvent).data) as { connectionId?: string };
         connectionId = value.connectionId ?? null;
+      });
+      events.addEventListener("offer", (event) => {
+        const value = JSON.parse((event as MessageEvent).data) as typeof offer;
+        if (!disposed) { setOffer(value); setChoosing(false); }
       });
       events.addEventListener("update", (event) => {
         const myEpoch = ++epoch;
@@ -74,8 +80,29 @@ export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
     return () => { disposed = true; epoch += 1; events?.close(); };
   }, []);
 
+  const choose = async (action: "install" | "later"): Promise<void> => {
+    if (!offer || choosing) return;
+    setChoosing(true);
+    try {
+      const response = await fetch("/api/desktop/update/choice", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ offerId: offer.offerId, action }),
+      });
+      if (!response.ok) throw new Error("choice rejected");
+      setOffer(null);
+    } catch { setChoosing(false); }
+  };
+
   return <>
     <div inert={frozen} aria-busy={frozen || undefined}>{children}</div>
+    {offer && !frozen && <aside className="desktop-update-offer" role="status" aria-label="Beaver Code 更新已准备好">
+      <div><strong>Beaver Code {offer.version} 已准备好</strong><span>重新启动后完成更新。</span></div>
+      <div className="desktop-update-offer-actions">
+        <button type="button" disabled={choosing} onClick={() => void choose("later")}>稍后</button>
+        <a href={offer.releaseUrl} target="_blank" rel="noreferrer">查看更新说明</a>
+        <button type="button" disabled={choosing} onClick={() => void choose("install")}>重新启动并更新</button>
+      </div>
+    </aside>}
     {frozen && <dialog ref={notice} className="desktop-update-notice" aria-labelledby="desktop-update-title" aria-modal="true"
       onCancel={(event) => event.preventDefault()}>
       <strong id="desktop-update-title" role={failed ? "alert" : "status"}>{failed ? "更新暂未完成" : "正在保存并更新…"}</strong>

@@ -592,9 +592,9 @@ An internal candidate installer may be used for controlled acceptance. The local
 installation must be rebuilt from the exact canonical `master` commit after Change close and an
 explicit I2 Integration. Desktop upgrades preserve `~/.agent-harness`.
 
-## 19. Windows Update Foundation
+## 19. Windows Stable Updates
 
-The foundation uses Electron Builder 26 and electron-updater 6.8.9 with NSIS. Ordinary
+The update channel uses Electron Builder 26 and electron-updater 6.8.9 with NSIS. Ordinary
 packaging explicitly uses `--publish never`. Output is under
 `release/desktop/<internal|test|stable>/`; generated builder configuration is outside
 the packaged source tree.
@@ -605,14 +605,16 @@ the packaged source tree.
   cache name and user data. It requires `BEAVER_TEST_UPDATE_URL` (isolated HTTPS),
   `BEAVER_PUBLISHER_SUBJECT` (exact certificate subject), and signing credentials.
   Optional `BEAVER_TEST_VERSION` changes only the isolated fixture package version.
-- `BEAVER_BUILD_CHANNEL=stable` requires the exact production publisher and signing
-  configuration. The feed is the project's GitHub Stable releases. It cannot be
-  changed from the UI or an installed application's startup arguments.
-- Signing credentials use Electron Builder's environment inputs (`CSC_LINK` or
-  `WIN_CSC_LINK`, plus the corresponding key password). Never commit a certificate,
-  password or private key. Actual production signing service acceptance is separate.
-- Signed packages require a clean checkout; validation checks Authenticode, exact
-  publisher, trusted timestamp, metadata checksum, and a matching blockmap.
+- `BEAVER_BUILD_CHANNEL=stable` requires a committed Ed25519 public trust root and an encrypted
+  PKCS#8 signing key supplied only through the protected release Environment. Its fixed source is
+  `qinghui316/beaver-code` GitHub Releases and cannot be changed from the UI or startup arguments.
+- Stable packaging generates `beaver-update-win-x64.json`, its detached signature, a release receipt,
+  and checksums. `npm run verify:update-release` verifies those files independently.
+- Authenticode is optional until the Windows certificate is available. When enabled, both the exact
+  publisher subject and Electron Builder signing credential must be present; partial configuration
+  fails closed. Never commit a certificate, password, or private key.
+- Stable packages require a clean checkout. The signed manifest binds the full Commit, installer,
+  blockmap, names, sizes, and SHA-512 values; package validation also checks native layout.
 - Packaging executes the native smoke against modules inside the unpacked ASAR
   layout, using the matching Electron executable.
 
@@ -621,14 +623,17 @@ they must never register the developer's real projects. Use disposable Windows
 isolation for certificate trust and installation-fault tests. Do not install the
 test root certificate in the ordinary host's trust store.
 
-The manually dispatched Windows workflow verifies an exact version tag and canonical
-commit, checks the code, packages/signs, and optionally creates a **draft** release.
-Before enabling it, configure required reviewers on the `windows-release`
-environment, signing secrets and publisher identity. Keep `BEAVER_RELEASE_ENABLED`
-unset until the separate signed-release acceptance is complete. A named environment
-in YAML alone does not establish reviewer protection.
+The release workflow is tag-triggered. It verifies the exact version tag and canonical Commit,
+checks the code, builds the package, creates and re-downloads a draft, independently verifies every
+asset, and publishes only after the protected `windows-release` Environment grants access. Configure
+required reviewers, Ed25519 secrets, key identity, and the release switch before enabling it. A named
+Environment in YAML alone does not establish reviewer protection.
 
-An installed 0.1.1 build has no updater. Install a verified updater-enabled release
-manually once. Later releases can use the update channel. An interrupted NSIS
+An installed 0.1.2 build has no network updater. Install verified 0.1.3 manually once; use 0.1.4 to
+prove the first real update. Download completion shows a non-blocking choice and never restarts the
+application until the user chooses it. An interrupted NSIS
 installation is repaired with a trusted same-version or corrected installer;
 never restore an old database over newer user records or delete application data.
+
+The operational key ceremony, GitHub setup, publication, withdrawal, and forward-repair procedure
+is maintained in `docs/DESKTOP-RELEASE.md`.

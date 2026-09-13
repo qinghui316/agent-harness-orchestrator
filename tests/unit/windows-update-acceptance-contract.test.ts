@@ -8,8 +8,9 @@ const feed = await read("scripts/serve-desktop-update-fixture.mjs");
 const main = await read("src/desktop/main.ts");
 
 describe("Windows update acceptance boundary", () => {
-  it("runs only for the exact candidate branch on a GitHub-hosted runner", () => {
-    expect(workflow).toContain("github.ref == 'refs/heads/codex/aho-windows-release-update-foundation-v1'");
+  it("runs only for canonical or the exact candidate branch on a GitHub-hosted runner", () => {
+    expect(workflow).toContain("github.ref == 'refs/heads/master'");
+    expect(workflow).toContain("github.ref == 'refs/heads/codex/aho-windows-github-independent-update-signing-v1'");
     expect(workflow).toContain("BEAVER_UPDATE_ACCEPTANCE_SHA: ${{ github.sha }}");
     for (const source of [runner, fixture, feed]) {
       expect(source).toContain('RUNNER_ENVIRONMENT');
@@ -19,6 +20,15 @@ describe("Windows update acceptance boundary", () => {
       expect(source).toContain('GITHUB_SHA');
       expect(source).toContain('BEAVER_UPDATE_ACCEPTANCE_SHA');
     }
+  });
+
+  it("uses the explicit install entry point only in the isolated test identity", () => {
+    expect(runner).toContain('$env:BEAVER_TEST_AUTO_ACCEPT_UPDATE = "1"');
+    expect(runner).toContain('acceptance-stage: prompted-update');
+    expect(runner).toContain('explicitInstallEntryPointObserved = $true');
+    expect(main).toContain('buildInfo.channel === "test"');
+    expect(main).toContain('process.env.BEAVER_UPDATE_ACCEPTANCE === "1"');
+    expect(main).toContain('process.env.BEAVER_TEST_AUTO_ACCEPT_UPDATE === "1"');
   });
 
   it("proves the installed packaged runtime became ready and reads data through its ASAR", () => {

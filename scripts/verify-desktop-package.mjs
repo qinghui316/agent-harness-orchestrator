@@ -75,17 +75,26 @@ if (asar) {
 
 if (variant.channel !== "internal" && installer && asar) {
   try {
-    const { verifyDesktopUpdateSignature } = await import("../dist/desktop/update-signature.js");
-    const product = { version: variant.version, productName: variant.config.productName };
-    await verifyDesktopUpdateSignature(installer, variant.updatePolicy.publisherSubject, product);
-    const executable = join(asar, "..", "..", variant.channel === "test" ? "BeaverCodeUpdateTest.exe" : "BeaverCode.exe");
-    await verifyDesktopUpdateSignature(executable, variant.updatePolicy.publisherSubject, product);
+    const publisher = variant.updatePolicy.mode === "test"
+      ? variant.updatePolicy.publisherSubject : variant.updatePolicy.authenticodePublisher;
+    if (publisher) {
+      const { verifyDesktopUpdateSignature } = await import("../dist/desktop/update-signature.js");
+      const product = { version: variant.version, productName: variant.config.productName };
+      await verifyDesktopUpdateSignature(installer, publisher, product);
+      const executable = join(asar, "..", "..", variant.channel === "test" ? "BeaverCodeUpdateTest.exe" : "BeaverCode.exe");
+      await verifyDesktopUpdateSignature(executable, publisher, product);
+    }
     const latest = load(await readFile(join(release, "latest.yml"), "utf8"));
     const name = installer.split(/[\\/]/).pop();
     const metadataFile = latest?.files?.find((file) => file.url === name);
     const digest = createHash("sha512").update(await readFile(installer)).digest("base64");
     if (latest?.version !== variant.version || metadataFile?.sha512 !== digest) failures.push("Signed installer and update metadata disagree.");
     if (!existsSync(installer + ".blockmap")) failures.push("Update blockmap is missing.");
+    if (variant.channel === "stable") {
+      execFileSync(process.execPath, ["scripts/verify-update-release.mjs"], {
+        cwd: root, encoding: "utf8", windowsHide: true, env: process.env,
+      });
+    }
   } catch (cause) {
     failures.push(`Signed update package verification failed: ${
       cause instanceof Error ? cause.message : "unknown verification error"

@@ -18,6 +18,27 @@ export interface WorkbenchUpdateReceipt {
   readonly status: "prepared" | "stopped";
 }
 
+export interface DesktopUpdateOffer {
+  readonly offerId: string;
+  readonly version: string;
+  readonly releaseUrl: string;
+}
+
+export type DesktopUpdateChoice = "install" | "later";
+
+export function isDesktopUpdateOffer(value: unknown): value is DesktopUpdateOffer {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Record<string, unknown>;
+  if (!boundedId(item.offerId) || typeof item.version !== "string"
+    || !/^\d{1,8}\.\d{1,8}\.\d{1,8}$/.test(item.version) || typeof item.releaseUrl !== "string") return false;
+  try {
+    const url = new URL(item.releaseUrl);
+    return url.protocol === "https:" && url.hostname === "github.com" && !url.username && !url.password
+      && !url.port && !url.search && !url.hash
+      && url.pathname === `/qinghui316/beaver-code/releases/tag/v${item.version}`;
+  } catch { return false; }
+}
+
 export function sameWorkbenchUpdate(left: WorkbenchUpdateIdentity, right: WorkbenchUpdateIdentity): boolean {
   return left.updateId === right.updateId && left.generation === right.generation
     && left.targetVersion === right.targetVersion && left.artifactSha512 === right.artifactSha512;

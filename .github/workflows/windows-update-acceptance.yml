@@ -3,7 +3,8 @@ name: Windows update acceptance
 on:
   push:
     branches:
-      - codex/aho-windows-release-update-foundation-v1
+      - master
+      - codex/aho-windows-github-independent-update-signing-v1
   workflow_dispatch:
 
 permissions:
@@ -15,7 +16,7 @@ concurrency:
 
 jobs:
   signed-update:
-    if: github.repository == 'qinghui316/agent-harness-orchestrator' && github.ref == 'refs/heads/codex/aho-windows-release-update-foundation-v1'
+    if: github.repository == 'qinghui316/beaver-code' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/codex/aho-windows-github-independent-update-signing-v1')
     runs-on: windows-latest
     timeout-minutes: 90
     steps:

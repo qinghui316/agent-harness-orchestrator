@@ -2,6 +2,16 @@ import { describe, expect, it, vi } from "vitest";
 import { NsisUpdateAdapter } from "../../src/desktop/nsis-update-adapter.js";
 
 const sha512 = Buffer.alloc(64, 5).toString("base64");
+const signed = {
+  manifest: {
+    schemaVersion: 1 as const, channel: "stable" as const, version: "0.1.3", tag: "v0.1.3", commit: "a".repeat(40),
+    platform: "win32" as const, arch: "x64" as const, publishedAt: "2026-09-13T00:00:00.000Z",
+    installer: { name: "Beaver-Code-Setup-0.1.3-win-x64.exe", size: 123, sha512 },
+    blockmap: { name: "Beaver-Code-Setup-0.1.3-win-x64.exe.blockmap", size: 10, sha512: Buffer.alloc(64, 6).toString("base64") },
+  },
+  manifestSha256: "a".repeat(64),
+  releaseUrl: "https://github.com/qinghui316/beaver-code/releases/tag/v0.1.3",
+};
 function fixture() {
   const cancellation = { cancel: vi.fn() };
   let errorListener: () => void = () => {};
@@ -17,10 +27,11 @@ function fixture() {
     downloadUpdate: vi.fn(async () => ["C:/cache/update.exe"]),
     launchVerifiedUpdate: vi.fn(async () => {}),
   };
-  const verifier = { signature: vi.fn(async () => {}), hash: vi.fn(async () => {}) };
+  const verifier = { signature: vi.fn(async () => {}), hash: vi.fn(async () => {}), size: vi.fn(async () => 123) };
+  const manifests = { latest: vi.fn(async () => signed), exact: vi.fn(async () => {}) };
   const adapter = new NsisUpdateAdapter(nsis as unknown as ConstructorParameters<typeof NsisUpdateAdapter>[0],
-    { mode: "stable", owner: "qinghui316", repo: "agent-harness-orchestrator", publisherSubject: "CN=Beaver Publisher" }, verifier);
-  return { nsis, verifier, adapter, cancellation, emitError: () => errorListener() };
+    { mode: "stable", owner: "qinghui316", repo: "beaver-code", trustedKeys: [{ keyId: "test", publicKey: "unused-by-mock" }] }, verifier, manifests);
+  return { nsis, verifier, manifests, adapter, cancellation, emitError: () => errorListener() };
 }
 describe("NSIS adapter security defaults", () => {
   it("disables implicit download/install, downgrade, prerelease and web installers", () => {
@@ -30,12 +41,13 @@ describe("NSIS adapter security defaults", () => {
       allowDowngrade: false, disableWebInstaller: true, logger: null,
     });
   });
-  it("requires independent signature verification even when library skips its callback", async () => {
-    const { adapter, verifier, nsis } = fixture();
+  it("requires independent manifest and artifact verification even when the library skips its callback", async () => {
+    const { adapter, verifier, manifests, nsis } = fixture();
     const artifact = (await adapter.check())!;
     await adapter.download(artifact, new AbortController().signal);
-    expect(verifier.signature).toHaveBeenCalledWith("C:/cache/update.exe", "CN=Beaver Publisher", { version: "0.1.3", productName: "Beaver Code" });
+    expect(verifier.signature).not.toHaveBeenCalled();
     expect(verifier.hash).toHaveBeenCalledWith("C:/cache/update.exe", sha512);
+    expect(manifests.exact).toHaveBeenCalled();
     await adapter.install();
     expect(nsis.launchVerifiedUpdate).toHaveBeenCalledTimes(1);
     await expect(adapter.install()).rejects.toThrow();
@@ -43,7 +55,7 @@ describe("NSIS adapter security defaults", () => {
   it("cannot install after verifier failure", async () => {
     const { adapter, verifier, nsis } = fixture();
     const artifact = (await adapter.check())!;
-    verifier.signature.mockRejectedValue(new Error("untrusted"));
+    verifier.hash.mockRejectedValue(new Error("untrusted"));
     await expect(adapter.download(artifact, new AbortController().signal)).rejects.toThrow();
     await expect(adapter.install()).rejects.toThrow();
     expect(nsis.launchVerifiedUpdate).not.toHaveBeenCalled();

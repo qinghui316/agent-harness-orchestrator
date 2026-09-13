@@ -70,6 +70,14 @@ describe("desktop host protocol", () => {
     expect(isDesktopHostMessage({ type: "update-result", requestId: "request-1", generation: "generation-1", identity, result: "success" })).toBe(false);
   });
 
+  it("accepts only the fixed Beaver Code release URL and bounded update choices", () => {
+    const offer = { offerId: "offer-1", version: "0.1.3", releaseUrl: "https://github.com/qinghui316/beaver-code/releases/tag/v0.1.3" };
+    expect(isDesktopHostMessage({ type: "update-offer", generation: "generation-1", offer })).toBe(true);
+    expect(isDesktopHostMessage({ type: "update-offer", generation: "generation-1", offer: { ...offer, releaseUrl: "https://example.com/v0.1.3" } })).toBe(false);
+    expect(isDesktopHostMessage({ type: "update-choice", generation: "generation-1", offerId: "offer-1", action: "install" })).toBe(true);
+    expect(isDesktopHostMessage({ type: "update-choice", generation: "generation-1", offerId: "offer-1", action: "force" })).toBe(false);
+  });
+
   it("redacts local paths and bounds diagnostics", () => {
     const diagnostic = safeDiagnostic("runtime", new Error(`Failed at C:\\Users\\Jane Doe\\秘密项目\\secret.ts\n${"x".repeat(800)}`));
     expect(diagnostic.summary).toContain("[本地路径]");

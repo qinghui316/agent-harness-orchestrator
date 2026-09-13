@@ -91,6 +91,30 @@ describe("real update HTTP/SSE composition", () => {
     expect(await status.json()).toMatchObject({ desktopUpdates: true });
   });
 
+  it("delivers only the current bounded offer choice back to the desktop host", async () => {
+    root = await mkdtemp(join(tmpdir(), "aho-update-choice-"));
+    const choices: unknown[] = [];
+    server = await startWorkbenchServer(null, {
+      port: 0, store: new ProjectRegistryStore(root), providerRegistry: new ProviderRegistry(),
+      desktopHost: { sessionToken: "test-token", updateGeneration: identity.generation,
+        chooseUpdate: (offerId, action) => choices.push({ offerId, action }) },
+    });
+    await connect(server);
+    const offer = { offerId: "offer-1", version: "0.1.3", releaseUrl: "https://github.com/qinghui316/beaver-code/releases/tag/v0.1.3" };
+    server.updates!.publishOffer(offer);
+    const accepted = await fetch(server.url + "/api/desktop/update/choice", {
+      method: "POST", headers: { Cookie: cookie, Origin: server.url, "content-type": "application/json" },
+      body: JSON.stringify({ offerId: offer.offerId, action: "later" }),
+    });
+    expect(accepted.status).toBe(200);
+    expect(choices).toEqual([{ offerId: "offer-1", action: "later" }]);
+    const replay = await fetch(server.url + "/api/desktop/update/choice", {
+      method: "POST", headers: { Cookie: cookie, Origin: server.url, "content-type": "application/json" },
+      body: JSON.stringify({ offerId: offer.offerId, action: "install" }),
+    });
+    expect(replay.status).toBe(409);
+  });
+
   it("prepares over SSE, fences mutations, and cancels without stopping the server", async () => {
     const handle = await start();
     const actions = await connect(handle);

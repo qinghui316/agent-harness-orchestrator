@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { WorkbenchUpdateIdentity } from "../../types/workbench-update.js";
+import { isDesktopUpdateOffer, type DesktopUpdateChoice, type DesktopUpdateOffer, type WorkbenchUpdateIdentity } from "../../types/workbench-update.js";
 import { assertLocalWorkbenchRequest, sendJson } from "./http.js";
 
 /** Authenticated transport only. Preparation can be started only through the host port. */
@@ -9,6 +9,9 @@ export class WorkbenchUpdateRendererChannel {
   private pending: {
     id: string; connectionId: string; resolve: () => void; reject: (cause: Error) => void;
   } | null = null;
+  private offer: DesktopUpdateOffer | null = null;
+
+  constructor(private readonly choose: (offerId: string, action: DesktopUpdateChoice) => void = () => {}) {}
 
   async handle(request: IncomingMessage, response: ServerResponse, url: URL): Promise<boolean> {
     if (!url.pathname.startsWith("/api/desktop/update/")) return false;
@@ -19,6 +22,7 @@ export class WorkbenchUpdateRendererChannel {
       this.connection = connection;
       response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive" });
       response.write(`event: connected\ndata: ${JSON.stringify({ connectionId: connection.id })}\n\n`);
+      if (this.offer) response.write(`event: offer\ndata: ${JSON.stringify(this.offer)}\n\n`);
       const heartbeat = setInterval(() => response.write(": heartbeat\n\n"), 10_000);
       heartbeat.unref();
       response.once("close", () => {
@@ -26,6 +30,23 @@ export class WorkbenchUpdateRendererChannel {
         if (this.connection === connection) this.connection = null;
         if (this.pending?.connectionId === connection.id) this.pending.reject(new Error("Update renderer disconnected."));
       });
+      return true;
+    }
+    if (request.method === "POST" && url.pathname === "/api/desktop/update/choice") {
+      if (request.headers.origin !== `http://${request.headers.host}`) {
+        sendJson(response, 403, { error: "更新操作来源无效。" }); return true;
+      }
+      const value = await readBoundedJson(request, response);
+      if (value === null) return true;
+      const choice = value as { offerId?: unknown; action?: unknown };
+      if (!this.offer || choice.offerId !== this.offer.offerId || !["install", "later"].includes(String(choice.action))) {
+        sendJson(response, 409, { error: "这个更新已发生变化。" }); return true;
+      }
+      const offerId = this.offer.offerId;
+      const action = choice.action as DesktopUpdateChoice;
+      this.offer = null;
+      sendJson(response, 200, { accepted: true });
+      this.choose(offerId, action);
       return true;
     }
     if (request.method === "POST" && url.pathname === "/api/desktop/update/ack") {
@@ -57,6 +78,12 @@ export class WorkbenchUpdateRendererChannel {
     return true;
   }
 
+  publishOffer(offer: DesktopUpdateOffer | null): void {
+    if (offer !== null && !isDesktopUpdateOffer(offer)) throw new Error("Desktop update offer is invalid.");
+    this.offer = offer;
+    if (this.connection) this.connection.response.write(`event: offer\ndata: ${JSON.stringify(offer)}\n\n`);
+  }
+
   async request(action: "prepare" | "confirm" | "cancel", identity: WorkbenchUpdateIdentity, signal?: AbortSignal): Promise<void> {
     if (!this.connection || this.pending || signal?.aborted) throw new Error("Update renderer is not available.");
     const connection = this.connection;
@@ -77,4 +104,17 @@ export class WorkbenchUpdateRendererChannel {
       if (signal?.aborted) abort();
     });
   }
+}
+
+async function readBoundedJson(request: IncomingMessage, response: ServerResponse): Promise<unknown | null> {
+  let bytes = 0;
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    bytes += buffer.length;
+    if (bytes > 4096) { sendJson(response, 413, { error: "更新操作内容过大。" }); return null; }
+    chunks.push(buffer);
+  }
+  try { return JSON.parse(Buffer.concat(chunks).toString("utf8")); }
+  catch { sendJson(response, 400, { error: "更新操作内容无效。" }); return null; }
 }

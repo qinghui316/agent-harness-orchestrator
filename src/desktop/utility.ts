@@ -41,6 +41,7 @@ async function receive(message: DesktopHostMessage): Promise<void> {
           beginOperation: beginHostOperation,
           openFolder: requestFolder,
           updateGeneration: generation,
+          chooseUpdate: (offerId, action) => post({ type: "update-choice", generation: generation!, offerId, action }),
         },
       });
       post({
@@ -62,6 +63,10 @@ async function receive(message: DesktopHostMessage): Promise<void> {
     return;
   }
   if (message.generation !== generation) return;
+  if (message.type === "update-offer") {
+    server?.updates?.publishOffer(message.offer);
+    return;
+  }
   if (message.type === "update-request") {
     if (idleTimer) clearInterval(idleTimer);
     idleTimer = null;

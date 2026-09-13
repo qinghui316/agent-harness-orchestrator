@@ -1,6 +1,6 @@
-import { isWorkbenchUpdateIdentity, type WorkbenchUpdateIdentity } from "../types/workbench-update.js";
+import { isDesktopUpdateOffer, isWorkbenchUpdateIdentity, type DesktopUpdateChoice, type DesktopUpdateOffer, type WorkbenchUpdateIdentity } from "../types/workbench-update.js";
 
-export const DESKTOP_PROTOCOL_VERSION = 2 as const;
+export const DESKTOP_PROTOCOL_VERSION = 3 as const;
 export const DESKTOP_SESSION_COOKIE = "beaver_code_session";
 
 export interface DesktopSafeDiagnostic {
@@ -17,8 +17,8 @@ export interface DesktopRuntimeSnapshot {
 }
 
 export type DesktopHostMessage =
-  | { type: "bootstrap"; protocolVersion: 2; sessionToken: string; generation: string }
-  | { type: "ready"; protocolVersion: 2; origin: string; generation: string }
+  | { type: "bootstrap"; protocolVersion: 3; sessionToken: string; generation: string }
+  | { type: "ready"; protocolVersion: 3; origin: string; generation: string }
   | { type: "startup-failed"; generation: string; diagnostic: DesktopSafeDiagnostic }
   | { type: "read-quit-snapshot"; requestId: string; generation: string }
   | ({ type: "quit-snapshot"; requestId: string; generation: string } & DesktopRuntimeSnapshot)
@@ -30,7 +30,9 @@ export type DesktopHostMessage =
   | { type: "shutdown"; requestId: string; generation: string; reason: "app-quit" | "window-close" | "restart" | "host-failure"; deadlineMs: number }
   | { type: "shutdown-complete"; requestId: string; generation: string; diagnostic?: DesktopSafeDiagnostic }
   | { type: "update-request"; requestId: string; generation: string; identity: WorkbenchUpdateIdentity; action: "prepare" | "stop" | "cancel" }
-  | { type: "update-result"; requestId: string; generation: string; identity: WorkbenchUpdateIdentity; result: "prepared" | "stopped" | "canceled" | "failed"; diagnostic?: DesktopSafeDiagnostic };
+  | { type: "update-result"; requestId: string; generation: string; identity: WorkbenchUpdateIdentity; result: "prepared" | "stopped" | "canceled" | "failed"; diagnostic?: DesktopSafeDiagnostic }
+  | { type: "update-offer"; generation: string; offer: DesktopUpdateOffer | null }
+  | { type: "update-choice"; generation: string; offerId: string; action: DesktopUpdateChoice };
 
 export function isDesktopHostMessage(value: unknown): value is DesktopHostMessage {
   if (!isRecord(value) || typeof value.type !== "string" || typeof value.generation !== "string") return false;
@@ -44,6 +46,8 @@ export function isDesktopHostMessage(value: unknown): value is DesktopHostMessag
         : ["prepared", "stopped", "canceled", "failed"].includes(String(value.result))
           && (value.diagnostic === undefined || isDiagnostic(value.diagnostic));
     }
+    case "update-offer": return value.offer === null || isDesktopUpdateOffer(value.offer);
+    case "update-choice": return isBoundedId(value.offerId) && ["install", "later"].includes(String(value.action));
     case "bootstrap": return value.protocolVersion === DESKTOP_PROTOCOL_VERSION && isNonEmpty(value.sessionToken);
     case "ready": return value.protocolVersion === DESKTOP_PROTOCOL_VERSION && isLoopbackOrigin(value.origin);
     case "startup-failed": return isDiagnostic(value.diagnostic);

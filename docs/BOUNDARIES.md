@@ -581,24 +581,29 @@ Decisions:
 
 ## 6A.1 Beaver Code Electron Desktop Boundary
 
-Windows update transactions use desktop protocol V2. Main owns version checks, downloads,
-signature verification and installer invocation; existing Workbench owners still own
-Draft, Queue, Provider, Terminal and persistence. Renderer only supplies exact save
-acknowledgements and has no installation API.
+Windows update transactions use desktop protocol V3. Main owns version checks, downloads,
+release verification and installer invocation; existing Workbench owners still own Draft, Queue,
+Provider, Terminal and persistence. Renderer can display one bounded update offer and return only
+`later` or `install` for that exact offer. It has no generic IPC or installation API.
 
 Preparation fences new mutations and Queue dispatch while permitting transaction-bound
 draft PUTs. It saves every edited scope, checks revisions again before shutdown, and
 interrupts managed work through existing owners. Failed/unknown receipts, forced exits
 and timeouts never grant installation authority. No Provider request is replayed.
 
-The accepted restart policy is automatic, without a confirmation countdown, only after
-safe preparation succeeds. Third-party programs' unsaved Terminal buffers cannot be
-saved by Beaver Code. Windows session-end cancels installation admission.
+Download completion is non-blocking. Teardown starts only after the user explicitly chooses to
+restart and update, and only after safe preparation succeeds. Ordinary application exit never
+installs a downloaded update. Third-party programs' unsaved Terminal buffers cannot be saved by
+Beaver Code. Windows session-end cancels installation admission.
 
-Internal builds disable network updates; test builds isolate identity/data/trust;
-Stable packages require production signing acceptance. NSIS interruption recovery
-repairs application binaries without deleting data. It is not an atomic installer or
-a promise of bidirectional database compatibility.
+Internal builds disable network updates; test builds isolate identity, data, and trust. Stable
+packages trust only `qinghui316/beaver-code` and require an Ed25519 signature over the raw UTF-8
+manifest before parsing. The signed identity binds stable SemVer, tag, full Commit, Windows x64,
+and installer/blockmap names, sizes, and SHA-512 values. The cached installer and exact tagged
+Release are revalidated immediately before teardown. Authenticode remains an additional future
+gate rather than a substitute for channel signing. NSIS interruption recovery repairs application
+binaries without deleting data. It is not an atomic installer or a promise of bidirectional
+database compatibility.
 
 Beaver Code uses Electron as its single desktop host direction. The existing
 Node/TypeScript Core remains the owner of Workbench, Provider, SQLite, Terminal,

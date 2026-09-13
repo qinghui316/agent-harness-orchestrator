@@ -52,6 +52,7 @@ let updateTimer: ReturnType<typeof setInterval> | null = null;
 let ordinaryExitRequested = false;
 let systemSessionEnding = false;
 let updatesPausedForRecovery = false;
+let activeUpdateOfferId: string | null = null;
 
 let window: BrowserWindow | null = null;
 let utility: UtilityProcess | null = null;
@@ -253,6 +254,11 @@ async function receiveUtilityMessage(source: UtilityProcess, message: unknown): 
     } satisfies DesktopHostMessage);
     return;
   }
+  if (message.type === "update-choice" && message.offerId === activeUpdateOfferId) {
+    if (message.action === "install") void updateCoordinator?.installReady();
+    else void updateCoordinator?.dismissReady();
+    return;
+  }
   if (message.type === "quit-snapshot") {
     pendingSnapshot.get(message.requestId)?.(message.state);
     pendingSnapshot.delete(message.requestId);
@@ -356,8 +362,8 @@ function buildMenu(): Menu {
     { label: "视图", submenu: [{ role: "reload", enabled: !updateRuntimeActive }, { role: "resetZoom" }, { role: "zoomIn" }, { role: "zoomOut" }, { type: "separator" }, { role: "togglefullscreen" }, ...(!app.isPackaged ? [{ role: "toggleDevTools" as const }] : [])] },
     { label: "帮助", submenu: [
       { label: `${productName} ${buildInfo.version} · ${buildInfo.commit.slice(0, 8)}`, enabled: false },
-      { label: updateMenuLabel(), enabled: Boolean(updateCoordinator && !updatesPausedForRecovery && ["idle", "failed"].includes(updateState)),
-        click: () => { if (ready) void updateCoordinator?.check(true); } },
+      { label: updateMenuLabel(), enabled: Boolean(updateCoordinator && !updatesPausedForRecovery && ["idle", "failed", "ready-to-install"].includes(updateState)),
+        click: () => { if (!ready) return; if (updateState === "ready-to-install") void updateCoordinator?.installReady(); else void updateCoordinator?.check(true); } },
       { label: "打开诊断目录", click: () => void shell.openPath(desktopDir) },
     ] },
   ];
@@ -369,16 +375,35 @@ function updateMenuLabel(): string {
   if (!updateCoordinator) return "当前构建未启用自动更新";
   const labels: Record<DesktopUpdateState, string> = {
     idle: "检查更新", checking: "正在检查更新…", downloading: "正在下载更新…",
-    preparing: "正在保存…", stopping: "正在准备重启…", installing: "正在安装更新…", failed: "重试检查更新",
+    "ready-to-install": "重新启动并更新", preparing: "正在保存…", stopping: "正在准备重启…", installing: "正在安装更新…", failed: "重试检查更新",
   };
   return labels[updateState];
 }
 
 async function onUpdateState(state: DesktopUpdateState): Promise<void> {
   updateState = state;
+  if (state === "ready-to-install") {
+    const offer = updateCoordinator?.offer();
+    if (offer?.releaseUrl) {
+      activeUpdateOfferId = randomUUID();
+      utility?.postMessage({ type: "update-offer", generation: generation!, offer: {
+        offerId: activeUpdateOfferId, version: offer.version, releaseUrl: offer.releaseUrl,
+      } } satisfies DesktopHostMessage);
+    }
+  } else if (activeUpdateOfferId) {
+    activeUpdateOfferId = null;
+    utility?.postMessage({ type: "update-offer", generation: generation!, offer: null } satisfies DesktopHostMessage);
+  }
   if (state === "preparing") updateRuntimeActive = true;
   if (state === "stopping") ready = false;
   await log("update", state);
+  if (state === "ready-to-install" && buildInfo.channel === "test"
+    && process.env.BEAVER_UPDATE_ACCEPTANCE === "1"
+    && process.env.BEAVER_TEST_AUTO_ACCEPT_UPDATE === "1") {
+    // The disposable Windows acceptance runner exercises the exact same explicit
+    // install entry point after component tests have proven the visible prompt.
+    setTimeout(() => void updateCoordinator?.installReady(), 0).unref();
+  }
   if (state === "failed") {
     if (ordinaryExitRequested || systemSessionEnding) return;
     quitting = false;

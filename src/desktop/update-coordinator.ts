@@ -6,6 +6,8 @@ import { isNewerStableVersion } from "./update-policy.js";
 export interface DesktopUpdateArtifact {
   readonly version: string;
   readonly sha512: string;
+  readonly releaseUrl?: string;
+  readonly manifestSha256?: string;
 }
 
 export interface DesktopUpdateDownloadPort {
@@ -24,7 +26,7 @@ export interface DesktopUpdateHostPort {
   authorizeInstallerExit(identity: WorkbenchUpdateIdentity): void;
 }
 
-export type DesktopUpdateState = "idle" | "checking" | "downloading" | "preparing" | "stopping" | "installing" | "failed";
+export type DesktopUpdateState = "idle" | "checking" | "downloading" | "ready-to-install" | "preparing" | "stopping" | "installing" | "failed";
 
 /** One transaction owns the entire update; library download events never authorize installation. */
 export class DesktopUpdateCoordinator {
@@ -35,6 +37,7 @@ export class DesktopUpdateCoordinator {
   private failedVersion: string | null = null;
   private failureStage: DesktopUpdateState | null = null;
   private recoveryRequired = false;
+  private readyArtifact: DesktopUpdateArtifact | null = null;
 
   constructor(
     private readonly installedVersion: string,
@@ -47,17 +50,38 @@ export class DesktopUpdateCoordinator {
   diagnostic(): { stage: DesktopUpdateState | null; recoveryRequired: boolean } {
     return { stage: this.failureStage, recoveryRequired: this.recoveryRequired };
   }
+  offer(): DesktopUpdateArtifact | null { return this.readyArtifact ? Object.freeze({ ...this.readyArtifact }) : null; }
 
   check(manual = false): Promise<void> {
     if (this.pending) return this.pending;
     if (this.ending || this.state === "installing") return Promise.resolve();
+    if (this.state === "ready-to-install") return Promise.resolve();
     const controller = new AbortController();
     this.controller = controller;
-    this.pending = this.run(manual, controller).finally(() => {
+    this.pending = this.runCheck(manual, controller).finally(() => {
       this.pending = null;
       if (this.controller === controller) this.controller = null;
     });
     return this.pending;
+  }
+
+  installReady(): Promise<void> {
+    if (this.pending) return this.pending;
+    if (this.ending || this.state !== "ready-to-install" || !this.readyArtifact) return Promise.resolve();
+    const controller = new AbortController();
+    const artifact = this.readyArtifact;
+    this.controller = controller;
+    this.pending = this.runInstall(artifact, controller).finally(() => {
+      this.pending = null;
+      if (this.controller === controller) this.controller = null;
+    });
+    return this.pending;
+  }
+
+  async dismissReady(): Promise<void> {
+    if (this.pending || this.state !== "ready-to-install") return;
+    this.readyArtifact = null;
+    await this.setState("idle");
   }
 
   endSession(): void {
@@ -65,11 +89,10 @@ export class DesktopUpdateCoordinator {
     this.controller?.abort();
   }
 
-  private async run(manual: boolean, controller: AbortController): Promise<void> {
+  private async runCheck(manual: boolean, controller: AbortController): Promise<void> {
     this.failureStage = null;
     this.recoveryRequired = false;
-    let identity: WorkbenchUpdateIdentity | null = null;
-    let teardownStarted = false;
+    this.readyArtifact = null;
     try {
       await this.setState("checking");
       const offered = await this.downloads.check();
@@ -84,6 +107,22 @@ export class DesktopUpdateCoordinator {
       await this.setState("downloading");
       await this.downloads.download(artifact, controller.signal);
       this.assertSession(controller);
+      await this.downloads.revalidate(artifact);
+      this.assertSession(controller);
+      this.readyArtifact = artifact;
+      await this.setState("ready-to-install");
+    } catch {
+      this.failureStage = this.state;
+      try { await this.setState("failed"); } catch { /* state remains failed if its observer is unavailable */ }
+    }
+  }
+
+  private async runInstall(artifact: DesktopUpdateArtifact, controller: AbortController): Promise<void> {
+    let identity: WorkbenchUpdateIdentity | null = null;
+    let teardownStarted = false;
+    this.failureStage = null;
+    this.recoveryRequired = false;
+    try {
       await this.downloads.revalidate(artifact);
       this.assertSession(controller);
       const generation = this.host.generation();
@@ -101,6 +140,7 @@ export class DesktopUpdateCoordinator {
       this.assertCurrent(identity, stopped, "stopped", controller);
       await this.setState("installing");
       await this.downloads.install();
+      this.readyArtifact = null;
       this.host.authorizeInstallerExit(identity);
     } catch {
       this.failureStage = this.state;
@@ -111,6 +151,7 @@ export class DesktopUpdateCoordinator {
           try { await this.host.cancel(identity); } catch { this.recoveryRequired = true; }
         }
       }
+      if (!teardownStarted) this.readyArtifact = null;
       try { await this.setState("failed"); } catch { /* state remains failed if its observer is unavailable */ }
     }
   }

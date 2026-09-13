@@ -37,7 +37,7 @@ beforeEach(() => {
 });
 async function fixture(): Promise<FixtureNsis> {
   await createNsisUpdateAdapter({
-    mode: "stable", owner: "qinghui316", repo: "agent-harness-orchestrator", publisherSubject: "CN=Fixture",
+    mode: "test", feedUrl: "https://beaver-update.test/", publisherSubject: "CN=Fixture",
   });
   return state.instance as FixtureNsis;
 }

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DesktopUpdateBoundary } from "../../src/web/src/shell/DesktopUpdateBoundary.js";
 import { rendererUpdateParticipants } from "../../src/web/src/controllers/RendererUpdateParticipants.js";
@@ -29,6 +29,20 @@ async function send(action: "prepare" | "confirm" | "cancel") {
   });
 }
 describe("desktop update save boundary", () => {
+  it("offers a downloaded update without freezing the Workbench and lets the user postpone it", async () => {
+    const { container } = render(<DesktopUpdateBoundary><input aria-label="草稿" /></DesktopUpdateBoundary>);
+    await waitFor(() => expect(FakeEvents.current).not.toBeNull());
+    act(() => FakeEvents.current!.dispatchEvent(new MessageEvent("offer", { data: JSON.stringify({
+      offerId: "offer", version: "0.1.3", releaseUrl: "https://github.com/qinghui316/beaver-code/releases/tag/v0.1.3",
+    }) })));
+    expect(container.firstElementChild?.hasAttribute("inert")).toBe(false);
+    expect(screen.getByText("Beaver Code 0.1.3 已准备好")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "稍后" }));
+    await waitFor(() => expect(screen.queryByText("Beaver Code 0.1.3 已准备好")).toBeNull());
+    expect(vi.mocked(fetch).mock.calls.some(([url, init]) => url === "/api/desktop/update/choice"
+      && String(init?.body).includes('"action":"later"'))).toBe(true);
+  });
+
   it("freezes the surface until save acknowledgement and restores it on cancel", async () => {
     unregister = rendererUpdateParticipants.register(async () => () => true);
     const { container } = render(<DesktopUpdateBoundary><input aria-label="草稿" defaultValue="待保存内容" /></DesktopUpdateBoundary>);

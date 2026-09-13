@@ -4,7 +4,7 @@ import { DesktopUpdateCoordinator, type DesktopUpdateDownloadPort, type DesktopU
 import { isNewerStableVersion, parseDesktopUpdatePolicy } from "../../src/desktop/update-policy.js";
 import { validateDesktopSignatureEvidence } from "../../src/desktop/update-signature.js";
 
-const artifact = { version: "0.1.3", sha512: Buffer.alloc(64, 2).toString("base64") };
+const artifact = { version: "0.1.3", sha512: Buffer.alloc(64, 2).toString("base64"), releaseUrl: "https://github.com/qinghui316/beaver-code/releases/tag/v0.1.3" };
 function fixture() {
   const downloads: DesktopUpdateDownloadPort = {
     check: vi.fn(async () => artifact), download: vi.fn(async () => {}),
@@ -27,9 +27,9 @@ describe("desktop update policy", () => {
   it.each(["0.1.3", "0.2.0", "1.0.0"])("accepts newer stable %s", (version) => {
     expect(isNewerStableVersion(version, "0.1.2")).toBe(true);
   });
-  it("requires a publisher and fixed production repo", () => {
+  it("requires trusted Ed25519 keys and the fixed production repo", () => {
     expect(() => parseDesktopUpdatePolicy({ mode: "stable" })).toThrow();
-    expect(() => parseDesktopUpdatePolicy({ mode: "stable", owner: "other", repo: "other", publisherSubject: "CN=Test" })).toThrow();
+    expect(() => parseDesktopUpdatePolicy({ mode: "stable", owner: "other", repo: "other", trustedKeys: [] })).toThrow();
     expect(parseDesktopUpdatePolicy({ mode: "disabled" })).toEqual({ mode: "disabled" });
   });
   it("does not allow HTTP, credentials or GitHub as a test feed", () => {
@@ -65,13 +65,16 @@ describe("desktop update coordinator", () => {
     expect(source).toContain("Microsoft.PowerShell.Security.psd1");
     expect(source).toContain("Import-Module -Name $env:BEAVER_UPDATE_VERIFY_MODULE -Force");
   });
-  it("installs once only after both exact receipts and final artifact verification", async () => {
+  it("downloads first and installs once only after explicit intent and exact receipts", async () => {
     const { owner, host, downloads, onState } = fixture();
     const first = owner.check();
     expect(owner.check()).toBe(first);
     await first;
-    expect(onState.mock.calls.flat()).toEqual(["checking", "downloading", "preparing", "stopping", "installing"]);
-    expect(downloads.revalidate).toHaveBeenCalledTimes(2);
+    expect(onState.mock.calls.flat()).toEqual(["checking", "downloading", "ready-to-install"]);
+    expect(downloads.revalidate).toHaveBeenCalledTimes(1);
+    expect(downloads.install).not.toHaveBeenCalled();
+    await owner.installReady();
+    expect(downloads.revalidate).toHaveBeenCalledTimes(3);
     expect(host.authorizeInstallerExit).toHaveBeenCalledTimes(1);
     expect(downloads.install).toHaveBeenCalledTimes(1);
     await owner.check(true);
@@ -83,7 +86,8 @@ describe("desktop update coordinator", () => {
     const installingPersisted = new Promise<void>((resolve) => { releaseInstalling = resolve; });
     const onState = vi.fn((state: string) => state === "installing" ? installingPersisted : undefined);
     const owner = new DesktopUpdateCoordinator("0.1.2", downloads, host, onState);
-    const check = owner.check();
+    await owner.check();
+    const check = owner.installReady();
     await vi.waitFor(() => expect(onState).toHaveBeenCalledWith("installing"));
     expect(downloads.install).not.toHaveBeenCalled();
     releaseInstalling();
@@ -96,6 +100,7 @@ describe("desktop update coordinator", () => {
       if (state === "installing") throw new Error("log unavailable");
     });
     await owner.check();
+    await owner.installReady();
     expect(owner.read()).toBe("failed");
     expect(owner.diagnostic()).toEqual({ stage: "installing", recoveryRequired: true });
     expect(downloads.install).not.toHaveBeenCalled();
@@ -113,18 +118,21 @@ describe("desktop update coordinator", () => {
     const { owner, host, downloads } = fixture();
     vi.mocked(host.prepare).mockRejectedValue(new Error("save"));
     await owner.check();
+    await owner.installReady();
     await owner.check();
     expect(host.prepare).toHaveBeenCalledTimes(1);
     expect(host.cancel).toHaveBeenCalledTimes(1);
     expect(host.stop).not.toHaveBeenCalled();
     expect(downloads.install).not.toHaveBeenCalled();
     await owner.check(true);
+    await owner.installReady();
     expect(host.prepare).toHaveBeenCalledTimes(2);
   });
   it("does not mistake a wrong shutdown receipt for success", async () => {
     const { owner, host, downloads } = fixture();
     vi.mocked(host.stop).mockImplementation(async (identity) => ({ identity: { ...identity, updateId: "stale" }, status: "stopped" }));
     await owner.check();
+    await owner.installReady();
     expect(downloads.install).not.toHaveBeenCalled();
     expect(host.authorizeInstallerExit).not.toHaveBeenCalled();
     expect(host.cancel).not.toHaveBeenCalled();
@@ -136,6 +144,7 @@ describe("desktop update coordinator", () => {
       return { identity, status: "stopped" };
     });
     await owner.check();
+    await owner.installReady();
     expect(downloads.install).not.toHaveBeenCalled();
   });
   it("does not install when the session ends during preparation", async () => {
@@ -145,6 +154,7 @@ describe("desktop update coordinator", () => {
       return { identity, status: "prepared" };
     });
     await owner.check();
+    await owner.installReady();
     expect(host.cancel).toHaveBeenCalled();
     expect(downloads.install).not.toHaveBeenCalled();
   });
@@ -152,6 +162,7 @@ describe("desktop update coordinator", () => {
     const { owner, downloads } = fixture();
     vi.mocked(downloads.revalidate).mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("tampered"));
     await owner.check();
+    await owner.installReady();
     expect(downloads.install).not.toHaveBeenCalled();
   });
   it("does not authorize app quit when installer launch fails asynchronously", async () => {
@@ -161,6 +172,7 @@ describe("desktop update coordinator", () => {
       throw new Error("spawn failed");
     });
     await owner.check();
+    await owner.installReady();
     expect(owner.read()).toBe("failed");
     expect(owner.diagnostic()).toEqual({ stage: "installing", recoveryRequired: true });
     expect(host.authorizeInstallerExit).not.toHaveBeenCalled();

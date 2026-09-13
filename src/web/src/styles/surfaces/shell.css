@@ -31,6 +31,59 @@
   outline-offset: 2px;
 }
 
+.desktop-update-offer {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 120;
+  display: flex;
+  max-width: min(620px, calc(100vw - 48px));
+  align-items: center;
+  gap: 20px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-lg);
+}
+
+.desktop-update-offer > div:first-child {
+  display: grid;
+  min-width: 180px;
+  gap: 3px;
+}
+
+.desktop-update-offer span {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.desktop-update-offer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.desktop-update-offer-actions a,
+.desktop-update-offer-actions button {
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .desktop-update-offer {
+    right: 12px;
+    bottom: 12px;
+    left: 12px;
+    max-width: none;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .desktop-update-offer-actions {
+    flex-wrap: wrap;
+  }
+}
+
 .app-shell {
   display: grid;
   grid-template-columns: var(--left-sidebar-width, 280px) minmax(0, 1fr);
